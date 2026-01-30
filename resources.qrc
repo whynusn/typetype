@@ -1,0 +1,10 @@
+<!DOCTYPE RCC>
+<RCC>
+    <qresource>
+        <file>resources/fonts/HarmonyOS_Sans_SC_Regular.ttf</file>
+        <file>resources/fonts/LXGWWenKai-Regular.ttf</file>
+    </qresource>
+    <qresource>
+        <file>resources/images/TypeTypeLogo.png</file>
+    </qresource>
+</RCC>
