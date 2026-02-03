@@ -49,7 +49,7 @@ uv run python main.py
 使用 uv 安装打包所需工具：
 
 ```bash
-uv pip install uv nuitka
+uv pip install pip nuitka
 ```
 
 ### 打包步骤
