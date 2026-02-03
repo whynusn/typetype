@@ -85,20 +85,6 @@ typetype/
 - 所有导入放在文件顶部
 - 类从 `QObject` 继承以实现 Qt 集成
 
-### 测试
-
-```bash
-uv run pytest              # 运行所有测试
-uv run pytest -v           # 详细输出
-uv run pytest -k test_name # 运行特定测试
-```
-
-### 代码检查
-
-```bash
-uv run pytest -v
-```
-
 ## 许可证
 
 MIT License
