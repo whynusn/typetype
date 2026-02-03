@@ -9,7 +9,7 @@ dependencies = [
     "evdev>=1.9.2",
     "httpx>=0.28.1",
     "pycryptodome>=3.23.0",
-    "pyside6>=6.10.1",
+    "pyside6>=6.10.2",
     "qasync>=0.28.0",
 ]
 
@@ -24,3 +24,7 @@ files = [
     # "window.py",
     # "model.py",
 ]
+
+[[tool.uv.index]]
+name = "tencent"
+url = "https://mirrors.cloud.tencent.com/pypi/simple/"

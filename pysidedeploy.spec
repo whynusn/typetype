@@ -12,7 +12,7 @@ project_file = pyproject.toml
 # 必填，否则报错 attributeerror
 # 根据你的代码，你用到了 httpx，crypto (pycryptodome)
 packages = PySide6,httpx,pycryptodome
-python_path = /home/wangyu/work/typetype/.venv/bin/python
+python_path = /home/wangyu/work/typetype/.venv/bin/python3
 
 [qt]
 
