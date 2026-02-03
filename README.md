@@ -69,6 +69,12 @@ pyside6-deploy -c pysidedeploy.spec --extra-ignore-dirs .venv
 
 打包完成后，可执行文件将在 `dist/` 目录中。
 
+## 预览
+
+![应用预览](resources/images/swappy-20260203-235018.png)
+
+![应用截图](resources/images/swappy-20260203-235205.png)
+
 ## 项目结构
 
 ```
