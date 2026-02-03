@@ -16,8 +16,9 @@
 ## 系统要求
 
 - Python 3.12 或更高版本
-- Linux 操作系统
-- X11 或 Wayland 显示服务器
+- Linux 或 Windows 操作系统
+- Linux 系统：X11 或 Wayland 显示服务器
+- Windows 系统：无需额外配置
 
 ## 安装
 
@@ -95,7 +96,7 @@ typetype/
 
 ## 主要依赖
 
-- `PySide6>=6.10.1` - Qt 应用框架
+- `PySide6>=6.10.2` - Qt 应用框架
 - `qasync>=0.28.0` - Qt 事件循环集成
 - `evdev>=1.9.2` - Linux 设备事件处理
 - `httpx>=0.28.1` - HTTP 客户端
