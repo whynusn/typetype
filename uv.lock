@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 
 [[package]]
 name = "anyio"
@@ -202,3 +202,5 @@ requires-dist = [
     { name = "pyside6", specifier = ">=6.10.1" },
     { name = "qasync", specifier = ">=0.28.0" },
 ]
+
+
