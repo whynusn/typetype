@@ -15,7 +15,7 @@
 
 ## 系统要求
 
-- Python 3.13 或更高版本
+- Python 3.12 或更高版本
 - Linux 操作系统
 - X11 或 Wayland 显示服务器
 
