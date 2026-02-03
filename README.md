@@ -42,6 +42,32 @@ uv sync
 uv run python main.py
 ```
 
+## 打包
+
+### 前置依赖
+
+使用 uv 安装打包所需工具：
+
+```bash
+uv pip install uv nuitka
+```
+
+### 打包步骤
+
+1. 安装项目依赖：
+
+```bash
+uv sync
+```
+
+2. 使用 pyside6-deploy 打包：
+
+```bash
+pyside6-deploy -c pysidedeploy.spec --extra-ignore-dirs .venv
+```
+
+打包完成后，可执行文件将在 `dist/` 目录中。
+
 ## 项目结构
 
 ```
