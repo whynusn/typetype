@@ -3,7 +3,7 @@
 ## 构建、代码检查和测试命令
 
 ### 开发环境
-- Python 3.13+（在 `.python-version` 中指定）
+- Python 3.12+（在 `.python-version` 中指定）
 - 使用 `uv` 作为包管理器（版本 0.9.26+）
 - 虚拟环境：`.venv/`
 
@@ -41,7 +41,7 @@ from PySide6.QtCore import QObject, Signal
 ```
 
 **命名规范**
-- 类名：PascalCase（如 `Backend`、`SystemIdentyfier`）
+- 类名：PascalCase（如 `Backend`、`SystemIdentifier`）
 - 函数和变量：snake_case（如 `get_system_info`、`_handle_events`）
 - 私有方法：用 `_` 前缀（如 `_calculate_speed`）
 - 信号：PascalCase，以 `Changed` 结尾（如 `typeSpeedChanged`）
@@ -116,11 +116,11 @@ typetype/
 ├── .python-version           # Python 版本要求
 ├── src/
 │   ├── backend/
-│   │   ├── Backend.py         # 主要后端逻辑
-│   │   ├── Crypt.py           # 加密工具
-│   │   ├── GetSaiWen.py       # 网络请求处理
-│   │   ├── GlobalKeyListener.py  # Linux 键盘监听器
-│   │   ├── SystemIdentyfier.py   # 操作系统和显示服务器检测
+│   │   ├── backend.py         # 主要后端逻辑
+│   │   ├── crypt.py           # 加密工具
+│   │   ├── get_sai_wen.py     # 网络请求处理
+│   │   ├── global_key_listener.py  # Linux 键盘监听器
+│   │   ├── system_identifier.py   # 操作系统和显示服务器检测
 │   │   └── text_properties.py    # 文本处理和打字指标
 │   └── qml/                   # QML UI 文件
 │       ├── Main.qml

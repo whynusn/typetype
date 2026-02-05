@@ -85,11 +85,11 @@ typetype/
 ├── .venv/                     # 虚拟环境
 ├── src/
 │   ├── backend/
-│   │   ├── Backend.py         # 主要后端逻辑
-│   │   ├── Crypt.py           # 加密工具
-│   │   ├── GetSaiWen.py       # 网络请求处理
-│   │   ├── GlobalKeyListener.py  # Linux 键盘监听器
-│   │   ├── SystemIdentyfier.py   # 操作系统和显示服务器检测
+│   │   ├── backend.py         # 主要后端逻辑
+│   │   ├── crypt.py           # 加密工具
+│   │   ├── get_sai_wen.py     # 网络请求处理
+│   │   ├── global_key_listener.py  # Linux 键盘监听器
+│   │   ├── system_identifier.py   # 操作系统和显示服务器检测
 │   │   └── text_properties.py    # 文本处理和打字指标
 │   └── qml/                   # QML UI 文件
 │       ├── Main.qml
