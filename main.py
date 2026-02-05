@@ -6,17 +6,17 @@ from PySide6.QtQml import QQmlApplicationEngine
 
 import rc_resources
 from src.backend import text_properties  # 在此导入才能在qml中使用
-from src.backend.Backend import Backend
-from src.backend.GlobalKeyListener import GlobalKeyListener
-from src.backend.SystemIdentyfier import SystemIdentyfier
+from src.backend.backend import Backend
+from src.backend.global_key_listener import GlobalKeyListener
+from src.backend.system_identifier import SystemIdentifier
 
 
 def main():
     app = QGuiApplication(sys.argv)
     engine = QQmlApplicationEngine()
 
-    system_identyfier = SystemIdentyfier()
-    os_type, display_server = system_identyfier.get_system_info()
+    system_identifier = SystemIdentifier()
+    os_type, display_server = system_identifier.get_system_info()
     print("系统:", os_type, "平台:", display_server)
 
     # 监听器
