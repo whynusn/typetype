@@ -5,7 +5,7 @@ from PySide6.QtGui import QColor, QGuiApplication, QTextCharFormat, QTextCursor
 from PySide6.QtQml import QmlElement
 from PySide6.QtQuick import QQuickTextDocument
 
-from . import GetSaiWen
+from . import get_sai_wen
 
 # To be used on the @QmlElement decorator
 # (QML_IMPORT_MINOR_VERSION is optional)
@@ -318,7 +318,7 @@ class Bridge(QObject):
     def handleLoadTextRequest(self):
         """处理从网络载文的请求"""
         try:
-            newText = GetSaiWen.get_sai_wen(
+            newText = get_sai_wen.get_sai_wen(
                 "https://www.jsxiaoshi.com/index.php/Api/Text/getContent"
             )
         except Exception as e:
