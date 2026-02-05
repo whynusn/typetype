@@ -52,43 +52,17 @@ Pane {
             }
 
             function setCursorAndScroll(cursorPos) {
-                // 计算总行数
-                var totalLines = textArea.lineCount;
+                textArea.cursorPosition = cursorPos;
 
-                // 获取光标位置的矩形
+                // 获取光标所在行的矩形信息
                 var rect = textArea.positionToRectangle(cursorPos);
-                if (!rect) {
-                    return;
-                }
+                if (!rect) return;
 
-                // 计算行高
-                var lineHeight = textArea.contentHeight / totalLines;
-
-                // 计算文本底部高度(注意 `textArea` 与 `scrollView` 之间有间隙, 通过取余拿到)
-                var sep = rect.y % lineHeight;
-                var textBottomHeight = sep * 2 + textArea.contentHeight;
-
-                // 计算光标所在行的起始位置
-                var currentLineY = rect.y;
-                var targetLineY = currentLineY + lineHeight;
-
-                // 底部提前可见行数
-                var bottomVisibleLines = 1;
-
-                // 如果是最后 `bottomVisibleLines` 行，直接看到底部即可
-                var targetY = Math.min(targetLineY + bottomVisibleLines * lineHeight + sep, textBottomHeight);
-
-                // 计算滚动位置：视口左上角的Y坐标
-                var scrollY = targetY - scrollView.contentItem.height;
-
-                // 确保滚动位置在有效范围内
-                scrollY = Math.max(0, scrollY);
+                // 目标：光标所在行顶部 - 1 行边距，位于视口顶部
+                var targetY = Math.max(rect.y - rect.height, 0);
 
                 // 设置滚动位置（通过 ScrollView 的 contentItem）
-                scrollView.contentItem.contentY = scrollY;
-
-            // 光标位置设置为滚动后的当前位置
-            //textArea.cursorPosition = cursorPos;
+                scrollView.contentItem.contentY = targetY;
             }
 
             onTextChanged: {
