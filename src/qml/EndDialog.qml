@@ -12,7 +12,7 @@ Dialog {
     height: 150
 
     AppText {
-        text: "本次跟打结束，是否分享成绩？"
+        text: "本次跟打结束，是否分享成绩（暂未实现）"
         fontSize: root.fontSize
         fontFamily: root.fontFamily
     }
