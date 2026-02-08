@@ -63,6 +63,11 @@ ApplicationWindow {
             //console.log("History record updated:", newRecord.date);
             historyArea.tableModel.appendRow(newRecord);
         }
+
+        function onTypingEnded() {
+            console.log("Typing ended");
+            endDialog.open();
+        }
     }
 
     // 用 Connections 把 backend 的信号连接到 bridge 的方法
@@ -210,5 +215,14 @@ ApplicationWindow {
                 Layout.minimumHeight: fontMetricsUI.height * 2 // 保证最少能显示2行
             }
         }
+    }
+
+    EndDialog {
+        id: endDialog
+        x: (parent.width - width) / 2
+        y: (parent.height - height) / 2
+        fontSize: fontMetricsUI.sharedFontSize
+        fontFamily: fontMetricsUI.font.family
+        bridge: bridge
     }
 }

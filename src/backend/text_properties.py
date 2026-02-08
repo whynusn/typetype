@@ -24,6 +24,7 @@ class Bridge(QObject):
     totalTimeChanged = Signal()
     readOnlyChanged = Signal()
     historyRecordUpdated = Signal(dict)
+    typingEnded = Signal()
 
     def __init__(self):
         super().__init__()
@@ -208,6 +209,7 @@ class Bridge(QObject):
         # 检查是否打完
         if self._current_chars >= self._total_chars and self._start_status:
             self._stop()
+            self.typingEnded.emit()
             self.historyRecordUpdated.emit(self._get_new_record())  # 更新历史记录
 
     def _update_total_char_num(self, totalNum):
