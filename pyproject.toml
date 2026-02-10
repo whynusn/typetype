@@ -20,6 +20,7 @@ files = [
     "src/backend/crypt.py",
     "src/backend/get_sai_wen.py",
     "src/backend/text_properties.py",
+    "src/backend/score_data.py",
     # 如果还有其他 Python 源文件，可以继续往上加，比如：
     # "window.py",
     # "model.py",
