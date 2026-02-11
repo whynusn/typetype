@@ -112,29 +112,30 @@ typetype/
 ├── main.py                    # 应用入口点
 ├── pyproject.toml             # 项目配置和依赖
 ├── uv.lock                    # 锁定的依赖
-├── .venv/                     # 虚拟环境
-├── .python-version           # Python 版本要求
 ├── src/
 │   ├── backend/
 │   │   ├── backend.py         # 主要后端逻辑
 │   │   ├── crypt.py           # 加密工具
 │   │   ├── get_sai_wen.py     # 网络请求处理
 │   │   ├── global_key_listener.py  # Linux 键盘监听器
-│   │   ├── system_identifier.py   # 操作系统和显示服务器检测
-│   │   └── text_properties.py    # 文本处理和打字指标
+│   │   ├── system_identifier.py   # 操作系统检测
+│   │   ├── score_data.py      # 成绩数据管理
+│   │   └── text_properties.py    # 文本处理
 │   └── qml/                   # QML UI 文件
 │       ├── Main.qml
 │       ├── UpperPane.qml
 │       ├── LowerPane.qml
+│       ├── EndDialog.qml      # 打字结束对话框
 │       └── ...
 ```
 
 ## 特殊注意事项
 
-### 平台检测
+### 平台检测和权限
 - 检查 Linux 特定功能（GlobalKeyListener）
 - 检测显示服务器（Wayland vs X11）
 - 为不支持的平台提供优雅的降级处理
+- **Wayland 环境**：需要将用户加入 input 组或使用 sudo 运行
 
 ### QML 集成
 - 后端通过 `setContextProperty` 暴露为 QML 的单例
@@ -145,6 +146,7 @@ typetype/
 - 所有依赖列在 `pyproject.toml` 的 `[project.dependencies]` 下
 - 使用 `uv sync` 安装/更新依赖
 - 锁定文件 `uv.lock` 确保可重现构建
+- **注意**: `evdev` 依赖在 Linux 系统上需要 root 权限或 input 组权限
 
 ### 测试策略
 - 为业务逻辑编写测试（不是 UI 组件）

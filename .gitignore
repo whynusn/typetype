@@ -7,7 +7,10 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
+.venv/
+
+# Claude Code settings
+.claude/settings.local.json
 
 typetype.dist/
 rc_resources.py

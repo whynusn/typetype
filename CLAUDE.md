@@ -51,7 +51,8 @@ pyside6-deploy -c pysidedeploy.spec --extra-ignore-dirs .venv
 - `get_sai_wen.py`: 使用 httpx 发送网络请求获取打字练习内容
 - `crypt.py`: 加密工具，处理敏感数据
 - `global_key_listener.py`: Linux 全局键盘监听器，使用 evdev 处理设备事件
-- `system_identifier.py`: 检测操作系统和显示服务器类型
+- `system_identifier.py`: 检测操作系统类型
+- `score_data.py`: 成绩数据管理和统计
 
 **前端（src/qml/）**
 - `Main.qml`: 应用主界面容器
@@ -92,6 +93,13 @@ Backend (计算指标) → 信号 → QML (UI更新)
 加密处理 → Crypt → Backend (数据安全)
 ```
 
+## 文档维护
+
+### README 更新
+- 当添加新功能时，务必更新 README.md 中的功能特性列表
+- Wayland 权限说明已在文档中，开发时注意测试相关功能
+- 请手动保持文档与代码同步
+
 ## 开发注意事项
 
 ### 代码风格
@@ -105,12 +113,14 @@ Backend (计算指标) → 信号 → QML (UI更新)
 - 定时器作为实例变量存储，正确管理生命周期
 - QML 文件使用 `src.backend` 路径访问 Python 模块
 
-### 平台兼容性
-- 测试时注意 Linux 特定功能（如 evdev 需要 root 权限）
-- Wayland 和 X11 的键盘监听行为可能不同
-- Windows 平台需要降级处理，避免使用 Linux 特有 API
+### 平台兼容性和权限
+- **Wayland 环境**：需要将用户加入 input 组或使用 sudo 运行，否则键盘监听功能不可用
+- **X11 环境**：通常无需额外配置
+- **Windows 平台**：需要降级处理，避免使用 Linux 特有 API（如 evdev）
+- 测试时注意在 Linux 系统上验证权限设置
 
 ### 依赖管理
 - 所有依赖在 `pyproject.toml` 的 `[project.dependencies]` 中声明
 - 使用 `uv sync` 管理，锁定文件 `uv.lock` 确保可重现构建
 - PySide6 项目配置在 `[tool.pyside6-project]` 中指定需要包含的文件
+- **evdev 依赖**：在 Linux 系统上需要系统级权限，建议将用户加入 input 组
