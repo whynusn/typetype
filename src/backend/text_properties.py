@@ -45,6 +45,9 @@ class Bridge(QObject):
         # ScoreData 实例（懒加载）
         self._score_data = None
 
+        # 剪贴板对象
+        self._clipboard = QGuiApplication.clipboard()
+
         """ 预备文字背景颜色 """
         self._no_fmt = QTextCharFormat()
         self._correct_fmt = QTextCharFormat()
@@ -353,7 +356,7 @@ class Bridge(QObject):
 
         try:
             # 获取 Qt 应用程序实例的剪贴板对象
-            clipboard = QGuiApplication.clipboard()
+            clipboard = self._clipboard
             newText = clipboard.text()
 
             # 如果剪贴板是空的，text() 可能会返回空字符串
@@ -393,3 +396,18 @@ class Bridge(QObject):
     def setCursorPos(self, newPos):
         """设置光标位置"""
         self._current_cursor_pos = newPos
+
+    @Slot(result=str)
+    def getScoreMessage(self):
+        """获取分数信息"""
+        if not self._score_data:
+            return "获取分数失败"
+        return self._score_data.get_detailed_summary("html")
+
+    @Slot()
+    def copyScoreMessage(self):
+        """复制分数信息到剪贴板"""
+        if not self._score_data:
+            return
+        clipboard = self._clipboard
+        clipboard.setText(self._score_data.get_detailed_summary("plain"))

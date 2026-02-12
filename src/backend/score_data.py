@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+from typing_extensions import Dict, List, Union
+
 
 @dataclass
 class ScoreData:
@@ -163,33 +165,53 @@ class ScoreData:
             "date": self.date,
         }
 
-    def get_summary(self) -> str:
+    def get_summary_data(self) -> List[Dict[str, Union[str, float]]]:
         """
-        获取成绩摘要
+        核心数据层：返回原子化的结构数据
+        这一步不包含任何 HTML 或格式化字符串，只有纯数据
+        """
+        return [
+            {"label": "速度", "value": self.speed, "unit": "CPM", "format": ".1f"},
+            {
+                "label": "有效速度",
+                "value": self.effectiveSpeed,
+                "unit": "CPM",
+                "format": ".1f",
+            },
+            {
+                "label": "码长",
+                "value": self.codeLength,
+                "unit": "击/字",
+                "format": ".2f",
+            },
+            {
+                "label": "击键",
+                "value": self.keyStroke,
+                "unit": "击/秒",
+                "format": ".1f",
+            },
+            {"label": "准确率", "value": self.accuracy, "unit": "%", "format": ".1f"},
+        ]
 
-        返回:
-            str: 格式化的成绩摘要
+    def get_detailed_summary(self, format_type: str = "plain") -> str:
         """
-        return (
-            f"速度: {self.speed:.1f} WPM | "
-            f"准确率: {self.accuracy:.1f}% | "
-            f"时间: {self.time:.1f}秒"
-        )
+        视图层：负责将数据渲染为字符串
+        """
+        data = self.get_summary_data()
 
-    def get_detailed_summary(self) -> str:
-        """
-        获取详细成绩摘要
+        # 根据数据动态生成格式化字符串
+        mark = ["", "", "\n"]
+        if format_type == "html":
+            mark = ["<b>", "</b>", "<br>"]
 
-        返回:
-            str: 格式化的详细成绩摘要
-        """
-        return (
-            f"速度: {self.speed:.1f} WPM | "
-            f"有效速度: {self.effectiveSpeed:.1f} WPM | "
-            f"准确率: {self.accuracy:.1f}% | "
-            f"码长: {self.codeLength:.2f} | "
-            f"击键: {self.keyStroke:.1f}/秒"
-        )
+        formatted_lines = []
+        for item in data:
+            # 动态格式化数值
+            value_str = f"{item['value']:{item['format']}}"
+            line = f"{item['label']}: {mark[0]}{value_str}{mark[1]} {item['unit']}{mark[2]}"
+            formatted_lines.append(line)
+
+        return "".join(formatted_lines)
 
     def is_better_than(self, other: "ScoreData", metric: str = "speed") -> bool:
         """

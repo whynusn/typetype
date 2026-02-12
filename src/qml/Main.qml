@@ -66,6 +66,7 @@ ApplicationWindow {
 
         function onTypingEnded() {
             console.log("Typing ended");
+            endDialog.scoreMessage = bridge.getScoreMessage();
             endDialog.open();
         }
     }
