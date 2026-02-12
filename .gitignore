@@ -5,13 +5,68 @@ build/
 dist/
 wheels/
 *.egg-info
+*.egg/
+*.manifest
+*.spec
 
 # Virtual environments
 .venv/
+venv/
+env/
+ENV/
 
 # Claude Code settings
-.claude/settings.local.json
+.claude/
 
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs and databases
+*.log
+*.sqlite
+*.sqlite3
+
+# Test and coverage
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
+
+# Project specific
 typetype.dist/
 rc_resources.py
 nuitka-crash-report.xml
+pysidedeploy.spec
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
