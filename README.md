@@ -87,7 +87,38 @@ uv run python main.py
 使用 uv 安装打包所需工具：
 
 ```bash
-uv pip install pip nuitka
+uv pip install pip pyside6
+```
+
+### 资源文件编译
+
+项目使用 `.qrc` 文件管理资源（图标、图片等）。在打包前需要编译资源文件：
+
+```bash
+# 将 resources.qrc 编译为 Python 模块
+pyside6-rcc resources.qrc -o src/resources_rc.py
+```
+
+### 打包配置
+
+项目使用 `pyproject.toml` 中的 `[tool.pyside6-project]` 配置打包参数。首次打包时会自动生成 `pysidedeploy.spec` 文件。
+
+如果需要自定义打包配置，可以编辑 `pysidedeploy.spec`：
+
+```ini
+[app]
+# 应用名称
+app_name = typetype
+# 主入口文件
+main_file = main.py
+
+[python]
+# 排除的目录
+exclude_dirs = .venv
+
+[qt]
+# 额外的 QML 导入路径
+qml_import_paths = src/qml
 ```
 
 ### 打包步骤
@@ -98,7 +129,13 @@ uv pip install pip nuitka
 uv sync
 ```
 
-2. 执行打包：
+2. 编译资源文件（如资源有更新）：
+
+```bash
+pyside6-rcc resources.qrc -o src/resources_rc.py
+```
+
+3. 执行打包：
 
 ```bash
 pyside6-deploy -c pysidedeploy.spec --extra-ignore-dirs .venv
