@@ -121,36 +121,9 @@ class ScoreData:
         """
         return self.speed * (self.accuracy / 100)
 
-    @classmethod
-    def from_text_properties_data(cls, data: dict) -> "ScoreData":
-        """
-        从 text_properties.py 的 _get_new_record 方法返回的字典创建 ScoreData 实例
-
-        参数:
-            data: 包含成绩数据的字典
-
-        返回:
-            ScoreData: 成绩数据结构体实例
-        """
-        # 计算底层指标
-        total_chars = int(data.get("charNum", 0))
-        wrong_chars = int(data.get("wrongNum", 0))
-        key_stroke = int(
-            data.get("keyStroke", 0) * data.get("time", 1)
-        )  # 从频率计算次数
-        time_sec = float(data.get("time", 0))
-
-        return cls(
-            time=time_sec,
-            key_stroke_count=key_stroke,
-            char_count=total_chars,
-            wrong_char_count=wrong_chars,
-            date=str(data.get("date", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))),
-        )
-
     def to_dict_for_qml(self) -> dict:
         """
-        转换为字典格式，用于 QML 传递（保持与原有接口兼容）
+        转换为字典格式，用于 QML 传递（保持与前端接口兼容）
 
         返回:
             dict: 包含成绩数据的字典，格式与原有代码一致
@@ -212,71 +185,3 @@ class ScoreData:
             formatted_lines.append(line)
 
         return "".join(formatted_lines)
-
-    def is_better_than(self, other: "ScoreData", metric: str = "speed") -> bool:
-        """
-        与另一个成绩比较
-
-        参数:
-            other: 另一个成绩数据
-            metric: 比较指标 ('speed', 'accuracy', 'effectiveSpeed', 'efficiency')
-
-        返回:
-            bool: 如果当前成绩更好则返回 True
-        """
-        if metric == "speed":
-            return self.speed > other.speed
-        elif metric == "accuracy":
-            return self.accuracy > other.accuracy
-        elif metric == "effectiveSpeed":
-            return self.effectiveSpeed > other.effectiveSpeed
-        elif metric == "efficiency":
-            # 效率 = 有效速度 / 错误数（错误数为0时返回有效速度）
-            eff_self = (
-                self.effectiveSpeed
-                if self.wrong_char_count == 0
-                else self.effectiveSpeed / (self.wrong_char_count + 1)
-            )
-            eff_other = (
-                other.effectiveSpeed
-                if other.wrong_char_count == 0
-                else other.effectiveSpeed / (other.wrong_char_count + 1)
-            )
-            return eff_self > eff_other
-        else:
-            raise ValueError(f"不支持的比较指标: {metric}")
-
-    @classmethod
-    def get_best_score(
-        cls, scores: list["ScoreData"], metric: str = "speed"
-    ) -> Optional["ScoreData"]:
-        """
-        从成绩列表中获取最佳成绩
-
-        参数:
-            scores: 成绩列表
-            metric: 最佳指标 ('speed', 'accuracy', 'effectiveSpeed', 'efficiency')
-
-        返回:
-            Optional[ScoreData]: 最佳成绩，列表为空时返回 None
-        """
-        if not scores:
-            return None
-
-        if metric == "speed":
-            return max(scores, key=lambda s: s.speed)
-        elif metric == "accuracy":
-            return max(scores, key=lambda s: s.accuracy)
-        elif metric == "effectiveSpeed":
-            return max(scores, key=lambda s: s.effectiveSpeed)
-        elif metric == "efficiency":
-            return max(
-                scores,
-                key=lambda s: (
-                    s.effectiveSpeed
-                    if s.wrong_char_count == 0
-                    else s.effectiveSpeed / (s.wrong_char_count + 1)
-                ),
-            )
-        else:
-            raise ValueError(f"不支持的指标: {metric}")

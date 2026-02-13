@@ -114,7 +114,7 @@ class Bridge(QObject):
     def _clear_key_num(self):
         """清空键数"""
         self._key_num = 0
-        # 更新 ScoreData
+        # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.key_stroke_count = 0
             # char_count 和 wrong_char_count 保持不变，无需更新
@@ -125,7 +125,7 @@ class Bridge(QObject):
     def _accumulate_key_num(self):
         """累积键数"""
         self._key_num += 1
-        # 更新 ScoreData
+        # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.key_stroke_count = self._key_num
             # char_count 和 wrong_char_count 没有变化，无需更新
@@ -136,7 +136,7 @@ class Bridge(QObject):
     def _clear_time(self):
         """清空时间"""
         self._total_time = 0.0
-        # 更新 ScoreData
+        # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.time = 0.0
         # 重新触发 QML 属性更新
@@ -147,7 +147,7 @@ class Bridge(QObject):
     def _accumulate_time(self):
         """累积时间"""
         self._total_time += 0.1
-        # 更新 ScoreData
+        # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.time = self._total_time
         # 重新触发 QML 属性更新
@@ -179,15 +179,10 @@ class Bridge(QObject):
         """获取新的记录"""
         # 更新当前 score_data 的日期为当前时间
         if self._score_data is None:
-            self._score_data = ScoreData(
-                time=self._total_time,
-                key_stroke_count=self._key_num,
-                char_count=self._current_chars,
-                wrong_char_count=self._wrong_chars,
-                date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            )
+            # 若无对象，则新建
+            self._score_data = self._get_score_data()
         else:
-            # 使用已有对象，只更新日期
+            # 若已有对象，只更新日期
             self._score_data.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # 返回字典格式，与 QML 兼容
         return self._score_data.to_dict_for_qml()
@@ -221,7 +216,7 @@ class Bridge(QObject):
         # 更新错误字数
         self._update_wrong_num(committedString, beginPos)
 
-        # 更新 ScoreData
+        # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.char_count = self._current_chars
             self._score_data.wrong_char_count = self._wrong_chars
