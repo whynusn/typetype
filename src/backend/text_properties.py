@@ -41,41 +41,21 @@ class Bridge(QObject):
         self._rich_doc = None  # QTextDocument 富文本
         self._plain_doc = ""  # 无格式文本
         self._wrong_char_prefix_sum = []  # 错误字数的前缀和数组
+        self.timeInterval = 0.2  # 计时器更新间隔（秒）
+        self._cursor = None  # 光标位置
+        self._score_data = None  # ScoreData 实例（懒加载）
+        self._clipboard = QGuiApplication.clipboard()  # 剪贴板对象
 
-        # ScoreData 实例（懒加载）
-        self._score_data = None
-
-        # 剪贴板对象
-        self._clipboard = QGuiApplication.clipboard()
-
-        """ 预备文字背景颜色 """
+        # 预备文字背景颜色
         self._no_fmt = QTextCharFormat()
         self._correct_fmt = QTextCharFormat()
         self._error_fmt = QTextCharFormat()
         self._match_color_format()
 
-        self._cursor = None  # 光标位置
-
-        """不同数据用不同频率更新"""
-        """
-        # 速度更新计时器
-        self.speed_timer = QTimer()
-        self.speed_timer.timeout.connect(self._update_speed)
-        self.speed_timer.start(1000)  # 速度每秒更新
-        """
-
         # 秒数累积计时器
         self.second_timer = QTimer()
         self.second_timer.timeout.connect(self._accumulate_time)
-        # 不需要单独计算击键，因为在 _accumulate_time 中已经包含了所有计算
-        self.second_timer.start(100)  # 先start再stop，下一次start
-        self.second_timer.stop()  # 可以无参继承上一次的参数
-
-        """
-        self.char_timer = QTimer()
-        self.char_timer.timeout.connect(self._update_char_num)
-        self.char_timer.start(500)    # 字数每0.5秒更新
-        """
+        self.second_timer.setInterval(int(self.timeInterval * 1000))
 
     def _color_text(self, beginPos, n, fmt):
         """给文本上色"""
@@ -117,7 +97,6 @@ class Bridge(QObject):
         # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.key_stroke_count = 0
-            # char_count 和 wrong_char_count 保持不变，无需更新
         # 重新触发 QML 属性更新
         self.codeLengthChanged.emit()
         self.keyStrokeChanged.emit()
@@ -128,7 +107,6 @@ class Bridge(QObject):
         # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.key_stroke_count = self._key_num
-            # char_count 和 wrong_char_count 没有变化，无需更新
         # 重新触发 QML 属性更新
         self.codeLengthChanged.emit()
         self.keyStrokeChanged.emit()
@@ -146,7 +124,7 @@ class Bridge(QObject):
 
     def _accumulate_time(self):
         """累积时间"""
-        self._total_time += 0.1
+        self._total_time += self.timeInterval
         # 同步更新 ScoreData
         if self._score_data is not None:
             self._score_data.time = self._total_time
