@@ -59,6 +59,7 @@ jobs:
           uv run python -m nuitka main.py \
             --follow-imports \
             --enable-plugin=pyside6 \
+            --include-qt-plugins=qml \
             --output-dir=deployment \
             --quiet \
             --noinclude-qt-translations \
@@ -130,6 +131,7 @@ jobs:
           uv run python -m nuitka main.py `
             --follow-imports `
             --enable-plugin=pyside6 `
+            --include-qt-plugins=qml `
             --output-dir=deployment `
             --quiet `
             --noinclude-qt-translations `
