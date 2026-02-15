@@ -134,6 +134,7 @@ jobs:
             --quiet `
             --noinclude-qt-translations `
             --standalone `
+            --assume-yes-for-downloads `
             --include-data-dir=src=./src `
             --include-data-dir=resources=./resources
         working-directory: build-src
