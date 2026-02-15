@@ -44,7 +44,7 @@ jobs:
         working-directory: build-src
 
       - name: 升级 Nuitka
-        run: uv pip install --upgrade nuitka
+        run: uv pip install --upgrade nuitka --index-url https://pypi.org/simple
         working-directory: build-src
 
       - name: 编译资源文件
@@ -107,7 +107,7 @@ jobs:
         working-directory: build-src
 
       - name: 升级 Nuitka
-        run: uv pip install --upgrade nuitka
+        run: uv pip install --upgrade nuitka --index-url https://pypi.org/simple
         working-directory: build-src
 
       - name: 编译资源文件
