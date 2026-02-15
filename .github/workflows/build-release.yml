@@ -43,6 +43,10 @@ jobs:
         run: uv run python -m ensurepip --upgrade
         working-directory: build-src
 
+      - name: 升级 Nuitka
+        run: uv pip install --upgrade nuitka
+        working-directory: build-src
+
       - name: 编译资源文件
         run: |
           if [ -f resources.qrc ]; then
@@ -100,6 +104,10 @@ jobs:
 
       - name: 安装打包依赖
         run: uv run python -m ensurepip --upgrade
+        working-directory: build-src
+
+      - name: 升级 Nuitka
+        run: uv pip install --upgrade nuitka
         working-directory: build-src
 
       - name: 编译资源文件
