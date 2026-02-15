@@ -38,7 +38,9 @@ def _patch_common(monkeypatch, response_data):
 
     monkeypatch.setattr(get_sai_wen.time, "time", lambda: 1234567890)
     monkeypatch.setattr(get_sai_wen.crypt, "encrypt", lambda _: "XENCODED")
-    monkeypatch.setattr(get_sai_wen.httpx, "Client", lambda timeout: FakeClient(response_data))
+    monkeypatch.setattr(
+        get_sai_wen.httpx, "Client", lambda timeout: FakeClient(response_data)
+    )
 
 
 class TestGetSaiWen:
