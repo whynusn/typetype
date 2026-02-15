@@ -27,6 +27,9 @@ jobs:
       - name: 安装依赖
         run: uv sync --frozen
 
+      - name: 安装测试依赖
+        run: uv pip install pytest
+
       - name: 运行测试
         run: uv run pytest --verbose
 
@@ -49,6 +52,9 @@ jobs:
 
       - name: 安装依赖
         run: uv sync --frozen
+
+      - name: 安装测试依赖
+        run: uv pip install pytest
 
       - name: 运行测试
         run: uv run pytest --verbose

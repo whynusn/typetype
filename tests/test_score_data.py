@@ -3,7 +3,6 @@
 """
 
 import pytest
-from datetime import datetime
 
 from src.backend.score_data import ScoreData
 

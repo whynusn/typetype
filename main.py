@@ -4,8 +4,8 @@ import sys
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
-import rc_resources
-from src.backend import text_properties  # 在此导入才能在qml中使用
+import rc_resources  # noqa: F401  # 导入以注册 Qt 资源
+from src.backend import text_properties  # noqa: F401  # 在此导入才能在 qml 中使用
 from src.backend.backend import Backend
 from src.backend.global_key_listener import GlobalKeyListener
 from src.backend.system_identifier import SystemIdentifier

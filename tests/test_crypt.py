@@ -2,8 +2,6 @@
 加密解密功能测试
 """
 
-import pytest
-
 from src.backend.crypt import decrypt, encrypt, remove_zero_padding, zero_padding
 
 
