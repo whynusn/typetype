@@ -56,7 +56,15 @@ jobs:
 
       - name: 运行打包
         run: |
-          uv run pyside6-deploy main.py --mode standalone --extra-ignore-dirs .venv,.git,.github,.pytest_cache,.ruff_cache,.claude,tests,typetype.dist,deployment,dist --name typetype -f
+          uv run python -m nuitka main.py \
+            --follow-imports \
+            --enable-plugin=pyside6 \
+            --output-dir=deployment \
+            --quiet \
+            --noinclude-qt-translations \
+            --standalone \
+            --include-data-dir=src=./src \
+            --include-data-dir=resources=./resources
         working-directory: build-src
 
       - name: 创建压缩包
@@ -119,7 +127,15 @@ jobs:
 
       - name: 运行打包
         run: |
-          uv run pyside6-deploy main.py --mode standalone --extra-ignore-dirs .venv,.git,.github,.pytest_cache,.ruff_cache,.claude,tests,typetype.dist,deployment,dist --name typetype -f
+          uv run python -m nuitka main.py `
+            --follow-imports `
+            --enable-plugin=pyside6 `
+            --output-dir=deployment `
+            --quiet `
+            --noinclude-qt-translations `
+            --standalone `
+            --include-data-dir=src=./src `
+            --include-data-dir=resources=./resources
         working-directory: build-src
 
       - name: 创建压缩包
