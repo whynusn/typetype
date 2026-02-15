@@ -96,54 +96,39 @@ uv pip install pip pyside6
 
 ```bash
 # 将 resources.qrc 编译为 Python 模块
-pyside6-rcc resources.qrc -o src/resources_rc.py
+pyside6-rcc resources.qrc -o rc_resources.py
 ```
 
 ### 打包配置
 
-项目使用 `pyproject.toml` 中的 `[tool.pyside6-project]` 配置打包参数。首次打包时会自动生成 `pysidedeploy.spec` 文件。
-
-如果需要自定义打包配置，可以编辑 `pysidedeploy.spec`：
-
-```ini
-[app]
-# 应用名称
-app_name = typetype
-# 主入口文件
-main_file = main.py
-
-[python]
-# 排除的目录
-exclude_dirs = .venv
-
-[qt]
-# 额外的 QML 导入路径
-qml_import_paths = src/qml
-```
+项目使用 `pyproject.toml` 中的 `[tool.pyside6-project]` 维护打包文件清单，无需 `pysidedeploy.spec`。
+为避免将开发目录（如 `.venv`、`.github`）误打进产物，建议在干净的构建目录中执行打包。
 
 ### 打包步骤
 
 1. 安装项目依赖：
 
 ```bash
-uv sync
+mkdir -p build-src
+cp -a main.py pyproject.toml uv.lock resources.qrc src resources build-src/
+cd build-src
+UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv sync --frozen
+UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv run python -m ensurepip --upgrade
 ```
 
 2. 编译资源文件（如资源有更新）：
 
 ```bash
-pyside6-rcc resources.qrc -o src/resources_rc.py
+UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv run pyside6-rcc resources.qrc -o rc_resources.py
 ```
 
 3. 执行打包：
 
 ```bash
-pyside6-deploy -c pysidedeploy.spec --extra-ignore-dirs .venv
+UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv run pyside6-deploy main.py --mode standalone --extra-ignore-dirs .venv,.git,.github,.pytest_cache,.ruff_cache,.claude,tests,typetype.dist,deployment,dist --name typetype -f
 ```
 
-打包完成后，可执行文件将在 `dist/` 目录中。
-
-> 注：若运行其中的可执行文件后出现闪退，请将项目文件夹中的`src/`目录整体复制到`dist/`目录下。
+打包完成后，产物会在 `dist/` 或 `deployment/` 目录（取决于平台和工具版本）。
 
 ## 预览
 

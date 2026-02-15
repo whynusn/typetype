@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "elevate>=0.1.3",
-    "evdev>=1.9.2",
+    "evdev>=1.9.2; platform_system == 'Linux'",
     "httpx>=0.28.1",
     "pycryptodome>=3.23.0",
     "pyside6>=6.10.2",
@@ -16,14 +16,21 @@ dependencies = [
 [tool.pyside6-project]
 files = [
     "main.py",
-    "qml/Main.qml",
+    "src/qml/Main.qml",
+    "src/qml/UpperPane.qml",
+    "src/qml/LowerPane.qml",
+    "src/qml/ScoreArea.qml",
+    "src/qml/ToolLine.qml",
+    "src/qml/AppText.qml",
+    "src/qml/HistoryArea.qml",
+    "src/qml/EndDialog.qml",
+    "src/backend/backend.py",
     "src/backend/crypt.py",
     "src/backend/get_sai_wen.py",
+    "src/backend/global_key_listener.py",
+    "src/backend/system_identifier.py",
     "src/backend/text_properties.py",
     "src/backend/score_data.py",
-    # 如果还有其他 Python 源文件，可以继续往上加，比如：
-    # "window.py",
-    # "model.py",
 ]
 
 [[tool.uv.index]]

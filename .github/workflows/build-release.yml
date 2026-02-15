@@ -1,0 +1,163 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/typetype-venv
+
+jobs:
+  build-linux:
+    name: 打包 - Linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: '0.9.26'
+
+      - name: 准备构建目录
+        run: |
+          mkdir -p build-src
+          cp -a main.py pyproject.toml uv.lock resources.qrc src resources build-src/
+
+      - name: 安装依赖
+        run: uv sync --frozen
+        working-directory: build-src
+
+      - name: 安装打包依赖
+        run: uv run python -m ensurepip --upgrade
+        working-directory: build-src
+
+      - name: 编译资源文件
+        run: |
+          if [ -f resources.qrc ]; then
+            uv run pyside6-rcc resources.qrc -o rc_resources.py
+          fi
+        working-directory: build-src
+
+      - name: 运行打包
+        run: |
+          uv run pyside6-deploy main.py --mode standalone --extra-ignore-dirs .venv,.git,.github,.pytest_cache,.ruff_cache,.claude,tests,typetype.dist,deployment,dist --name typetype -f
+        working-directory: build-src
+
+      - name: 创建压缩包
+        run: |
+          if [ -d build-src/dist ]; then
+            tar -czf typetype-linux-amd64.tar.gz -C build-src/dist .
+          elif [ -d build-src/deployment ]; then
+            tar -czf typetype-linux-amd64.tar.gz -C build-src/deployment .
+          else
+            echo "未找到打包输出目录（dist/deployment）"
+            exit 1
+          fi
+
+      - name: 上传 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: typetype-linux-amd64
+          path: typetype-linux-amd64.tar.gz
+
+  build-windows:
+    name: 打包 - Windows
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: '0.9.26'
+
+      - name: 准备构建目录
+        run: |
+          New-Item -ItemType Directory -Force -Path build-src | Out-Null
+          Copy-Item -Recurse -Force main.py,pyproject.toml,uv.lock,resources.qrc,src,resources -Destination build-src
+
+      - name: 安装依赖
+        run: uv sync --frozen
+        working-directory: build-src
+
+      - name: 安装打包依赖
+        run: uv run python -m ensurepip --upgrade
+        working-directory: build-src
+
+      - name: 编译资源文件
+        run: |
+          if (Test-Path resources.qrc) {
+            uv run pyside6-rcc resources.qrc -o rc_resources.py
+          }
+        working-directory: build-src
+
+      - name: 运行打包
+        run: |
+          uv run pyside6-deploy main.py --mode standalone --extra-ignore-dirs .venv,.git,.github,.pytest_cache,.ruff_cache,.claude,tests,typetype.dist,deployment,dist --name typetype -f
+        working-directory: build-src
+
+      - name: 创建压缩包
+        run: |
+          if (Test-Path build-src/dist) {
+            Compress-Archive -Path build-src/dist\* -DestinationPath typetype-windows-amd64.zip
+          }
+          elseif (Test-Path build-src/deployment) {
+            Compress-Archive -Path build-src/deployment\* -DestinationPath typetype-windows-amd64.zip
+          }
+          else {
+            Write-Error "未找到打包输出目录（dist/deployment）"
+            exit 1
+          }
+
+      - name: 上传 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: typetype-windows-amd64
+          path: typetype-windows-amd64.zip
+
+  release:
+    name: 发布 Release
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-windows]
+    steps:
+      - name: 下载 Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: typetype-linux-amd64
+          path: release-assets
+
+      - name: 下载 Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: typetype-windows-amd64
+          path: release-assets
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/typetype-linux-amd64.tar.gz
+            release-assets/typetype-windows-amd64.zip
+          draft: false
+          prerelease: false
