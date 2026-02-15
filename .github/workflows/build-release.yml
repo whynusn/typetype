@@ -12,9 +12,6 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/typetype-venv
-
 jobs:
   build-linux:
     name: 打包 - Linux
