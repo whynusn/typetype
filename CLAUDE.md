@@ -19,7 +19,7 @@ uv run python main.py
 
 ### 测试
 ```bash
-# 运行所有测试（项目中暂无测试文件）
+# 运行所有测试
 uv run pytest
 
 # 运行特定文件
@@ -32,14 +32,34 @@ uv run pytest -k test_name
 uv run pytest -v
 ```
 
+### 代码检查
+```bash
+uv run ruff check .
+uv run ruff format --check .
+```
+
 ### 打包
 ```bash
-# 安装打包工具
-uv pip install pip nuitka
+# 安装/升级打包工具
+uv run python -m ensurepip --upgrade
+uv pip install --upgrade nuitka --index-url https://pypi.org/simple
 
-# 执行打包
-pyside6-deploy -c pysidedeploy.spec --extra-ignore-dirs .venv
+# 编译资源
+uv run pyside6-rcc resources.qrc -o rc_resources.py
+
+# 执行打包（Nuitka）
+uv run python -m nuitka main.py \
+  --follow-imports \
+  --enable-plugin=pyside6 \
+  --include-qt-plugins=qml \
+  --output-dir=deployment \
+  --quiet \
+  --noinclude-qt-translations \
+  --standalone \
+  --include-data-dir=src=./src \
+  --include-data-dir=resources=./resources
 ```
+Windows 平台建议增加参数：`--assume-yes-for-downloads`。
 
 ## 架构概述
 

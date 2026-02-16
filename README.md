@@ -82,53 +82,45 @@ uv run python main.py
 
 ## 打包
 
-### 前置依赖
+当前 CI 使用 **Nuitka + PySide6 插件** 打包（不再使用 `pyside6-deploy`）。
 
-使用 uv 安装打包所需工具：
+### 本地打包步骤（与 CI 一致）
 
-```bash
-uv pip install pip pyside6
-```
-
-### 资源文件编译
-
-项目使用 `.qrc` 文件管理资源（图标、图片等）。在打包前需要编译资源文件：
-
-```bash
-# 将 resources.qrc 编译为 Python 模块
-pyside6-rcc resources.qrc -o rc_resources.py
-```
-
-### 打包配置
-
-项目使用 `pyproject.toml` 中的 `[tool.pyside6-project]` 维护打包文件清单，无需 `pysidedeploy.spec`。
-为避免将开发目录（如 `.venv`、`.github`）误打进产物，建议在干净的构建目录中执行打包。
-
-### 打包步骤
-
-1. 安装项目依赖：
+1. 准备干净构建目录：
 
 ```bash
 mkdir -p build-src
 cp -a main.py pyproject.toml uv.lock resources.qrc src resources build-src/
 cd build-src
-UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv sync --frozen
-UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv run python -m ensurepip --upgrade
+uv sync --frozen
 ```
 
-2. 编译资源文件（如资源有更新）：
+2. 安装/升级打包工具并编译资源：
 
 ```bash
-UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv run pyside6-rcc resources.qrc -o rc_resources.py
+uv run python -m ensurepip --upgrade
+uv pip install --upgrade nuitka --index-url https://pypi.org/simple
+uv run pyside6-rcc resources.qrc -o rc_resources.py
 ```
 
-3. 执行打包：
+3. 执行 Nuitka 打包：
 
 ```bash
-UV_PROJECT_ENVIRONMENT=/tmp/typetype-venv uv run pyside6-deploy main.py --mode standalone --extra-ignore-dirs .venv,.git,.github,.pytest_cache,.ruff_cache,.claude,tests,typetype.dist,deployment,dist --name typetype -f
+uv run python -m nuitka main.py \
+  --follow-imports \
+  --enable-plugin=pyside6 \
+  --include-qt-plugins=qml \
+  --output-dir=deployment \
+  --quiet \
+  --noinclude-qt-translations \
+  --standalone \
+  --include-data-dir=src=./src \
+  --include-data-dir=resources=./resources
 ```
 
-打包完成后，产物会在 `dist/` 或 `deployment/` 目录（取决于平台和工具版本）。
+Windows 下建议追加参数：`--assume-yes-for-downloads`（允许自动下载 dependency walker）。
+
+打包完成后，产物位于 `deployment/`（部分工具链场景可能输出到 `dist/`）。
 
 ## 预览
 
@@ -168,12 +160,21 @@ typetype/
 - `PySide6>=6.10.2` - Qt 应用框架
 - `qasync>=0.28.0` - Qt 事件循环集成
 - `evdev>=1.9.2` - Linux 设备事件处理
+- `elevate>=0.1.3` - Linux 权限提升辅助
 - `httpx>=0.28.1` - HTTP 客户端
 - `pycryptodome>=3.23.0` - 加密库
 
 ## 开发
 
 ### 代码风格
+
+- 本地检查命令与 CI 对齐：
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest --verbose
+```
 
 - 使用 snake_case 命名函数和变量
 - 使用 PascalCase 命名类

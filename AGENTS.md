@@ -23,6 +23,35 @@ uv run pytest -k test_name     # 单个函数
 uv run pytest -v              # 详细输出
 ```
 
+### 代码检查
+代码风格工具：ruff
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+```
+
+### 打包（Nuitka）
+项目当前使用 Nuitka 直连打包（不使用 `pyside6-deploy`）：
+
+```bash
+uv run python -m ensurepip --upgrade
+uv pip install --upgrade nuitka --index-url https://pypi.org/simple
+uv run pyside6-rcc resources.qrc -o rc_resources.py
+uv run python -m nuitka main.py \
+  --follow-imports \
+  --enable-plugin=pyside6 \
+  --include-qt-plugins=qml \
+  --output-dir=deployment \
+  --quiet \
+  --noinclude-qt-translations \
+  --standalone \
+  --include-data-dir=src=./src \
+  --include-data-dir=resources=./resources
+```
+
+Windows 平台建议增加：`--assume-yes-for-downloads`。
+
 ## 代码风格指南
 
 ### Python 代码风格
@@ -147,6 +176,11 @@ typetype/
 - 使用 `uv sync` 安装/更新依赖
 - 锁定文件 `uv.lock` 确保可重现构建
 - **注意**: `evdev` 依赖在 Linux 系统上需要 root 权限或 input 组权限
+
+### CI 对齐
+- `ci.yml`：运行 `ruff check` 与 `ruff format --check`
+- `multi-platform-tests.yml`：在 Linux/Windows 上运行 pytest
+- `build-release.yml`：在 Linux/Windows 上使用 Nuitka 打包并发布 Release 产物
 
 ### 测试策略
 - 为业务逻辑编写测试（不是 UI 组件）
