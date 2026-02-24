@@ -66,13 +66,15 @@ Windows 平台建议增加参数：`--assume-yes-for-downloads`。
 ### 核心组件
 
 **后端（src/backend/）**
-- `backend.py`: 主要后端逻辑，连接 QML 和键盘监听，继承 QObject 实现 Qt 集成
+- `backend.py`: QML 上下文后端入口，负责平台标记和按键转发
 - `text_properties.py`: 计算打字指标（WPM、准确率等），处理文本比较逻辑
-- `get_sai_wen.py`: 使用 httpx 发送网络请求获取打字练习内容
-- `crypt.py`: 加密工具，处理敏感数据
-- `global_key_listener.py`: Linux 全局键盘监听器，使用 evdev 处理设备事件
-- `system_identifier.py`: 检测操作系统类型
-- `score_data.py`: 成绩数据管理和统计
+- `core/api_client.py`: 通用 HTTP 客户端
+- `services/sai_wen_service.py`: 赛文文本请求服务（业务逻辑）
+- `models/score_dto.py`: 传输对象（DTO）
+- `typing/score_data.py`: 成绩领域模型与统计计算
+- `integration/global_key_listener.py`: Linux 全局键盘监听器，使用 evdev 处理设备事件
+- `integration/system_identifier.py`: 检测操作系统和显示服务器
+- `security/crypt.py`: 加密工具，处理第三方接口协议
 
 **前端（src/qml/）**
 - `Main.qml`: 应用主界面容器
@@ -108,9 +110,9 @@ Windows 平台建议增加参数：`--assume-yes-for-downloads`。
                           ↓
 Backend (计算指标) → 信号 → QML (UI更新)
                           ↓
-网络请求 → GetSaiWen → Backend (文本更新)
+网络请求 → SaiWenService → Backend (文本更新)
                           ↓
-加密处理 → Crypt → Backend (数据安全)
+加密处理 → security/crypt → Backend (数据安全)
 ```
 
 ## 文档维护

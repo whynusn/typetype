@@ -139,13 +139,21 @@ typetype/
 ├── uv.lock                    # 锁定的依赖
 ├── src/
 │   ├── backend/
-│   │   ├── backend.py         # 主要后端逻辑
-│   │   ├── crypt.py           # 加密工具
-│   │   ├── get_sai_wen.py     # 网络请求处理
-│   │   ├── global_key_listener.py  # Linux 键盘监听器
-│   │   ├── system_identifier.py   # 操作系统检测
-│   │   ├── score_data.py      # 成绩数据管理
-│   │   └── text_properties.py    # 文本处理    
+│   │   ├── backend.py         # QML 上下文后端入口
+│   │   ├── text_properties.py # 打字过程属性桥接
+│   │   ├── core/
+│   │   │   └── api_client.py  # 通用 HTTP 客户端
+│   │   ├── services/
+│   │   │   └── sai_wen_service.py # 赛文接口服务
+│   │   ├── models/
+│   │   │   └── score_dto.py   # 传输对象（DTO）
+│   │   ├── typing/
+│   │   │   └── score_data.py  # 打字成绩领域模型
+│   │   ├── integration/
+│   │   │   ├── global_key_listener.py # Linux 键盘监听器
+│   │   │   └── system_identifier.py   # 操作系统检测
+│   │   └── security/
+│   │       └── crypt.py       # 加密工具
 │   └── qml/                   # QML UI 文件
 │       ├── Main.qml
 │       ├── UpperPane.qml

@@ -4,7 +4,7 @@ GlobalKeyListener 纯逻辑测试（不依赖真实设备）
 
 from types import SimpleNamespace
 
-from src.backend.global_key_listener import GlobalKeyListener
+from src.backend.integration.global_key_listener import GlobalKeyListener
 
 
 class FakeDevice:

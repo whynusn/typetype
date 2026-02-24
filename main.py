@@ -7,13 +7,16 @@ from PySide6.QtQml import QQmlApplicationEngine
 import rc_resources  # noqa: F401  # 导入以注册 Qt 资源
 from src.backend import text_properties  # noqa: F401  # 在此导入才能在 qml 中使用
 from src.backend.backend import Backend
-from src.backend.global_key_listener import GlobalKeyListener
-from src.backend.system_identifier import SystemIdentifier
+from src.backend.core.api_client import ApiClient
+from src.backend.integration.global_key_listener import GlobalKeyListener
+from src.backend.integration.system_identifier import SystemIdentifier
 
 
 def main():
     app = QGuiApplication(sys.argv)
     engine = QQmlApplicationEngine()
+    api_client = ApiClient(timeout=20.0)
+    text_properties.set_shared_api_client(api_client)
 
     system_identifier = SystemIdentifier()
     os_type, display_server = system_identifier.get_system_info()

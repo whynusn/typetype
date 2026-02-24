@@ -5,13 +5,24 @@ from PySide6.QtGui import QColor, QGuiApplication, QTextCharFormat, QTextCursor
 from PySide6.QtQml import QmlElement
 from PySide6.QtQuick import QQuickTextDocument
 
-from . import get_sai_wen
-from .score_data import ScoreData
+from .application.usecases.score_usecase import ScoreUseCase
+from .application.usecases.text_usecase import TextUseCase
+from .core.api_client import ApiClient
+from .services.sai_wen_service import SaiWenService
+from .typing.score_data import ScoreData
 
 # To be used on the @QmlElement decorator
 # (QML_IMPORT_MINOR_VERSION is optional)
 QML_IMPORT_NAME = "src.backend.textproperties"
 QML_IMPORT_MAJOR_VERSION = 1
+
+_shared_api_client: ApiClient | None = None
+
+
+def set_shared_api_client(api_client: ApiClient) -> None:
+    """设置共享 ApiClient，供 QML Bridge 使用。"""
+    global _shared_api_client
+    _shared_api_client = api_client
 
 
 @QmlElement
@@ -45,6 +56,12 @@ class Bridge(QObject):
         self._cursor = None  # 光标位置
         self._score_data = None  # ScoreData 实例（懒加载）
         self._clipboard = QGuiApplication.clipboard()  # 剪贴板对象
+        self._sai_wen_service = SaiWenService(api_client=_shared_api_client)  # 赛文服务
+        self._text_usecase = TextUseCase(
+            sai_wen_service=self._sai_wen_service,
+            clipboard=self._clipboard,
+        )
+        self._score_usecase = ScoreUseCase()
 
         # 预备文字背景颜色
         self._no_fmt = QTextCharFormat()
@@ -162,8 +179,7 @@ class Bridge(QObject):
         else:
             # 若已有对象，只更新日期
             self._score_data.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # 返回字典格式，与 QML 兼容
-        return self._score_data.to_dict_for_qml()
+        return self._score_usecase.build_history_record(self._score_data)
 
     def _update_wrong_num(self, committedString, beginPos):
         """更新错字数"""
@@ -314,31 +330,14 @@ class Bridge(QObject):
     @Slot(result=str)
     def handleLoadTextRequest(self):
         """处理从网络载文的请求"""
-        try:
-            newText = get_sai_wen.get_sai_wen(
-                "https://www.jsxiaoshi.com/index.php/Api/Text/getContent"
-            )
-        except Exception as e:
-            newText = f"加载文本失败：{str(e)}"
-        return newText
+        return self._text_usecase.load_text_from_network(
+            "https://www.jsxiaoshi.com/index.php/Api/Text/getContent"
+        )
 
     @Slot(result=str)
     def handleLoadTextFromClipboardRequest(self):
         """处理从剪贴板载文的请求"""
-        newText = ""
-
-        try:
-            # 获取 Qt 应用程序实例的剪贴板对象
-            clipboard = self._clipboard
-            newText = clipboard.text()
-
-            # 如果剪贴板是空的，text() 可能会返回空字符串
-            if not newText:
-                newText = "当前剪贴板无文本内容"
-        except Exception as e:
-            print(f"Error reading clipboard: {e}")
-
-        return newText
+        return self._text_usecase.load_text_from_clipboard()
 
     @Slot(bool)
     def handleStartStatus(self, status):
@@ -373,14 +372,9 @@ class Bridge(QObject):
     @Slot(result=str)
     def getScoreMessage(self):
         """获取分数信息"""
-        if not self._score_data:
-            return "获取分数失败"
-        return self._score_data.get_detailed_summary("html")
+        return self._score_usecase.build_score_message(self._score_data)
 
     @Slot()
     def copyScoreMessage(self):
         """复制分数信息到剪贴板"""
-        if not self._score_data:
-            return
-        clipboard = self._clipboard
-        clipboard.setText(self._score_data.get_detailed_summary("plain"))
+        self._score_usecase.copy_score_message(self._score_data, self._clipboard)

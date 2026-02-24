@@ -7,8 +7,6 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from typing_extensions import Dict, List, Union
-
 
 @dataclass
 class ScoreData:
@@ -119,68 +117,3 @@ class ScoreData:
             float: 有效速度 (WPM)
         """
         return self.speed * (self.accuracy / 100)
-
-    def to_dict_for_qml(self) -> dict:
-        """
-        转换为字典格式，用于 QML 传递（保持与前端接口兼容）
-
-        返回:
-            dict: 包含成绩数据的字典，格式与原有代码一致
-        """
-        return {
-            "speed": round(self.speed, 2),
-            "keyStroke": round(self.keyStroke, 2),
-            "codeLength": round(self.codeLength, 2),
-            "wrongNum": self.wrong_char_count,
-            "charNum": self.char_count,
-            "time": round(self.time, 2),
-            "date": self.date,
-        }
-
-    def get_summary_data(self) -> List[Dict[str, Union[str, float]]]:
-        """
-        核心数据层：返回原子化的结构数据
-        这一步不包含任何 HTML 或格式化字符串，只有纯数据
-        """
-        return [
-            {"label": "速度", "value": self.speed, "unit": "CPM", "format": ".1f"},
-            {
-                "label": "有效速度",
-                "value": self.effectiveSpeed,
-                "unit": "CPM",
-                "format": ".1f",
-            },
-            {
-                "label": "码长",
-                "value": self.codeLength,
-                "unit": "击/字",
-                "format": ".2f",
-            },
-            {
-                "label": "击键",
-                "value": self.keyStroke,
-                "unit": "击/秒",
-                "format": ".1f",
-            },
-            {"label": "准确率", "value": self.accuracy, "unit": "%", "format": ".1f"},
-        ]
-
-    def get_detailed_summary(self, format_type: str = "plain") -> str:
-        """
-        视图层：负责将数据渲染为字符串
-        """
-        data = self.get_summary_data()
-
-        # 根据数据动态生成格式化字符串
-        mark = ["", "", "\n"]
-        if format_type == "html":
-            mark = ["<b>", "</b>", "<br>"]
-
-        formatted_lines = []
-        for item in data:
-            # 动态格式化数值
-            value_str = f"{item['value']:{item['format']}}"
-            line = f"{item['label']}: {mark[0]}{value_str}{mark[1]} {item['unit']}{mark[2]}"
-            formatted_lines.append(line)
-
-        return "".join(formatted_lines)

@@ -4,7 +4,7 @@ SystemIdentifier 模块测试
 
 from types import SimpleNamespace
 
-from src.backend.system_identifier import SystemIdentifier
+from src.backend.integration.system_identifier import SystemIdentifier
 
 
 class TestSystemIdentifier:
@@ -12,22 +12,22 @@ class TestSystemIdentifier:
 
     def test_windows_short_circuit(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Windows"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Windows"
         )
         assert SystemIdentifier().get_system_info() == ("Windows", "N/A")
 
     def test_macos_short_circuit(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Darwin"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Darwin"
         )
         assert SystemIdentifier().get_system_info() == ("macOS", "N/A")
 
     def test_linux_wayland_by_env(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Linux"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
         monkeypatch.setattr(
-            "src.backend.system_identifier.os.environ",
+            "src.backend.integration.system_identifier.os.environ",
             {"WAYLAND_DISPLAY": "wayland-0"},
         )
 
@@ -35,10 +35,10 @@ class TestSystemIdentifier:
 
     def test_linux_x11_by_env(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Linux"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
         monkeypatch.setattr(
-            "src.backend.system_identifier.os.environ",
+            "src.backend.integration.system_identifier.os.environ",
             {"DISPLAY": ":0", "XDG_SESSION_TYPE": "x11"},
         )
 
@@ -46,10 +46,10 @@ class TestSystemIdentifier:
 
     def test_linux_xwayland_by_env(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Linux"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
         monkeypatch.setattr(
-            "src.backend.system_identifier.os.environ",
+            "src.backend.integration.system_identifier.os.environ",
             {"DISPLAY": ":0", "XDG_SESSION_TYPE": "wayland"},
         )
 
@@ -57,14 +57,14 @@ class TestSystemIdentifier:
 
     def test_linux_detect_by_loginctl_wayland(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Linux"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
         monkeypatch.setattr(
-            "src.backend.system_identifier.os.environ", {"XDG_SESSION_ID": "1"}
+            "src.backend.integration.system_identifier.os.environ", {"XDG_SESSION_ID": "1"}
         )
 
         monkeypatch.setattr(
-            "src.backend.system_identifier.subprocess.run",
+            "src.backend.integration.system_identifier.subprocess.run",
             lambda *args, **kwargs: SimpleNamespace(
                 returncode=0, stdout="Type=wayland\n"
             ),
@@ -74,14 +74,14 @@ class TestSystemIdentifier:
 
     def test_linux_detect_by_loginctl_x11(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Linux"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
         monkeypatch.setattr(
-            "src.backend.system_identifier.os.environ", {"XDG_SESSION_ID": "2"}
+            "src.backend.integration.system_identifier.os.environ", {"XDG_SESSION_ID": "2"}
         )
 
         monkeypatch.setattr(
-            "src.backend.system_identifier.subprocess.run",
+            "src.backend.integration.system_identifier.subprocess.run",
             lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="Type=x11\n"),
         )
 
@@ -89,13 +89,13 @@ class TestSystemIdentifier:
 
     def test_linux_loginctl_exception_fallback_unknown(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.system_identifier.platform.system", lambda: "Linux"
+            "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
-        monkeypatch.setattr("src.backend.system_identifier.os.environ", {})
+        monkeypatch.setattr("src.backend.integration.system_identifier.os.environ", {})
 
         def raise_error(*args, **kwargs):
             raise RuntimeError("loginctl unavailable")
 
-        monkeypatch.setattr("src.backend.system_identifier.subprocess.run", raise_error)
+        monkeypatch.setattr("src.backend.integration.system_identifier.subprocess.run", raise_error)
 
         assert SystemIdentifier().get_system_info() == ("Linux", "Unknown")

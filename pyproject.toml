@@ -25,12 +25,16 @@ files = [
     "src/qml/HistoryArea.qml",
     "src/qml/EndDialog.qml",
     "src/backend/backend.py",
-    "src/backend/crypt.py",
-    "src/backend/get_sai_wen.py",
-    "src/backend/global_key_listener.py",
-    "src/backend/system_identifier.py",
+    "src/backend/security/crypt.py",
+    "src/backend/integration/global_key_listener.py",
+    "src/backend/integration/system_identifier.py",
     "src/backend/text_properties.py",
-    "src/backend/score_data.py",
+    "src/backend/application/usecases/score_usecase.py",
+    "src/backend/application/usecases/text_usecase.py",
+    "src/backend/core/api_client.py",
+    "src/backend/services/sai_wen_service.py",
+    "src/backend/typing/score_data.py",
+    "src/backend/models/score_dto.py",
 ]
 
 [[tool.uv.index]]

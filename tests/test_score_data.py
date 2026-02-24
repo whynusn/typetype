@@ -4,7 +4,7 @@
 
 import pytest
 
-from src.backend.score_data import ScoreData
+from src.backend.typing.score_data import ScoreData
 
 
 class TestScoreDataInitialization:
@@ -150,77 +150,3 @@ class TestScoreDataCalculations:
         # speed = 240, accuracy = 90%
         # effective_speed = 240 * 0.9 = 216
         assert score.effectiveSpeed == pytest.approx(216.0)
-
-
-class TestScoreDataOutput:
-    """测试数据输出"""
-
-    def test_to_dict_for_qml(self):
-        """测试转换为 QML 字典"""
-        score = ScoreData(
-            time=60.0,
-            key_stroke_count=300,
-            char_count=240,
-            wrong_char_count=10,
-            date="",
-        )
-        result = score.to_dict_for_qml()
-
-        assert "speed" in result
-        assert "keyStroke" in result
-        assert "codeLength" in result
-        assert "wrongNum" in result
-        assert "charNum" in result
-        assert "time" in result
-        assert "date" in result
-
-        assert result["speed"] == 240.0
-        assert result["wrongNum"] == 10
-        assert result["charNum"] == 240
-
-    def test_get_summary_data(self):
-        """测试获取摘要数据"""
-        score = ScoreData(
-            time=60.0,
-            key_stroke_count=300,
-            char_count=240,
-            wrong_char_count=10,
-            date="",
-        )
-        result = score.get_summary_data()
-
-        assert len(result) == 5
-        assert result[0]["label"] == "速度"
-        assert result[0]["unit"] == "CPM"
-        assert result[4]["label"] == "准确率"
-        assert result[4]["unit"] == "%"
-
-    def test_get_detailed_summary_plain(self):
-        """测试获取详细摘要（纯文本格式）"""
-        score = ScoreData(
-            time=60.0,
-            key_stroke_count=300,
-            char_count=240,
-            wrong_char_count=10,
-            date="",
-        )
-        result = score.get_detailed_summary("plain")
-
-        assert "速度:" in result
-        assert "CPM" in result
-        assert "\n" in result
-
-    def test_get_detailed_summary_html(self):
-        """测试获取详细摘要（HTML 格式）"""
-        score = ScoreData(
-            time=60.0,
-            key_stroke_count=300,
-            char_count=240,
-            wrong_char_count=10,
-            date="",
-        )
-        result = score.get_detailed_summary("html")
-
-        assert "<b>" in result
-        assert "</b>" in result
-        assert "<br>" in result
