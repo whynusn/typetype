@@ -60,7 +60,9 @@ class TestSaiWenService:
             lambda _: "XENCODED",
         )
 
-        service = SaiWenService(api_client=DummyApiClient({"msg": {"0": "zero-content"}}))
+        service = SaiWenService(
+            api_client=DummyApiClient({"msg": {"0": "zero-content"}})
+        )
         assert service.fetch_text("https://example.com") == "zero-content"
 
     def test_msg_is_other_type(self, monkeypatch):

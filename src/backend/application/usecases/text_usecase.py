@@ -1,12 +1,18 @@
-from PySide6.QtGui import QClipboard
+from typing import Protocol
 
 from ...services.sai_wen_service import SaiWenService
+
+
+class ClipboardReader(Protocol):
+    """剪贴板读取协议，避免在用例层依赖 Qt。"""
+
+    def text(self) -> str: ...
 
 
 class TextUseCase:
     """文本加载相关用例。"""
 
-    def __init__(self, sai_wen_service: SaiWenService, clipboard: QClipboard):
+    def __init__(self, sai_wen_service: SaiWenService, clipboard: ClipboardReader):
         self._sai_wen_service = sai_wen_service
         self._clipboard = clipboard
 

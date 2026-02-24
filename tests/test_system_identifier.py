@@ -12,13 +12,15 @@ class TestSystemIdentifier:
 
     def test_windows_short_circuit(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.system_identifier.platform.system", lambda: "Windows"
+            "src.backend.integration.system_identifier.platform.system",
+            lambda: "Windows",
         )
         assert SystemIdentifier().get_system_info() == ("Windows", "N/A")
 
     def test_macos_short_circuit(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.system_identifier.platform.system", lambda: "Darwin"
+            "src.backend.integration.system_identifier.platform.system",
+            lambda: "Darwin",
         )
         assert SystemIdentifier().get_system_info() == ("macOS", "N/A")
 
@@ -60,7 +62,8 @@ class TestSystemIdentifier:
             "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
         monkeypatch.setattr(
-            "src.backend.integration.system_identifier.os.environ", {"XDG_SESSION_ID": "1"}
+            "src.backend.integration.system_identifier.os.environ",
+            {"XDG_SESSION_ID": "1"},
         )
 
         monkeypatch.setattr(
@@ -77,7 +80,8 @@ class TestSystemIdentifier:
             "src.backend.integration.system_identifier.platform.system", lambda: "Linux"
         )
         monkeypatch.setattr(
-            "src.backend.integration.system_identifier.os.environ", {"XDG_SESSION_ID": "2"}
+            "src.backend.integration.system_identifier.os.environ",
+            {"XDG_SESSION_ID": "2"},
         )
 
         monkeypatch.setattr(
@@ -96,6 +100,8 @@ class TestSystemIdentifier:
         def raise_error(*args, **kwargs):
             raise RuntimeError("loginctl unavailable")
 
-        monkeypatch.setattr("src.backend.integration.system_identifier.subprocess.run", raise_error)
+        monkeypatch.setattr(
+            "src.backend.integration.system_identifier.subprocess.run", raise_error
+        )
 
         assert SystemIdentifier().get_system_info() == ("Linux", "Unknown")

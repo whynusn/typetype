@@ -1,7 +1,13 @@
-from PySide6.QtGui import QClipboard
+from typing import Protocol
 
 from ...models.score_dto import HistoryRecordDTO, ScoreSummaryDTO
 from ...typing.score_data import ScoreData
+
+
+class ClipboardWriter(Protocol):
+    """剪贴板写入协议，避免在用例层依赖 Qt。"""
+
+    def setText(self, value: str) -> None: ...
 
 
 class ScoreUseCase:
@@ -20,7 +26,9 @@ class ScoreUseCase:
         return ScoreSummaryDTO.from_score_data(score_data).to_html()
 
     @staticmethod
-    def copy_score_message(score_data: ScoreData | None, clipboard: QClipboard) -> None:
+    def copy_score_message(
+        score_data: ScoreData | None, clipboard: ClipboardWriter
+    ) -> None:
         """复制分数摘要纯文本到剪贴板。"""
         if not score_data:
             return

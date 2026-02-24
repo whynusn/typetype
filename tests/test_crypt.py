@@ -2,7 +2,12 @@
 加密解密功能测试
 """
 
-from src.backend.security.crypt import decrypt, encrypt, remove_zero_padding, zero_padding
+from src.backend.security.crypt import (
+    decrypt,
+    encrypt,
+    remove_zero_padding,
+    zero_padding,
+)
 
 
 class TestPadding:

@@ -38,7 +38,10 @@ def test_load_text_from_network_success():
 def test_load_text_from_network_error():
     """网络异常应返回失败文案。"""
     usecase = TextUseCase(DummySaiWenService(should_raise=True), DummyClipboard())
-    assert usecase.load_text_from_network("https://example.com") == "加载文本失败：network error"
+    assert (
+        usecase.load_text_from_network("https://example.com")
+        == "加载文本失败：network error"
+    )
 
 
 def test_load_text_from_clipboard_with_text():
