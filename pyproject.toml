@@ -48,5 +48,9 @@ files = [
 ]
 
 [[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+
+[[tool.uv.index]]
 name = "tencent"
 url = "https://mirrors.cloud.tencent.com/pypi/simple/"
