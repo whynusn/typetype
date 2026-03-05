@@ -1,38 +1,28 @@
 # typetype 项目开发指南
 
-## 构建、代码检查和测试命令
+## 1. 开发环境与命令
 
 ### 开发环境
-- Python 3.12+（在 `.python-version` 中指定）
-- 使用 `uv` 作为包管理器（版本 0.9.26+）
-- 虚拟环境：`.venv/`
 
-### 构建和运行
+- Python 3.12+（见 `.python-version`）
+- 包管理器：`uv`（建议 0.9.26+）
+
+### 启动
+
 ```bash
 uv sync
 uv run python main.py
 ```
 
-### 测试
-测试框架：pytest
+### 测试与检查
 
 ```bash
-uv run pytest              # 所有测试
-uv run pytest path/to/file.py  # 特定文件
-uv run pytest -k test_name     # 单个函数
-uv run pytest -v              # 详细输出
-```
-
-### 代码检查
-代码风格工具：ruff
-
-```bash
+uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 ```
 
 ### 打包（Nuitka）
-项目当前使用 Nuitka 直连打包（不使用 `pyside6-deploy`）：
 
 ```bash
 uv run python -m ensurepip --upgrade
@@ -50,155 +40,94 @@ uv run python -m nuitka main.py \
   --include-data-dir=resources=./resources
 ```
 
-Windows 平台建议增加：`--assume-yes-for-downloads`。
+## 2. 当前架构（以代码为准）
 
-## 代码风格指南
-
-### Python 代码风格
-
-**导入语句**
-- 顺序：标准库 → 第三方包 → 本地导入
-- 分组导入：先用没有逗号的单独导入，再分组导入（用逗号分隔）
-- 同包内的模块使用相对导入（如 `from . import Crypt`）
-- 将所有导入放在文件顶部
-
-```python
-# 好的写法
-import os
-from typing import Tuple
-from PySide6.QtCore import QObject, Signal
+```text
+src/backend/
+├── application/
+│   ├── ports/       # 协议：Clipboard/TextFetcher/LocalTextLoader
+│   └── usecases/    # 业务编排：TextUseCase/ScoreUseCase
+├── core/            # ApiClient 与网络异常模型
+├── integration/     # Qt/系统层实现（本地文本加载、键盘监听等）
+├── services/        # 具体网络服务（如 SaiWenService）
+├── workers/         # 后台任务（避免阻塞 UI）
+└── text_properties.py  # Bridge（appBridge）
 ```
 
-**命名规范**
-- 类名：PascalCase（如 `Backend`、`SystemIdentifier`）
-- 函数和变量：snake_case（如 `get_system_info`、`_handle_events`）
-- 私有方法：用 `_` 前缀（如 `_calculate_speed`）
-- 信号：PascalCase，以 `Changed` 结尾（如 `typeSpeedChanged`）
+关键点：
 
-**类型提示**
-- 函数参数和返回值必须使用类型提示
-- 使用标准 Python 类型（str, int, bool, list, dict 等）
-- 复杂类型使用 typing 模块（Optional, Tuple, Dict, Any 等）
+- 依赖注入在 `main.py` 完成，不再使用全局 registry。
+- QML 通过 `appBridge` 与后端交互。
+- 文本加载支持 `network` 与 `local` 两类来源。
 
-**文档字符串**
-- 使用中文文档字符串
-- 文档参数和返回值
+## 3. 代码风格
 
-```python
-def encrypt(obj):
-    """
-    加密函数
-    
-    参数:
-        obj: 字符串或可 JSON 序列化的对象
-    
-    返回:
-        Base64 编码的加密字符串
-    """
-    pass
+### Python
+
+- 导入顺序：标准库 -> 第三方 -> 本地
+- 命名：类 `PascalCase`，函数/变量 `snake_case`
+- 函数参数与返回值必须有类型提示
+- 外部 I/O（网络/系统）必须有异常处理
+
+### Qt/QML
+
+- 使用 `Property + notify signal` 做响应式更新
+- UI 不执行耗时任务，耗时逻辑走 `workers`
+- Python 与 QML 通信优先走信号槽
+
+## 4. 测试策略
+
+- 优先覆盖用例层与核心逻辑，不依赖真实 UI
+- 对网络错误、超时、解析异常必须有测试
+- 新增文本来源时，需同时补充：
+  - `TextUseCase` 测试
+  - 对应 service/integration 测试
+
+## 5. Spring Boot 服务接入规范（后续）
+
+当前项目尚未正式接入 Spring Boot。接入时遵循以下规范。
+
+### 接入原则
+
+- 用例层只依赖 `TextFetcher` 协议，不直接依赖 HTTP 细节。
+- Spring Boot 作为新的 integration/service 实现注入，不破坏现有调用链。
+
+### 推荐接口（v1）
+
+- `GET /api/v1/texts/random?sourceKey={key}`
+- `GET /api/v1/text-sources`
+- `POST /api/v1/scores`
+
+### 客户端实现建议
+
+1. 新建 `SpringBootTextService`（实现 `TextFetcher`）。
+2. 复用 `ApiClient`，统一异常映射到 `network_errors.py`。
+3. 在 `RuntimeConfig.text_sources` 添加 springboot 来源。
+4. 在 `main.py` 按环境切换注入目标 service。
+
+### 配置建议
+
+后续建议新增环境变量支持：
+
+- `TYPETYPE_TEXT_API_BASE_URL`
+- `TYPETYPE_SCORE_API_BASE_URL`
+- `TYPETYPE_API_TIMEOUT`
+
+## 6. 平台与权限
+
+- Linux Wayland 下，全局键盘监听通常需要 `input` 组权限。
+- 不满足权限时必须优雅降级，不影响基础打字流程。
+
+## 7. CI 对齐
+
+- `ci.yml`: ruff check / format check
+- `multi-platform-tests.yml`: Linux/Windows pytest
+- `build-release.yml`: Linux/Windows Nuitka 打包与 release
+
+所有改动提交前应至少本地通过：
+
+```bash
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
 ```
-
-**错误处理**
-- 对外部 API 调用和系统操作使用 try-except 块
-- 用 print 语句记录错误
-- 尽可能捕获特定异常，一般异常使用 Exception
-- 优雅处理不影响应用稳定性的错误
-
-```python
-# 好的写法
-try:
-    new_text = self._sai_wen_service.fetch_text(url)
-except Exception as e:
-    print(f"错误: {e}")
-    return None
-```
-
-**类设计**
-- 从 `QObject` 继承以实现 Qt 集成
-- 使用信号在 Python 和 QML 之间通信
-- 使用槽函数接收 QML 的调用
-
-### Qt/QML 集成
-
-**属性暴露**
-- 使用 `@Property` 装饰器将 Python 属性暴露给 QML
-- 指定 notify 信号以实现响应式更新
-
-**信号/槽通信**
-- 信号：从 Python 发射到 QML
-- 槽：在 Python 中定义并从 QML 连接
-- 使用类型安全的参数传递（如 `Signal(int, str)`）
-
-**定时器使用**
-- 使用 QTimer 进行定期更新（如速度计算使用 100ms）
-- 将定时器实例作为实例变量存储
-- 需要时正确启动和停止定时器
-
-## 项目结构
-
-```
-typetype/
-├── main.py                    # 应用入口点
-├── pyproject.toml             # 项目配置和依赖
-├── uv.lock                    # 锁定的依赖
-├── src/
-│   ├── backend/
-│   │   ├── backend.py         # QML 上下文后端入口
-│   │   ├── text_properties.py # 打字过程属性桥接
-│   │   ├── core/
-│   │   │   └── api_client.py  # 通用 HTTP 客户端
-│   │   ├── services/
-│   │   │   └── sai_wen_service.py # 赛文接口服务
-│   │   ├── models/
-│   │   │   └── score_dto.py   # 传输对象（DTO）
-│   │   ├── typing/
-│   │   │   └── score_data.py  # 打字成绩领域模型
-│   │   ├── integration/
-│   │   │   ├── global_key_listener.py # Linux 键盘监听器
-│   │   │   └── system_identifier.py   # 操作系统检测
-│   │   └── security/
-│   │       └── crypt.py       # 加密工具
-│   └── qml/                   # QML UI 文件
-│       ├── Main.qml
-│       ├── UpperPane.qml
-│       ├── LowerPane.qml
-│       ├── EndDialog.qml      # 打字结束对话框
-│       └── ...
-```
-
-## 特殊注意事项
-
-### 平台检测和权限
-- 检查 Linux 特定功能（GlobalKeyListener）
-- 检测显示服务器（Wayland vs X11）
-- 为不支持的平台提供优雅的降级处理
-- **Wayland 环境**：需要将用户加入 input 组或使用 sudo 运行
-
-### QML 集成
-- 后端通过 `setContextProperty` 暴露为 QML 的单例
-- QML 文件引用后端属性和信号
-- 使用 `src.backend` 导入路径访问 Python 模块
-
-### 依赖管理
-- 所有依赖列在 `pyproject.toml` 的 `[project.dependencies]` 下
-- 使用 `uv sync` 安装/更新依赖
-- 锁定文件 `uv.lock` 确保可重现构建
-- **注意**: `evdev` 依赖在 Linux 系统上需要 root 权限或 input 组权限
-
-### CI 对齐
-- `ci.yml`：运行 `ruff check` 与 `ruff format --check`
-- `multi-platform-tests.yml`：在 Linux/Windows 上运行 pytest
-- `build-release.yml`：在 Linux/Windows 上使用 Nuitka 打包并发布 Release 产物
-
-### 测试策略
-- 为业务逻辑编写测试（不是 UI 组件）
-- 测试 Python 后端时模拟 Qt 对象
-- 测试错误处理路径
-- 验证类型提示是否正确
-
-### 代码质量
-- 保持函数简洁且小（理想情况少于 50 行）
-- 避免深层嵌套（超过 3 层）
-- 使用描述性的变量和函数名
-- 为复杂逻辑添加注释
-- 保持与现有代码风格的一致性（包括中文注释的地方）
