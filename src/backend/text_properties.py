@@ -1,24 +1,16 @@
 from datetime import datetime
 
-from PySide6.QtCore import Property, QObject, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QGuiApplication, QTextCharFormat, QTextCursor
-from PySide6.QtQml import QmlElement
+from PySide6.QtCore import Property, QObject, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtQuick import QQuickTextDocument
 
 from .application.usecases.score_usecase import ScoreUseCase
 from .application.usecases.text_usecase import TextUseCase
-from .config.runtime_config_registry import get_runtime_config
-from .core.api_client_registry import get_api_client
-from .services.sai_wen_service import SaiWenService
+from .config.runtime_config import RuntimeConfig
 from .typing.score_data import ScoreData
-
-# To be used on the @QmlElement decorator
-# (QML_IMPORT_MINOR_VERSION is optional)
-QML_IMPORT_NAME = "src.backend.textproperties"
-QML_IMPORT_MAJOR_VERSION = 1
+from .workers.load_text_worker import LoadTextWorker
 
 
-@QmlElement
 class Bridge(QObject):
     # 定义多个 Signal，按需发射
     typeSpeedChanged = Signal()
@@ -30,8 +22,16 @@ class Bridge(QObject):
     readOnlyChanged = Signal()
     historyRecordUpdated = Signal(dict)
     typingEnded = Signal()
+    textLoaded = Signal(str)
+    textLoadFailed = Signal(str)
+    textLoadingChanged = Signal()
 
-    def __init__(self):
+    def __init__(
+        self,
+        text_usecase: TextUseCase,
+        score_usecase: ScoreUseCase,
+        runtime_config: RuntimeConfig,
+    ):
         super().__init__()
         # 底层基础指标
         self._key_num = 0
@@ -48,13 +48,11 @@ class Bridge(QObject):
         self.timeInterval = 0.2  # 计时器更新间隔（秒）
         self._cursor = None  # 光标位置
         self._score_data = None  # ScoreData 实例（懒加载）
-        self._clipboard = QGuiApplication.clipboard()  # 剪贴板对象
-        self._sai_wen_service = SaiWenService(api_client=get_api_client())  # 赛文服务
-        self._text_usecase = TextUseCase(
-            sai_wen_service=self._sai_wen_service,
-            clipboard=self._clipboard,
-        )
-        self._score_usecase = ScoreUseCase()
+        self._text_loading = False
+        self._thread_pool = QThreadPool.globalInstance()
+        self._runtime_config = runtime_config
+        self._text_usecase = text_usecase
+        self._score_usecase = score_usecase
 
         # 预备文字背景颜色
         self._no_fmt = QTextCharFormat()
@@ -239,6 +237,21 @@ class Bridge(QObject):
         """文本只读状态"""
         return self._text_read_only
 
+    @Property(bool, notify=textLoadingChanged)
+    def textLoading(self):
+        """网络载文是否进行中。"""
+        return self._text_loading
+
+    @Property(str, constant=True)
+    def defaultTextSourceKey(self):
+        """默认网络载文来源 key。"""
+        return self._runtime_config.default_text_source_key
+
+    @Property("QVariantList", constant=True)
+    def textSourceOptions(self):
+        """可选网络载文来源列表。"""
+        return self._runtime_config.get_text_source_options()
+
     @Property(float, notify=totalTimeChanged)
     def totalTime(self):
         """总时间"""
@@ -320,16 +333,89 @@ class Bridge(QObject):
         self._update_total_char_num(len(self._plain_doc))
         self._set_start_status(False)
 
-    @Slot(result=str)
-    def handleLoadTextRequest(self):
-        """处理从网络载文的请求"""
-        config = get_runtime_config()
-        return self._text_usecase.load_text_from_network(config.jstext_source_url)
+    def _set_text_loading(self, loading: bool) -> None:
+        if self._text_loading != loading:
+            self._text_loading = loading
+            self.textLoadingChanged.emit()
 
-    @Slot(result=str)
-    def handleLoadTextFromClipboardRequest(self):
-        """处理从剪贴板载文的请求"""
-        return self._text_usecase.load_text_from_clipboard()
+    def _request_load_text_from_network(self, source_key: str) -> None:
+        """异步处理从网络载文的请求。"""
+        if self._text_loading:
+            return
+
+        url = self._runtime_config.get_text_source_url(source_key)
+        if not url:
+            self.textLoadFailed.emit(f"加载文本失败：未知载文来源({source_key})")
+            return
+
+        self._set_text_loading(True)
+        worker = LoadTextWorker(
+            text_usecase=self._text_usecase,
+            url=url,
+        )
+        worker.signals.succeeded.connect(self._on_text_loaded)
+        worker.signals.failed.connect(self._on_text_load_failed)
+        worker.signals.finished.connect(self._on_text_load_finished)
+        self._thread_pool.start(worker)
+
+    def _request_load_text_from_local(self, source_key: str) -> None:
+        """同步处理从本地载文的请求。"""
+        path = self._runtime_config.get_local_path(source_key)
+        if not path:
+            self._on_text_load_failed(f"加载文本失败：本地来源缺少路径({source_key})")
+            return
+        text = self._text_usecase.load_text_from_local(path)
+        if text is None:
+            self._on_text_load_failed(f"加载文本失败：无法读取本地文章({source_key})")
+            return
+        self._on_text_loaded(text)
+
+    @Slot(str)
+    def requestLoadText(self, source_key: str):
+        """按来源 key 统一处理载文请求。"""
+        source_type = self._runtime_config.get_text_source_type(source_key)
+        if source_type == "network":
+            self._request_load_text_from_network(source_key)
+            return
+
+        if source_type == "local":
+            self._request_load_text_from_local(source_key)
+            return
+
+        self._on_text_load_failed(f"加载文本失败：未知载文来源类型({source_key})")
+
+    @Slot(object)
+    def _on_text_loaded(self, text: object) -> None:
+        if text is None:
+            self.textLoadFailed.emit("加载文本失败：未获取到文本")
+            return
+        if not isinstance(text, str):
+            self.textLoadFailed.emit("加载文本失败：返回数据格式错误")
+            return
+        self.textLoaded.emit(text)
+
+    @Slot(str)
+    def _on_text_load_failed(self, message: str) -> None:
+        self.textLoadFailed.emit(message)
+
+    @Slot()
+    def _on_text_load_finished(self) -> None:
+        self._set_text_loading(False)
+
+    @Slot()
+    def loadTextFromClipboard(self):
+        """同步从剪贴板载文。"""
+        if self._text_loading:
+            return
+
+        self._set_text_loading(True)
+        try:
+            text = self._text_usecase.load_text_from_clipboard()
+            self.textLoaded.emit(text)
+        except Exception as e:
+            self.textLoadFailed.emit(f"加载文本失败：{str(e)}")
+        finally:
+            self._set_text_loading(False)
 
     @Slot(bool)
     def handleStartStatus(self, status):
@@ -369,4 +455,4 @@ class Bridge(QObject):
     @Slot()
     def copyScoreMessage(self):
         """复制分数信息到剪贴板"""
-        self._score_usecase.copy_score_message(self._score_data, self._clipboard)
+        self._score_usecase.copy_score_message(self._score_data)

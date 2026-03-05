@@ -24,6 +24,9 @@ class SaiWenService:
         payload = self._build_payload()
         response_data = self._api_client.post_json(url, payload)
         if response_data is None:
+            last_error = getattr(self._api_client, "last_error", None)
+            if last_error is not None:
+                raise last_error
             return None
         return self._extract_text(response_data)
 

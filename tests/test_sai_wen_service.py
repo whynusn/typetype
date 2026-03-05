@@ -13,6 +13,7 @@ class DummyApiClient(ApiClient):
         self.response_data = response_data
         self.last_url = None
         self.last_payload = None
+        self._last_error = None
 
     def post_json(self, url, payload):
         self.last_url = url
@@ -100,3 +101,22 @@ class TestSaiWenService:
 
         service = SaiWenService(api_client=DummyApiClient(None))
         assert service.fetch_text("https://example.com") is None
+
+    def test_request_error_raises_last_error(self, monkeypatch):
+        monkeypatch.setattr(
+            "src.backend.services.sai_wen_service.time.time", lambda: 1234567890
+        )
+        monkeypatch.setattr(
+            "src.backend.services.sai_wen_service.crypt.encrypt",
+            lambda _: "XENCODED",
+        )
+
+        api_client = DummyApiClient(None)
+        api_client._last_error = RuntimeError("network timeout")
+        service = SaiWenService(api_client=api_client)
+
+        try:
+            service.fetch_text("https://example.com")
+            assert False, "expected RuntimeError"
+        except RuntimeError as e:
+            assert str(e) == "network timeout"

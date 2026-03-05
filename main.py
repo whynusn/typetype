@@ -5,24 +5,38 @@ from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine
 
 import rc_resources  # noqa: F401  # 导入以注册 Qt 资源
-from src.backend import text_properties  # noqa: F401  # 在此导入才能在 qml 中使用
+from src.backend.application.usecases.score_usecase import ScoreUseCase
+from src.backend.application.usecases.text_usecase import TextUseCase
 from src.backend.backend import Backend
 from src.backend.config.runtime_config import RuntimeConfig
-from src.backend.config.runtime_config_registry import set_runtime_config
 from src.backend.core.api_client import ApiClient
-from src.backend.core.api_client_registry import set_api_client
 from src.backend.integration.global_key_listener import GlobalKeyListener
+from src.backend.integration.local_text_loader import QtLocalTextLoader
 from src.backend.integration.system_identifier import SystemIdentifier
+from src.backend.services.sai_wen_service import SaiWenService
+from src.backend.text_properties import Bridge
 
 
 def main():
     app = QGuiApplication(sys.argv)
     engine = QQmlApplicationEngine()
+    clipboard = QGuiApplication.clipboard()
     runtime_config = RuntimeConfig()
-    set_runtime_config(runtime_config)
 
     api_client = ApiClient(timeout=runtime_config.api_timeout)
-    set_api_client(api_client)
+    sai_wen_service = SaiWenService(api_client=api_client)
+    local_text_loader = QtLocalTextLoader()
+    text_usecase = TextUseCase(
+        text_fetcher=sai_wen_service,
+        clipboard=clipboard,
+        local_text_loader=local_text_loader,
+    )
+    score_usecase = ScoreUseCase(clipboard=clipboard)
+    bridge = Bridge(
+        text_usecase=text_usecase,
+        score_usecase=score_usecase,
+        runtime_config=runtime_config,
+    )
 
     system_identifier = SystemIdentifier()
     os_type, display_server = system_identifier.get_system_info()
@@ -40,6 +54,7 @@ def main():
 
     # 暴露 Backend 到 QML（用单例模式）
     engine.rootContext().setContextProperty("backend", backend)
+    engine.rootContext().setContextProperty("appBridge", bridge)
 
     # 获取当前文件所在路径
     current_path = os.path.dirname(os.path.abspath(__file__))

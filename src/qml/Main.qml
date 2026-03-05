@@ -3,15 +3,16 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15
 import QtQuick.Layouts 1.15
 
-// 自定义模块
-import src.backend.textproperties 1.0
-
 ApplicationWindow {
     id: root
-    visible: true
+    visible: fontsResolved
     width: 758
     height: 600
     title: "TypeType"
+    property bool fontsResolved: (
+        (uiFontLoader.status === FontLoader.Ready || uiFontLoader.status === FontLoader.Error)
+        && (readerFontLoader.status === FontLoader.Ready || readerFontLoader.status === FontLoader.Error)
+    )
 
     // ==========================================
     // 1. 加载字体文件 (确保字体文件路径正确，推荐放在 qrc 资源文件中)
@@ -51,13 +52,8 @@ ApplicationWindow {
         font.pointSize: fontMetricsText.sharedFontSize
     }
 
-    // 实例化 Bridge
-    Bridge {
-        id: bridge
-    }
-
     Connections {
-        target: bridge
+        target: appBridge
 
         function onHistoryRecordUpdated(newRecord) {
             //console.log("History record updated:", newRecord.date);
@@ -66,8 +62,16 @@ ApplicationWindow {
 
         function onTypingEnded() {
             console.log("Typing ended");
-            endDialog.scoreMessage = bridge.getScoreMessage();
+            endDialog.scoreMessage = appBridge.getScoreMessage();
             endDialog.open();
+        }
+
+        function onTextLoaded(text) {
+            applyLoadedText(text);
+        }
+
+        function onTextLoadFailed(message) {
+            applyLoadedText(message);
         }
     }
 
@@ -79,42 +83,32 @@ ApplicationWindow {
             //console.log(lowerPane.isFocus);
             if (lowerPane.isFocus) {
                 /** 开始逻辑在 `LowerPane` 中定义, 此处无需重复
-                if (!bridge.isStart() && !bridge.isReadOnly() && isPrintable == "visable") {
-                    bridge.handleStartStatus(true);
+                if (!appBridge.isStart() && !appBridge.isReadOnly() && isPrintable == "visable") {
+                    appBridge.handleStartStatus(true);
                 }
                  */
-                if (bridge.isStart()) {
-                    bridge.handlePressed();
+                if (appBridge.isStart()) {
+                    appBridge.handlePressed();
                 }
-                //console.log(bridge.isStart());
+                //console.log(appBridge.isStart());
             }
         }
     }
     Connections {
         target: toolLine
 
-        function onRequestLoadText() {
-            var newText = bridge.handleLoadTextRequest();
-            // 先改lowerPaneText，再改upperPaneText (用于正确计算wrongNum)
-            lowerPane.text = "";
-            upperPaneLoadText(newText);
+        function onRequestLoadText(sourceKey) {
+            appBridge.requestLoadText(sourceKey);
         }
 
         function onRequestLoadTextFromClipboard() {
-            var newText = bridge.handleLoadTextFromClipboardRequest();
-            // 先改lowerPaneText，再改upperPaneText (用于正确计算wrongNum)
-            lowerPane.text = "";
-            upperPaneLoadText(newText);
+            appBridge.loadTextFromClipboard();
         }
 
         function onRequestRetype() {
             handleRetypeRequest();
         }
 
-        function upperPaneLoadText(plainText) {
-            upperPane.text = plainText;
-            bridge.handleLoadedText(upperPane.textDocument);
-        }
     }
 
     //=====================================
@@ -123,6 +117,13 @@ ApplicationWindow {
 
     function handleRetypeRequest() {
         lowerPane.text = "";
+    }
+
+    function applyLoadedText(plainText) {
+        // 先改lowerPaneText，再改upperPaneText (用于正确计算wrongNum)
+        lowerPane.text = "";
+        upperPane.text = plainText;
+        appBridge.handleLoadedText(upperPane.textDocument);
     }
 
     function handleKeyPressEvent(event) {
@@ -165,7 +166,9 @@ ApplicationWindow {
                 id: toolLine
                 fontSize: fontMetricsUI.sharedFontSize  // 绑定到共享属性
                 fontFamily: fontMetricsUI.font.family
-                bridge: bridge
+                bridge: appBridge
+                textSourceOptions: appBridge.textSourceOptions
+                defaultTextSourceKey: appBridge.defaultTextSourceKey
                 Layout.fillWidth: true
                 Layout.preferredHeight: fontMetricsUI.height * 2
                 Layout.minimumHeight: fontMetricsUI.height * 2
@@ -176,7 +179,7 @@ ApplicationWindow {
                 id: upperPane
                 fontSize: fontMetricsText.sharedFontSize  // 绑定到共享属性
                 fontFamily: fontMetricsText.font.family
-                bridge: bridge
+                bridge: appBridge
                 Layout.fillHeight: true
                 Layout.fillWidth: true
                 Layout.minimumHeight: fontMetricsText.height * 2  // 最小高度：1倍字体高
@@ -187,7 +190,7 @@ ApplicationWindow {
                 id: scoreArea
                 fontSize: fontMetricsUI.sharedFontSize  // 绑定到共享属性
                 fontFamily: fontMetricsUI.font.family
-                bridge: bridge
+                bridge: appBridge
                 Layout.fillWidth: true
                 Layout.preferredHeight: fontMetricsUI.height * 0.8
                 Layout.minimumHeight: fontMetricsUI.height * 0.8
@@ -198,7 +201,7 @@ ApplicationWindow {
                 id: lowerPane
                 fontSize: fontMetricsText.sharedFontSize  // 绑定到共享属性
                 fontFamily: fontMetricsText.font.family
-                bridge: bridge
+                bridge: appBridge
                 isSpecialPlatform: backend.isSpecialPlatform
                 Layout.fillWidth: true
                 // 固定高度：2倍字体高
@@ -224,6 +227,6 @@ ApplicationWindow {
         y: (parent.height - height) / 2
         fontSize: fontMetricsUI.sharedFontSize
         fontFamily: fontMetricsUI.font.family
-        bridge: bridge
+        bridge: appBridge
     }
 }

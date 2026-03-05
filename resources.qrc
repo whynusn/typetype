@@ -7,4 +7,11 @@
     <qresource>
         <file>resources/images/TypeTypeLogo.png</file>
     </qresource>
+    <qresource>
+        <file>resources/texts/builtin_demo.txt</file>
+        <file>resources/texts/前五百.txt</file>
+        <file>resources/texts/中五百.txt</file>
+        <file>resources/texts/后五百.txt</file>
+        <file>resources/texts/打词必备单字.txt</file>
+    </qresource>
 </RCC>

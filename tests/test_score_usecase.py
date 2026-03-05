@@ -26,23 +26,26 @@ def _build_score_data() -> ScoreData:
 
 def test_build_score_message_with_empty_data():
     """空成绩数据应返回失败文案。"""
-    assert ScoreUseCase.build_score_message(None) == "获取分数失败"
+    usecase = ScoreUseCase(clipboard=DummyClipboard())
+    assert usecase.build_score_message(None) == "获取分数失败"
 
 
 def test_build_score_message_with_data():
     """有成绩数据时应返回 HTML 摘要。"""
+    usecase = ScoreUseCase(clipboard=DummyClipboard())
     score_data = _build_score_data()
-    message = ScoreUseCase.build_score_message(score_data)
+    message = usecase.build_score_message(score_data)
     assert "<b>" in message
     assert "速度:" in message
 
 
 def test_copy_score_message():
     """复制时应写入摘要纯文本。"""
+    usecase = ScoreUseCase(clipboard=DummyClipboard())
     score_data = _build_score_data()
-    clipboard = DummyClipboard()
+    clipboard = usecase._clipboard
 
-    ScoreUseCase.copy_score_message(score_data, clipboard)
+    usecase.copy_score_message(score_data)
 
     assert "速度:" in clipboard.value
     assert "准确率:" in clipboard.value
@@ -50,9 +53,10 @@ def test_copy_score_message():
 
 def test_build_history_record():
     """应按 QML 历史记录结构输出字典。"""
+    usecase = ScoreUseCase(clipboard=DummyClipboard())
     score_data = _build_score_data()
 
-    record = ScoreUseCase.build_history_record(score_data)
+    record = usecase.build_history_record(score_data)
 
     assert set(record.keys()) == {
         "speed",

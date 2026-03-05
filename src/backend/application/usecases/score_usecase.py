@@ -1,17 +1,13 @@
-from typing import Protocol
-
 from ...models.score_dto import HistoryRecordDTO, ScoreSummaryDTO
 from ...typing.score_data import ScoreData
-
-
-class ClipboardWriter(Protocol):
-    """剪贴板写入协议，避免在用例层依赖 Qt。"""
-
-    def setText(self, value: str) -> None: ...
+from ..ports.clipboard import ClipboardWriter
 
 
 class ScoreUseCase:
     """成绩相关用例，封装 Bridge 外的业务编排。"""
+
+    def __init__(self, clipboard: ClipboardWriter):
+        self._clipboard = clipboard
 
     @staticmethod
     def build_history_record(score_data: ScoreData) -> dict[str, float | int | str]:
@@ -25,12 +21,9 @@ class ScoreUseCase:
             return "获取分数失败"
         return ScoreSummaryDTO.from_score_data(score_data).to_html()
 
-    @staticmethod
-    def copy_score_message(
-        score_data: ScoreData | None, clipboard: ClipboardWriter
-    ) -> None:
+    def copy_score_message(self, score_data: ScoreData | None) -> None:
         """复制分数摘要纯文本到剪贴板。"""
         if not score_data:
             return
         plain_text = ScoreSummaryDTO.from_score_data(score_data).to_plain_text()
-        clipboard.setText(plain_text)
+        self._clipboard.setText(plain_text)

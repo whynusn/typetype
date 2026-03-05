@@ -2,13 +2,24 @@ from typing import Any
 
 import httpx
 
+from .network_errors import (
+    NetworkDecodeError,
+    NetworkError,
+    NetworkRequestError,
+    NetworkTimeoutError,
+)
+
 
 class ApiClient:
     """通用 HTTP 客户端，集中处理请求和异常。"""
 
     def __init__(self, timeout: float = 20.0):
         self._timeout = timeout
-        self._client = httpx.Client(timeout=self._timeout)
+        timeout_config = httpx.Timeout(
+            timeout=self._timeout, connect=min(self._timeout, 3.0)
+        )
+        self._client = httpx.Client(timeout=timeout_config)
+        self._last_error: NetworkError | None = None
 
     def request(
         self,
@@ -43,10 +54,29 @@ class ApiClient:
                 data=data,
                 headers=headers,
             )
-            return response.json()
+            result = response.json()
+            self.clear_last_error()
+            return result
+        except httpx.TimeoutException as e:
+            self._last_error = NetworkTimeoutError(str(e))
+        except httpx.RequestError as e:
+            self._last_error = NetworkRequestError(str(e))
+        except ValueError as e:
+            self._last_error = NetworkDecodeError(str(e))
         except Exception as e:
-            print(f"请求发生错误: {e}")
-            return None
+            self._last_error = NetworkError(str(e))
+
+        print(f"请求发生错误: {self._last_error}")
+        return None
+
+    @property
+    def last_error(self) -> NetworkError | None:
+        """返回最近一次请求错误，成功请求后会清空。"""
+        return self._last_error
+
+    def clear_last_error(self) -> None:
+        """清除最近一次请求错误。"""
+        self._last_error = None
 
     def get_json(
         self, url: str, params: dict[Any, Any] | None = None
