@@ -30,6 +30,7 @@ Pane {
         clip: true
         resizableColumns: true
 
+        property int headerRowHeight: root.rowHeight
         property color headerBgColor: Theme.currentTheme ? Theme.currentTheme.colors.cardSecondaryColor : "#ececec"
         property color borderColor: Theme.currentTheme ? Theme.currentTheme.colors.dividerBorderColor : "#e0e0e0"
         property color textColor: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : palette.windowText
@@ -41,7 +42,7 @@ Pane {
             required property var model
             required property var headerView
 
-            implicitHeight: root.rowHeight
+            implicitHeight: headerView.headerRowHeight
 
             color: headerView.headerBgColor
             border.color: headerView.borderColor
@@ -93,7 +94,7 @@ Pane {
             required property int column
             required property var model
 
-            implicitHeight: root.rowHeight
+            implicitHeight: 30
             border.color: Theme.currentTheme ? Theme.currentTheme.colors.dividerBorderColor : palette.mid
             border.width: 1
 
