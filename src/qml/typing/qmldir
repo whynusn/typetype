@@ -1,0 +1,7 @@
+module typing
+ToolLine 254.0 ToolLine.qml
+UpperPane 254.0 UpperPane.qml
+ScoreArea 254.0 ScoreArea.qml
+LowerPane 254.0 LowerPane.qml
+HistoryArea 254.0 HistoryArea.qml
+EndDialog 254.0 EndDialog.qml

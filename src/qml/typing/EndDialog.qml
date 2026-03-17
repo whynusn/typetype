@@ -1,5 +1,6 @@
 import QtQuick.Controls
 import RinUI
+import "../components"
 
 Dialog {
     id: root
