@@ -6,7 +6,6 @@ import RinUI as Rin
 Pane {
     id: root
     property alias text: textArea.text
-    property alias bridge: scrollView.bridge
     property alias fontSize: textArea.font.pixelSize
     property alias fontFamily: textArea.font.family
     property alias isFocus: textArea.activeFocus
@@ -14,7 +13,7 @@ Pane {
 
     // 记录上一次的文本长度，用于计算增量
     property string lastText: ""
-    property bool isSpecialPlatform: false
+    property bool isSpecialPlatform: backend ? backend.isSpecialPlatform : false
 
     background: Rectangle {
         color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.cardColor : "#f5f5f5"
@@ -33,8 +32,6 @@ Pane {
             policy: ScrollBar.AsNeeded
         }
 
-        property var bridge: null
-
         TextArea {
             id: textArea
             wrapMode: TextEdit.Wrap
@@ -42,18 +39,23 @@ Pane {
             verticalAlignment: TextInput.AlignTop // 文字靠上
             width: scrollView.width // 宽度绑定到 scrollView，保证换行正确
             color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textColor : "black"
-            background: Rectangle { color: "transparent" }
+            background: Rectangle {
+                color: "transparent"
+            }
 
-            readOnly: scrollView.bridge ? scrollView.bridge.textReadOnly : true
+            readOnly: appBridge ? appBridge.textReadOnly : true
 
             onCursorPositionChanged: {
                 //console.log("cursorPosition =", cursorPosition);
-                scrollView.bridge.setCursorPos(cursorPosition);
+                if (appBridge) {
+                    appBridge.setCursorPos(cursorPosition);
+                }
             }
 
             // ==========================================
             // 监听“正在输入的拼音/预编辑内容”
             // ==========================================
+            /*
             onPreeditTextChanged: {
                 // 这个参数就是输入法浮窗里显示的拼音（比如 "hao" 或 "hao ma"）
                 //console.log("预编辑内容变化:", preeditText);
@@ -61,26 +63,18 @@ Pane {
                     //console.log("这是空, 说明此时可能有上屏行为");
                 }
 
-                if (bridge) {
+                if (appBridge) {
                     // 你可以把拼音传给后端，做一些实时反馈（比如高亮匹配项）
-                    //bridge.handlePinyin(preeditText);
-
-                    /*
-                    if (preeditText==='' && text===''){
-                        bridge.handleStartStatus(false);
-                    } else {
-                        bridge.handleStartStatus(true);
-                    }
-					*/
-
+                    //appBridge.handlePinyin(preeditText);
                 }
             }
+            */
 
             // ==========================================
             // 捕获上屏字符
             // ==========================================
             onTextChanged: {
-                // if (bridge) bridge.onInputEnd();
+                // if (appBridge) appBridge.onInputEnd();
 
                 // 这里是你之前的“提取增量字符”的逻辑
                 var currentText = text;
@@ -93,25 +87,27 @@ Pane {
 
                 //console.log("textChanged!!\n");
 
-                if (bridge) {
+                if (appBridge) {
                     //==============================================
                     // 处理按键事件
                     //==============================================
                     if (preeditText === '' && currentText === '') {
-                        if (qmlDebug) console.log("Set false because no text");
-                        bridge.handleStartStatus(false);
-                    } else if (!bridge.isStart() && !bridge.isReadOnly()) {
-                        if (qmlDebug) console.log("Set true status by LowePane's textChanged event.");
-                        bridge.handleStartStatus(true);
+                        if (qmlDebug)
+                            console.log("Set false because no text");
+                        appBridge.handleStartStatus(false);
+                    } else if (!appBridge.isStart() && !appBridge.isReadOnly()) {
+                        if (qmlDebug)
+                            console.log("Set true status by LowePane's textChanged event.");
+                        appBridge.handleStartStatus(true);
                         if (root.isSpecialPlatform) {
-                            bridge.handlePressed(); // 第一下按键别忘了统计, 后续按键由全局监听器统计
+                            appBridge.handlePressed(); // 第一下按键别忘了统计, 后续按键由全局监听器统计
                         }
                     }
 
                     //console.log("平台特殊性已暴露到qml中：" + root.isSpecialPlatform);
                     if (!root.isSpecialPlatform) {
                         /* 如果不是wayland平台, 则在qml中统计按键事件 */
-                        bridge.handlePressed();
+                        appBridge.handlePressed();
                     }
                     //==============================================
 
@@ -119,7 +115,7 @@ Pane {
                     // 处理字符增删事件
                     //==============================================
                     if (growLength) {
-                        bridge.handleCommittedText(committedText, growLength);
+                        appBridge.handleCommittedText(committedText, growLength);
                     }
                     //==============================================
                 }

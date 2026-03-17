@@ -7,7 +7,6 @@ import RinUI
 Pane {
     id: root
 
-    property alias bridge: rowLayout.bridge
     property var textSourceOptions: []
     property string defaultTextSourceKey: ""
 
@@ -48,8 +47,6 @@ Pane {
         id: rowLayout
         anchors.fill: parent
         spacing: 15
-
-        property var bridge: null  // 将外部 Bridge 传进来使用（可选）
 
         Image {
             source: resourceBaseUrl + "images/TypeTypeLogo.png"

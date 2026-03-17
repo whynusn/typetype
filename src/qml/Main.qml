@@ -97,7 +97,7 @@ ApplicationWindow {
             }
         }
 
-        // 用 Connections 把 backend 的信号连接到 bridge 的方法
+        // 用 Connections 把 backend 的信号连接到 appBridge 的方法
         Connections {
             target: backend  // Python 暴露的 Backend 单例
 
@@ -134,7 +134,6 @@ ApplicationWindow {
 
             ToolLine {
                 id: toolLine
-                bridge: appBridge
                 textSourceOptions: appBridge ? appBridge.textSourceOptions : []
                 defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
                 Layout.fillWidth: true
@@ -147,7 +146,6 @@ ApplicationWindow {
                 id: upperPane
                 fontSize: fontMetricsText.sharedFontSize  // 绑定到共享属性
                 fontFamily: fontMetricsText.font.family
-                bridge: appBridge
                 Layout.fillHeight: true
                 Layout.fillWidth: true
                 Layout.minimumHeight: fontMetricsText.height * 2  // 最小高度：2倍字体高
@@ -155,7 +153,6 @@ ApplicationWindow {
 
             ScoreArea {
                 id: scoreArea
-                bridge: appBridge
                 Layout.fillWidth: true
                 Layout.preferredHeight: 40
                 Layout.minimumHeight: 40
@@ -166,8 +163,6 @@ ApplicationWindow {
                 id: lowerPane
                 fontSize: fontMetricsText.sharedFontSize  // 绑定到共享属性
                 fontFamily: fontMetricsText.font.family
-                bridge: appBridge
-                isSpecialPlatform: backend ? backend.isSpecialPlatform : false
                 Layout.fillWidth: true
                 // 固定高度：2倍字体高
                 Layout.preferredHeight: fontMetricsText.height * 2
@@ -186,7 +181,6 @@ ApplicationWindow {
             id: endDialog
             x: (parent.width - width) / 2
             y: (parent.height - height) / 2
-            bridge: appBridge
         }
     }
 }

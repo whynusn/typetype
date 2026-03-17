@@ -7,7 +7,7 @@ import RinUI
 Pane {
     id: root
 
-    property alias bridge: rowLayout.bridge
+    padding: 0
 
     background: Rectangle {
         color: Theme.currentTheme ? Theme.currentTheme.colors.cardColor : "lightgray"
@@ -32,29 +32,37 @@ Pane {
         id: rowLayout
         anchors.fill: parent
         anchors.leftMargin: 20
-        anchors.rightMargin: 20
+        //anchors.rightMargin: 20
 
-        property var bridge: null
-
-        AppText {
+        PillButton {
             id: totalTime
-            text: "时间: " + (rowLayout.bridge ? rowLayout.bridge.totalTime.toFixed(1) : "0.0")
+            text: "时间: " + (appBridge ? appBridge.totalTime.toFixed(1) : "0.0")
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
         }
-        AppText {
+        PillButton {
             id: typeSpeed
-            text: "速度: " + (rowLayout.bridge ? rowLayout.bridge.typeSpeed.toFixed(2) : "0.00")
+            text: "速度: " + (appBridge ? appBridge.typeSpeed.toFixed(2) : "0.00")
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
         }
-        AppText {
+        PillButton {
             id: keyStroke
-            text: "击键: " + (rowLayout.bridge ? rowLayout.bridge.keyStroke.toFixed(2) : "0.00")
+            text: "击键: " + (appBridge ? appBridge.keyStroke.toFixed(2) : "0.00")
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
         }
-        AppText {
+        PillButton {
             id: codeLength
-            text: "码长: " + (rowLayout.bridge ? rowLayout.bridge.codeLength.toFixed(2) : "0.00")
+            text: "码长: " + (appBridge ? appBridge.codeLength.toFixed(2) : "0.00")
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
         }
-        AppText {
+        PillButton {
             id: charNum
-            text: "字数: " + (rowLayout.bridge ? rowLayout.bridge.charNum : 0)
+            text: "字数: " + (appBridge ? appBridge.charNum : 0)
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
         }
     }
 }

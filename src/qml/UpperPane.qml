@@ -8,7 +8,6 @@ Pane {
 
     property alias textDocument: textArea.textDocument
     property alias text: textArea.text
-    property alias bridge: textArea.bridge
     property alias fontSize: textArea.font.pixelSize  // 暴露字体大小属性
     property alias fontFamily: textArea.font.family
 
@@ -51,13 +50,11 @@ Pane {
             color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textColor : "black"
             background: Rectangle { color: "transparent" }
 
-            property var bridge: null  // 将外部 Bridge 传进来使用（可选）
-
-            // 把底层的 textDocument（QQuickTextDocument）传给 Python 的 bridge
+            // 把底层的 textDocument（QQuickTextDocument）传给 Python 的 appBridge
             Component.onCompleted: {
                 // 载入初始文本
-                if (bridge) {
-                    bridge.handleLoadedText(textArea.textDocument);
+                if (appBridge) {
+                    appBridge.handleLoadedText(textArea.textDocument);
                 }
             }
 
@@ -76,8 +73,8 @@ Pane {
             }
 
             onTextChanged: {
-                if (bridge) {
-                    setCursorAndScroll(bridge.getCursorPos());
+                if (appBridge) {
+                    setCursorAndScroll(appBridge.getCursorPos());
                 }
             }
         }

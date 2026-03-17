@@ -3,7 +3,6 @@ import RinUI
 
 Dialog {
     id: root
-    property var bridge: null
     property string scoreMessage: ""
 
     modal: true
@@ -18,10 +17,10 @@ Dialog {
     }
 
     function copyScoreMessage() {
-        if (!root.bridge) {
+        if (!appBridge) {
             return;
         }
-        root.bridge.copyScoreMessage();
+        appBridge.copyScoreMessage();
     }
 
     onAccepted: {
