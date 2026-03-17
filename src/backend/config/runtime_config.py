@@ -7,15 +7,15 @@ class RuntimeConfig:
 
     text_sources: dict[str, dict[str, str]] = field(
         default_factory=lambda: {
-            "jisubei": {
-                "label": "极速杯",
-                "type": "network",
-                "url": "https://www.jsxiaoshi.com/index.php/Api/Text/getContent",
-            },
             "builtin_demo": {
                 "label": "本地示例",
                 "type": "local",
                 "local_path": "resources/texts/builtin_demo.txt",
+            },
+            "jisubei": {
+                "label": "极速杯",
+                "type": "network",
+                "url": "https://www.jsxiaoshi.com/index.php/Api/Text/getContent",
             },
             "fst_500": {
                 "label": "前五百",
@@ -39,7 +39,7 @@ class RuntimeConfig:
             },
         }
     )
-    default_text_source_key: str = "jisubei"
+    default_text_source_key: str = "builtin_demo"
     api_timeout: float = 20.0
 
     def get_text_source(self, source_key: str | None = None) -> dict[str, str] | None:
