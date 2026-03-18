@@ -1,5 +1,6 @@
 import os
 import sys
+from pathlib import Path
 
 _LEVELS = {
     "debug": 10,
@@ -8,6 +9,9 @@ _LEVELS = {
     "error": 40,
     "none": 50,
 }
+
+_LOG_FILE = Path.home() / ".typetype" / "app.log"
+_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _get_log_level() -> str:
@@ -30,6 +34,10 @@ def _log(level: str, message: str) -> None:
     if not _should_log(level):
         return
     stream = sys.stderr if level in {"warning", "error"} else sys.stdout
+    if stream is None:
+        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(message + "\n")
+        return
     print(message, file=stream)
 
 
