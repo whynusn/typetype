@@ -59,7 +59,7 @@ jobs:
             --quiet \
             --noinclude-qt-translations \
             --standalone \
-            --noinclude-dlls=webengine \
+            --noinclude-dlls=libQt6WebEngine* \
             --include-data-dir=src/qml=src/qml \
             --include-data-dir=resources/texts=resources/texts \
             --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
@@ -129,8 +129,9 @@ jobs:
             --quiet `
             --noinclude-qt-translations `
             --standalone `
-            --noinclude-dlls=webengine `
-            --windows-disable-console `
+            --noinclude-dlls=Qt6WebEngine* `
+            --windows-console-mode=disable `
+            --include-windows-runtime-dlls=yes `
             --assume-yes-for-downloads `
             --include-data-dir=src/qml=src/qml `
             --include-data-dir=resources/texts=resources/texts `
@@ -143,6 +144,8 @@ jobs:
         run: |
           $distDir = "build-src\deployment\main.dist"
           if (Test-Path $distDir) {
+            # 列出文件用于调试
+            Get-ChildItem $distDir -Recurse -Filter "*WebEngine*" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
             Compress-Archive -Path "$distDir\*" -DestinationPath typetype-windows-amd64.zip
           }
           else {

@@ -37,7 +37,7 @@ uv run python -m nuitka main.py \
   --quiet \
   --noinclude-qt-translations \
   --standalone \
-  --noinclude-dlls=webengine \
+  --noinclude-dlls=libQt6WebEngine* \
   --include-data-dir=src/qml=src/qml \
   --include-data-dir=resources/texts=resources/texts \
   --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
@@ -45,7 +45,7 @@ uv run python -m nuitka main.py \
   --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf
 ```
 
-Windows 建议追加：`--assume-yes-for-downloads`。
+Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disable --include-windows-runtime-dlls=yes --noinclude-dlls=Qt6WebEngine*`。
 
 ## 2. 当前架构（以代码为准）
 
