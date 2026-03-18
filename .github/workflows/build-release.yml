@@ -59,6 +59,7 @@ jobs:
             --quiet \
             --noinclude-qt-translations \
             --standalone \
+            --noinclude-dlls=webengine \
             --include-data-dir=src/qml=src/qml \
             --include-data-dir=resources/texts=resources/texts \
             --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
@@ -68,12 +69,11 @@ jobs:
 
       - name: 创建压缩包
         run: |
-          if [ -d build-src/dist ]; then
-            tar -czf typetype-linux-amd64.tar.gz -C build-src/dist .
-          elif [ -d build-src/deployment ]; then
-            tar -czf typetype-linux-amd64.tar.gz -C build-src/deployment .
+          DIST_DIR="build-src/deployment/main.dist"
+          if [ -d "$DIST_DIR" ]; then
+            tar -czf typetype-linux-amd64.tar.gz -C "$DIST_DIR" .
           else
-            echo "未找到打包输出目录（dist/deployment）"
+            echo "未找到打包输出目录 $DIST_DIR"
             exit 1
           fi
 
@@ -129,6 +129,8 @@ jobs:
             --quiet `
             --noinclude-qt-translations `
             --standalone `
+            --noinclude-dlls=webengine `
+            --windows-disable-console `
             --assume-yes-for-downloads `
             --include-data-dir=src/qml=src/qml `
             --include-data-dir=resources/texts=resources/texts `
@@ -139,14 +141,12 @@ jobs:
 
       - name: 创建压缩包
         run: |
-          if (Test-Path build-src/dist) {
-            Compress-Archive -Path build-src/dist\* -DestinationPath typetype-windows-amd64.zip
-          }
-          elseif (Test-Path build-src/deployment) {
-            Compress-Archive -Path build-src/deployment\* -DestinationPath typetype-windows-amd64.zip
+          $distDir = "build-src\deployment\main.dist"
+          if (Test-Path $distDir) {
+            Compress-Archive -Path "$distDir\*" -DestinationPath typetype-windows-amd64.zip
           }
           else {
-            Write-Error "未找到打包输出目录（dist/deployment）"
+            Write-Error "未找到打包输出目录 $distDir"
             exit 1
           }
 
