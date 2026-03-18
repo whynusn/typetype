@@ -42,6 +42,8 @@ Pane {
             background: Rectangle {
                 color: "transparent"
             }
+            placeholderText: "请输入内容..."
+            placeholderTextColor: "#999999"
 
             readOnly: appBridge ? appBridge.textReadOnly : true
 

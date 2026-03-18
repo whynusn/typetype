@@ -7,6 +7,7 @@ import "../components"
 
 Item {
     id: typingPage
+    property bool loggedin: false  // Will be injected by NavigationView
 
     //=====================================
     // 函数
@@ -14,6 +15,8 @@ Item {
 
     function handleRetypeRequest() {
         lowerPane.text = "";
+        if (appBridge)
+            appBridge.handleStartStatus(false);
     }
 
     function applyLoadedText(plainText) {
