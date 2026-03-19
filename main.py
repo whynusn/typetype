@@ -9,7 +9,6 @@ import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
 from src.backend.application.usecases.score_usecase import ScoreUseCase
 from src.backend.application.usecases.text_usecase import TextUseCase
-from src.backend.backend import Backend
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.core.api_client import ApiClient
 from src.backend.integration.global_key_listener import GlobalKeyListener
@@ -89,22 +88,24 @@ def main():
     os_type, display_server = system_identifier.get_system_info()
     log_info(f"系统: {os_type} 平台: {display_server}")
 
-    # 监听器
     key_listener = None
     if os_type == "Linux" and display_server == "Wayland":
         key_listener = GlobalKeyListener()
         key_listener.start()
         log_info("因系统平台特殊性，全局监听器已启动")
 
-    # 创建 Backend，并传入监听器
-    backend = Backend(key_listener)
+    bridge = Bridge(
+        typing_service=typing_service,
+        text_load_service=text_load_service,
+        auth_service=auth_service,
+        runtime_config=runtime_config,
+        key_listener=key_listener,
+    )
 
     # 使用 RinUIWindow 接管 engine 和 QML 加载
     rin_window = RinUIWindow()
     engine = rin_window.engine
 
-    # 暴露 Backend 到 QML（用单例模式）
-    engine.rootContext().setContextProperty("backend", backend)
     engine.rootContext().setContextProperty("appBridge", bridge)
 
     # 获取当前文件所在路径

@@ -13,7 +13,10 @@ Pane {
 
     // 记录上一次的文本长度，用于计算增量
     property string lastText: ""
-    property bool isSpecialPlatform: backend ? backend.isSpecialPlatform : false
+    property bool isSpecialPlatform: appBridge ? appBridge.isSpecialPlatform : false
+
+    // 信号：通知 Bridge 焦点变化
+    signal lowerPaneFocusChanged(bool hasFocus)
 
     background: Rectangle {
         color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.cardColor : "#f5f5f5"
@@ -46,6 +49,10 @@ Pane {
             placeholderTextColor: "#999999"
 
             readOnly: appBridge ? appBridge.textReadOnly : true
+
+            onActiveFocusChanged: {
+                root.lowerPaneFocusChanged(activeFocus);
+            }
 
             onCursorPositionChanged: {
                 //console.log("cursorPosition =", cursorPosition);

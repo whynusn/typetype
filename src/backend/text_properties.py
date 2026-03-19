@@ -5,6 +5,8 @@ from .config.runtime_config import RuntimeConfig
 from .domain.auth_service import AuthService
 from .domain.text_load_service import TextLoadService
 from .domain.typing_service import TypingService
+from .integration.global_key_listener import GlobalKeyListener
+from .utils.logger import log_info
 
 
 class Bridge(QObject):
@@ -14,6 +16,7 @@ class Bridge(QObject):
     - 属性代理（QML 属性绑定 透传到各个 Service）
     - 信号转发（Service 信号 --> Bridge 信号 -> QML）
     - Slot 入口（QML 调用 --> Bridge 调用 -> Service）
+    - 全局键盘监听器持有与转发（Wayland 平台特殊处理）
     """
 
     # ==== 信号定义 ====
@@ -33,6 +36,7 @@ class Bridge(QObject):
     userInfoChanged = Signal()
     loginResult = Signal(bool, str)
     cursorPosChanged = Signal(int)
+    specialPlatformConfirmed = Signal(bool)  # False=normal, True=Wayland special
 
     def __init__(
         self,
@@ -40,15 +44,23 @@ class Bridge(QObject):
         text_load_service: TextLoadService,
         auth_service: AuthService,
         runtime_config: RuntimeConfig,
+        key_listener: GlobalKeyListener | None = None,
     ):
         super().__init__()
         self._typing_service = typing_service
         self._text_load_service = text_load_service
         self._auth_service = auth_service
         self._runtime_config = runtime_config
+        self._key_listener = key_listener
+        self._is_special_platform = key_listener is not None
+        self._lower_pane_focused = False
 
         self._connect_typing_signals()
         self._connect_text_load_signals()
+        self._connect_key_listener()
+
+        self.specialPlatformConfirmed.emit(self._is_special_platform)
+        log_info(f"[Bridge] 检测到平台特殊性: {self._is_special_platform}")
 
     # ==== 信号连接( service 层信号 --> Bridge 层信号 ) ====
 
@@ -68,6 +80,14 @@ class Bridge(QObject):
         self._text_load_service.textLoaded.connect(self.textLoaded.emit)
         self._text_load_service.textLoadFailed.connect(self.textLoadFailed.emit)
         self._text_load_service.textLoadingChanged.connect(self.textLoadingChanged.emit)
+
+    def _connect_key_listener(self) -> None:
+        if self._key_listener:
+            self._key_listener.keyPressed.connect(self.on_key_received)
+
+    def on_key_received(self, keyCode: int, deviceName: str) -> None:
+        if self._lower_pane_focused:
+            self._typing_service.handlePressed()
 
     # ==== 属性代理 ====
 
@@ -123,6 +143,10 @@ class Bridge(QObject):
     def currentUser(self) -> str:
         return self._auth_service.current_username
 
+    @Property(bool, notify=specialPlatformConfirmed)
+    def isSpecialPlatform(self) -> bool:
+        return self._is_special_platform
+
     # ==== Slot 入口 ====
 
     @Slot(str)
@@ -132,6 +156,10 @@ class Bridge(QObject):
     @Slot()
     def handlePressed(self) -> None:
         self._typing_service.handlePressed()
+
+    @Slot(bool)
+    def setLowerPaneFocused(self, focused: bool) -> None:
+        self._lower_pane_focused = focused
 
     @Slot(str, int)
     def handleCommittedText(self, s: str, growLength: int) -> None:

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..typing.score_data import ScoreData
+    from ...typing.score_data import ScoreData
 
 
 @dataclass

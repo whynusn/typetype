@@ -104,17 +104,13 @@ Item {
         }
     }
 
-    // 用 Connections 把 backend 的信号连接到 appBridge 的方法
+    // 同步 LowerPane 焦点状态到 Bridge
     Connections {
-        target: backend  // Python 暴露的 Backend 单例
+        target: lowerPane
         enabled: typingPage.StackView.status === StackView.Active
 
-        function onKeyPressed(keyCode, deviceName) {
-            if (lowerPane.isFocus) {
-                if (appBridge.isStart()) {
-                    appBridge.handlePressed();
-                }
-            }
+        function onLowerPaneFocusChanged(hasFocus) {
+            appBridge.setLowerPaneFocused(hasFocus);
         }
     }
 

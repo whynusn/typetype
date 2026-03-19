@@ -2,7 +2,7 @@
 成绩 DTO 测试
 """
 
-from src.backend.models.score_dto import HistoryRecordDTO, ScoreSummaryDTO
+from src.backend.models.dto.score_dto import HistoryRecordDTO, ScoreSummaryDTO
 from src.backend.typing.score_data import ScoreData
 
 
