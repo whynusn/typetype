@@ -9,16 +9,20 @@ import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
 from src.backend.application.usecases.score_usecase import ScoreUseCase
 from src.backend.application.usecases.text_usecase import TextUseCase
+from src.backend.bridge import Bridge
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.core.api_client import ApiClient
-from src.backend.integration.global_key_listener import GlobalKeyListener
-from src.backend.integration.local_text_loader import QtLocalTextLoader
-from src.backend.integration.system_identifier import SystemIdentifier
-from src.backend.integration.sai_wen_service import SaiWenService
 from src.backend.domain.auth_service import AuthService
+from src.backend.domain.char_stats_service import CharStatsService
 from src.backend.domain.text_load_service import TextLoadService
 from src.backend.domain.typing_service import TypingService
-from src.backend.bridge import Bridge
+from src.backend.integration.global_key_listener import GlobalKeyListener
+from src.backend.integration.local_text_loader import QtLocalTextLoader
+from src.backend.integration.sai_wen_service import SaiWenService
+from src.backend.integration.sqlite_char_stats_repository import (
+    SqliteCharStatsRepository,
+)
+from src.backend.integration.system_identifier import SystemIdentifier
 from src.backend.utils.logger import is_debug_enabled, log_debug, log_info
 
 
@@ -32,6 +36,23 @@ def _check_darkdetect_support() -> bool:
 
 # 在 ThemeManager 实例化之前修补
 _rinui_theme.check_darkdetect_support = _check_darkdetect_support
+
+
+def _load_common_chars() -> list[str]:
+    """加载高频五百中文汉字，用于启动时预热 char_stats 缓存。"""
+    try:
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "resources",
+            "texts",
+            "前五百.txt",
+        )
+        with open(path, encoding="gbk") as f:
+            text = f.read()
+        # 过滤、去重、转换
+        return list(dict.fromkeys(c for c in text if "\u4e00" <= c <= "\u9fff"))
+    except Exception:
+        return []
 
 
 def main():
@@ -64,7 +85,16 @@ def main():
         local_text_loader=local_text_loader,
     )
     score_usecase = ScoreUseCase(clipboard=clipboard)
-    typing_service = TypingService(score_usecase=score_usecase)
+
+    char_stats_repo = SqliteCharStatsRepository(db_path="data/char_stats.db")
+    char_stats_service = CharStatsService(repository=char_stats_repo)
+    common_chars = _load_common_chars()
+    if common_chars:
+        char_stats_service.warm_chars(common_chars)
+
+    typing_service = TypingService(
+        score_usecase=score_usecase, char_stats_service=char_stats_service
+    )
     text_load_service = TextLoadService(
         text_usecase=text_usecase,
         runtime_config=runtime_config,

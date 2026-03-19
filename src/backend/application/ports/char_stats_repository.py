@@ -1,0 +1,43 @@
+from typing import Protocol, runtime_checkable
+
+from ...models.char_stats import CharStat
+
+
+@runtime_checkable
+class CharStatsRepository(Protocol):
+    """字符统计持久化协议。
+
+    负责将 CharStat 实体与存储介质（SQLite 等）之间的读写解耦。
+    """
+
+    def init_db(self) -> None:
+        """初始化数据库（创建表结构）。"""
+        ...
+
+    def get(self, char: str) -> CharStat | None:
+        """获取单个字符的统计。"""
+        ...
+
+    def get_batch(self, chars: list[str]) -> list[CharStat]:
+        """批量获取字符统计。"""
+        ...
+
+    def save(self, stat: CharStat) -> None:
+        """保存单个字符的统计（插入或更新）。"""
+        ...
+
+    def save_batch(self, stats: list[CharStat]) -> None:
+        """批量保存字符统计。"""
+        ...
+
+    def get_all(self) -> list[CharStat]:
+        """获取全部字符统计。"""
+        ...
+
+    def get_all_dirty(self) -> list[CharStat]:
+        """获取所有待同步的字符统计（is_dirty=1）。"""
+        ...
+
+    def mark_synced(self, chars: list[str], synced_at: str) -> None:
+        """标记字符为已同步。"""
+        ...

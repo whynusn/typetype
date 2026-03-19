@@ -71,3 +71,4 @@ pysidedeploy.spec
 *.so
 *.dylib
 *.dll
+data/

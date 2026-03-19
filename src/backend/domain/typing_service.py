@@ -6,8 +6,8 @@ from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtQuick import QQuickTextDocument
 
 from ..application.usecases.score_usecase import ScoreUseCase
-from ..models.char_stats import CharStat
 from ..models.score_data import ScoreData
+from .char_stats_service import CharStatsService
 
 
 class TypingService(QObject):
@@ -31,7 +31,12 @@ class TypingService(QObject):
     readOnlyChanged = Signal()
     historyRecordUpdated = Signal(dict)
 
-    def __init__(self, score_usecase: ScoreUseCase, time_interval: float = 0.15):
+    def __init__(
+        self,
+        score_usecase: ScoreUseCase,
+        char_stats_service: CharStatsService,
+        time_interval: float = 0.15,
+    ):
         super().__init__()
         self._score_data = ScoreData(
             time=0.0,
@@ -41,15 +46,15 @@ class TypingService(QObject):
             date="",
         )
         self._score_usecase = score_usecase
+        self._char_stats_service = char_stats_service
         self.timeInterval = time_interval
 
         self._total_chars = 0
         self._cursor_position = 0
         self._start_status = False
-        self._text_read_only = False  # LowerPane 只读状态：打字中可编辑，打印完只读
+        self._text_read_only = False
         self._wrong_char_prefix_sum: list[int] = []
 
-        self._char_stats: dict[str, CharStat] = {}
         self._last_commit_time_ms: float = 0.0
 
         # 文本上色相关
@@ -186,10 +191,10 @@ class TypingService(QObject):
         self._color_text(pos, 1, self._correct_fmt if not is_error else self._error_fmt)
 
     def _check_typing_complete(self) -> None:
-        """检查是否所有目标字符都已打完，打完则停止计时并触发结束事件。"""
         if self._score_data.char_count >= self._total_chars and self._start_status:
             self._stop()
             self._set_read_only(True)
+            self._char_stats_service.flush_async()
             self.typingEnded.emit()
             self.historyRecordUpdated.emit(self._get_new_record())
 
@@ -229,7 +234,7 @@ class TypingService(QObject):
             # ── 新增字符 ──
             # 计算单字符耗时：总耗时均摊到每个新增字符
             now_ms = time() * 1000
-            if self._last_commit_time_ms == 0.0:
+            if self._last_commit_time_ms == 0.0:  # 防御性编程，兜底为 0 的情况
                 self._last_commit_time_ms = now_ms
             elapsed_ms = now_ms - self._last_commit_time_ms
             per_char_ms = elapsed_ms / growLength
@@ -241,11 +246,8 @@ class TypingService(QObject):
                     break
                 char = self._plain_doc[pos]
                 is_error = s[i] != char
-                # 仅前 growLength 个字符为新增，累积 char_stats
                 if i < growLength:
-                    self._char_stats.setdefault(char, CharStat(char)).accumulate(
-                        per_char_ms, is_error
-                    )
+                    self._char_stats_service.accumulate(char, per_char_ms, is_error)
                 # 更新 prefix_sum 并着色（新增 + 已存在的位置都需处理）
                 self._update_char_at_pos(pos, char, is_error)
 
@@ -348,8 +350,8 @@ class TypingService(QObject):
         return self._score_data.time
 
     @property
-    def char_stats(self) -> dict[str, CharStat]:
-        return self._char_stats
+    def char_stats_service(self) -> CharStatsService:
+        return self._char_stats_service
 
     def get_score_message(self) -> str:
         return self._score_usecase.build_score_message(self._score_data)

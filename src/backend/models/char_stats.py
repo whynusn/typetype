@@ -76,12 +76,7 @@ class CharStat:
         self.char_count = max(self.char_count, other.char_count)
         self.error_char_count = max(self.error_char_count, other.error_char_count)
         self.total_ms = max(self.total_ms, other.total_ms)
-
-        if other.min_ms > 0 and (self.min_ms == 0 or other.min_ms < self.min_ms):
+        if other.min_ms > 0 and other.min_ms < self.min_ms:
             self.min_ms = other.min_ms
-
-        if other.max_ms > self.max_ms:
-            self.max_ms = other.max_ms
-
-        if other.last_seen > self.last_seen:
-            self.last_seen = other.last_seen
+        self.max_ms = max(self.max_ms, other.max_ms)
+        self.last_seen = max(self.last_seen, other.last_seen)

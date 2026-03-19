@@ -6,9 +6,11 @@ from PySide6.QtCore import QObject, Signal
 
 from src.backend.bridge import Bridge
 from src.backend.config.runtime_config import RuntimeConfig
+from src.backend.domain.char_stats_service import CharStatsService
 from src.backend.domain.typing_service import TypingService
 from src.backend.domain.text_load_service import TextLoadService
 from src.backend.domain.auth_service import AuthService
+from src.backend.integration.noop_char_stats_repository import NoopCharStatsRepository
 from src.backend.application.usecases.score_usecase import ScoreUseCase
 from src.backend.application.usecases.text_usecase import TextUseCase
 from unittest.mock import MagicMock
@@ -25,7 +27,10 @@ class TestBridgeSpecialPlatform:
 
     def _create_mock_services(self):
         score_usecase = MagicMock(spec=ScoreUseCase)
-        typing_service = TypingService(score_usecase=score_usecase)
+        char_stats_service = CharStatsService(repository=NoopCharStatsRepository())
+        typing_service = TypingService(
+            score_usecase=score_usecase, char_stats_service=char_stats_service
+        )
         text_usecase = MagicMock(spec=TextUseCase)
         text_load_service = TextLoadService(
             text_usecase=text_usecase, runtime_config=RuntimeConfig()
