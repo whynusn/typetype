@@ -104,7 +104,7 @@ class AuthService:
             return False, {}
 
         data = self._api_client.request(
-            "GET",
+            "POST",
             self._refresh_url,
             headers={"Authorization": f"Bearer {refresh_token}"},
         )
