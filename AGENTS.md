@@ -41,8 +41,8 @@ uv run python -m nuitka main.py \
   --include-data-dir=src/qml=src/qml \
   --include-data-dir=resources/texts=resources/texts \
   --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
-  --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
-  --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf
+  --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
+  --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf
 ```
 
 Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disable --include-windows-runtime-dlls=yes --noinclude-dlls=Qt6WebEngine*`。
@@ -130,6 +130,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 | **TypingService** | 打字统计（ScoreData 状态、计时器、键数累积、文本上色、历史记录构建） |
 | **TextLoadService** | 文本加载（来源路由、网络/本地/剪贴板加载、Worker 线程管理） |
 | **AuthService** | 登录认证（login/logout、token 验证与刷新、状态持久化） |
+| **CharStatsService** | 字符维度统计（缓存、异步持久化、薄弱字查询） |
 | **SaiWenService** | 第三方网络文本获取（实现 TextFetcher 协议） |
 
 ### Bridge 职责（薄适配层）
@@ -143,11 +144,13 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 typing_service = TypingService(score_usecase=score_usecase)
 text_load_service = TextLoadService(text_usecase=text_usecase, runtime_config=runtime_config)
 auth_service = AuthService(api_client=api_client, ...)
+char_stats_service = CharStatsService(repo=char_stats_repo)
 bridge = Bridge(
     typing_service=typing_service,
     text_load_service=text_load_service,
     auth_service=auth_service,
     runtime_config=runtime_config,
+    char_stats_service=char_stats_service,
 )
 ```
 

@@ -11,7 +11,7 @@
 - 文本来源：
   - 网络：极速杯（`jisubei`）
   - 本地内置：示例、前五百、中五百、后五百、打词必备单字
-- 异步加载：`QThreadPool + LoadTextWorker`
+- 异步加载：`QThreadPool + TextLoadWorker`
 
 ## 功能特性
 
@@ -69,8 +69,8 @@ uv run python -m nuitka main.py \
   --include-data-dir=src/qml=src/qml \
   --include-data-dir=resources/texts=resources/texts \
   --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
-  --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
-  --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf
+  --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
+  --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf
 ```
 
 Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disable --include-windows-runtime-dlls=yes --noinclude-dlls=Qt6WebEngine*`。
@@ -167,11 +167,13 @@ typetype/
 typing_service = TypingService(score_usecase=score_usecase)
 text_load_service = TextLoadService(text_usecase=text_usecase, runtime_config=runtime_config)
 auth_service = AuthService(...)
+char_stats_service = CharStatsService(repo=char_stats_repo)
 bridge = Bridge(
     typing_service=typing_service,
     text_load_service=text_load_service,
     auth_service=auth_service,
     runtime_config=runtime_config,
+    char_stats_service=char_stats_service,
 )
 ```
 
@@ -180,6 +182,7 @@ bridge = Bridge(
 - **TypingService**：打字统计（ScoreData、计时器、键数累积、文本上色）
 - **TextLoadService**：文本加载（网络/本地/剪贴板路由、Worker 线程管理）
 - **AuthService**：登录认证（login/logout、token 刷新、状态持久化）
+- **CharStatsService**：字符维度统计（缓存、异步持久化、薄弱字查询）
 - **RuntimeConfig**：管理文本来源列表和默认来源
 
 ## Spring Boot 服务接入规划
