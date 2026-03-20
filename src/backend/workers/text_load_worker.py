@@ -2,8 +2,8 @@ from ..application.usecases.text_usecase import TextUseCase
 from .base_worker import BaseWorker
 
 
-class LoadTextWorker(BaseWorker):
-    """后台执行网络载文，避免阻塞 UI 线程。"""
+class TextLoadWorker(BaseWorker):
+    """后台执行文本加载，避免阻塞 UI 线程。"""
 
     def __init__(self, text_usecase: TextUseCase, url: str):
         self._text_usecase = text_usecase

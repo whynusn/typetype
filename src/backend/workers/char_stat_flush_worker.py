@@ -3,8 +3,8 @@ from ..models.char_stats import CharStat
 from .base_worker import BaseWorker
 
 
-class CharStatsWorker(BaseWorker):
-    """后台持久化 char_stats 到数据库，避免阻塞 UI 线程。"""
+class CharStatFlushWorker(BaseWorker):
+    """后台将字符统计数据持久化到数据库，避免阻塞 UI 线程。"""
 
     def __init__(self, repository: CharStatsRepository, entries: list[CharStat]):
         self._repo = repository

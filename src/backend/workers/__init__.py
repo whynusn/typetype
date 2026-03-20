@@ -1,4 +1,11 @@
 from .base_worker import BaseWorker
-from .load_text_worker import LoadTextWorker
+from .char_stat_flush_worker import CharStatFlushWorker
+from .text_load_worker import TextLoadWorker
+from .weak_chars_query_worker import WeakCharsQueryWorker
 
-__all__ = ["BaseWorker", "LoadTextWorker"]
+__all__ = [
+    "BaseWorker",
+    "CharStatFlushWorker",
+    "TextLoadWorker",
+    "WeakCharsQueryWorker",
+]

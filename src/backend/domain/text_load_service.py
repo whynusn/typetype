@@ -2,7 +2,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ..application.usecases.text_usecase import TextUseCase
 from ..config.runtime_config import RuntimeConfig
-from ..workers.load_text_worker import LoadTextWorker
+from ..workers.text_load_worker import TextLoadWorker
 
 
 class TextLoadService(QObject):
@@ -48,7 +48,7 @@ class TextLoadService(QObject):
             return
 
         self._set_text_loading(True)
-        worker = LoadTextWorker(
+        worker = TextLoadWorker(
             text_usecase=self._text_usecase,
             url=url,
         )
