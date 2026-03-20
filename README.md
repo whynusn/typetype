@@ -75,6 +75,17 @@ uv run python -m nuitka main.py \
 
 Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disable --include-windows-runtime-dlls=yes --noinclude-dlls=Qt6WebEngine*`。
 
+### 字体裁剪说明
+
+项目使用了裁剪后的字体文件以减小打包体积和运行时内存占用：
+
+| 字体 | 原始大小 | 裁剪后大小 | 减少比例 |
+|------|----------|------------|----------|
+| HarmonyOS Sans SC Regular | 8.2 MB | 504 KB | ~94% |
+| LXGW WenKai Regular | 25.4 MB | 880 KB | ~97% |
+
+裁剪后的字体文件（`*-subset.ttf`）仅包含项目实际使用的中文字符，打包时应使用这些裁剪版本而非原始字体文件。
+
 ## 项目结构（核心）
 
 ```text
