@@ -22,6 +22,10 @@ class CharStatsRepository(Protocol):
         """批量获取字符统计。"""
         ...
 
+    def get_weakest_chars(self, n: int) -> list[CharStat]:
+        """获取最薄弱的 n 个字符统计"""
+        ...
+
     def save(self, stat: CharStat) -> None:
         """保存单个字符的统计（插入或更新）。"""
         ...

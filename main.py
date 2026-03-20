@@ -65,7 +65,7 @@ def main():
         os.path.dirname(os.path.abspath(__file__)),
         "resources",
         "fonts",
-        "HarmonyOS_Sans_SC_Regular.ttf",
+        "HarmonyOS_Sans_SC_Regular-subset.ttf",
     )
     _font_id = QFontDatabase.addApplicationFont(_ui_font_path)
     if _font_id != -1:
@@ -105,15 +105,6 @@ def main():
         validate_url=runtime_config.validate_api_url,
         refresh_url=runtime_config.refresh_api_url,
     )
-    bridge = Bridge(
-        typing_service=typing_service,
-        text_load_service=text_load_service,
-        auth_service=auth_service,
-        runtime_config=runtime_config,
-    )
-
-    bridge.initializeLoginState()
-
     system_identifier = SystemIdentifier()
     os_type, display_server = system_identifier.get_system_info()
     log_info(f"系统: {os_type} 平台: {display_server}")
@@ -130,7 +121,10 @@ def main():
         auth_service=auth_service,
         runtime_config=runtime_config,
         key_listener=key_listener,
+        char_stats_service=char_stats_service,
     )
+
+    bridge.initializeLoginState()
 
     # 使用 RinUIWindow 接管 engine 和 QML 加载
     rin_window = RinUIWindow()
@@ -162,6 +156,7 @@ def main():
 
     # 清理资源并退出
     exit_code = app.exec()
+    char_stats_service.flush()
     api_client.close()
     if key_listener:
         key_listener.stop()  # 立即生效，无需 wait

@@ -2,7 +2,7 @@ from PySide6.QtCore import QThreadPool
 
 from ..application.ports.char_stats_repository import CharStatsRepository
 from ..models.char_stats import CharStat
-from ..workers.char_stats_worker import CharStatsWorker
+from ..workers.char_stat_flush_worker import CharStatFlushWorker
 
 
 class CharStatsService:
@@ -46,14 +46,12 @@ class CharStatsService:
         if not self._dirty:
             return
         entries = [self._cache[c] for c in self._dirty if c in self._cache]
-        worker = CharStatsWorker(repository=self._repo, entries=entries)
+        worker = CharStatFlushWorker(repository=self._repo, entries=entries)
         QThreadPool.globalInstance().start(worker)
         self._dirty.clear()
 
     def get_weakest_chars(self, n: int = 10) -> list[CharStat]:
-        typed = [s for s in self._cache.values() if s.char_count > 0]
-        typed.sort(key=lambda s: s.error_rate, reverse=True)
-        return typed[:n]
+        return self._repo.get_weakest_chars(n)
 
     def get_all(self) -> dict[str, CharStat]:
         return dict(self._cache)

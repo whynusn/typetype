@@ -24,6 +24,12 @@ FluentWindow {
             position: Position.Top
         },
         {
+            title: qsTr("薄弱字"),
+            page: Qt.resolvedUrl("pages/WeakCharsPage.qml"),
+            icon: "ic_fluent_text_quote_20_regular",
+            position: Position.Top
+        },
+        {
             title: qsTr("排行榜"),
             icon: "ic_fluent_trophy_20_regular",
             subItems: [

@@ -1,4 +1,9 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import Property, QObject, Signal, Slot
+from PySide6.QtCore import QThreadPool
 from PySide6.QtQuick import QQuickTextDocument
 
 from .config.runtime_config import RuntimeConfig
@@ -7,6 +12,10 @@ from .domain.text_load_service import TextLoadService
 from .domain.typing_service import TypingService
 from .integration.global_key_listener import GlobalKeyListener
 from .utils.logger import log_info
+from .workers.weak_chars_query_worker import WeakCharsQueryWorker
+
+if TYPE_CHECKING:
+    from .domain.char_stats_service import CharStatsService
 
 
 class Bridge(QObject):
@@ -37,6 +46,7 @@ class Bridge(QObject):
     loginResult = Signal(bool, str)
     cursorPosChanged = Signal(int)
     specialPlatformConfirmed = Signal(bool)  # False=normal, True=Wayland special
+    weakestCharsLoaded = Signal("QVariantList")
 
     def __init__(
         self,
@@ -45,6 +55,7 @@ class Bridge(QObject):
         auth_service: AuthService,
         runtime_config: RuntimeConfig,
         key_listener: GlobalKeyListener | None = None,
+        char_stats_service: "CharStatsService | None" = None,
     ):
         super().__init__()
         self._typing_service = typing_service
@@ -52,6 +63,7 @@ class Bridge(QObject):
         self._auth_service = auth_service
         self._runtime_config = runtime_config
         self._key_listener = key_listener
+        self._char_stats_service = char_stats_service
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
 
@@ -61,6 +73,9 @@ class Bridge(QObject):
 
         self.specialPlatformConfirmed.emit(self._is_special_platform)
         log_info(f"[Bridge] 检测到平台特殊性: {self._is_special_platform}")
+
+    def _on_weak_chars_loaded(self, data: list) -> None:
+        self.weakestCharsLoaded.emit(data)
 
     # ==== 信号连接( service 层信号 --> Bridge 层信号 ) ====
 
@@ -225,3 +240,13 @@ class Bridge(QObject):
         if self._auth_service.is_logged_in:
             self.loggedinChanged.emit()
             self.userInfoChanged.emit()
+
+    @Slot()
+    def loadWeakChars(self) -> None:
+        if not self._char_stats_service:
+            self.weakestCharsLoaded.emit([])
+            return
+        worker = WeakCharsQueryWorker(self._char_stats_service._repo, 10)
+        worker.signals.succeeded.connect(self._on_weak_chars_loaded)
+        worker.signals.failed.connect(lambda msg: log_info(f"[Bridge] {msg}"))
+        QThreadPool.globalInstance().start(worker)

@@ -51,6 +51,23 @@ class SqliteCharStatsRepository:
             ).fetchall()
         return [self._row_to_stat(row) for row in rows]
 
+    def get_weakest_chars(self, n: int) -> list[CharStat]:
+        if n <= 0:
+            return []
+        with sqlite3.connect(self._db_path) as conn:
+            rows = conn.execute(
+                """
+                    SELECT char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen
+                    FROM char_stats
+                    WHERE char_count > 0
+                    ORDER BY ((total_ms * 1.0 / char_count) * 0.1 +
+                              (error_char_count * 100.0 / char_count) * 0.9) DESC
+                    LIMIT ?
+                """,
+                (n,),
+            ).fetchall()
+        return [self._row_to_stat(row) for row in rows]
+
     def save(self, stat: CharStat) -> None:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with sqlite3.connect(self._db_path) as conn:

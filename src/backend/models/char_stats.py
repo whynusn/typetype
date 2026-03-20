@@ -43,7 +43,8 @@ class CharStat:
         if is_error:
             self.error_char_count += 1
 
-        if self.min_ms == 0.0 or keystroke_ms < self.min_ms:
+        # 只有打字正确才考虑更新最短耗时
+        if not is_error and (self.min_ms == 0.0 or keystroke_ms < self.min_ms):
             self.min_ms = keystroke_ms
 
         if keystroke_ms > self.max_ms:
@@ -80,3 +81,15 @@ class CharStat:
             self.min_ms = other.min_ms
         self.max_ms = max(self.max_ms, other.max_ms)
         self.last_seen = max(self.last_seen, other.last_seen)
+
+    def to_dict(self) -> dict:
+        return {
+            "ch": self.char,
+            "charCount": self.char_count,
+            "errorCharCount": self.error_char_count,
+            "errorRate": round(self.error_rate, 1),
+            "avgMs": round(self.avg_ms, 1),
+            "minMs": round(self.min_ms, 1),
+            "maxMs": round(self.max_ms, 1),
+            "lastSeen": self.last_seen,
+        }
