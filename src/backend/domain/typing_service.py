@@ -229,11 +229,11 @@ class TypingService(QObject):
         """
         # beginPos: 本次提交在目标文本中的起始位置
         beginPos = self._score_data.char_count + growLength - len(s)
+        now_ms = time() * 1000
 
         if growLength > 0:
             # ── 新增字符 ──
             # 计算单字符耗时：总耗时均摊到每个新增字符
-            now_ms = time() * 1000
             if self._last_commit_time_ms == 0.0:  # 防御性编程，兜底为 0 的情况
                 self._last_commit_time_ms = now_ms
             elapsed_ms = now_ms - self._last_commit_time_ms
@@ -277,6 +277,8 @@ class TypingService(QObject):
                 char_count = self._score_data.char_count
                 for i in range(char_count, char_count - growLength):
                     self._color_text(i, 1, self._no_fmt)
+
+            self._last_commit_time_ms = now_ms
 
     def handleLoadedText(self, quickDoc: QQuickTextDocument) -> None:
         """处理载文内容"""
