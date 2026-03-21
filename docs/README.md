@@ -10,6 +10,7 @@
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
+| [developer-architecture-handbook.md](./developer-architecture-handbook.md) | **开发者架构手册** - 分层边界、依赖规则、开发流程与协作规范 | ✅ 活跃 |
 | [guide.md](./guide.md) | **AI Agent 转化规划指南** - 面试项目改造完整方案 | ✅ 活跃 |
 | [roadmap.md](./roadmap.md) | **功能路线图** - 当前完成状态与后续规划 | ✅ 活跃 |
 | [spring-boot-backend-design.md](./spring-boot-backend-design.md) | **Spring Boot 后端设计方案** - 服务端架构设计 | ✅ 活跃 |
@@ -65,6 +66,9 @@
 #### ...如何开始开发
 → [AGENTS.md](../AGENTS.md) - 开发环境、命令、架构说明
 
+#### ...分层边界与协作规范
+→ [developer-architecture-handbook.md](./developer-architecture-handbook.md) - 面向开发者的详细架构手册
+
 ---
 
 ## 文档维护规范
@@ -88,6 +92,7 @@
 
 | 日期 | 变更 |
 |------|------|
+| 2026-03-21 | 新增 developer-architecture-handbook.md（开发者架构手册） |
 | 2026-03-21 | 创建文档索引，重命名功能路线图文件 |
 | 2026-03-21 | 新增 guide.md（AI Agent 转化规划） |
 | 2026-03-19 | 新增 Typetype功能路线图.md |

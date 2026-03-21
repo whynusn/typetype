@@ -122,55 +122,49 @@ typetype/
 ### 分层概述
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    QML 层                           │
-│   (UI 组件通过 appBridge 与后端通信)                 │
-└─────────────────────┬───────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────┐
-│              Bridge (QML 通信适配层)                  │
-│   - 属性代理（loggedin, userNickname, typeSpeed 等） │
-│   - 信号转发（Service → QML）                        │
-│   - Slot 入口（QML → Service）                       │
-└─────────┬───────────────────────────┬───────────────┘
+┌─────────────────────────────────────────────────────────┐
+│                    QML 层                               │
+│           (通过 appBridge 与后端通信)                   │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────┐
+│                  Presentation Layer                     │
+│                 (Bridge + Adapters)                     │
+│  Bridge: appBridge，属性代理/信号转发/Slot 入口         │
+│  Adapters: TypingAdapter, TextAdapter                   │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────┐
+│                     Application Layer                   │
+│        UseCases: LoadTextUseCase, TypingUseCase         │
+│        Gateways: TextGateway, ScoreGateway              │
+└─────────┬───────────────────────────┬───────────────────┘
           │                           │
           ▼                           ▼
-┌─────────────────────┐   ┌─────────────────────────────┐
-│   Domain Services   │   │      Application Layer     │
-│                    │   │                             │
-│  - TypingService   │   │  - LoadTextUseCase         │
-│  - CharStatsService│   │  - TypingUseCase           │
-│  - AuthService     │   │                             │
-└─────────────────────┘   └──────────────┬──────────────┘
-                                         │
-                                         ▼
-                              ┌─────────────────────────────┐
-                              │      Ports (接口定义)        │
-                              │                             │
-                              │  - TextFetcher              │
-                              │  - LocalTextLoader          │
-                              │  - ClipboardReader/Writer   │
-                              └──────────────┬──────────────┘
-                                             │
-                                             ▼
-                              ┌─────────────────────────────┐
-                              │   Integration (实现)        │
-                              │                             │
-                              │  - SaiWenTextFetcher       │
-                              │  - QtLocalTextLoader       │
-                              │  - QtClipboard             │
-                              └─────────────────────────────┘
+┌─────────────────────────┐   ┌───────────────────────────┐
+│      Domain Services    │   │          Ports            │
+│ (纯业务逻辑，无 Qt 依赖)│   │   (接口协议 / 抽象依赖)   │
+│  Typing/Auth/CharStats  │   │ TextFetcher, Clipboard... │
+└─────────┬───────────────┘   └───────────┬───────────────┘
+          │                               │
+          └──────────────┬────────────────┘
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│              Integration / Infrastructure               │
+│   SaiWenTextFetcher, SqliteRepo, ApiClient, QtLoader    │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### 职责说明
 
 | 层次 | 职责 | 示例 |
 |------|------|------|
-| **Bridge** | QML 通信适配层，仅做属性代理和信号转发 | `appBridge.typeSpeed` |
-| **Domain Service** | 领域逻辑 + 状态管理 | `TypingService` 打字统计 |
-| **UseCase** | 业务流程编排 + 异常转换 | `LoadTextUseCase.load()` |
-| **Port** | 接口定义（抽象依赖） | `TextFetcher` |
-| **Integration** | 接口实现（具体细节） | `SaiWenTextFetcher` |
+| **Presentation（Bridge + Adapters）** | UI 适配层；Bridge 负责 QML 入口与转发，Adapters 封装 Qt 细节 | `appBridge` / `TypingAdapter` / `TextAdapter` |
+| **Application (UseCases)** | 业务流程编排、异常转换、结果封装 | `LoadTextUseCase.load()` |
+| **Application (Gateways)** | Port 适配与配置查询、DTO/剪贴板转换 | `TextGateway` / `ScoreGateway` |
+| **Domain Services** | 纯业务逻辑与状态计算（无 Qt 依赖） | `TypingService` / `CharStatsService` |
+| **Ports** | 协议定义（抽象依赖） | `TextFetcher` / `CharStatsRepository` |
+| **Integration** | 端口实现与外部系统接入 | `SaiWenTextFetcher` / `SqliteCharStatsRepository` |
 
 ### 依赖注入
 
@@ -190,7 +184,7 @@ bridge = Bridge(
 )
 ```
 
-### 各 Service 职责
+### 核心组件职责
 
 - **TypingService**：打字统计状态与计数逻辑（无 Qt 依赖）
 - **LoadTextUseCase**：文本加载流程编排（网络/本地/剪贴板与异常转换）

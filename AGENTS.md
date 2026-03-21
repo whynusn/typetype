@@ -91,43 +91,30 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 └─────────────────────────┬───────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────┐
-│              Bridge (QML 通信适配层)                       │
-│   仅负责：属性代理、信号转发、Slot 入口                    │
+│                  Presentation Layer                     │
+│                 (Bridge + Adapters)                    │
+│  Bridge: appBridge，属性代理/信号转发/Slot 入口          │
+│  Adapters: TypingAdapter, TextAdapter                   │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────┐
+│                     Application Layer                   │
+│        UseCases: LoadTextUseCase, TypingUseCase         │
+│        Gateways: TextGateway, ScoreGateway              │
 └─────────┬───────────────────────────┬───────────────────┘
           │                           │
           ▼                           ▼
 ┌─────────────────────────┐   ┌───────────────────────────┐
-│   Presentation Layer    │   │    Application Layer      │
-│   (Adapters)            │   │                           │
-│  - TypingAdapter        │   │  - LoadTextUseCase        │
-│  - TextAdapter          │   │  - TypingUseCase          │
+│      Domain Services    │   │          Ports            │
+│ (纯业务逻辑，无 Qt 依赖)  │   │   (接口协议 / 抽象依赖)    │
+│ Typing/Auth/CharStats   │   │ TextFetcher, Clipboard... │
 └─────────┬───────────────┘   └───────────┬───────────────┘
           │                               │
-          │ 调用                           │ 调用
-          ▼                               ▼
-┌─────────────────────────┐   ┌───────────────────────────┐
-│   Domain Services       │   │   Gateways                │
-│   (纯业务逻辑，无 Qt)    │   │   (Port 适配 + 异常转换)  │
-│  - TypingService        │   │  - TextGateway            │
-│  - TextService          │   │  - ScoreGateway           │
-│  - CharStatsService     │   │                           │
-│  - AuthService          │   │                           │
-└─────────┬───────────────┘   └───────────┬───────────────┘
-          │                               │
-          │                               ▼
-          │                 ┌───────────────────────────────┐
-          │                 │   Ports (接口定义)             │
-          │                 │  - TextFetcher                │
-          │                 │  - LocalTextLoader            │
-          │                 │  - ClipboardReader/Writer     │
-          │                 │  - CharStatsRepository        │
-          │                 └───────────────┬───────────────┘
-          │                                 │
-          ▼                                 ▼
+          └──────────────┬────────────────┘
+                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│               Integration (实现)                        │
-│  - SaiWenTextFetcher         - QtLocalTextLoader        │
-│  - SqliteCharStatsRepository - GlobalKeyListener        │
+│                  Integration / Infrastructure           │
+│   SaiWenTextFetcher, SqliteRepo, ApiClient, QtLoader   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -136,7 +123,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 - 依赖注入在 `main.py` 完成，不再使用全局 registry。
 - QML 通过 `appBridge` 与后端交互。
 - **Domain Services 是纯业务逻辑**，无 Qt 依赖，易于测试。
-- **Presentation Adapters 封装 Qt 依赖**（信号、计时器、线程池）。
+- **Presentation Layer = Bridge + Adapters**，统一封装 QML 与 Qt 交互细节。
 - **Gateways 封装 Port 适配和异常转换**。
 - **UseCases 编排业务流程**，协调多个 Service/Gateway。
 - 文本加载支持 `network` 与 `local` 两类来源。
@@ -155,9 +142,9 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 | | TypingUseCase | 打字流程编排（DTO 转换、剪贴板操作） |
 | **Gateways** | TextGateway | Port 适配 + 配置查询 |
 | | ScoreGateway | DTO 转换 + 剪贴板操作 |
-| **Presentation** | TypingAdapter | Qt 适配（计时器、文本着色、信号发射） |
+| **Presentation** | Bridge | QML 通信适配层：属性代理、信号转发、Slot 入口 |
+| | TypingAdapter | Qt 适配（计时器、文本着色、信号发射） |
 | | TextAdapter | Qt 适配（异步 Worker、信号发射） |
-| **Bridge** | Bridge | QML 通信适配层，仅做属性代理和信号转发 |
 
 ### Bridge 职责（薄适配层）
 

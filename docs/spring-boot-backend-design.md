@@ -18,12 +18,13 @@
 
 ### 1.1 整体架构
 
-typetype 是一个 **PySide6 + QML 的跨平台打字练习工具**，Python 端采用了干净的 **Ports & Adapters（六边形架构）**：
+typetype 是一个 **PySide6 + QML 的跨平台打字练习工具**，Python 端采用了分层 + Ports & Adapters 架构：
 
 ```
-QML UI → Bridge (appBridge) → UseCase → Port (Protocol) → Service/Integration
-                                              ↓
-                                    ApiClient (httpx) → 极速杯 API
+QML UI → Presentation (Bridge + Adapters)
+           → Application (UseCase + Gateway)
+           → Domain / Ports
+           → Integration / Infrastructure
 ```
 
 ### 1.2 核心领域对象

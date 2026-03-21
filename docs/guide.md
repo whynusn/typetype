@@ -23,40 +23,36 @@ TypeType 项目已具备转化为 AI Agent 项目的**极佳基础**：
 #### Clean Architecture（已实现）
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    QML 层                              │
-│           (通过 appBridge 与后端通信)                    │
+│                    QML 层                               │
+│           (通过 appBridge 与后端通信)                   │
 └─────────────────────────┬───────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────┐
-│              Bridge (QML 通信适配层)                       │
-│   仅负责：属性代理、信号转发、Slot 入口                    │
+│                  Presentation Layer                     │
+│                 (Bridge + Adapters)                     │
+│  Bridge: appBridge，属性代理/信号转发/Slot 入口         │
+│  Adapters: TypingAdapter, TextAdapter                   │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────┐
+│                     Application Layer                   │
+│        UseCases: LoadTextUseCase, TypingUseCase         │
+│        Gateways: TextGateway, ScoreGateway              │
 └─────────┬───────────────────────────┬───────────────────┘
           │                           │
           ▼                           ▼
-┌─────────────────────┐   ┌───────────────────────────────┐
-│   Domain Services   │   │      Application Layer       │
-│  - TypingService   │   │  - LoadTextUseCase           │
-│  - CharStatsService│   │  - TypingUseCase             │
-│  - AuthService     │   │                               │
-│  - CharStatsService│   │                               │
-└─────────────────────┘   └───────────────┬───────────────┘
-                                          │
-                                          ▼
-                              ┌───────────────────────────────┐
-                              │      Ports (接口定义)          │
-                              │  - TextFetcher                │
-                              │  - LocalTextLoader            │
-                              │  - ClipboardReader/Writer     │
-                              │  - CharStatsRepository        │
-                              └───────────────┬───────────────┘
-                                              │
-                                              ▼
-                              ┌───────────────────────────────┐
-                              │   Integration (实现)          │
-                              │  - SaiWenTextFetcher          │
-                              │  - QtLocalTextLoader          │
-                              │  - SqliteCharStatsRepository  │
-                              └───────────────────────────────┘
+┌─────────────────────────┐   ┌───────────────────────────┐
+│      Domain Services    │   │          Ports            │
+│ (纯业务逻辑，无 Qt 依赖)│   │   (接口协议 / 抽象依赖)   │
+│ Typing/Auth/CharStats   │   │ TextFetcher, Clipboard... │
+└─────────┬───────────────┘   └───────────┬───────────────┘
+          │                               │
+          └──────────────┬────────────────┘
+                         ▼
+┌─────────────────────────────────────────────────────────┐
+│                  Integration / Infrastructure           │
+│   SaiWenTextFetcher, SqliteRepo, ApiClient, QtLoader    │
+└─────────────────────────────────────────────────────────┘
 ```
 
 #### 现有"记忆"机制（Agent 核心基础）
