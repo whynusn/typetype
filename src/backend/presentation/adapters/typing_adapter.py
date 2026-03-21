@@ -67,7 +67,7 @@ class TypingAdapter(QObject):
         if self._cursor and self._rich_doc:
             self._cursor.setPosition(begin_pos)
             self._cursor.movePosition(
-                QTextCursor.MoveOperation.Right, QTextCursor.KeepAnchor, n
+                QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, n
             )
             self._cursor.setCharFormat(fmt)
 
