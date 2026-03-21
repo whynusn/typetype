@@ -1,6 +1,6 @@
 # TypeType 功能路线图
 
-> 更新时间：2026-03-19
+> 最后更新：2026-03-21
 >
 > 本文档记录 TypeType 客户端当前完成状态与后续功能规划。
 
@@ -10,11 +10,15 @@
 
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| CharStat 实体 | `src/backend/models/char_stats.py` — 字符级统计 (char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen) | ✅ |
-| ScoreData 实体 | `src/backend/models/score_data.py` — 会话级成绩 | ✅ |
+| CharStat 实体 | `src/backend/models/entity/char_stat.py` — 字符级统计 (char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen) | ✅ |
+| SessionStat 实体 | `src/backend/models/entity/session_stat.py` — 会话级统计 | ✅ |
 | TypingService 集成 | `handleCommittedText` 合并循环：char_stats 累积 + prefix_sum 更新 + 着色，单次遍历完成 | ✅ |
 | Bridge 合并 | 原 Backend 合并到 Bridge，key_listener 由 Bridge 持有，QML 统一走 appBridge | ✅ |
 | 目录结构 | 领域实体统一到 `models/`，删除 `typing/` 目录 | ✅ |
+| SQLite 持久化 | `SqliteCharStatsRepository` + `CharStatsRepository` 协议 | ✅ |
+| CharStatsService | 内存缓存 + 异步持久化 + 薄弱字查询 | ✅ |
+| WeakCharsPage | QML 薄弱字展示页面，显示 top 10 薄弱字符 | ✅ |
+| 异步 Worker | `CharStatFlushWorker` + `WeakCharsQueryWorker` 异步执行 | ✅ |
 
 ### CharStat 实体设计
 
@@ -70,20 +74,47 @@ CREATE TABLE char_stats (
 ### 2.2 Port 层
 
 ```python
-from abc import ABC, abstractmethod
+from typing import Protocol, runtime_checkable
 
-class CharStatsRepository(ABC):
-    @abstractmethod
-    def get(self, char: str) -> CharStat | None: ...
+@runtime_checkable
+class CharStatsRepository(Protocol):
+    """字符统计持久化协议。"""
 
-    @abstractmethod
-    def save(self, stat: CharStat) -> None: ...
+    def init_db(self) -> None:
+        """初始化数据库（创建表结构）。"""
+        ...
 
-    @abstractmethod
-    def get_all_dirty(self) -> list[CharStat]: ...
+    def get(self, char: str) -> CharStat | None:
+        """获取单个字符的统计。"""
+        ...
 
-    @abstractmethod
-    def mark_synced(self, chars: list[str], synced_at: str) -> None: ...
+    def get_batch(self, chars: list[str]) -> list[CharStat]:
+        """批量获取字符统计。"""
+        ...
+
+    def get_weakest_chars(self, n: int) -> list[CharStat]:
+        """获取最薄弱的 n 个字符统计"""
+        ...
+
+    def save(self, stat: CharStat) -> None:
+        """保存单个字符的统计（插入或更新）。"""
+        ...
+
+    def save_batch(self, stats: list[CharStat]) -> None:
+        """批量保存字符统计。"""
+        ...
+
+    def get_all(self) -> list[CharStat]:
+        """获取全部字符统计。"""
+        ...
+
+    def get_all_dirty(self) -> list[CharStat]:
+        """获取所有待同步的字符统计（is_dirty=1）。"""
+        ...
+
+    def mark_synced(self, chars: list[str], synced_at: str) -> None:
+        """标记字符为已同步。"""
+        ...
 ```
 
 ### 2.3 Integration 实现
@@ -101,29 +132,50 @@ class NoopCharStatsRepository(CharStatsRepository):
 ## 三、CharStatsService
 
 ```
-Phase 3: CharStatsService — 管理内存缓存 + 持久化调度
+Phase 3: ✅ CharStatsService — 管理内存缓存 + 持久化调度（已完成）
 ```
 
 ```python
 class CharStatsService:
+    """字符统计领域服务。
+
+    按需加载（lazy loading）：首次遇到字符时才从数据库读取，
+    避免启动时全量加载到内存。
+    """
+
     def __init__(self, repository: CharStatsRepository):
         self._repo = repository
         self._cache: dict[str, CharStat] = {}
+        self._dirty: set[str] = set()
+        self._repo.init_db()
 
     def accumulate(self, char: str, keystroke_ms: float, is_error: bool) -> None:
         """累积一次字符结果（从 TypingService 调用）"""
+        if char not in self._cache:
+            existing = self._repo.get(char)
+            self._cache[char] = existing if existing else CharStat(char)
+        self._cache[char].accumulate(keystroke_ms, is_error)
+        self._dirty.add(char)
+
+    def warm_chars(self, chars: list[str]) -> None:
+        """预热缓存（启动时加载高频字）"""
 
     def flush(self) -> None:
-        """持久化缓存到本地（打完一篇文章后调用）"""
+        """同步持久化缓存到本地"""
 
-    def get_weakest_chars(self, n: int) -> list[CharStat]:
+    def flush_async(self) -> None:
+        """异步持久化缓存到本地（打完文章后调用）"""
+
+    def get_weakest_chars(self, n: int = 10) -> list[CharStat]:
         """获取最弱的 n 个字符（按 error_rate 排序）"""
+        return self._repo.get_weakest_chars(n)
 
     def get_all(self) -> dict[str, CharStat]:
         """获取全部统计"""
+        return dict(self._cache)
 ```
 
-集成点：`TypingService.typingEnded` → 触发 `CharStatsService.flush()`
+集成点：`TypingService.typingEnded` → 触发 `CharStatsService.flush_async()`
 
 ---
 
@@ -191,26 +243,52 @@ class SyncRepository(ABC):
 ## 五、UI 功能
 
 ```
-Phase 5: QML UI — 显示薄弱字、推荐练习
+Phase 5: ✅ QML UI — 薄弱字看板（已完成）
 ```
 
-### 5.1 薄弱字看板
+### 5.1 薄弱字看板（WeakCharsPage）
 
-- 显示 `error_rate` 最高的前 10 个字符
-- 每个字符展示：输入次数、错误率、平均耗时
+- ✅ 显示 `error_rate` 最高的前 10 个字符
+- ✅ 每个字符展示：输入次数、错误率、平均耗时
+- ✅ 颜色编码：红色 (>20%) / 黄色 (>10%) / 绿色 (≤10%)
+- ✅ 通过 Bridge 的 `weakestCharsLoaded` 信号获取数据
 
-### 5.2 推荐练习
+### 5.2 推荐练习（待开发）
 
 - 根据薄弱字生成随机练习文本
 - 权重算法：`weight = error_rate * log(char_count + 1)`（兼顾错误率和练习量）
 
-### 5.3 进度追踪
+### 5.3 进度追踪（待开发）
 
 - 展示单字符的 `error_rate` 变化曲线（随时间/随 session）
 
 ---
 
-## 六、后续探索
+## 六、AI Agent 改造（新增）
+
+```
+Phase 6: AI Typing Coach Agent — 面试杀手锏（规划中）
+```
+
+详见 [guide.md](./guide.md) - AI Agent 转化规划指南
+
+### 快速概览
+
+| 阶段 | 目标 | 工作量 |
+|------|------|--------|
+| Phase 1 | 单 Agent 循环（生成→评估→决策） | 1-2 天 |
+| Phase 2 | Multi-Agent 系统 | 3-5 天 |
+| Phase 3 | RAG + 可观测性 | 2-3 天 |
+
+### 核心优势
+
+- **完美匹配**：`CharStatsService.get_weakest_chars()` 正是 Agent 的记忆源
+- **低阻力**：Ports & Adapters 架构允许无缝添加新服务
+- **UI 基础**：WeakCharsPage 可复用/扩展
+
+---
+
+## 七、后续探索
 
 | 方向 | 说明 | 优先级 |
 |------|------|--------|
@@ -221,23 +299,27 @@ Phase 5: QML UI — 显示薄弱字、推荐练习
 
 ---
 
-## 七、目录结构
+## 八、目录结构
 
 ```
 src/backend/
-├── models/
-│   ├── score_data.py       # 会话级成绩实体
-│   ├── char_stats.py       # 字符级统计实体（新增）
-│   └── dto/
-│       └── score_dto.py    # 成绩 DTO
-├── domain/
-│   ├── typing_service.py   # 打字服务（含 char_stats 累积逻辑）
-│   ├── text_load_service.py
-│   └── auth_service.py
 ├── application/
-│   └── usecases/
-│       └── score_usecase.py
-├── integration/
-│   └── ...                 # 现有实现
-└── ...
+│   ├── gateways/      # TextGateway, ScoreGateway
+│   ├── ports/         # 协议定义
+│   └── usecases/      # LoadTextUseCase, TypingUseCase
+├── config/            # RuntimeConfig
+├── domain/
+│   └── services/      # TypingService, AuthService, CharStatsService
+├── infrastructure/    # ApiClient, NetworkErrors
+├── integration/       # SaiWenTextFetcher, CatalogService, SqliteCharStatsRepository
+├── models/
+│   ├── entity/        # CharStat, SessionStat
+│   ├── dto/           # ScoreSummaryDTO, HistoryRecordDTO
+│   └── text_source.py # TextSource, TextSourceConfig
+├── presentation/
+│   ├── adapters/      # TypingAdapter, TextAdapter
+│   └── bridge.py      # Bridge
+├── security/          # Crypt, SecureStorage
+├── utils/             # Logger
+└── workers/           # BaseWorker, TextLoadWorker, SessionStatWorker
 ```

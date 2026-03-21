@@ -63,28 +63,24 @@ Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disabl
 ```
 src/backend/
 ├── application/
-│   ├── ports/       # 协议：Clipboard/TextFetcher/LocalTextLoader
-│   └── usecases/    # 业务编排：TextUseCase/ScoreUseCase
-├── config/          # RuntimeConfig
-├── core/            # ApiClient 与网络异常模型
-├── domain/          # 领域服务
-│   ├── auth_service.py      # 登录认证
-│   ├── text_load_service.py # 文本加载
-│   └── typing_service.py    # 打字统计
-├── integration/     # 内外集成
-│   ├── global_key_listener.py   # 全局键盘监听
-│   ├── local_text_loader.py     # 本地文本加载
-│   ├── sai_wen_service.py       # 第三方网络文本服务
-│   └── system_identifier.py     # 系统识别
-├── models/          # 数据传输对象（ScoreDTO 等）
-├── security/        # 加密相关
-├── typing/          # 打字数据模型
-├── utils/           # 日志等工具
-├── workers/         # 后台任务（避免阻塞 UI）
-└── bridge.py  # Bridge（appBridge）
+│   ├── gateways/      # Port 适配 + 异常转换（TextGateway, ScoreGateway）
+│   ├── ports/         # 协议：Clipboard/TextFetcher/LocalTextLoader/AsyncExecutor
+│   └── usecases/      # 业务编排：LoadTextUseCase, TypingUseCase
+├── config/            # RuntimeConfig
+├── domain/
+│   └── services/      # 纯业务逻辑（TypingService, AuthService, CharStatsService）
+├── infrastructure/    # ApiClient 与网络异常模型
+├── integration/       # 内外集成（SaiWenTextFetcher, CatalogService, SqliteCharStatsRepository）
+├── models/            # 领域模型（SessionStat, CharStat, TextSource, DTO）
+├── presentation/
+│   ├── adapters/      # Qt 适配层（TypingAdapter, TextAdapter）
+│   └── bridge.py      # Bridge（appBridge）
+├── security/          # 加密与安全存储
+├── utils/             # 工具类（Logger）
+└── workers/           # 后台任务（BaseWorker, TextLoadWorker, SessionStatWorker）
+```
 
 RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
-```
 
 ### 分层架构
 
@@ -100,65 +96,109 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 └─────────┬───────────────────────────┬───────────────────┘
           │                           │
           ▼                           ▼
-┌─────────────────────┐   ┌───────────────────────────────┐
-│   Domain Services   │   │      Application Layer       │
-│                     │   │                               │
-│  - TypingService   │   │  - TextUseCase               │
-│  - TextLoadService │   │  - ScoreUseCase               │
-│  - AuthService     │   │                               │
-└─────────────────────┘   └───────────────┬───────────────┘
-                                            │
-                                            ▼
-                              ┌───────────────────────────────┐
-                              │      Ports (接口定义)          │
-                              │  - TextFetcher                │
-                              │  - LocalTextLoader            │
-                              │  - ClipboardReader/Writer     │
-                              └───────────────┬───────────────┘
-                                              │
-                                              ▼
-                              ┌───────────────────────────────┐
-                              │   Integration (实现)          │
-                              │  - SaiWenService             │
-                              │  - QtLocalTextLoader          │
-                              │  - QtClipboard                │
-                              └───────────────────────────────┘
+┌─────────────────────────┐   ┌───────────────────────────┐
+│   Presentation Layer    │   │    Application Layer      │
+│   (Adapters)            │   │                           │
+│  - TypingAdapter        │   │  - LoadTextUseCase        │
+│  - TextAdapter          │   │  - TypingUseCase          │
+└─────────┬───────────────┘   └───────────┬───────────────┘
+          │                               │
+          │ 调用                           │ 调用
+          ▼                               ▼
+┌─────────────────────────┐   ┌───────────────────────────┐
+│   Domain Services       │   │   Gateways                │
+│   (纯业务逻辑，无 Qt)    │   │   (Port 适配 + 异常转换)  │
+│  - TypingService        │   │  - TextGateway            │
+│  - TextService          │   │  - ScoreGateway           │
+│  - CharStatsService     │   │                           │
+│  - AuthService          │   │                           │
+└─────────┬───────────────┘   └───────────┬───────────────┘
+          │                               │
+          │                               ▼
+          │                 ┌───────────────────────────────┐
+          │                 │   Ports (接口定义)             │
+          │                 │  - TextFetcher                │
+          │                 │  - LocalTextLoader            │
+          │                 │  - ClipboardReader/Writer     │
+          │                 │  - CharStatsRepository        │
+          │                 └───────────────┬───────────────┘
+          │                                 │
+          ▼                                 ▼
+┌─────────────────────────────────────────────────────────┐
+│               Integration (实现)                        │
+│  - SaiWenTextFetcher         - QtLocalTextLoader        │
+│  - SqliteCharStatsRepository - GlobalKeyListener        │
+└─────────────────────────────────────────────────────────┘
 ```
 
 ### 关键点
 
 - 依赖注入在 `main.py` 完成，不再使用全局 registry。
 - QML 通过 `appBridge` 与后端交互。
+- **Domain Services 是纯业务逻辑**，无 Qt 依赖，易于测试。
+- **Presentation Adapters 封装 Qt 依赖**（信号、计时器、线程池）。
+- **Gateways 封装 Port 适配和异常转换**。
+- **UseCases 编排业务流程**，协调多个 Service/Gateway。
 - 文本加载支持 `network` 与 `local` 两类来源。
 - UI 框架使用 RinUI（vendored），提供主题、组件和暗色模式支持。
 - UI 字体由 `main.py` 中 `app.setFont()` 全局设置，QML 层不再传递字体属性。
 - `pyproject.toml` 中 `[tool.ruff] exclude = ["RinUI"]` 排除第三方代码的 lint 检查。
 
-### 各 Service 职责
+### 各层职责
 
-| Service | 职责 |
-|---------|------|
-| **TypingService** | 打字统计（ScoreData 状态、计时器、键数累积、文本上色、历史记录构建） |
-| **TextLoadService** | 文本加载（来源路由、网络/本地/剪贴板加载、Worker 线程管理） |
-| **AuthService** | 登录认证（login/logout、token 验证与刷新、状态持久化） |
-| **CharStatsService** | 字符维度统计（缓存、异步持久化、薄弱字查询） |
-| **SaiWenService** | 第三方网络文本获取（实现 TextFetcher 协议） |
+| 层 | 组件 | 职责 |
+|------|------|------|
+| **Domain Services** | TypingService | 打字统计纯逻辑（SessionStat 状态、键数累积） |
+| | AuthService | 登录认证（login/logout、token 验证与刷新） |
+| | CharStatsService | 字符维度统计（缓存、持久化、薄弱字查询） |
+| **Application** | LoadTextUseCase | 文本加载流程编排（异常转换、结果封装） |
+| | TypingUseCase | 打字流程编排（DTO 转换、剪贴板操作） |
+| **Gateways** | TextGateway | Port 适配 + 配置查询 |
+| | ScoreGateway | DTO 转换 + 剪贴板操作 |
+| **Presentation** | TypingAdapter | Qt 适配（计时器、文本着色、信号发射） |
+| | TextAdapter | Qt 适配（异步 Worker、信号发射） |
+| **Bridge** | Bridge | QML 通信适配层，仅做属性代理和信号转发 |
 
 ### Bridge 职责（薄适配层）
 
-- **属性代理**：透传各 Service 的只读属性到 QML（`loggedin`, `typeSpeed`, `textLoading` 等）
-- **信号转发**：Service 发射的信号转发到 QML 层
-- **Slot 入口**：QML 调用请求转发到对应 Service
+- **属性代理**：透传各 Adapter 的只读属性到 QML（`loggedin`, `typeSpeed`, `textLoading` 等）
+- **信号转发**：Adapter 发射的信号转发到 QML 层
+- **Slot 入口**：QML 调用请求转发到对应 Adapter
 
 ```python
 # main.py 中的依赖注入示例
-typing_service = TypingService(score_usecase=score_usecase)
-text_load_service = TextLoadService(text_usecase=text_usecase, runtime_config=runtime_config)
-auth_service = AuthService(api_client=api_client, ...)
-char_stats_service = CharStatsService(repo=char_stats_repo)
+# Infrastructure
+api_client = ApiClient(timeout=runtime_config.api_timeout)
+sai_wen_text_fetcher = SaiWenTextFetcher(api_client=api_client)
+local_text_loader = QtLocalTextLoader()
+async_executor = QtAsyncExecutor()
+
+# Gateways
+text_gateway = TextGateway(
+    runtime_config=runtime_config,
+    text_fetchers={"sai_wen": sai_wen_text_fetcher},
+    clipboard=clipboard,
+    local_text_loader=local_text_loader,
+)
+score_gateway = ScoreGateway(clipboard=clipboard)
+
+# UseCases
+load_text_usecase = LoadTextUseCase(gateway=text_gateway)
+typing_usecase = TypingUseCase(score_gateway=score_gateway)
+
+# Domain Services
+char_stats_service = CharStatsService(repo=char_stats_repo, async_executor=async_executor)
+typing_service = TypingService(char_stats_service=char_stats_service)
+auth_service = AuthService(auth_provider=api_client, ...)
+
+# Adapters
+typing_adapter = TypingAdapter(typing_service=typing_service, typing_usecase=typing_usecase)
+text_adapter = TextAdapter(text_gateway=text_gateway, load_text_usecase=load_text_usecase)
+
+# Bridge
 bridge = Bridge(
-    typing_service=typing_service,
-    text_load_service=text_load_service,
+    typing_adapter=typing_adapter,
+    text_adapter=text_adapter,
     auth_service=auth_service,
     runtime_config=runtime_config,
     char_stats_service=char_stats_service,
@@ -185,7 +225,7 @@ bridge = Bridge(
 - 优先覆盖用例层与核心逻辑，不依赖真实 UI
 - 对网络错误、超时、解析异常必须有测试
 - 新增文本来源时，需同时补充：
-  - `TextUseCase` 测试
+  - `LoadTextUseCase` 测试
   - 对应 service/integration 测试
 
 ## 5. Spring Boot 服务接入规范（后续）
@@ -235,4 +275,59 @@ bridge = Bridge(
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
+```
+
+## 8. 已知陷阱（Critical Gotchas）
+
+### ⚠️ TypingService.clear() 不要清零 char_count 和 wrong_char_count
+
+**问题**：在 `TypingService.clear()` 方法中，不能清零 `char_count` 和 `wrong_char_count`。
+
+**原因**：QML 的 `onTextChanged` 事件是异步的。如果在 `clear()` 中提前清零 `char_count`，当 QML 侧尚未完成的 `onTextChanged` 事件触发时，会以 `char_count=0` 计算出负数的 `beginPos`，导致 `QTextCursor::setPosition: Position 'X' out of range` 错误。
+
+**正确做法**：
+```python
+def clear(self) -> None:
+    """清空统计数据。"""
+    self._state.session_stat.time = 0.0
+    self._state.session_stat.key_stroke_count = 0
+    # ❌ 错误：不要在这里清零
+    # self._state.session_stat.char_count = 0
+    # self._state.session_stat.wrong_char_count = 0
+    self._state.session_stat.date = ""
+    self._state.last_commit_time_ms = 0.0
+```
+
+**正确的清零时机**：在 `set_total_chars()` 中清零，因为这时是安全的：
+```python
+def set_total_chars(self, total: int) -> None:
+    """设置总字符数。"""
+    self._state.total_chars = total
+    self._state.session_stat.char_count = 0      # ✅ 这里清零
+    self._state.session_stat.wrong_char_count = 0  # ✅ 这里清零
+    self._state.wrong_char_prefix_sum = [0 for _ in range(total)]
+```
+
+**历史记录**：此问题在 2026-03-21 的架构重构中首次出现，AI Agent 在重构时错误地在 `clear()` 中清零了这两个字段，导致删除字符时出现负数位置错误。旧版本的 `_reset_session_stat()` 方法有明确注释说明不能清零。
+
+### ⚠️ handle_committed_text 删除字符时的逻辑顺序
+
+**正确顺序**：先处理 `s`，再更新 `char_count`，最后清除被删除位置。
+
+**错误顺序**：先更新 `char_count`，再处理 `s`，会导致使用更新后的 `char_count` 计算出错误的位置。
+
+```python
+# ✅ 正确顺序
+else:
+    # 删除字符 / 纯替换
+    for i in range(len(s)):
+        # 处理 s 中的字符...
+
+    # 删除时清除被删除位置
+    if grow_length < 0:
+        char_count = self._state.session_stat.char_count  # 使用更新前的值
+        for i in range(char_count + grow_length, char_count):
+            char_updates.append((i, "", False))
+
+    self._state.session_stat.char_count += grow_length  # 最后更新
 ```

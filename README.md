@@ -100,17 +100,19 @@ typetype/
 │   ├── backend/
 │   │   ├── application/
 │   │   │   ├── ports/
+│   │   │   ├── gateways/
 │   │   │   └── usecases/
 │   │   ├── config/
-│   │   ├── core/
 │   │   ├── domain/          # 领域服务
+│   │   ├── infrastructure/  # 网络客户端与异常模型
 │   │   ├── integration/     # 内外集成
 │   │   ├── models/
+│   │   ├── presentation/
+│   │   │   ├── adapters/
+│   │   │   └── bridge.py
 │   │   ├── security/
-│   │   ├── typing/
 │   │   ├── utils/
 │   │   ├── workers/
-│   │   └── bridge.py
 │   └── qml/
 └── tests/
 ```
@@ -136,8 +138,8 @@ typetype/
 ┌─────────────────────┐   ┌─────────────────────────────┐
 │   Domain Services   │   │      Application Layer     │
 │                    │   │                             │
-│  - TypingService   │   │  - TextUseCase             │
-│  - TextLoadService │   │  - ScoreUseCase             │
+│  - TypingService   │   │  - LoadTextUseCase         │
+│  - CharStatsService│   │  - TypingUseCase           │
 │  - AuthService     │   │                             │
 └─────────────────────┘   └──────────────┬──────────────┘
                                          │
@@ -154,7 +156,7 @@ typetype/
                               ┌─────────────────────────────┐
                               │   Integration (实现)        │
                               │                             │
-                              │  - SaiWenService           │
+                              │  - SaiWenTextFetcher       │
                               │  - QtLocalTextLoader       │
                               │  - QtClipboard             │
                               └─────────────────────────────┘
@@ -166,22 +168,22 @@ typetype/
 |------|------|------|
 | **Bridge** | QML 通信适配层，仅做属性代理和信号转发 | `appBridge.typeSpeed` |
 | **Domain Service** | 领域逻辑 + 状态管理 | `TypingService` 打字统计 |
-| **UseCase** | 业务流程编排 + 异常转换 | `TextUseCase.load_text()` |
+| **UseCase** | 业务流程编排 + 异常转换 | `LoadTextUseCase.load()` |
 | **Port** | 接口定义（抽象依赖） | `TextFetcher` |
-| **Integration** | 接口实现（具体细节） | `SaiWenService` |
+| **Integration** | 接口实现（具体细节） | `SaiWenTextFetcher` |
 
 ### 依赖注入
 
 `main.py` 负责所有对象的创建和注入：
 
 ```python
-typing_service = TypingService(score_usecase=score_usecase)
-text_load_service = TextLoadService(text_usecase=text_usecase, runtime_config=runtime_config)
+typing_service = TypingService(char_stats_service=char_stats_service)
+load_text_usecase = LoadTextUseCase(gateway=text_gateway)
 auth_service = AuthService(...)
-char_stats_service = CharStatsService(repo=char_stats_repo)
+char_stats_service = CharStatsService(repository=char_stats_repo)
 bridge = Bridge(
-    typing_service=typing_service,
-    text_load_service=text_load_service,
+    typing_adapter=typing_adapter,
+    text_adapter=text_adapter,
     auth_service=auth_service,
     runtime_config=runtime_config,
     char_stats_service=char_stats_service,
@@ -190,8 +192,8 @@ bridge = Bridge(
 
 ### 各 Service 职责
 
-- **TypingService**：打字统计（ScoreData、计时器、键数累积、文本上色）
-- **TextLoadService**：文本加载（网络/本地/剪贴板路由、Worker 线程管理）
+- **TypingService**：打字统计状态与计数逻辑（无 Qt 依赖）
+- **LoadTextUseCase**：文本加载流程编排（网络/本地/剪贴板与异常转换）
 - **AuthService**：登录认证（login/logout、token 刷新、状态持久化）
 - **CharStatsService**：字符维度统计（缓存、异步持久化、薄弱字查询）
 - **RuntimeConfig**：管理文本来源列表和默认来源
@@ -218,9 +220,11 @@ bridge = Bridge(
 ### 3. Python 端改造建议
 
 1. 在 `RuntimeConfig.text_sources` 增加 `springboot` 来源（`type=network`，URL 指向 Spring Boot）。
-2. 新增 `SpringBootTextService`（实现 `TextFetcher` 协议）。
-3. `main.py` 切换注入：`TextUseCase(text_fetcher=springboot_service, ...)`。
-4. 保留 `SaiWenService` 作为回退来源，逐步迁移。
+2. 新增 `SpringBootTextFetcher`（实现 `TextFetcher` 协议）。
+3. `main.py` 注册多个 TextFetcher：`TextGateway(text_fetchers={"sai_wen": sai_wen, "springboot": springboot}, ...)`。
+4. 用户可在 UI 中选择使用哪个来源（通过 `source_key` 关联 `fetcher_key`）。
+
+**多个 TextFetcher 可以共存**，用户根据需要选择不同的来源。
 
 ### 4. 错误处理约定
 

@@ -1,6 +1,16 @@
 # TypeType Spring Boot 后端设计方案
 
+> 最后更新：2026-03-21
+>
 > 基于对 typetype 桌面客户端的完整架构分析，设计一套面试级别的 Spring Boot 后端服务。
+
+---
+
+## 相关文档
+
+- [guide.md](./guide.md) - AI Agent 转化规划指南
+- [roadmap.md](./roadmap.md) - 项目功能路线图
+- [AGENTS.md](../AGENTS.md) - 项目开发指南
 
 ---
 
@@ -20,8 +30,8 @@ QML UI → Bridge (appBridge) → UseCase → Port (Protocol) → Service/Integr
 
 | 实体 | 字段 | 位置 |
 |---|---|---|
-| `ScoreData` | time, key_stroke_count, char_count, wrong_char_count, date + 计算属性(speed, keyStroke, codeLength, accuracy, effectiveSpeed) | `src/backend/models/score_data.py` |
-| `CharStat` | char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen + 计算属性(avg_ms, error_rate) + merge() | `src/backend/models/char_stats.py` |
+| `SessionStat` | time, key_stroke_count, char_count, wrong_char_count, date + 计算属性(speed, keyStroke, codeLength, accuracy, effectiveSpeed) | `src/backend/models/entity/session_stat.py` |
+| `CharStat` | char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen + 计算属性(avg_ms, error_rate) + merge() | `src/backend/models/entity/char_stat.py` |
 | `TextSource` (配置) | key, label, type(network/local), url/local_path | `src/backend/config/runtime_config.py` |
 | `ScoreSummaryDTO` / `HistoryRecordDTO` | DTO 层，从 ScoreData 映射 | `src/backend/models/dto/score_dto.py` |
 
@@ -41,19 +51,19 @@ QML UI → Bridge (appBridge) → UseCase → Port (Protocol) → Service/Integr
   → QML 调用 appBridge.requestLoadText(sourceKey)
     → Bridge 根据 RuntimeConfig 判断 type=network/local
       → network: 创建 LoadTextWorker → QThreadPool 异步执行
-        → TextUseCase.load_text_from_network(url)
-          → TextFetcher.fetch_text(url)     [当前实现: SaiWenService]
+        → LoadTextUseCase.load(source_key)
+          → TextFetcher.fetch_text(url)     [当前实现: SaiWenTextFetcher]
             → ApiClient.post_json(url, payload)
               → httpx.Client.request()      [HTTP 请求]
       → local: 同步执行
-        → TextUseCase.load_text_from_local(path)
+        → LoadTextUseCase.load(source_key)
           → LocalTextLoader.load_text(path) [当前实现: QtLocalTextLoader]
     → 成功: textLoaded.emit(text) → QML 显示
     → 失败: textLoadFailed.emit(message) → QML 提示
 
 用户打字完成
-  → Bridge._stop() + typingEnded.emit()
-  → Bridge._get_new_record() → ScoreUseCase.build_history_record(score_data)
+  → TypingAdapter 结束会话 + typingEnded.emit()
+  → TypingUseCase.build_history_record(score_data)
   → historyRecordUpdated.emit(record) → QML 本地维护历史列表
 ```
 
@@ -61,17 +71,19 @@ QML UI → Bridge (appBridge) → UseCase → Port (Protocol) → Service/Integr
 
 ```python
 api_client = ApiClient(timeout=runtime_config.api_timeout)
-sai_wen_service = SaiWenService(api_client=api_client)
+sai_wen_text_fetcher = SaiWenTextFetcher(api_client=api_client)
 local_text_loader = QtLocalTextLoader()
-text_usecase = TextUseCase(
-    text_fetcher=sai_wen_service,
+text_gateway = TextGateway(
+    runtime_config=runtime_config,
+    text_fetchers={"sai_wen": sai_wen_text_fetcher},
     clipboard=clipboard,
     local_text_loader=local_text_loader,
 )
-score_usecase = ScoreUseCase(clipboard=clipboard)
+load_text_usecase = LoadTextUseCase(gateway=text_gateway)
+typing_usecase = TypingUseCase(score_gateway=ScoreGateway(clipboard=clipboard))
 bridge = Bridge(
-    text_usecase=text_usecase,
-    score_usecase=score_usecase,
+    text_adapter=text_adapter,
+    typing_adapter=typing_adapter,
     runtime_config=runtime_config,
 )
 ```
@@ -92,7 +104,7 @@ NetworkError (基类)
 └── NetworkRequestError     # 请求发送错误
 ```
 
-客户端 `TextUseCase` 已对所有异常做了分类映射和用户友好提示。
+客户端 `LoadTextUseCase` 已对网络异常做了分类映射和用户友好提示。
 
 ---
 
@@ -588,11 +600,13 @@ springboot_service = SpringBootTextService(
     api_client=api_client,
     base_url=os.environ.get("TYPETYPE_TEXT_API_BASE_URL", "http://localhost:8080"),
 )
-text_usecase = TextUseCase(
-    text_fetcher=springboot_service,  # 替换 sai_wen_service
+text_gateway = TextGateway(
+    runtime_config=runtime_config,
+    text_fetchers={"springboot": springboot_service},
     clipboard=clipboard,
     local_text_loader=local_text_loader,
 )
+load_text_usecase = LoadTextUseCase(gateway=text_gateway)
 ```
 
 ### 7.3 RuntimeConfig 新增来源
@@ -639,3 +653,12 @@ text_usecase = TextUseCase(
 | 数据一致性 | 成绩交叉校验、幂等提交 |
 | 安全防御 | 防作弊校验、BCrypt 密码加密、Token Rotation |
 | SQL 优化 | 避免 `ORDER BY RAND()`、避免 `LENGTH()` 全表扫描 |
+
+---
+
+## 版本历史
+
+| 日期 | 变更 |
+|------|------|
+| 2026-03-21 | 添加文档链接，更新格式 |
+| 2026-03-15 | 初始版本，完整后端设计方案 |
