@@ -1,6 +1,4 @@
-"""应用用例层导出。"""
+from .load_text_usecase import LoadTextUseCase
+from .typing_usecase import TypingUseCase
 
-from .score_usecase import ScoreUseCase
-from .text_usecase import TextUseCase
-
-__all__ = ["ScoreUseCase", "TextUseCase"]
+__all__ = ["LoadTextUseCase", "TypingUseCase"]

@@ -7,22 +7,27 @@ from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
 
 import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
-from src.backend.application.usecases.score_usecase import ScoreUseCase
-from src.backend.application.usecases.text_usecase import TextUseCase
-from src.backend.bridge import Bridge
+from src.backend.application.gateways.score_gateway import ScoreGateway
+from src.backend.application.gateways.text_gateway import TextGateway
+from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
+from src.backend.application.usecases.typing_usecase import TypingUseCase
+from src.backend.presentation.bridge import Bridge
 from src.backend.config.runtime_config import RuntimeConfig
-from src.backend.core.api_client import ApiClient
-from src.backend.domain.auth_service import AuthService
-from src.backend.domain.char_stats_service import CharStatsService
-from src.backend.domain.text_load_service import TextLoadService
-from src.backend.domain.typing_service import TypingService
+from src.backend.infrastructure.api_client import ApiClient
+from src.backend.domain.services.auth_service import AuthService
+from src.backend.domain.services.char_stats_service import CharStatsService
+from src.backend.domain.services.typing_service import TypingService
 from src.backend.integration.global_key_listener import GlobalKeyListener
-from src.backend.integration.local_text_loader import QtLocalTextLoader
-from src.backend.integration.sai_wen_service import SaiWenService
+from src.backend.integration.catalog_service import TextCatalogService
+from src.backend.integration.qt_async_executor import QtAsyncExecutor
+from src.backend.integration.qt_local_text_loader import QtLocalTextLoader
+from src.backend.integration.sai_wen_text_fetcher import SaiWenTextFetcher
 from src.backend.integration.sqlite_char_stats_repository import (
     SqliteCharStatsRepository,
 )
 from src.backend.integration.system_identifier import SystemIdentifier
+from src.backend.presentation.adapters.text_adapter import TextAdapter
+from src.backend.presentation.adapters.typing_adapter import TypingAdapter
 from src.backend.utils.logger import is_debug_enabled, log_debug, log_info
 
 
@@ -74,37 +79,62 @@ def main():
             app.setFont(QFont(_families[0]))
 
     clipboard = QGuiApplication.clipboard()
-    runtime_config = RuntimeConfig()
+    runtime_config = RuntimeConfig.load_from_file()
 
+    # Infrastructure 层
     api_client = ApiClient(timeout=runtime_config.api_timeout)
-    sai_wen_service = SaiWenService(api_client=api_client)
+    sai_wen_text_fetcher = SaiWenTextFetcher(api_client=api_client)
     local_text_loader = QtLocalTextLoader()
-    text_usecase = TextUseCase(
-        text_fetcher=sai_wen_service,
+    text_catalog_service = TextCatalogService(
+        base_url=runtime_config.base_url,
+        api_client=api_client,
+    )
+
+    # Gateways
+    text_gateway = TextGateway(
+        runtime_config=runtime_config,
+        text_fetchers={"sai_wen": sai_wen_text_fetcher},
         clipboard=clipboard,
         local_text_loader=local_text_loader,
+        text_catalog_fetcher=text_catalog_service,
     )
-    score_usecase = ScoreUseCase(clipboard=clipboard)
+    score_gateway = ScoreGateway(clipboard=clipboard)
 
+    # UseCases
+    load_text_usecase = LoadTextUseCase(gateway=text_gateway)
+    typing_usecase = TypingUseCase(score_gateway=score_gateway)
+
+    # Domain Services
+    async_executor = QtAsyncExecutor()
     char_stats_repo = SqliteCharStatsRepository(db_path="data/char_stats.db")
-    char_stats_service = CharStatsService(repository=char_stats_repo)
+    char_stats_service = CharStatsService(
+        repository=char_stats_repo,
+        async_executor=async_executor,
+    )
     common_chars = _load_common_chars()
     if common_chars:
         char_stats_service.warm_chars(common_chars)
 
-    typing_service = TypingService(
-        score_usecase=score_usecase, char_stats_service=char_stats_service
-    )
-    text_load_service = TextLoadService(
-        text_usecase=text_usecase,
-        runtime_config=runtime_config,
-    )
+    typing_service = TypingService(char_stats_service=char_stats_service)
+
     auth_service = AuthService(
-        api_client=api_client,
+        auth_provider=api_client,
         login_url=runtime_config.login_api_url,
         validate_url=runtime_config.validate_api_url,
         refresh_url=runtime_config.refresh_api_url,
     )
+
+    # Adapters
+    typing_adapter = TypingAdapter(
+        typing_service=typing_service,
+        typing_usecase=typing_usecase,
+    )
+    text_adapter = TextAdapter(
+        text_gateway=text_gateway,
+        load_text_usecase=load_text_usecase,
+    )
+
+    # Platform detection
     system_identifier = SystemIdentifier()
     os_type, display_server = system_identifier.get_system_info()
     log_info(f"系统: {os_type} 平台: {display_server}")
@@ -115,9 +145,10 @@ def main():
         key_listener.start()
         log_info("因系统平台特殊性，全局监听器已启动")
 
+    # Bridge
     bridge = Bridge(
-        typing_service=typing_service,
-        text_load_service=text_load_service,
+        typing_adapter=typing_adapter,
+        text_adapter=text_adapter,
         auth_service=auth_service,
         runtime_config=runtime_config,
         key_listener=key_listener,

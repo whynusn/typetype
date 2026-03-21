@@ -4,15 +4,15 @@
 
 import pytest
 
-from src.backend.models.score_data import ScoreData
+from src.backend.models.entity.session_stat import SessionStat
 
 
-class TestScoreDataInitialization:
-    """测试 ScoreData 初始化"""
+class TestSessionStatInitialization:
+    """测试 SessionStat 初始化"""
 
     def test_basic_initialization(self):
         """测试基本初始化"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -27,7 +27,7 @@ class TestScoreDataInitialization:
 
     def test_negative_time_correction(self):
         """测试负时间的自动修正"""
-        score = ScoreData(
+        score = SessionStat(
             time=-10.0,
             key_stroke_count=100,
             char_count=80,
@@ -38,26 +38,26 @@ class TestScoreDataInitialization:
 
     def test_negative_key_stroke_correction(self):
         """测试负按键次数的自动修正"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0, key_stroke_count=-50, char_count=40, wrong_char_count=2, date=""
         )
         assert score.key_stroke_count == 0
 
     def test_auto_date_generation(self):
         """测试自动生成时间戳"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0, key_stroke_count=100, char_count=80, wrong_char_count=5, date=""
         )
         assert score.date
         assert len(score.date) == 19  # YYYY-MM-DD HH:MM:SS
 
 
-class TestScoreDataCalculations:
+class TestSessionStatCalculations:
     """测试成绩计算属性"""
 
     def test_speed_calculation(self):
         """测试速度计算"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -69,14 +69,14 @@ class TestScoreDataCalculations:
 
     def test_speed_zero_time(self):
         """测试时间为零时的速度"""
-        score = ScoreData(
+        score = SessionStat(
             time=0.0, key_stroke_count=100, char_count=80, wrong_char_count=5, date=""
         )
         assert score.speed == 0.0
 
     def test_keystroke_frequency(self):
         """测试击键频率计算"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -88,14 +88,14 @@ class TestScoreDataCalculations:
 
     def test_keystroke_zero_time(self):
         """测试时间为零时的击键频率"""
-        score = ScoreData(
+        score = SessionStat(
             time=0.0, key_stroke_count=100, char_count=80, wrong_char_count=5, date=""
         )
         assert score.keyStroke == 0.0
 
     def test_code_length(self):
         """测试码长计算"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -107,21 +107,21 @@ class TestScoreDataCalculations:
 
     def test_code_length_zero_chars(self):
         """测试字符数为零时的码长"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0, key_stroke_count=100, char_count=0, wrong_char_count=0, date=""
         )
         assert score.codeLength == 0.0
 
     def test_accuracy_perfect(self):
         """测试完美准确率"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0, key_stroke_count=300, char_count=240, wrong_char_count=0, date=""
         )
         assert score.accuracy == 100.0
 
     def test_accuracy_with_errors(self):
         """测试有错误时的准确率"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -133,14 +133,14 @@ class TestScoreDataCalculations:
 
     def test_accuracy_zero_chars(self):
         """测试字符数为零时的准确率"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0, key_stroke_count=100, char_count=0, wrong_char_count=0, date=""
         )
         assert score.accuracy == 100.0
 
     def test_effective_speed(self):
         """测试有效速度计算"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,

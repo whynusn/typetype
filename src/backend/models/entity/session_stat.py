@@ -1,17 +1,26 @@
 """
-成绩数据结构体
+会话统计数据结构体
 
-用于封装打字测试的各项指标，底层指标为基础数据，其他指标为计算属性。
+用于封装单次打字会话的各项指标，底层指标为基础数据，其他指标为计算属性。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from uuid import uuid4
 
 
 @dataclass
-class ScoreData:
-    """打字成绩数据结构体"""
+class SessionStat:
+    """会话统计数据结构体"""
 
+    # 唯一标识
+    id: str = field(default_factory=lambda: str(uuid4()))
+
+    # 文本来源标识（用于排行榜）
+    text_source_key: str = ""
+    text_id: str = ""
+
+    # 打字统计数据
     time: float = 0.0
     key_stroke_count: int = 0
     char_count: int = 0

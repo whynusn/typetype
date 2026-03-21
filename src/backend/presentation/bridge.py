@@ -1,35 +1,35 @@
+"""QML 通信适配层。
+
+仅负责：
+- 属性代理（QML 属性绑定透传到各个 Adapter）
+- 信号转发（Adapter 信号 -> Bridge 信号 -> QML）
+- Slot 入口（QML 调用 -> Bridge 调用 -> Adapter）
+- 全局键盘监听器持有与转发（Wayland 平台特殊处理）
+"""
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from PySide6.QtCore import Property, QObject, Signal, Slot
-from PySide6.QtCore import QThreadPool
+from PySide6.QtCore import Property, QObject, QThreadPool, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
 
-from .config.runtime_config import RuntimeConfig
-from .domain.auth_service import AuthService
-from .domain.text_load_service import TextLoadService
-from .domain.typing_service import TypingService
-from .integration.global_key_listener import GlobalKeyListener
-from .utils.logger import log_info
-from .workers.weak_chars_query_worker import WeakCharsQueryWorker
+from ..config.runtime_config import RuntimeConfig
+from ..domain.services.auth_service import AuthService
+from ..integration.global_key_listener import GlobalKeyListener
+from ..utils.logger import log_info
+from ..workers.weak_chars_query_worker import WeakCharsQueryWorker
 
 if TYPE_CHECKING:
-    from .domain.char_stats_service import CharStatsService
+    from ..domain.services.char_stats_service import CharStatsService
+    from .adapters.text_adapter import TextAdapter
+    from .adapters.typing_adapter import TypingAdapter
 
 
 class Bridge(QObject):
-    """QML 通信适配层。
+    """QML 通信适配层。"""
 
-    仅负责：
-    - 属性代理（QML 属性绑定 透传到各个 Service）
-    - 信号转发（Service 信号 --> Bridge 信号 -> QML）
-    - Slot 入口（QML 调用 --> Bridge 调用 -> Service）
-    - 全局键盘监听器持有与转发（Wayland 平台特殊处理）
-    """
-
-    # ==== 信号定义 ====
-
+    # 信号定义
     typeSpeedChanged = Signal()
     keyStrokeChanged = Signal()
     codeLengthChanged = Signal()
@@ -45,21 +45,21 @@ class Bridge(QObject):
     userInfoChanged = Signal()
     loginResult = Signal(bool, str)
     cursorPosChanged = Signal(int)
-    specialPlatformConfirmed = Signal(bool)  # False=normal, True=Wayland special
-    weakestCharsLoaded = Signal("QVariantList")
+    specialPlatformConfirmed = Signal(bool)
+    weakestCharsLoaded = Signal(list)
 
     def __init__(
         self,
-        typing_service: TypingService,
-        text_load_service: TextLoadService,
+        typing_adapter: TypingAdapter,
+        text_adapter: TextAdapter,
         auth_service: AuthService,
         runtime_config: RuntimeConfig,
         key_listener: GlobalKeyListener | None = None,
-        char_stats_service: "CharStatsService | None" = None,
+        char_stats_service: CharStatsService | None = None,
     ):
         super().__init__()
-        self._typing_service = typing_service
-        self._text_load_service = text_load_service
+        self._typing_adapter = typing_adapter
+        self._text_adapter = text_adapter
         self._auth_service = auth_service
         self._runtime_config = runtime_config
         self._key_listener = key_listener
@@ -74,27 +74,25 @@ class Bridge(QObject):
         self.specialPlatformConfirmed.emit(self._is_special_platform)
         log_info(f"[Bridge] 检测到平台特殊性: {self._is_special_platform}")
 
-    def _on_weak_chars_loaded(self, data: list) -> None:
+    def _on_weak_chars_loaded(self, data: list[dict[str, Any]]) -> None:
         self.weakestCharsLoaded.emit(data)
 
-    # ==== 信号连接( service 层信号 --> Bridge 层信号 ) ====
-
     def _connect_typing_signals(self) -> None:
-        self._typing_service.typeSpeedChanged.connect(self.typeSpeedChanged.emit)
-        self._typing_service.keyStrokeChanged.connect(self.keyStrokeChanged.emit)
-        self._typing_service.codeLengthChanged.connect(self.codeLengthChanged.emit)
-        self._typing_service.charNumChanged.connect(self.charNumChanged.emit)
-        self._typing_service.totalTimeChanged.connect(self.totalTimeChanged.emit)
-        self._typing_service.readOnlyChanged.connect(self.readOnlyChanged.emit)
-        self._typing_service.typingEnded.connect(self.typingEnded.emit)
-        self._typing_service.historyRecordUpdated.connect(
+        self._typing_adapter.typeSpeedChanged.connect(self.typeSpeedChanged.emit)
+        self._typing_adapter.keyStrokeChanged.connect(self.keyStrokeChanged.emit)
+        self._typing_adapter.codeLengthChanged.connect(self.codeLengthChanged.emit)
+        self._typing_adapter.charNumChanged.connect(self.charNumChanged.emit)
+        self._typing_adapter.totalTimeChanged.connect(self.totalTimeChanged.emit)
+        self._typing_adapter.readOnlyChanged.connect(self.readOnlyChanged.emit)
+        self._typing_adapter.typingEnded.connect(self.typingEnded.emit)
+        self._typing_adapter.historyRecordUpdated.connect(
             self.historyRecordUpdated.emit
         )
 
     def _connect_text_load_signals(self) -> None:
-        self._text_load_service.textLoaded.connect(self.textLoaded.emit)
-        self._text_load_service.textLoadFailed.connect(self.textLoadFailed.emit)
-        self._text_load_service.textLoadingChanged.connect(self.textLoadingChanged.emit)
+        self._text_adapter.textLoaded.connect(self.textLoaded.emit)
+        self._text_adapter.textLoadFailed.connect(self.textLoadFailed.emit)
+        self._text_adapter.textLoadingChanged.connect(self.textLoadingChanged.emit)
 
     def _connect_key_listener(self) -> None:
         if self._key_listener:
@@ -102,49 +100,49 @@ class Bridge(QObject):
 
     def on_key_received(self, keyCode: int, deviceName: str) -> None:
         if self._lower_pane_focused:
-            self._typing_service.handlePressed()
+            self._typing_adapter.handlePressed()
 
-    # ==== 属性代理 ====
+    # 属性代理
 
     @Property(bool, notify=readOnlyChanged)
     def textReadOnly(self) -> bool:
-        return self._typing_service.text_read_only
+        return self._typing_adapter.text_read_only
 
     @Property(bool, notify=textLoadingChanged)
     def textLoading(self) -> bool:
-        return self._text_load_service.text_loading
+        return self._text_adapter.text_loading
 
     @Property(str, constant=True)
     def defaultTextSourceKey(self) -> str:
-        return self._runtime_config.default_text_source_key
+        return self._text_adapter.get_default_source_key()
 
-    @Property("QVariantList", constant=True)
+    @Property(list, constant=True)
     def textSourceOptions(self) -> list:
-        return self._runtime_config.get_text_source_options()
+        return self._text_adapter.get_source_options()
 
     @Property(float, notify=totalTimeChanged)
     def totalTime(self) -> float:
-        return self._typing_service.total_time
+        return self._typing_adapter.total_time
 
     @Property(float, notify=typeSpeedChanged)
     def typeSpeed(self) -> float:
-        return self._typing_service.type_speed
+        return self._typing_adapter.type_speed
 
     @Property(float, notify=keyStrokeChanged)
     def keyStroke(self) -> float:
-        return self._typing_service.key_stroke
+        return self._typing_adapter.key_stroke
 
     @Property(float, notify=codeLengthChanged)
     def codeLength(self) -> float:
-        return self._typing_service.code_length
+        return self._typing_adapter.code_length
 
     @Property(int, notify=charNumChanged)
     def wrongNum(self) -> int:
-        return self._typing_service.wrong_num
+        return self._typing_adapter.wrong_num
 
     @Property(str, notify=charNumChanged)
     def charNum(self) -> str:
-        return self._typing_service.char_num
+        return self._typing_adapter.char_num
 
     @Property(bool, notify=loggedinChanged)
     def loggedin(self) -> bool:
@@ -162,7 +160,7 @@ class Bridge(QObject):
     def isSpecialPlatform(self) -> bool:
         return self._is_special_platform
 
-    # ==== Slot 入口 ====
+    # Slot 入口
 
     @Slot(str)
     def handlePinyin(self, s: str) -> None:
@@ -170,7 +168,7 @@ class Bridge(QObject):
 
     @Slot()
     def handlePressed(self) -> None:
-        self._typing_service.handlePressed()
+        self._typing_adapter.handlePressed()
 
     @Slot(bool)
     def setLowerPaneFocused(self, focused: bool) -> None:
@@ -178,48 +176,48 @@ class Bridge(QObject):
 
     @Slot(str, int)
     def handleCommittedText(self, s: str, growLength: int) -> None:
-        self._typing_service.handleCommittedText(s, growLength)
+        self._typing_adapter.handleCommittedText(s, growLength)
 
     @Slot(QQuickTextDocument)
     def handleLoadedText(self, quickDoc: QQuickTextDocument) -> None:
-        self._typing_service.handleLoadedText(quickDoc)
+        self._typing_adapter.handleLoadedText(quickDoc)
 
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
-        self._text_load_service.requestLoadText(source_key)
+        self._text_adapter.requestLoadText(source_key)
 
     @Slot()
     def loadTextFromClipboard(self) -> None:
-        self._text_load_service.loadTextFromClipboard()
+        self._text_adapter.loadTextFromClipboard()
 
     @Slot(bool)
     def handleStartStatus(self, status: bool) -> None:
-        self._typing_service.handleStartStatus(status)
+        self._typing_adapter.handleStartStatus(status)
 
     @Slot(result=bool)
     def isStart(self) -> bool:
-        return self._typing_service.is_started
+        return self._typing_adapter.is_started
 
     @Slot(result=bool)
     def isReadOnly(self) -> bool:
-        return self._typing_service.text_read_only
+        return self._typing_adapter.text_read_only
 
     @Slot(result=int)
     def getCursorPos(self) -> int:
-        return self._typing_service.cursor_position
+        return self._typing_adapter.cursor_position
 
     @Slot(int)
     def setCursorPos(self, newPos: int):
-        self._typing_service.setCursorPosition(newPos)
+        self._typing_adapter.setCursorPosition(newPos)
         self.cursorPosChanged.emit(newPos)
 
     @Slot(result=str)
     def getScoreMessage(self) -> str:
-        return self._typing_service.get_score_message()
+        return self._typing_adapter.get_score_message()
 
     @Slot()
     def copyScoreMessage(self) -> None:
-        self._typing_service.copy_score_message()
+        self._typing_adapter.copy_score_message()
 
     @Slot(str, str)
     def login(self, username: str, password: str) -> None:
@@ -246,7 +244,7 @@ class Bridge(QObject):
         if not self._char_stats_service:
             self.weakestCharsLoaded.emit([])
             return
-        worker = WeakCharsQueryWorker(self._char_stats_service._repo, 10)
+        worker = WeakCharsQueryWorker(self._char_stats_service, 10)
         worker.signals.succeeded.connect(self._on_weak_chars_loaded)
         worker.signals.failed.connect(lambda msg: log_info(f"[Bridge] {msg}"))
         QThreadPool.globalInstance().start(worker)

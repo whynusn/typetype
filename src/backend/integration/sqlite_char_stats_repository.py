@@ -2,7 +2,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from ..models.char_stats import CharStat
+from ..models.entity.char_stat import CharStat
 
 
 class SqliteCharStatsRepository:

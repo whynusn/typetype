@@ -1,9 +1,7 @@
-"""
-成绩 DTO 测试
-"""
+"""成绩 DTO 测试。"""
 
 from src.backend.models.dto.score_dto import HistoryRecordDTO, ScoreSummaryDTO
-from src.backend.models.score_data import ScoreData
+from src.backend.models.entity.session_stat import SessionStat
 
 
 class TestHistoryRecordDTO:
@@ -11,7 +9,7 @@ class TestHistoryRecordDTO:
 
     def test_from_score_data_and_to_dict(self):
         """应可从领域对象转换为 QML 兼容字典"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -38,7 +36,7 @@ class TestScoreSummaryDTO:
 
     def test_from_score_data(self):
         """应生成固定顺序的摘要项"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -56,7 +54,7 @@ class TestScoreSummaryDTO:
 
     def test_to_plain_text(self):
         """应输出纯文本格式摘要"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,
@@ -72,7 +70,7 @@ class TestScoreSummaryDTO:
 
     def test_to_html(self):
         """应输出 HTML 格式摘要"""
-        score = ScoreData(
+        score = SessionStat(
             time=60.0,
             key_stroke_count=300,
             char_count=240,

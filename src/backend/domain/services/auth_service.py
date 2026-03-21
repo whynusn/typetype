@@ -1,20 +1,30 @@
 import keyring
 
-from ..core.api_client import ApiClient
-from ..security.secure_storage import SecureStorage
+from ...application.ports.auth_provider import AuthProvider
+from ...security.secure_storage import SecureStorage
 
 
 class AuthService:
-    """认证服务，封装登录、登出、状态验证等逻辑。"""
+    """认证服务，纯业务逻辑，无 Qt 依赖。
+
+    职责：
+    - 用户登录认证（username/password 验证）
+    - Token 管理（保存、刷新、验证）
+    - 用户状态维护（current_user_id, current_nickname 等）
+
+    不负责：
+    - UI 交互（由 Bridge 负责）
+    - 信号发射（由 Bridge 负责）
+    """
 
     def __init__(
         self,
-        api_client: ApiClient,
+        auth_provider: AuthProvider,
         login_url: str,
         validate_url: str,
         refresh_url: str,
     ):
-        self._api_client = api_client
+        self._auth_provider = auth_provider
         self._login_url = login_url
         self._validate_url = validate_url
         self._refresh_url = refresh_url
@@ -45,13 +55,13 @@ class AuthService:
         返回:
             (success, message, user_data)
         """
-        data = self._api_client.post_json(
+        data = self._auth_provider.post_json(
             self._login_url,
             {"username": username, "password": password},
         )
 
         if data is None:
-            error_msg = str(self._api_client.last_error or "网络请求失败")
+            error_msg = str(self._auth_provider.last_error or "网络请求失败")
             return False, error_msg, {}
 
         if data.get("code") != 200:
@@ -103,7 +113,7 @@ class AuthService:
         if not refresh_token:
             return False, {}
 
-        data = self._api_client.request(
+        data = self._auth_provider.request(
             "POST",
             self._refresh_url,
             headers={"Authorization": f"Bearer {refresh_token}"},
@@ -141,7 +151,7 @@ class AuthService:
         if not jwt:
             return False, {}
 
-        data = self._api_client.request(
+        data = self._auth_provider.request(
             "GET",
             self._validate_url,
             headers={"Authorization": f"Bearer {jwt}"},

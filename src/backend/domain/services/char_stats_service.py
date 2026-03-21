@@ -1,19 +1,31 @@
-from PySide6.QtCore import QThreadPool
-
-from ..application.ports.char_stats_repository import CharStatsRepository
-from ..models.char_stats import CharStat
-from ..workers.char_stat_flush_worker import CharStatFlushWorker
+from ...application.ports.async_executor import AsyncExecutor
+from ...application.ports.char_stats_repository import CharStatsRepository
+from ...models.entity.char_stat import CharStat
 
 
 class CharStatsService:
-    """字符统计领域服务。
+    """字符统计领域服务，纯业务逻辑。
 
-    按需加载（lazy loading）：首次遇到字符时才从数据库读取，
+    采用按需加载（lazy loading）：首次遇到字符时才从数据库读取，
     避免启动时全量加载到内存。
+
+    职责：
+    - 字符统计数据的缓存管理
+    - 击键时间和错误统计的累积
+    - 薄弱字符查询逻辑
+
+    不负责：
+    - 数据库操作（由 Repository 负责）
+    - 异步任务执行（由 AsyncExecutor 负责）
     """
 
-    def __init__(self, repository: CharStatsRepository):
+    def __init__(
+        self,
+        repository: CharStatsRepository,
+        async_executor: AsyncExecutor | None = None,
+    ):
         self._repo = repository
+        self._async_executor = async_executor
         self._cache: dict[str, CharStat] = {}
         self._dirty: set[str] = set()
         self._repo.init_db()
@@ -46,9 +58,12 @@ class CharStatsService:
         if not self._dirty:
             return
         entries = [self._cache[c] for c in self._dirty if c in self._cache]
-        worker = CharStatFlushWorker(repository=self._repo, entries=entries)
-        QThreadPool.globalInstance().start(worker)
         self._dirty.clear()
+
+        if self._async_executor:
+            self._async_executor.submit(lambda: self._repo.save_batch(entries))
+        else:
+            self._repo.save_batch(entries)
 
     def get_weakest_chars(self, n: int = 10) -> list[CharStat]:
         return self._repo.get_weakest_chars(n)

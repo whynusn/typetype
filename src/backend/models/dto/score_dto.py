@@ -1,5 +1,4 @@
-"""
-成绩传输对象（DTO）
+"""成绩传输对象（DTO）。
 
 用于隔离网络/界面传输结构，避免与领域模型耦合。
 """
@@ -8,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ...models.score_data import ScoreData
+    from ...models.entity.session_stat import SessionStat
 
 
 @dataclass
@@ -28,16 +27,8 @@ class ScoreSummaryDTO:
     items: list[ScoreSummaryItemDTO]
 
     @classmethod
-    def from_score_data(cls, score_data: "ScoreData") -> "ScoreSummaryDTO":
-        """
-        从领域对象构建成绩摘要 DTO。
-
-        参数:
-            score_data: 成绩领域对象
-
-        返回:
-            ScoreSummaryDTO 实例
-        """
+    def from_score_data(cls, score_data: "SessionStat") -> "ScoreSummaryDTO":
+        """从领域对象构建成绩摘要 DTO。"""
         return cls(
             items=[
                 ScoreSummaryItemDTO(
@@ -105,16 +96,8 @@ class HistoryRecordDTO:
     date: str
 
     @classmethod
-    def from_score_data(cls, score_data: "ScoreData") -> "HistoryRecordDTO":
-        """
-        从领域对象构建历史记录 DTO。
-
-        参数:
-            score_data: 成绩领域对象
-
-        返回:
-            HistoryRecordDTO 实例
-        """
+    def from_score_data(cls, score_data: "SessionStat") -> "HistoryRecordDTO":
+        """从领域对象构建历史记录 DTO。"""
         return cls(
             speed=round(score_data.speed, 2),
             key_stroke=round(score_data.keyStroke, 2),
@@ -126,12 +109,7 @@ class HistoryRecordDTO:
         )
 
     def to_dict(self) -> dict[str, float | int | str]:
-        """
-        输出与 QML 历史记录兼容的数据结构。
-
-        返回:
-            历史记录字典
-        """
+        """输出与 QML 历史记录兼容的数据结构。"""
         return {
             "speed": self.speed,
             "keyStroke": self.key_stroke,

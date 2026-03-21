@@ -1,4 +1,4 @@
-from ..models.char_stats import CharStat
+from ..models.entity.char_stat import CharStat
 
 
 class NoopCharStatsRepository:
@@ -11,6 +11,9 @@ class NoopCharStatsRepository:
         return None
 
     def get_batch(self, chars: list[str]) -> list[CharStat]:
+        return []
+
+    def get_weakest_chars(self, n: int) -> list[CharStat]:
         return []
 
     def save(self, stat: CharStat) -> None:

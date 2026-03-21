@@ -2,8 +2,8 @@
 
 import httpx
 
-from src.backend.core.api_client import ApiClient
-from src.backend.core.network_errors import (
+from src.backend.infrastructure.api_client import ApiClient
+from src.backend.infrastructure.network_errors import (
     NetworkDecodeError,
     NetworkError,
     NetworkRequestError,

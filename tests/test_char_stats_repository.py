@@ -8,7 +8,7 @@ from src.backend.integration.sqlite_char_stats_repository import (
 from src.backend.integration.noop_char_stats_repository import (
     NoopCharStatsRepository,
 )
-from src.backend.models.char_stats import CharStat
+from src.backend.models.entity.char_stat import CharStat
 
 
 class TestSqliteCharStatsRepository:

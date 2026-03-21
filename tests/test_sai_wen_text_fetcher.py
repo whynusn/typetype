@@ -1,9 +1,9 @@
 """
-sai_wen_service 模块测试
+SaiWenTextFetcher 模块测试
 """
 
-from src.backend.core.api_client import ApiClient
-from src.backend.integration.sai_wen_service import SaiWenService
+from src.backend.infrastructure.api_client import ApiClient
+from src.backend.integration.sai_wen_text_fetcher import SaiWenTextFetcher
 
 
 class DummyApiClient(ApiClient):
@@ -21,20 +21,20 @@ class DummyApiClient(ApiClient):
         return self.response_data
 
 
-class TestSaiWenService:
-    """测试 SaiWenService 解析逻辑"""
+class TestSaiWenTextFetcher:
+    """测试 SaiWenTextFetcher 解析逻辑"""
 
     def test_msg_is_string(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.time.time", lambda: 1234567890
+            "src.backend.integration.sai_wen_text_fetcher.time.time", lambda: 1234567890
         )
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.crypt.encrypt",
+            "src.backend.integration.sai_wen_text_fetcher.crypt.encrypt",
             lambda _: "XENCODED",
         )
 
         api_client = DummyApiClient({"msg": "hello"})
-        service = SaiWenService(api_client=api_client)
+        service = SaiWenTextFetcher(api_client=api_client)
 
         assert service.fetch_text("https://example.com") == "hello"
         assert api_client.last_url == "https://example.com"
@@ -42,78 +42,80 @@ class TestSaiWenService:
 
     def test_msg_is_dict_with_content(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.time.time", lambda: 1234567890
+            "src.backend.integration.sai_wen_text_fetcher.time.time", lambda: 1234567890
         )
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.crypt.encrypt",
+            "src.backend.integration.sai_wen_text_fetcher.crypt.encrypt",
             lambda _: "XENCODED",
         )
 
-        service = SaiWenService(api_client=DummyApiClient({"msg": {"content": "abc"}}))
+        service = SaiWenTextFetcher(
+            api_client=DummyApiClient({"msg": {"content": "abc"}})
+        )
         assert service.fetch_text("https://example.com") == "abc"
 
     def test_msg_is_dict_with_zero_key(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.time.time", lambda: 1234567890
+            "src.backend.integration.sai_wen_text_fetcher.time.time", lambda: 1234567890
         )
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.crypt.encrypt",
+            "src.backend.integration.sai_wen_text_fetcher.crypt.encrypt",
             lambda _: "XENCODED",
         )
 
-        service = SaiWenService(
+        service = SaiWenTextFetcher(
             api_client=DummyApiClient({"msg": {"0": "zero-content"}})
         )
         assert service.fetch_text("https://example.com") == "zero-content"
 
     def test_msg_is_other_type(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.time.time", lambda: 1234567890
+            "src.backend.integration.sai_wen_text_fetcher.time.time", lambda: 1234567890
         )
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.crypt.encrypt",
+            "src.backend.integration.sai_wen_text_fetcher.crypt.encrypt",
             lambda _: "XENCODED",
         )
 
-        service = SaiWenService(api_client=DummyApiClient({"msg": 123}))
+        service = SaiWenTextFetcher(api_client=DummyApiClient({"msg": 123}))
         assert service.fetch_text("https://example.com") == "123"
 
     def test_msg_is_none(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.time.time", lambda: 1234567890
+            "src.backend.integration.sai_wen_text_fetcher.time.time", lambda: 1234567890
         )
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.crypt.encrypt",
+            "src.backend.integration.sai_wen_text_fetcher.crypt.encrypt",
             lambda _: "XENCODED",
         )
 
-        service = SaiWenService(api_client=DummyApiClient({"msg": None}))
+        service = SaiWenTextFetcher(api_client=DummyApiClient({"msg": None}))
         assert service.fetch_text("https://example.com") == ""
 
     def test_request_exception_returns_none(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.time.time", lambda: 1234567890
+            "src.backend.integration.sai_wen_text_fetcher.time.time", lambda: 1234567890
         )
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.crypt.encrypt",
+            "src.backend.integration.sai_wen_text_fetcher.crypt.encrypt",
             lambda _: "XENCODED",
         )
 
-        service = SaiWenService(api_client=DummyApiClient(None))
+        service = SaiWenTextFetcher(api_client=DummyApiClient(None))
         assert service.fetch_text("https://example.com") is None
 
     def test_request_error_raises_last_error(self, monkeypatch):
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.time.time", lambda: 1234567890
+            "src.backend.integration.sai_wen_text_fetcher.time.time", lambda: 1234567890
         )
         monkeypatch.setattr(
-            "src.backend.integration.sai_wen_service.crypt.encrypt",
+            "src.backend.integration.sai_wen_text_fetcher.crypt.encrypt",
             lambda _: "XENCODED",
         )
 
         api_client = DummyApiClient(None)
         api_client._last_error = RuntimeError("network timeout")
-        service = SaiWenService(api_client=api_client)
+        service = SaiWenTextFetcher(api_client=api_client)
 
         try:
             service.fetch_text("https://example.com")

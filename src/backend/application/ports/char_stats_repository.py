@@ -1,6 +1,6 @@
 from typing import Protocol, runtime_checkable
 
-from ...models.char_stats import CharStat
+from ...models.entity.char_stat import CharStat
 
 
 @runtime_checkable

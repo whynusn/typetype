@@ -1,12 +1,15 @@
 import time
 from typing import Any
 
-from ..core.api_client import ApiClient
+from ..infrastructure.api_client import ApiClient
 from ..security import crypt
 
 
-class SaiWenService:
-    """赛文文本服务，封装请求构造与响应解析。"""
+class SaiWenTextFetcher:
+    """赛文文本获取器，实现 TextFetcher 协议。
+
+    封装赛文接口的请求构造与响应解析。
+    """
 
     def __init__(self, api_client: ApiClient | None = None):
         self._api_client = api_client or ApiClient(timeout=20.0)
