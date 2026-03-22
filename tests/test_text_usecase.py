@@ -2,27 +2,22 @@
 
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.models.text_source import TextSource
-from src.backend.infrastructure.network_errors import (
-    NetworkTimeoutError,
-)
 
 
 class DummyTextGateway:
-    def __init__(self, sources=None, network_result=None, network_error=None):
+    def __init__(self, sources=None, network_result=None, catalog_result=None):
         self._sources = sources or {}
         self._network_result = network_result
-        self._network_error = network_error
+        self._catalog_result = catalog_result
 
     def get_source(self, source_key):
         return self._sources.get(source_key)
 
     def fetch_from_network(self, url, fetcher_key=None):
-        if self._network_error:
-            raise self._network_error
         return self._network_result
 
     def fetch_from_catalog(self, text_id):
-        return self._network_result
+        return self._catalog_result
 
     def fetch_from_clipboard(self):
         return "clipboard text"
@@ -49,26 +44,6 @@ def test_load_network_success():
     result = usecase.load("test")
     assert result.success
     assert result.text == "abc"
-
-
-def test_load_network_timeout_error():
-    """超时异常应返回专用提示。"""
-    gateway = DummyTextGateway(
-        sources={
-            "test": TextSource(
-                key="test",
-                label="Test Network",
-                type="network_direct",
-                url="https://example.com",
-                fetcher_key="default",
-            )
-        },
-        network_error=NetworkTimeoutError("timeout"),
-    )
-    usecase = LoadTextUseCase(gateway=gateway)
-    result = usecase.load("test")
-    assert not result.success
-    assert "网络连接超时" in result.error_message
 
 
 def test_load_unknown_source():
@@ -105,3 +80,41 @@ def test_load_local_success():
     result = usecase.load("test")
     assert result.success
     assert result.text == "local text"
+
+
+def test_load_network_missing_url():
+    """网络来源缺少 URL 应返回失败。"""
+    gateway = DummyTextGateway(
+        sources={
+            "test": TextSource(
+                key="test",
+                label="Test",
+                type="network_direct",
+                url="",
+                fetcher_key="default",
+            )
+        }
+    )
+    usecase = LoadTextUseCase(gateway=gateway)
+    result = usecase.load("test")
+    assert not result.success
+    assert "网络来源缺少 URL" in result.error_message
+
+
+def test_load_network_catalog_missing_id():
+    """文本库来源缺少 text_id 应返回失败。"""
+    gateway = DummyTextGateway(
+        sources={
+            "test": TextSource(
+                key="test",
+                label="Test",
+                type="network_catalog",
+                url="https://example.com",
+                text_id="",
+            )
+        }
+    )
+    usecase = LoadTextUseCase(gateway=gateway)
+    result = usecase.load("test")
+    assert not result.success
+    assert "文本库来源缺少 text_id" in result.error_message

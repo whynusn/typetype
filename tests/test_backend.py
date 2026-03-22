@@ -7,7 +7,6 @@ from src.backend.domain.services.char_stats_service import CharStatsService
 from src.backend.domain.services.typing_service import TypingService
 from src.backend.domain.services.auth_service import AuthService
 from src.backend.integration.noop_char_stats_repository import NoopCharStatsRepository
-from src.backend.application.usecases.typing_usecase import TypingUseCase
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.application.gateways.score_gateway import ScoreGateway
 from src.backend.application.gateways.text_gateway import TextGateway
@@ -41,14 +40,11 @@ class TestBridgeSpecialPlatform:
         text_gateway.get_source_options.return_value = []
         text_gateway.get_default_source_key.return_value = "builtin_demo"
 
-        # UseCases
-        typing_usecase = TypingUseCase(score_gateway=score_gateway)
         load_text_usecase = LoadTextUseCase(gateway=text_gateway)
 
-        # Adapters
         typing_adapter = TypingAdapter(
             typing_service=typing_service,
-            typing_usecase=typing_usecase,
+            score_gateway=score_gateway,
         )
         text_adapter = TextAdapter(
             text_gateway=text_gateway,
