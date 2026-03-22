@@ -4,10 +4,10 @@
 """
 
 from ...config.runtime_config import RuntimeConfig
-from ...models.text_source import TextSource
+from ...models.text_source import TextCatalogItem, TextSource
 from ..ports.clipboard import ClipboardReader
 from ..ports.local_text_loader import LocalTextLoader
-from ..ports.text_catalog_fetcher import TextCatalogFetcher
+from ..ports.catalog_text_fetcher import CatalogTextFetcher
 from ..ports.text_fetcher import TextFetcher
 
 
@@ -33,7 +33,7 @@ class TextGateway:
         text_fetchers: dict[str, TextFetcher],
         clipboard: ClipboardReader,
         local_text_loader: LocalTextLoader,
-        text_catalog_fetcher: TextCatalogFetcher | None = None,
+        text_catalog_fetcher: CatalogTextFetcher | None = None,
     ):
         self._runtime_config = runtime_config
         self._text_fetchers = text_fetchers
@@ -73,6 +73,12 @@ class TextGateway:
         if not text_id or self._text_catalog_fetcher is None:
             return None
         return self._text_catalog_fetcher.fetch_text_by_id(text_id)
+
+    def get_catalog(self) -> list[TextCatalogItem]:
+        """获取文本目录列表。"""
+        if self._text_catalog_fetcher is None:
+            return []
+        return self._text_catalog_fetcher.get_catalog()
 
     def fetch_from_clipboard(self) -> str:
         """从剪贴板加载文本。"""
