@@ -25,7 +25,7 @@ class SaiWenTextFetcher:
             提取后的文本内容；失败时返回 None
         """
         payload = self._build_payload()
-        response_data = self._api_client.post_json(url, payload)
+        response_data = self._api_client.request("POST", url, json=payload)
         if response_data is None:
             last_error = getattr(self._api_client, "last_error", None)
             if last_error is not None:

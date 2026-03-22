@@ -15,9 +15,9 @@ class DummyApiClient(ApiClient):
         self.last_payload = None
         self._last_error = None
 
-    def post_json(self, url, payload):
+    def request(self, method, url, *, params=None, json=None, data=None, headers=None):
         self.last_url = url
-        self.last_payload = payload
+        self.last_payload = json
         return self.response_data
 
 
