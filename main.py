@@ -10,15 +10,15 @@ from RinUI import RinUIWindow
 from src.backend.application.gateways.score_gateway import ScoreGateway
 from src.backend.application.gateways.text_gateway import TextGateway
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
-from src.backend.application.usecases.typing_usecase import TypingUseCase
 from src.backend.presentation.bridge import Bridge
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.infrastructure.api_client import ApiClient
+from src.backend.integration.api_client_auth_provider import ApiClientAuthProvider
 from src.backend.domain.services.auth_service import AuthService
 from src.backend.domain.services.char_stats_service import CharStatsService
 from src.backend.domain.services.typing_service import TypingService
 from src.backend.integration.global_key_listener import GlobalKeyListener
-from src.backend.integration.catalog_service import TextCatalogService
+from src.backend.integration.remote_catalog_text_fetcher import RemoteCatalogTextFetcher
 from src.backend.integration.qt_async_executor import QtAsyncExecutor
 from src.backend.integration.qt_local_text_loader import QtLocalTextLoader
 from src.backend.integration.sai_wen_text_fetcher import SaiWenTextFetcher
@@ -87,7 +87,7 @@ def main():
     api_client = ApiClient(timeout=runtime_config.api_timeout)
     sai_wen_text_fetcher = SaiWenTextFetcher(api_client=api_client)
     local_text_loader = QtLocalTextLoader()
-    text_catalog_service = TextCatalogService(
+    text_catalog_fetcher = RemoteCatalogTextFetcher(
         base_url=runtime_config.base_url,
         api_client=api_client,
     )
@@ -98,13 +98,12 @@ def main():
         text_fetchers={"sai_wen": sai_wen_text_fetcher},
         clipboard=clipboard,
         local_text_loader=local_text_loader,
-        text_catalog_fetcher=text_catalog_service,
+        text_catalog_fetcher=text_catalog_fetcher,
     )
     score_gateway = ScoreGateway(clipboard=clipboard)
 
     # UseCases
     load_text_usecase = LoadTextUseCase(gateway=text_gateway)
-    typing_usecase = TypingUseCase(score_gateway=score_gateway)
 
     # Domain Services
     async_executor = QtAsyncExecutor()
@@ -119,17 +118,18 @@ def main():
 
     typing_service = TypingService(char_stats_service=char_stats_service)
 
-    auth_service = AuthService(
-        auth_provider=api_client,
+    auth_provider = ApiClientAuthProvider(
+        api_client=api_client,
         login_url=runtime_config.login_api_url,
         validate_url=runtime_config.validate_api_url,
         refresh_url=runtime_config.refresh_api_url,
     )
+    auth_service = AuthService(auth_provider=auth_provider)
 
     # Adapters
     typing_adapter = TypingAdapter(
         typing_service=typing_service,
-        typing_usecase=typing_usecase,
+        score_gateway=score_gateway,
     )
     text_adapter = TextAdapter(
         text_gateway=text_gateway,

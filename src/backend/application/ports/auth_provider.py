@@ -1,16 +1,13 @@
-from typing import Any, Protocol
+from typing import Protocol
+
+from ...models.dto.auth_dto import AuthResult
 
 
 class AuthProvider(Protocol):
-    @property
-    def last_error(self) -> Exception | None: ...
+    """认证协议，封装登录、token 验证与刷新。"""
 
-    def post_json(self, url: str, payload: dict[Any, Any]) -> dict[str, Any] | None: ...
+    def login(self, username: str, password: str) -> AuthResult: ...
 
-    def request(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: dict[str, str] | None = None,
-    ) -> dict[str, Any] | None: ...
+    def validate_token(self, token: str) -> AuthResult: ...
+
+    def refresh_token(self, refresh_token: str) -> AuthResult: ...
