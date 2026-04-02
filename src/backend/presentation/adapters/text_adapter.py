@@ -1,20 +1,9 @@
-"""文本加载 Qt 适配层。
-
-负责：
-- Qt 信号发射
-- 异步任务管理（QThreadPool）
-
-不负责：
-- 路由逻辑（由 LoadTextUseCase 负责）
-- 文本加载逻辑（由 TextGateway 负责）
-- 异常处理（由 LoadTextUseCase 负责）
-"""
-
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ...application.exception_handler import GlobalExceptionHandler
 from ...application.gateways.text_gateway import TextGateway
 from ...application.usecases.load_text_usecase import LoadTextUseCase
+from ...models.config.text_source_config import TextSourceEntry
 from ...workers.text_load_worker import TextLoadWorker
 
 
@@ -59,7 +48,6 @@ class TextAdapter(QObject):
 
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
-        """请求加载文本。"""
         if self._text_loading:
             return
 
@@ -68,30 +56,15 @@ class TextAdapter(QObject):
             self.textLoadFailed.emit(f"加载文本失败：未知载文来源({source_key})")
             return
 
-        if source.type == "local":
-            self._request_load_from_local(source_key)
-        elif source.type in ("network_direct", "network_catalog"):
-            self._request_load_from_network(source_key)
+        if source.local_path:
+            self._load_local(source)
         else:
-            self.textLoadFailed.emit(f"加载文本失败：未知载文来源类型({source_key})")
+            self._load_network(source)
 
-    def _request_load_from_network(self, source_key: str) -> None:
-        """异步从网络加载文本。"""
-        self._set_text_loading(True)
-        worker = TextLoadWorker(
-            load_text_usecase=self._load_text_usecase,
-            source_key=source_key,
-        )
-        worker.signals.succeeded.connect(self._on_text_loaded)
-        worker.signals.failed.connect(self._on_text_load_failed)
-        worker.signals.finished.connect(self._on_text_load_finished)
-        self._thread_pool.start(worker)
-
-    def _request_load_from_local(self, source_key: str) -> None:
-        """从本地加载文本。"""
+    def _load_local(self, source: TextSourceEntry) -> None:
         self._set_text_loading(True)
         try:
-            result = self._load_text_usecase.load(source_key)
+            result = self._load_text_usecase.load_from_source(source)
             if result.success:
                 self._on_text_loaded(result.text)
             else:
@@ -102,6 +75,17 @@ class TextAdapter(QObject):
             )
         finally:
             self._set_text_loading(False)
+
+    def _load_network(self, source: TextSourceEntry) -> None:
+        self._set_text_loading(True)
+        worker = TextLoadWorker(
+            load_text_usecase=self._load_text_usecase,
+            source=source,
+        )
+        worker.signals.succeeded.connect(self._on_text_loaded)
+        worker.signals.failed.connect(self._on_text_load_failed)
+        worker.signals.finished.connect(self._on_text_load_finished)
+        self._thread_pool.start(worker)
 
     @Slot()
     def loadTextFromClipboard(self) -> None:
@@ -132,5 +116,4 @@ class TextAdapter(QObject):
         return self._text_gateway.get_source_options()
 
     def get_default_source_key(self) -> str:
-        """获取默认来源 key。"""
         return self._text_gateway.get_default_source_key()

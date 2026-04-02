@@ -18,10 +18,9 @@ from src.backend.domain.services.auth_service import AuthService
 from src.backend.domain.services.char_stats_service import CharStatsService
 from src.backend.domain.services.typing_service import TypingService
 from src.backend.integration.global_key_listener import GlobalKeyListener
-from src.backend.integration.remote_catalog_text_fetcher import RemoteCatalogTextFetcher
+from src.backend.integration.remote_text_provider import RemoteTextProvider
 from src.backend.integration.qt_async_executor import QtAsyncExecutor
 from src.backend.integration.qt_local_text_loader import QtLocalTextLoader
-from src.backend.integration.sai_wen_text_fetcher import SaiWenTextFetcher
 from src.backend.integration.sqlite_char_stats_repository import (
     SqliteCharStatsRepository,
 )
@@ -85,9 +84,8 @@ def main():
 
     # Infrastructure 层
     api_client = ApiClient(timeout=runtime_config.api_timeout)
-    sai_wen_text_fetcher = SaiWenTextFetcher(api_client=api_client)
     local_text_loader = QtLocalTextLoader()
-    text_catalog_fetcher = RemoteCatalogTextFetcher(
+    text_provider = RemoteTextProvider(
         base_url=runtime_config.base_url,
         api_client=api_client,
     )
@@ -95,15 +93,18 @@ def main():
     # Gateways
     text_gateway = TextGateway(
         runtime_config=runtime_config,
-        text_fetchers={"sai_wen": sai_wen_text_fetcher},
         clipboard=clipboard,
         local_text_loader=local_text_loader,
-        text_catalog_fetcher=text_catalog_fetcher,
+        text_provider=text_provider,
     )
     score_gateway = ScoreGateway(clipboard=clipboard)
 
     # UseCases
-    load_text_usecase = LoadTextUseCase(gateway=text_gateway)
+    load_text_usecase = LoadTextUseCase(
+        text_provider=text_provider,
+        local_text_loader=local_text_loader,
+        clipboard_reader=clipboard,
+    )
 
     # Domain Services
     async_executor = QtAsyncExecutor()
