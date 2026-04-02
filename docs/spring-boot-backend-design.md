@@ -52,12 +52,12 @@ QML UI → Presentation (Bridge + Adapters)
   → QML 调用 appBridge.requestLoadText(sourceKey)
     → Bridge 根据 RuntimeConfig 判断 type=network/local
       → network: 创建 LoadTextWorker → QThreadPool 异步执行
-        → LoadTextUseCase.load(source_key)
-          → TextFetcher.fetch_text(url)     [当前实现: SaiWenTextFetcher]
-            → ApiClient.request("POST", url, json=payload)
-              → httpx.Client.request()      [HTTP 请求]
-      → local: 同步执行
-        → LoadTextUseCase.load(source_key)
+→ LoadTextUseCase.load(source_id)
+→ TextFetcher.fetch_text(url)     [当前实现: SaiWenTextFetcher]
+→ ApiClient.request("POST", url, json=payload)
+→ httpx.Client.request()      [HTTP 请求]
+→ local: 同步执行
+→ LoadTextUseCase.load(source_id)
           → LocalTextLoader.load_text(path) [当前实现: QtLocalTextLoader]
     → 成功: textLoaded.emit(text) → QML 显示
     → 失败: textLoadFailed.emit(message) → QML 提示
@@ -582,9 +582,9 @@ class SpringBootTextService:
         self._api_client = api_client
         self._base_url = base_url
 
-    def fetch_text(self, source_key: str) -> str | None:
+    def fetch_text(self, source_id: str) -> str | None:
         url = f"{self._base_url}/api/v1/texts/random"
-        data = self._api_client.request("GET", url, params={"sourceKey": source_key})
+        data = self._api_client.request("GET", url, params={"sourceKey": source_id})
         if data is None:
             last_error = self._api_client.last_error
             if last_error:

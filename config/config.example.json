@@ -6,44 +6,32 @@
   "text_sources": {
     "builtin_demo": {
       "label": "本地示例",
-      "type": "local",
       "local_path": "resources/texts/builtin_demo.txt"
     },
     "jisubei": {
       "label": "极速杯",
-      "type": "network_direct",
-      "url": "https://www.jsxiaoshi.com/index.php/Api/Text/getContent",
-      "fetcher_key": "sai_wen",
-      "has_ranking": true,
-      "ranking_type": "daily"
+      "has_ranking": true
     },
     "fst_500": {
       "label": "前五百",
-      "type": "local",
       "local_path": "resources/texts/前五百.txt",
-      "has_ranking": true,
-      "ranking_type": "permanent",
-      "text_id": "builtin_fst_500"
+      "text_id": "builtin_fst_500",
+      "has_ranking": true
     },
     "mid_500": {
       "label": "中五百",
-      "type": "local",
       "local_path": "resources/texts/中五百.txt",
-      "has_ranking": true,
-      "ranking_type": "permanent",
-      "text_id": "builtin_mid_500"
+      "text_id": "builtin_mid_500",
+      "has_ranking": true
     },
     "lst_500": {
       "label": "后五百",
-      "type": "local",
       "local_path": "resources/texts/后五百.txt",
-      "has_ranking": true,
-      "ranking_type": "permanent",
-      "text_id": "builtin_lst_500"
+      "text_id": "builtin_lst_500",
+      "has_ranking": true
     },
     "essential_single_char": {
       "label": "打词必备单字",
-      "type": "local",
       "local_path": "resources/texts/打词必备单字.txt"
     }
   }

@@ -217,7 +217,7 @@ bridge = Bridge(
 1. 在 `RuntimeConfig.text_sources` 增加 `springboot` 来源（`type=network`，URL 指向 Spring Boot）。
 2. 新增 `SpringBootTextFetcher`（实现 `TextFetcher` 协议）。
 3. `main.py` 注册多个 TextFetcher：`TextGateway(text_fetchers={"sai_wen": sai_wen, "springboot": springboot}, ...)`。
-4. 用户可在 UI 中选择使用哪个来源（通过 `source_key` 关联 `fetcher_key`）。
+4. 用户可在 UI 中选择使用哪个来源（通过 `source_id` 关联 `fetcher_id`）。
 
 **多个 TextFetcher 可以共存**，用户根据需要选择不同的来源。
 

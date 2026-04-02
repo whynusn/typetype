@@ -18,7 +18,7 @@ class QtLocalTextLoader(LocalTextLoader):
             return None
 
         try:
-            data = bytes(text_file.readAll())
+            data = bytes(text_file.readAll().data())
             try:
                 return data.decode("utf-8")
             except UnicodeDecodeError:

@@ -26,10 +26,10 @@ uv run ruff format --check .
 
 ## 当前文本加载链路
 
-1. QML `ToolLine` 触发 `requestLoadText(sourceKey)`
+1. QML `ToolLine` 触发 `requestLoadText(sourceId)`
 2. `Bridge.requestLoadText()` 根据 `RuntimeConfig` 判断来源类型
-3. 网络来源走 `TextLoadWorker -> LoadTextUseCase.load(source_key)`
-4. 本地来源走 `LoadTextUseCase.load(source_key)`
+3. 网络来源走 `TextLoadWorker -> LoadTextUseCase.load(source_id)`
+4. 本地来源走 `LoadTextUseCase.load(source_id)`
 5. 结果通过 `textLoaded` / `textLoadFailed` 信号回传 QML
 
 ## 代码协作要点
