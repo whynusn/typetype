@@ -3,7 +3,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..config.text_source_config import TextSourceConfig, TextSourceEntry
+from config.text_source_config import TextSourceConfig, TextSourceEntry
 
 
 @dataclass

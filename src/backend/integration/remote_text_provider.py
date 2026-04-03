@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any, Callable
 
-from ...config.text_source_config import TextCatalogItem
+from config.text_source_config import TextCatalogItem
 from ...infrastructure.network_errors import CatalogServiceError
 
 if TYPE_CHECKING:
