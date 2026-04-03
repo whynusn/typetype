@@ -131,13 +131,14 @@ typetype/
 │                  Presentation Layer                     │
 │                 (Bridge + Adapters)                     │
 │  Bridge: appBridge，属性代理/信号转发/Slot 入口         │
-│  Adapters: TypingAdapter, TextAdapter                   │
+│  Adapters: TypingAdapter, TextAdapter, AuthAdapter,    │
+│            CharStatsAdapter                            │
 └─────────────────────────┬───────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────┐
 │                     Application Layer                   │
-│        UseCases: LoadTextUseCase, TypingUseCase         │
-│        Gateways: TextGateway, ScoreGateway              │
+│              UseCases: LoadTextUseCase                  │
+│   Gateways: TextSourceGateway, ScoreGateway             │
 └─────────┬───────────────────────────┬───────────────────┘
           │                           │
           ▼                           ▼
@@ -151,7 +152,7 @@ typetype/
                          ▼
 ┌─────────────────────────────────────────────────────────┐
 │              Integration / Infrastructure               │
-│   SaiWenTextFetcher, SqliteRepo, ApiClient, QtLoader    │
+│ RemoteTextProvider, SqliteRepo, ApiClient, QtLoader     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -160,11 +161,11 @@ typetype/
 | 层次 | 职责 | 示例 |
 |------|------|------|
 | **Presentation（Bridge + Adapters）** | UI 适配层；Bridge 负责 QML 入口与转发，Adapters 封装 Qt 细节 | `appBridge` / `TypingAdapter` / `TextAdapter` |
-| **Application (UseCases)** | 业务流程编排、异常转换、结果封装 | `LoadTextUseCase.load()` |
-| **Application (Gateways)** | Port 适配与配置查询、DTO/剪贴板转换 | `TextGateway` / `ScoreGateway` |
-| **Domain Services** | 纯业务逻辑与状态计算（无 Qt 依赖） | `TypingService` / `CharStatsService` |
-| **Ports** | 协议定义（抽象依赖） | `TextFetcher` / `CharStatsRepository` |
-| **Integration** | 端口实现与外部系统接入 | `SaiWenTextFetcher` / `SqliteCharStatsRepository` |
+| **Application (UseCases)** | 业务流程编排、结果封装 | `LoadTextUseCase.load()` |
+| **Application (Gateways)** | Port 适配、配置查询、DTO/剪贴板转换 | `TextSourceGateway` / `ScoreGateway` |
+| **Domain Services** | 纯业务逻辑与状态计算（无 Qt 依赖） | `TypingService` / `CharStatsService` / `AuthService` |
+| **Ports** | 协议定义（抽象依赖） | `TextProvider` / `LocalTextLoader` / `CharStatsRepository` |
+| **Integration** | 端口实现与外部系统接入 | `RemoteTextProvider` / `SqliteCharStatsRepository` |
 
 ### 依赖注入
 
@@ -172,7 +173,10 @@ typetype/
 
 ```python
 typing_service = TypingService(char_stats_service=char_stats_service)
-load_text_usecase = LoadTextUseCase(gateway=text_gateway)
+load_text_usecase = LoadTextUseCase(
+    text_gateway=text_gateway,
+    clipboard_reader=clipboard_reader,
+)
 auth_service = AuthService(...)
 char_stats_service = CharStatsService(repository=char_stats_repo)
 auth_adapter = AuthAdapter(auth_service=auth_service)
@@ -188,10 +192,18 @@ bridge = Bridge(
 ### 核心组件职责
 
 - **TypingService**：打字统计状态与计数逻辑（无 Qt 依赖）
-- **LoadTextUseCase**：文本加载流程编排（网络/本地/剪贴板与异常转换）
+- **LoadTextUseCase**：文本加载入口，负责结果封装并协调 `TextSourceGateway` / `ClipboardReader`
 - **AuthService**：登录认证（login/logout、token 刷新、状态持久化）
 - **CharStatsService**：字符维度统计（缓存、异步持久化、薄弱字查询）
-- **RuntimeConfig**：管理文本来源列表和默认来源
+- **TextSourceGateway**：根据 `RuntimeConfig` 做来源查询与本地/网络路由
+- **RuntimeConfig**：管理文本来源列表和默认来源；在 `TextAdapter` 中仅用于 UI 配置展示
+
+### 文本加载闭口
+
+- 文本加载主入口现在是 `LoadTextUseCase.plan_load() -> LoadTextUseCase.load() -> TextSourceGateway`。
+- 同步/异步执行策略已经由 `Application` 输出，`TextAdapter` 只负责执行同步调用或入队 Worker。
+- `TextAdapter` 不再通过 `RuntimeConfig` 做行为判断；`RuntimeConfig` 仅保留 UI 来源列表/默认来源展示用途。
+- 详细边界规则见 `docs/developer-architecture-handbook.md`。
 
 ## Spring Boot 服务接入规划
 

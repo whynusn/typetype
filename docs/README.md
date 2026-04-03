@@ -10,7 +10,7 @@
 
 | 文档 | 说明 | 状态 |
 |------|------|------|
-| [developer-architecture-handbook.md](./developer-architecture-handbook.md) | **开发者架构手册** - 当前客户端架构、旧/新架构评估、推荐目标架构 | ✅ 当前源码事实来源 |
+| [developer-architecture-handbook.md](./developer-architecture-handbook.md) | **开发者架构手册** - 当前客户端架构事实、文本加载闭口后的边界规则与协作约束 | ✅ 当前源码事实来源 |
 | [guide.md](./guide.md) | **AI Agent 转化规划指南** - 项目规划与方案文档 | ✅ 规划文档 |
 | [roadmap.md](./roadmap.md) | **功能路线图** - 当前完成状态与后续规划 | ✅ 规划文档 |
 | [spring-boot-backend-design.md](./spring-boot-backend-design.md) | **Spring Boot 后端设计方案** - 服务端方案与集成设想 | ✅ 后端方案文档 |
@@ -30,7 +30,8 @@
 
 1. 先看当前源码
 2. 再看 [developer-architecture-handbook.md](./developer-architecture-handbook.md)
-3. 其他文档中的架构描述按“规划/历史背景”理解，除非它明确声明自己是当前事实来源
+3. 若问题涉及文本加载边界归属，以该手册中的“最终形态”与边界规则为准
+4. 其他文档中的架构描述按“规划/历史背景”理解，除非它明确声明自己是当前事实来源
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -98,7 +99,7 @@
 
 | 日期 | 变更 |
 |------|------|
-| 2026-04-03 | 重写 developer-architecture-handbook.md，明确其为客户端架构事实来源 |
+| 2026-04-03 | 重写 developer-architecture-handbook.md，明确其为客户端架构事实来源并更新文本加载闭口后的边界规则 |
 | 2026-04-03 | 为 guide / roadmap / spring-boot 文档补充“规划文档”定位说明 |
 | 2026-03-21 | 新增 developer-architecture-handbook.md（开发者架构手册） |
 | 2026-03-21 | 创建文档索引，重命名功能路线图文件 |
