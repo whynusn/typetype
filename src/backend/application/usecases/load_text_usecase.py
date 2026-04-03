@@ -1,9 +1,7 @@
 from dataclasses import dataclass
 
-from ..ports.text_provider import TextProvider
-from ..ports.local_text_loader import LocalTextLoader
+from ..gateways.text_source_gateway import TextSourceGateway
 from ..ports.clipboard import ClipboardReader
-from ...models.config.text_source_config import TextSourceEntry
 
 
 @dataclass
@@ -14,42 +12,41 @@ class LoadTextResult:
 
 
 class LoadTextUseCase:
+    """文本加载用例 - 业务流程编排。
+
+    职责：
+    - 文本加载的业务编排入口
+    - 剪贴板加载逻辑
+
+    不负责：
+    - 配置查询与路由决策（由 TextSourceGateway 负责）
+    - Qt 信号、UI 状态
+    """
+
     def __init__(
         self,
-        text_provider: TextProvider,
-        local_text_loader: LocalTextLoader,
+        text_gateway: TextSourceGateway,
         clipboard_reader: ClipboardReader,
     ):
-        self._text_provider = text_provider
-        self._local_text_loader = local_text_loader
+        self._text_gateway = text_gateway
         self._clipboard_reader = clipboard_reader
 
-    def load_from_source(self, source: TextSourceEntry) -> LoadTextResult:
-        if source.local_path:
-            return self._load_from_local(source.local_path)
-        else:
-            text = self._text_provider.fetch_text_by_key(source.key)
-            if text is None:
-                return LoadTextResult(
-                    success=False,
-                    text="",
-                    error_message=f"无法获取文本内容({source.key})",
-                )
-            return LoadTextResult(success=True, text=text)
+    def load(self, source_key: str) -> LoadTextResult:
+        """根据 source_key 加载文本。
 
-    def _load_from_local(self, path: str | None) -> LoadTextResult:
-        if not path:
-            return LoadTextResult(
-                success=False, text="", error_message="本地来源缺少路径"
-            )
-        text = self._local_text_loader.load_text(path)
-        if text is None:
-            return LoadTextResult(
-                success=False, text="", error_message="无法读取本地文章"
-            )
-        return LoadTextResult(success=True, text=text)
+        Args:
+            source_key: 文本来源键
+
+        Returns:
+            LoadTextResult: 加载结果
+        """
+        success, text, error_message = self._text_gateway.load_text_by_key(source_key)
+        return LoadTextResult(
+            success=success, text=text or "", error_message=error_message
+        )
 
     def load_from_clipboard(self) -> LoadTextResult:
+        """从剪贴板加载文本。"""
         text = self._clipboard_reader.text()
         if not text:
             return LoadTextResult(
