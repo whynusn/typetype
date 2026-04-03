@@ -1,7 +1,13 @@
 from dataclasses import dataclass
+from typing import Literal
 
 from ..gateways.text_source_gateway import TextSourceGateway
 from ..ports.clipboard import ClipboardReader
+
+
+@dataclass(frozen=True)
+class TextLoadPlan:
+    execution_mode: Literal["sync", "async"]
 
 
 @dataclass
@@ -30,6 +36,12 @@ class LoadTextUseCase:
     ):
         self._text_gateway = text_gateway
         self._clipboard_reader = clipboard_reader
+
+    def plan_load(self, source_key: str) -> TextLoadPlan:
+        """返回文本加载的执行计划。"""
+        return TextLoadPlan(
+            execution_mode=self._text_gateway.get_execution_mode(source_key)
+        )
 
     def load(self, source_key: str) -> LoadTextResult:
         """根据 source_key 加载文本。

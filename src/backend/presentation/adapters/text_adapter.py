@@ -59,27 +59,28 @@ class TextAdapter(QObject):
     def requestLoadText(self, source_key: str) -> None:
         """请求加载文本。
 
-        根据来源类型决定同步或异步加载：
-        - 本地来源：同步调用（快速）
-        - 网络来源：异步调用（避免阻塞，通过 Worker）
+        Presentation 仅执行 Application 给出的加载计划：
+        - sync: 同步调用
+        - async: 后台 Worker 调用
         """
         if self._text_loading:
             return
 
-        # 简单启发式：根据配置判断是否需要异步
-        # 真正的业务路由在 LoadTextUseCase / TextSourceGateway 中
-        if self._is_source_local(source_key):
-            self._load_local(source_key)
+        try:
+            plan = self._load_text_usecase.plan_load(source_key)
+        except Exception as e:
+            self._on_text_load_failed(
+                f"加载文本失败：{GlobalExceptionHandler.handle(e)}"
+            )
+            return
+
+        if plan.execution_mode == "sync":
+            self._load_sync(source_key)
         else:
-            self._load_network(source_key)
+            self._load_async(source_key)
 
-    def _is_source_local(self, source_key: str) -> bool:
-        """判断来源是否为本地（性能优化，非业务路由）。"""
-        source = self._runtime_config.get_text_source(source_key)
-        return source is not None and bool(source.local_path)
-
-    def _load_local(self, source_key: str) -> None:
-        """同步加载本地文本。"""
+    def _load_sync(self, source_key: str) -> None:
+        """同步执行文本加载。"""
         self._set_text_loading(True)
         try:
             result = self._load_text_usecase.load(source_key)
@@ -94,8 +95,8 @@ class TextAdapter(QObject):
         finally:
             self._set_text_loading(False)
 
-    def _load_network(self, source_key: str) -> None:
-        """异步加载网络文本。"""
+    def _load_async(self, source_key: str) -> None:
+        """异步执行文本加载。"""
         self._set_text_loading(True)
         worker = TextLoadWorker(
             load_text_usecase=self._load_text_usecase,

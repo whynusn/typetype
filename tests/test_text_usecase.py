@@ -6,6 +6,7 @@ class DummyTextSourceGateway:
         self._success = True
         self._text = ""
         self._error_message = ""
+        self._execution_mode = "sync"
 
     def set_success_result(self, text: str):
         self._success = True
@@ -14,6 +15,12 @@ class DummyTextSourceGateway:
     def set_failure_result(self, error_message: str):
         self._success = False
         self._error_message = error_message
+
+    def set_execution_mode(self, execution_mode: str):
+        self._execution_mode = execution_mode
+
+    def get_execution_mode(self, source_key: str):
+        return self._execution_mode
 
     def load_text_by_key(self, source_key: str):
         if self._success:
@@ -42,6 +49,19 @@ def test_load_success():
     result = usecase.load("any_key")
     assert result.success
     assert result.text == "test text"
+
+
+def test_plan_load_returns_gateway_execution_mode():
+    gateway = DummyTextSourceGateway()
+    gateway.set_execution_mode("async")
+
+    usecase = LoadTextUseCase(
+        text_gateway=gateway,
+        clipboard_reader=DummyClipboardReader(),
+    )
+
+    plan = usecase.plan_load("remote_source")
+    assert plan.execution_mode == "async"
 
 
 def test_load_failure():

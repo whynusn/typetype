@@ -10,6 +10,7 @@
 - 业务流程编排（由 LoadTextUseCase 负责）
 """
 
+from typing import Literal
 from typing import TYPE_CHECKING
 
 from ...config.runtime_config import RuntimeConfig
@@ -32,6 +33,13 @@ class TextSourceGateway:
         self._runtime_config = runtime_config
         self._text_provider = text_provider
         self._local_text_loader = local_text_loader
+
+    def get_execution_mode(self, source_key: str) -> Literal["sync", "async"]:
+        """根据 source_key 返回 Presentation 应执行的加载模式。"""
+        source = self._runtime_config.get_text_source(source_key)
+        if not source:
+            raise ValueError(f"未知文本来源({source_key})")
+        return "sync" if source.local_path else "async"
 
     def load_text_by_key(self, source_key: str) -> tuple[bool, str | None, str]:
         """根据 source_key 加载文本。

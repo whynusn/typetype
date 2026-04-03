@@ -8,7 +8,7 @@
 
 ## 1. 当前架构概览
 
-项目采用清晰的分层架构，文本加载链路已恢复正确的依赖方向：
+项目采用清晰的分层架构，文本加载链路现已由 Application 完整拥有边界决策：
 
 ```text
 QML UI
@@ -32,11 +32,12 @@ Integration / Infrastructure
 **关键修复（2026-04-03）**：
 - 新增 `TextSourceGateway`：负责配置查询和 Port 适配
 - `LoadTextUseCase` 恢复为编排入口：接收 `source_key` 而非已解析对象
-- `TextAdapter` 保留 `RuntimeConfig` 依赖：仅用于 UI 配置展示，不做业务路由
+- `LoadTextUseCase.plan_load()` 负责给出同步/异步执行计划
+- `TextAdapter` 保留 `RuntimeConfig` 依赖：仅用于 UI 配置展示，不做业务路由或执行策略判断
 
 ---
 
-## 2. 文本加载链路（已修复）
+## 2. 文本加载链路（最终形态）
 
 ### 2.1 完整调用链
 
@@ -46,8 +47,11 @@ QML: ToolLine.requestLoadText(source_key)
 Bridge: requestLoadText(source_key)
   ->
 TextAdapter: requestLoadText(source_key)
-  - 根据配置判断同步/异步（仅性能优化）
-
+  ->
+LoadTextUseCase: plan_load(source_key)
+  - 输出 execution_mode（sync / async）
+  ->
+TextAdapter: 执行同步调用或入队 Worker
   ->
 LoadTextUseCase: load(source_key)
   ->
@@ -62,8 +66,8 @@ LocalTextLoader / TextProvider / Clipboard
 
 | 组件 | 层级 | 职责 | 关键点 |
 |--------|--------|------|----------|
-| `TextAdapter` | Presentation | Qt 信号、线程协调、错误回传 | ✅ 可用 RuntimeConfig 展示 UI 选项<br>✅ 仅做同步/异步的简单判断 |
-| `LoadTextUseCase` | Application | 文本加载编排入口 | ✅ 接收 `source_key`，持有路由决策<br>✅ 统一错误处理 |
+| `TextAdapter` | Presentation | Qt 信号、线程协调、错误回传 | ✅ 可用 RuntimeConfig 展示 UI 选项<br>✅ 仅执行 Application 给出的同步/异步计划 |
+| `LoadTextUseCase` | Application | 文本加载编排入口 | ✅ 接收 `source_key`，输出执行计划<br>✅ 统一错误处理 |
 | `TextSourceGateway` | Application | 配置查询 + Port 适配 | ✅ 持有 RuntimeConfig 做业务路由<br>✅ 调用相应的 Port |
 | `LocalTextLoader` | Port | 本地文件读取协议 | 协议定义，无业务逻辑 |
 | `TextProvider` | Port | 远程文本获取协议 | 协议定义，无业务逻辑 |
@@ -74,6 +78,7 @@ LocalTextLoader / TextProvider / Clipboard
 ```
 TextAdapter
   └─> LoadTextUseCase
+       ├─> plan_load(source_key) -> execution_mode
        └─> TextSourceGateway
             ├─> RuntimeConfig (配置查询)
             ├─> TextProvider (网络)
@@ -148,6 +153,7 @@ ScoreGateway: copy_score_to_clipboard()
    - ✅ Gateway 持有并做业务路由
    - ✅ Adapter 持有并做 UI 配置展示
    - ❌ Adapter 不做业务路由决策
+   - ❌ Adapter 不读取配置决定同步/异步执行策略
 
 ### 4.2 允许的依赖
 
@@ -243,7 +249,7 @@ src/backend/
 
 ### Q1: 为什么 `TextAdapter` 可以持有 `RuntimeConfig`？
 
-A: 因为它只用配置做 **UI 展示**（`get_source_options()`、`get_default_source_key()`），不做 **业务路由决策**。真正配置查询和路由在 `TextSourceGateway` 中完成。
+A: 因为它只用配置做 **UI 展示**（`get_source_options()`、`get_default_source_key()`），不做 **业务路由决策**，也不决定同步/异步执行策略。真正配置查询、路由和执行计划都在 Application 层完成。
 
 ### Q2: 为什么 `TypingAdapter` 直连 `TypingService`，不经过 UseCase？
 
