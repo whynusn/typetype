@@ -3,12 +3,21 @@ from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 from ...application.exception_handler import GlobalExceptionHandler
 from ...application.usecases.load_text_usecase import LoadTextUseCase
 from ...config.runtime_config import RuntimeConfig
-from ...models.config.text_source_config import TextSourceEntry
 from ...workers.text_load_worker import TextLoadWorker
 
 
 class TextAdapter(QObject):
-    """文本加载 Qt 适配层。"""
+    """文本加载 Qt 适配层。
+
+    职责：
+    - Qt 信号管理
+    - 线程协调（本地同步、网络异步）
+    - 错误回传
+    - UI 配置展示（来源选项、默认来源）
+
+    不负责：
+    - 业务路由决策（由 LoadTextUseCase + TextSourceGateway 负责）
+    """
 
     # 信号定义
     textLoaded = Signal(str)
@@ -48,23 +57,32 @@ class TextAdapter(QObject):
 
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
+        """请求加载文本。
+
+        根据来源类型决定同步或异步加载：
+        - 本地来源：同步调用（快速）
+        - 网络来源：异步调用（避免阻塞，通过 Worker）
+        """
         if self._text_loading:
             return
 
-        source = self._runtime_config.get_text_source(source_key)
-        if not source:
-            self.textLoadFailed.emit(f"加载文本失败：未知载文来源({source_key})")
-            return
-
-        if source.local_path:
-            self._load_local(source)
+        # 简单启发式：根据配置判断是否需要异步
+        # 真正的业务路由在 LoadTextUseCase / TextSourceGateway 中
+        if self._is_source_local(source_key):
+            self._load_local(source_key)
         else:
-            self._load_network(source)
+            self._load_network(source_key)
 
-    def _load_local(self, source: TextSourceEntry) -> None:
+    def _is_source_local(self, source_key: str) -> bool:
+        """判断来源是否为本地（性能优化，非业务路由）。"""
+        source = self._runtime_config.get_text_source(source_key)
+        return source is not None and bool(source.local_path)
+
+    def _load_local(self, source_key: str) -> None:
+        """同步加载本地文本。"""
         self._set_text_loading(True)
         try:
-            result = self._load_text_usecase.load_from_source(source)
+            result = self._load_text_usecase.load(source_key)
             if result.success:
                 self._on_text_loaded(result.text)
             else:
@@ -76,11 +94,12 @@ class TextAdapter(QObject):
         finally:
             self._set_text_loading(False)
 
-    def _load_network(self, source: TextSourceEntry) -> None:
+    def _load_network(self, source_key: str) -> None:
+        """异步加载网络文本。"""
         self._set_text_loading(True)
         worker = TextLoadWorker(
             load_text_usecase=self._load_text_usecase,
-            source=source,
+            source_key=source_key,
         )
         worker.signals.succeeded.connect(self._on_text_loaded)
         worker.signals.failed.connect(self._on_text_load_failed)
