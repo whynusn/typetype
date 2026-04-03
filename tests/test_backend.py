@@ -2,6 +2,7 @@
 
 from PySide6.QtCore import QObject, Signal
 
+
 from src.backend.presentation.bridge import Bridge
 from src.backend.domain.services.char_stats_service import CharStatsService
 from src.backend.domain.services.typing_service import TypingService
@@ -9,7 +10,8 @@ from src.backend.domain.services.auth_service import AuthService
 from src.backend.integration.noop_char_stats_repository import NoopCharStatsRepository
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.application.gateways.score_gateway import ScoreGateway
-from src.backend.application.gateways.text_gateway import TextGateway
+from src.backend.application.gateways.text_source_gateway import TextSourceGateway
+from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.presentation.adapters.typing_adapter import TypingAdapter
 from src.backend.presentation.adapters.text_adapter import TextAdapter
 from src.backend.presentation.adapters.auth_adapter import AuthAdapter
@@ -36,13 +38,15 @@ class TestBridgeSpecialPlatform:
 
         # Gateways
         score_gateway = MagicMock(spec=ScoreGateway)
-        text_gateway = MagicMock(spec=TextGateway)
-        text_gateway.get_source_options.return_value = []
-        text_gateway.get_default_source_key.return_value = "builtin_demo"
+        runtime_config = MagicMock(spec=RuntimeConfig)
+        runtime_config.get_text_source_options.return_value = []
+        runtime_config.default_text_source_key = "builtin_demo"
+
+        text_gateway = MagicMock(spec=TextSourceGateway)
+        text_gateway.load_text_by_key.return_value = (True, "test text", "")
 
         load_text_usecase = LoadTextUseCase(
-            text_provider=MagicMock(),
-            local_text_loader=MagicMock(),
+            text_gateway=text_gateway,
             clipboard_reader=MagicMock(),
         )
 
@@ -51,7 +55,7 @@ class TestBridgeSpecialPlatform:
             score_gateway=score_gateway,
         )
         text_adapter = TextAdapter(
-            text_gateway=text_gateway,
+            runtime_config=runtime_config,
             load_text_usecase=load_text_usecase,
         )
 
