@@ -8,6 +8,7 @@ from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
 import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
 from src.backend.application.gateways.score_gateway import ScoreGateway
+from src.backend.application.gateways.text_source_gateway import TextSourceGateway
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.presentation.bridge import Bridge
 from src.backend.config.runtime_config import RuntimeConfig
@@ -98,11 +99,15 @@ def main():
 
     # Gateways
     score_gateway = ScoreGateway(clipboard=clipboard)
+    text_gateway = TextSourceGateway(
+        runtime_config=runtime_config,
+        text_provider=text_provider,
+        local_text_loader=local_text_loader,
+    )
 
     # UseCases
     load_text_usecase = LoadTextUseCase(
-        text_provider=text_provider,
-        local_text_loader=local_text_loader,
+        text_gateway=text_gateway,
         clipboard_reader=clipboard,
     )
 
