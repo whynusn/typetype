@@ -1,327 +1,221 @@
 # TypeType 功能路线图
 
-> 最后更新：2026-03-21
+> 最后更新：2026-04-06
 >
-> 本文档记录 TypeType 客户端当前完成状态与后续功能规划。
+> 本文档用于说明 **当前已完成能力** 与 **后续规划方向**。
 >
-> 注意：本文是路线图，不保证所有架构术语都与当前源码同步。涉及当前分层、依赖规则与职责边界时，请以 [developer-architecture-handbook.md](./developer-architecture-handbook.md) 为准。
+> 注意：这是路线图，不是当前架构事实来源；涉及层次划分、命名、依赖方向时，请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 和源码为准。
 
 ---
 
-## 一、已完成
+## 当前已完成能力
 
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| CharStat 实体 | `src/backend/models/entity/char_stat.py` — 字符级统计 (char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen) | ✅ |
-| SessionStat 实体 | `src/backend/models/entity/session_stat.py` — 会话级统计 | ✅ |
-| TypingService 集成 | `handleCommittedText` 合并循环：char_stats 累积 + prefix_sum 更新 + 着色，单次遍历完成 | ✅ |
-| Bridge 合并 | 原 Backend 合并到 Bridge，key_listener 由 Bridge 持有，QML 统一走 appBridge | ✅ |
-| 目录结构 | 领域实体统一到 `models/`，删除 `typing/` 目录 | ✅ |
-| SQLite 持久化 | `SqliteCharStatsRepository` + `CharStatsRepository` 协议 | ✅ |
-| CharStatsService | 内存缓存 + 异步持久化 + 薄弱字查询 | ✅ |
-| WeakCharsPage | QML 薄弱字展示页面，显示 top 10 薄弱字符 | ✅ |
-| 异步 Worker | `CharStatFlushWorker` + `WeakCharsQueryWorker` 异步执行 | ✅ |
+### 1. 打字训练主流程
 
-### CharStat 实体设计
+- `TypingPage.qml` 作为主训练页面
+- 支持“载文 / 剪贴板载文 / 重打”
+- 支持实时展示：
+  - 速度
+  - 击键
+  - 码长
+  - 错误数
+  - 用时
+- 打字结束后弹出成绩摘要
+- 历史记录可在当前会话中展示
 
-```python
-@dataclass
-class CharStat:
-    char: str               # 字符（主键）
-    char_count: int         # 字符上屏次数
-    error_char_count: int   # 错误字符次数
-    total_ms: float         # 累计耗时（毫秒）
-    min_ms: float           # 最快按键
-    max_ms: float           # 最慢按键
-    last_seen: str          # 最近一次出现时间
+### 2. 文本加载链路闭口完成
 
-    def accumulate(keystroke_ms, is_error) -> None
-    def merge(other: CharStat) -> None
-    @property avg_ms -> float
-    @property error_rate -> float
+当前实际链路：
+
+```text
+Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
 ```
 
-### 同步特性
+已经明确的职责划分：
 
-- `char_count` 系字段取 max（本地全量值直接覆盖远端）
-- `min_ms` / `max_ms` 取极值
-- `last_seen` 取最新
-- 聚合数据天然无冲突 —— 不存在"本地说 100 次、远端说 200 次"的矛盾
+- `TextAdapter`：Qt 信号、线程协调、错误回传、UI 来源展示
+- `LoadTextUseCase`：文本加载编排入口
+- `TextSourceGateway`：配置查询 + 本地/远程来源路由
+- `QtLocalTextLoader` / `RemoteTextProvider`：具体实现
+
+### 3. 字符级统计与薄弱字
+
+已完成：
+
+- `CharStat` 实体
+- `CharStatsService`
+- `SqliteCharStatsRepository`
+- `WeakCharsPage.qml`
+- `WeakCharsQueryWorker`
+
+当前可用能力：
+
+- 跨会话持久化字符统计
+- 查询薄弱字 Top N
+- 展示错误率、平均耗时、输入次数等信息
+
+### 4. 认证基础能力
+
+已完成：
+
+- `AuthService`
+- `ApiClientAuthProvider`
+- token 校验与刷新
+- 登录状态初始化
+
+### 5. 基础平台适配与工程化
+
+已完成：
+
+- Linux / Windows 基础运行支持
+- Wayland 特殊处理与降级
+- GitHub Actions：
+  - `ci.yml`
+  - `multi-platform-tests.yml`
+  - `build-release.yml`
+- Nuitka 打包脚本
 
 ---
 
-## 二、本地持久化
+## 当前代码中的核心对象
 
-```
-Phase 2: 本地 SQLite 持久化
-```
+### QML / Presentation
 
-### 2.1 本地表结构
+- `Bridge`
+- `TypingAdapter`
+- `TextAdapter`
+- `AuthAdapter`
+- `CharStatsAdapter`
 
-```sql
-CREATE TABLE char_stats (
-    char              TEXT PRIMARY KEY,
-    char_count        INTEGER NOT NULL DEFAULT 0,
-    error_char_count  INTEGER NOT NULL DEFAULT 0,
-    total_ms          REAL NOT NULL DEFAULT 0.0,
-    min_ms            REAL NOT NULL DEFAULT 0.0,
-    max_ms            REAL NOT NULL DEFAULT 0.0,
-    last_seen         TEXT NOT NULL DEFAULT '',
+### Application
 
-    last_synced_at    TEXT,             -- 上次同步成功时间
-    is_dirty          INTEGER DEFAULT 1 -- 1=有变更未同步
-);
-```
+- `LoadTextUseCase`
+- `TextSourceGateway`
+- `ScoreGateway`
+- `GlobalExceptionHandler`
 
-### 2.2 Port 层
+### Domain
 
-```python
-from typing import Protocol, runtime_checkable
+- `TypingService`
+- `CharStatsService`
+- `AuthService`
+- `SessionStat`
+- `CharStat`
 
-@runtime_checkable
-class CharStatsRepository(Protocol):
-    """字符统计持久化协议。"""
+### Integration / Infrastructure
 
-    def init_db(self) -> None:
-        """初始化数据库（创建表结构）。"""
-        ...
-
-    def get(self, char: str) -> CharStat | None:
-        """获取单个字符的统计。"""
-        ...
-
-    def get_batch(self, chars: list[str]) -> list[CharStat]:
-        """批量获取字符统计。"""
-        ...
-
-    def get_weakest_chars(self, n: int) -> list[CharStat]:
-        """获取最薄弱的 n 个字符统计"""
-        ...
-
-    def save(self, stat: CharStat) -> None:
-        """保存单个字符的统计（插入或更新）。"""
-        ...
-
-    def save_batch(self, stats: list[CharStat]) -> None:
-        """批量保存字符统计。"""
-        ...
-
-    def get_all(self) -> list[CharStat]:
-        """获取全部字符统计。"""
-        ...
-
-    def get_all_dirty(self) -> list[CharStat]:
-        """获取所有待同步的字符统计（is_dirty=1）。"""
-        ...
-
-    def mark_synced(self, chars: list[str], synced_at: str) -> None:
-        """标记字符为已同步。"""
-        ...
-```
-
-### 2.3 Integration 实现
-
-```python
-class SqliteCharStatsRepository(CharStatsRepository):
-    """本地 SQLite 实现"""
-
-class NoopCharStatsRepository(CharStatsRepository):
-    """占位实现，无持久化时不影响打字功能"""
-```
+- `RemoteTextProvider`
+- `QtLocalTextLoader`
+- `SqliteCharStatsRepository`
+- `ApiClient`
+- `ApiClientAuthProvider`
 
 ---
 
-## 三、CharStatsService
+## 近期可继续推进的方向
 
-```
-Phase 3: ✅ CharStatsService — 管理内存缓存 + 持久化调度（已完成）
-```
+### A. 薄弱字驱动的推荐练习
 
-```python
-class CharStatsService:
-    """字符统计领域服务。
+目标：基于 `CharStatsService.get_weakest_chars()` 自动生成更有针对性的练习材料。
 
-    按需加载（lazy loading）：首次遇到字符时才从数据库读取，
-    避免启动时全量加载到内存。
-    """
+建议落点：
 
-    def __init__(self, repository: CharStatsRepository):
-        self._repo = repository
-        self._cache: dict[str, CharStat] = {}
-        self._dirty: set[str] = set()
-        self._repo.init_db()
+- 业务策略：`domain/services/` 或新增 UseCase
+- 载文接入：复用 `LoadTextUseCase` / `TextSourceGateway` 边界
+- UI 展示：新增页面或在 `TypingPage` 扩展入口
 
-    def accumulate(self, char: str, keystroke_ms: float, is_error: bool) -> None:
-        """累积一次字符结果（从 TypingService 调用）"""
-        if char not in self._cache:
-            existing = self._repo.get(char)
-            self._cache[char] = existing if existing else CharStat(char)
-        self._cache[char].accumulate(keystroke_ms, is_error)
-        self._dirty.add(char)
+### B. 成绩上报与排行榜闭环
 
-    def warm_chars(self, chars: list[str]) -> None:
-        """预热缓存（启动时加载高频字）"""
+当前仓库已有排行榜页面骨架，但服务端闭环仍可继续完善。
 
-    def flush(self) -> None:
-        """同步持久化缓存到本地"""
+建议目标：
 
-    def flush_async(self) -> None:
-        """异步持久化缓存到本地（打完文章后调用）"""
+- 成绩提交
+- 日榜 / 周榜 / 总榜真实数据
+- 用户历史与个人统计页联动
 
-    def get_weakest_chars(self, n: int = 10) -> list[CharStat]:
-        """获取最弱的 n 个字符（按 error_rate 排序）"""
-        return self._repo.get_weakest_chars(n)
+### C. 远端同步字符统计
 
-    def get_all(self) -> dict[str, CharStat]:
-        """获取全部统计"""
-        return dict(self._cache)
-```
+目标：把本地 `CharStat` 聚合数据同步到服务端，实现多设备共享。
 
-集成点：`TypingService.typingEnded` → 触发 `CharStatsService.flush_async()`
+潜在落点：
 
----
+- 新增同步 Port
+- Integration 实现远端同步仓储
+- Domain 层保留聚合逻辑
 
-## 四、远端同步（Spring Boot）
+### D. AI Typing Coach
 
-```
-Phase 4: 远端同步（与 spring-boot-backend-design.md 配合）
-```
+详见 [AI_AGENT_PLAN.md](./AI_AGENT_PLAN.md)。
 
-### 4.1 API 设计
+目标方向：
 
-```yaml
-POST   /api/v1/sync/char-stats    # 批量上传本地变更
-GET    /api/v1/sync/char-stats    # 拉取远端变更（since 参数）
-```
+- 基于薄弱字生成个性化练习文本
+- 对生成结果做质量评估
+- 形成“查询 -> 生成 -> 评估 -> 决策”的闭环
 
-### 4.2 MySQL 表结构
+### E. Spring Boot 服务端接入
 
-```sql
-CREATE TABLE user_char_stats (
-    user_id         VARCHAR(64),
-    char            VARCHAR(4),
-    char_count      INT,
-    error_char_count INT,
-    total_ms        DOUBLE,
-    min_ms          DOUBLE,
-    max_ms          DOUBLE,
-    last_seen       DATETIME,
-    updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, char)
-);
-```
+详见 [SPRING_BOOT.md](./SPRING_BOOT.md)。
 
-### 4.3 同步策略（混合方案）
+目标方向：
 
-```
-启动时：pull 远端数据到本地
-打完文章：push dirty 数据
-关闭应用：push dirty 数据兜底
-```
-
-### 4.4 Port 层
-
-```python
-class SyncRepository(ABC):
-    @abstractmethod
-    def push_char_stats(self, stats: list[CharStat]) -> None: ...
-
-    @abstractmethod
-    def pull_char_stats(self, since: datetime) -> list[CharStat]: ...
-```
-
-### 4.5 边界情况
-
-| 场景 | 处理方式 |
-|------|----------|
-| 首次登录新设备 | pull 全量远端数据到本地 |
-| 离线打字一周后上线 | 批量 push 积压的 dirty 数据 |
-| 多设备同时打字 | 本地值即最新全量，直接覆盖远端 |
-| 同步中途断网 | 下次重试，is_dirty = 1 的数据会再次上传 |
-| 用户注销 | 清本地数据，下次登录触发 pull |
+- 文本服务自托管
+- 排行榜与用户数据持久化
+- 认证、成绩、统计后端化
 
 ---
 
-## 五、UI 功能
+## 建议的优先级
 
-```
-Phase 5: ✅ QML UI — 薄弱字看板（已完成）
-```
-
-### 5.1 薄弱字看板（WeakCharsPage）
-
-- ✅ 显示 `error_rate` 最高的前 10 个字符
-- ✅ 每个字符展示：输入次数、错误率、平均耗时
-- ✅ 颜色编码：红色 (>20%) / 黄色 (>10%) / 绿色 (≤10%)
-- ✅ 通过 Bridge 的 `weakestCharsLoaded` 信号获取数据
-
-### 5.2 推荐练习（待开发）
-
-- 根据薄弱字生成随机练习文本
-- 权重算法：`weight = error_rate * log(char_count + 1)`（兼顾错误率和练习量）
-
-### 5.3 进度追踪（待开发）
-
-- 展示单字符的 `error_rate` 变化曲线（随时间/随 session）
+| 优先级 | 方向 | 原因 |
+|--------|------|------|
+| 高 | 推荐练习 | 直接复用现有 CharStats 能力，改动可控 |
+| 高 | 排行榜闭环 | 与现有页面结构配合度高 |
+| 中 | 远端同步字符统计 | 架构价值高，但涉及服务端协作 |
+| 中 | Spring Boot 接入 | 价值高，但跨端改动更大 |
+| 中 | AI Typing Coach | 展示性强，但属于扩展型能力 |
+| 低 | 更细粒度学习分析 | 需要更多数据模型与 UI 设计 |
 
 ---
 
-## 六、AI Agent 改造（新增）
+## 里程碑建议
 
-```
-Phase 6: AI Typing Coach Agent — 面试杀手锏（规划中）
-```
+### Milestone 1：练习体验增强
 
-详见 [guide.md](./guide.md) - AI Agent 转化规划指南
+- 推荐练习入口
+- 基于薄弱字的文本选择/生成
+- 训练完成后回流统计
 
-### 快速概览
+### Milestone 2：排行榜与个人数据闭环
 
-| 阶段 | 目标 | 工作量 |
-|------|------|--------|
-| Phase 1 | 单 Agent 循环（生成→评估→决策） | 1-2 天 |
-| Phase 2 | Multi-Agent 系统 | 3-5 天 |
-| Phase 3 | RAG + 可观测性 | 2-3 天 |
+- 成绩提交通路
+- 排行榜真实数据源
+- 个人中心统计完善
 
-### 核心优势
+### Milestone 3：云同步
 
-- **完美匹配**：`CharStatsService.get_weakest_chars()` 正是 Agent 的记忆源
-- **低阻力**：Ports & Adapters 架构允许无缝添加新服务
-- **UI 基础**：WeakCharsPage 可复用/扩展
+- 字符统计远端同步
+- 多设备数据一致性
 
----
+### Milestone 4：AI 教练能力
 
-## 七、后续探索
-
-| 方向 | 说明 | 优先级 |
-|------|------|--------|
-| 混淆对统计 | 记录哪些字符经常互换（如 "的"↔"得"） | 中 |
-| 跨词频分层 | 按 pinyin / 部首 / 词频分组统计 | 低 |
-| 智能推荐 | 根据薄弱点动态调整练习难度 | 低 |
-| 社交功能 | 好友对比、对战模式 | 待定 |
+- 个性化载文
+- 自动评估与推荐
+- 训练反馈闭环
 
 ---
 
-## 八、目录结构
+## 这份路线图刻意不做的事
 
-```
-src/backend/
-├── application/
-│   ├── gateways/      # TextGateway, ScoreGateway
-│   ├── ports/         # 协议定义
-│   └── usecases/      # LoadTextUseCase, TypingUseCase
-├── config/            # RuntimeConfig
-├── domain/
-│   └── services/      # TypingService, AuthService, CharStatsService
-├── infrastructure/    # ApiClient, NetworkErrors
-├── integration/       # SaiWenTextFetcher, RemoteCatalogTextFetcher, SqliteCharStatsRepository
-├── models/
-│   ├── entity/        # CharStat, SessionStat
-│   ├── dto/           # ScoreSummaryDTO, HistoryRecordDTO
-│   └── text_source.py # TextSource, TextSourceConfig
-├── presentation/
-│   ├── adapters/      # TypingAdapter, TextAdapter
-│   └── bridge.py      # Bridge
-├── security/          # Crypt, SecureStorage
-├── utils/             # Logger
-└── workers/           # BaseWorker, TextLoadWorker, SessionStatWorker
-```
+- 不把历史命名（如旧网关名、旧 worker 名、旧目录名）继续当作当前事实
+- 不替代 `ARCHITECTURE.md` 解释分层规则
+- 不描述尚未落地的“应该如何实现”为“已经如此实现”
+
+---
+
+## 版本历史
+
+| 日期 | 变更 |
+|------|------|
+| 2026-04-06 | 基于当前代码重写路线图，移除历史命名与过时分层描述 |

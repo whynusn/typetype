@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
 
-from ..integration.global_key_listener import GlobalKeyListener
 from ..utils.logger import log_info
 
 if TYPE_CHECKING:
+    from ..integration.global_key_listener import GlobalKeyListener
     from .adapters.auth_adapter import AuthAdapter
     from .adapters.char_stats_adapter import CharStatsAdapter
     from .adapters.text_adapter import TextAdapter

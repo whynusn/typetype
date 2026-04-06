@@ -1,24 +1,29 @@
 # TypeType Spring Boot 后端设计方案
 
-> 最后更新：2026-03-21
+> 最后更新：2026-04-06
 >
 > 基于对 typetype 桌面客户端的完整架构分析，设计一套面试级别的 Spring Boot 后端服务。
 >
-> 注意：本文重点是后端方案，其中引用的客户端架构调用链含有历史术语。当前客户端架构请以 [developer-architecture-handbook.md](./developer-architecture-handbook.md) 和源码为准。
+> 注意：本文重点是后端方案，客户端架构请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 和源码为准。
 
 ---
 
-## 相关文档
+## 目录
 
-- [guide.md](./guide.md) - AI Agent 转化规划指南
-- [roadmap.md](./roadmap.md) - 项目功能路线图
-- [AGENTS.md](../AGENTS.md) - 项目开发指南
+- [客户端现状分析](#客户端现状分析)
+- [后端整体架构](#后端整体架构)
+- [数据库设计](#数据库设计)
+- [API 设计](#api-设计)
+- [核心亮点设计](#核心亮点设计)
+- [项目结构](#项目结构)
+- [Python 客户端改造](#python-客户端改造)
+- [面试话术建议](#面试话术建议)
 
 ---
 
-## 一、当前客户端架构分析
+## 客户端现状分析
 
-### 1.1 整体架构
+### 整体架构
 
 typetype 是一个 **PySide6 + QML 的跨平台打字练习工具**，Python 端采用了分层 + Ports & Adapters 架构：
 
@@ -29,96 +34,23 @@ QML UI → Presentation (Bridge + Adapters)
            → Integration / Infrastructure
 ```
 
-### 1.2 核心领域对象
-
-| 实体 | 字段 | 位置 |
-|---|---|---|
-| `SessionStat` | time, key_stroke_count, char_count, wrong_char_count, date + 计算属性(speed, keyStroke, codeLength, accuracy, effectiveSpeed) | `src/backend/models/entity/session_stat.py` |
-| `CharStat` | char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen + 计算属性(avg_ms, error_rate) + merge() | `src/backend/models/entity/char_stat.py` |
-| `TextSource` (配置) | key, label, type(network/local), url/local_path | `src/backend/config/runtime_config.py` |
-| `ScoreSummaryDTO` / `HistoryRecordDTO` | DTO 层，从 ScoreData 映射 | `src/backend/models/dto/score_dto.py` |
-
-### 1.3 关键端口协议
-
-| 协议 | 方法签名 | 位置 |
-|---|---|---|
-| `TextFetcher` | `fetch_text(url: str) → str \| None` | `ports/text_provider.py` |
-| `LocalTextLoader` | `load_text(path: str) → str \| None` | `ports/local_text_loader.py` |
-| `ClipboardReader` | `text() → str` | `ports/clipboard.py` |
-| `ClipboardWriter` | `setText(text: str) → None` | `ports/clipboard.py` |
-
-### 1.4 数据流
-
-```
-用户点击"载文"
-  → QML 调用 appBridge.requestLoadText(sourceKey)
-    → Bridge 根据 RuntimeConfig 判断 type=network/local
-      → network: 创建 LoadTextWorker → QThreadPool 异步执行
-→ LoadTextUseCase.load(source_id)
-→ TextFetcher.fetch_text(url)     [当前实现: SaiWenTextFetcher]
-→ ApiClient.request("POST", url, json=payload)
-→ httpx.Client.request()      [HTTP 请求]
-→ local: 同步执行
-→ LoadTextUseCase.load(source_id)
-          → LocalTextLoader.load_text(path) [当前实现: QtLocalTextLoader]
-    → 成功: textLoaded.emit(text) → QML 显示
-    → 失败: textLoadFailed.emit(message) → QML 提示
-
-用户打字完成
-  → TypingAdapter 结束会话 + typingEnded.emit()
-  → TypingUseCase.build_history_record(score_data)
-  → historyRecordUpdated.emit(record) → QML 本地维护历史列表
-```
-
-### 1.5 依赖注入（main.py）
-
-```python
-api_client = ApiClient(timeout=runtime_config.api_timeout)
-sai_wen_text_fetcher = SaiWenTextFetcher(api_client=api_client)
-local_text_loader = QtLocalTextLoader()
-text_gateway = TextGateway(
-    runtime_config=runtime_config,
-    text_fetchers={"sai_wen": sai_wen_text_fetcher},
-    clipboard=clipboard,
-    local_text_loader=local_text_loader,
-)
-load_text_usecase = LoadTextUseCase(gateway=text_gateway)
-typing_usecase = TypingUseCase(score_gateway=ScoreGateway(clipboard=clipboard))
-bridge = Bridge(
-    text_adapter=text_adapter,
-    typing_adapter=typing_adapter,
-)
-```
-
-### 1.6 当前痛点（= Spring Boot 要解决的问题）
+### 当前痛点
 
 1. **文本来源不可控** — 仅依赖第三方极速杯 API
-2. **成绩纯本地** — 无持久化、无排行、无历史同步
+2. **成绩纯本地** — 无云端持久化、无排行、无历史同步
 3. **无用户体系** — 无认证、无个人数据管理
 
-### 1.7 网络错误体系
-
-```python
-NetworkError (基类)
-├── NetworkTimeoutError     # 请求超时
-├── NetworkHttpStatusError  # HTTP 状态码错误 (含 status_code)
-├── NetworkDecodeError      # 响应解析错误
-└── NetworkRequestError     # 请求发送错误
-```
-
-客户端 `LoadTextUseCase` 已对网络异常做了分类映射和用户友好提示。
+Spring Boot 后端正是为了解决这些问题。
 
 ---
 
-## 二、Spring Boot 后端架构设计
-
-### 2.1 整体架构图
+## 后端整体架构
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                     typetype Client (PySide6)                │
+│               typetype Client (PySide6)                      │
 │  RuntimeConfig 增加 springboot 来源                           │
-│  新增 SpringBootTextService (实现 TextFetcher)                │
+│  新增 SpringBootTextProvider 实现 TextProvider 协议           │
 │  复用 ApiClient (httpx)                                      │
 └────────────────────────┬─────────────────────────────────────┘
                          │ HTTPS (JSON)
@@ -126,7 +58,7 @@ NetworkError (基类)
 ┌──────────────────────────────────────────────────────────────┐
 │              Spring Boot Backend (分层架构)                    │
 │                                                              │
-│  ┌─── Controller ──┐  ┌── Service ──┐  ┌── Repository ──┐   │
+│  ┌── Controller ──┐  ┌── Service ──┐  ┌── Repository ──┐   │
 │  │ TextController   │→│ TextService  │→│ TextRepository  │   │
 │  │ ScoreController  │→│ ScoreService │→│ ScoreRepository │   │
 │  │ UserController   │→│ UserService  │→│ UserRepository  │   │
@@ -140,30 +72,30 @@ NetworkError (基类)
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 技术选型
+### 技术选型
 
 | 层面 | 选型 | 选型依据 |
-|---|---|---|
-| **认证** | Spring Security + JWT (双 token) | access_token 15min + refresh_token 7d，refresh 时做 token rotation 防重放 |
-| **缓存** | Redis | 排行榜用 ZSET (`ZREVRANGE`)；随机文本用 `SRANDMEMBER` 预加载 ID 池；热门文本缓存 |
-| **ORM** | MyBatis-Plus (推荐面试) 或 Spring Data JPA | 国内面试 MyBatis 加分，能聊 SQL 优化 |
+|------|------|----------|
+| **认证** | Spring Security + JWT (双 token) | access_token 15min + refresh_token 7d，token rotation 防重放 |
+| **缓存** | Redis | 排行榜用 ZSET；随机文本用 SET 预加载 ID 池；热门文本缓存 |
+| **ORM** | MyBatis-Plus (推荐面试) | 国内面试 MyBatis 加分，能聊 SQL 优化 |
 | **参数校验** | `@Valid` + `javax.validation` | 全局异常处理器 `@RestControllerAdvice` 捕获 |
-| **接口文档** | SpringDoc (OpenAPI 3) | 前后端对接效率，面试体现协作意识 |
+| **接口文档** | SpringDoc (OpenAPI 3) | 前后端对接效率，体现协作意识 |
 | **日志** | SLF4J + Logback，MDC 链路追踪 | 每个请求带 traceId，面试聊日志排查能力 |
 | **限流** | Guava RateLimiter 或 Redis + Lua | 防刷成绩接口，面试聊分布式限流 |
 | **数据库版本** | Flyway | 数据库 migration 版本管理 |
 
 ---
 
-## 三、数据库设计
+## 数据库设计
 
-### 3.1 ER 模型
+### ER 关系
 
 ```
 t_user (1) ──── (N) t_score (N) ──── (1) t_text (N) ──── (1) t_text_source
 ```
 
-### 3.2 DDL
+### DDL 设计
 
 ```sql
 -- 用户表
@@ -222,26 +154,21 @@ CREATE TABLE t_score (
 );
 ```
 
-### 3.3 索引设计说明
+### 索引设计说明
 
 | 索引 | 服务场景 | 说明 |
-|---|---|---|
-| `idx_username` | 登录查询 | 用户名唯一索引，登录时快速定位 |
+|------|----------|------|
+| `idx_username` | 登录查询 | 用户名唯一索引，登录快速定位 |
 | `idx_source_difficulty` | 随机选文 | 复合索引：按来源 + 难度筛选文本 |
 | `idx_user_created` | 个人历史记录 | 覆盖"我的记录"查询，DESC 支持最近优先 |
 | `idx_speed` | 排行榜 | 全局速度排行快速查询 |
 | `idx_created_at` | 时间范围查询 | 支持日/周/月维度的统计聚合 |
 
-### 3.4 扩展考虑
-
-- `t_score` 量大后可按 `created_at` 做**按月分区**，或按 `user_id` 做分表
-- `t_text.char_count` 冗余存储，避免 `LENGTH(content)` 全表扫描
-
 ---
 
-## 四、API 设计
+## API 设计
 
-### 4.1 接口列表
+### 接口列表
 
 ```yaml
 # === 认证 ===
@@ -270,7 +197,7 @@ PUT    /api/v1/users/me              # 更新个人信息
 GET    /api/v1/users/me/stats        # 个人统计概览
 ```
 
-### 4.2 统一响应格式
+### 统一响应格式
 
 ```json
 // 成功
@@ -301,7 +228,7 @@ GET    /api/v1/users/me/stats        # 个人统计概览
 }
 ```
 
-### 4.3 业务错误码
+### 业务错误码
 
 ```
 10xxx → 系统错误
@@ -323,103 +250,11 @@ GET    /api/v1/users/me/stats        # 个人统计概览
   40002  提交过于频繁
 ```
 
-### 4.4 关键接口详细设计
-
-#### POST /api/v1/auth/login
-
-```json
-// Request
-{
-  "username": "typist_wang",
-  "password": "your_password"
-}
-
-// Response 200
-{
-  "code": 200,
-  "data": {
-    "accessToken": "eyJhbGciOi...",
-    "refreshToken": "eyJhbGciOi...",
-    "expiresIn": 900,
-    "user": {
-      "id": 1,
-      "username": "typist_wang",
-      "nickname": "王同学"
-    }
-  }
-}
-```
-
-#### GET /api/v1/texts/random?sourceKey=cet4
-
-```json
-// Response 200
-{
-  "code": 200,
-  "data": {
-    "id": 42,
-    "title": "CET-4 Vocabulary Practice #42",
-    "content": "这是一段练习文本内容...",
-    "charCount": 200,
-    "sourceKey": "cet4",
-    "difficulty": 3
-  }
-}
-```
-
-#### POST /api/v1/scores
-
-```json
-// Request (需要 Authorization: Bearer <token>)
-{
-  "textId": 42,
-  "speed": 123.45,
-  "effectiveSpeed": 120.18,
-  "keyStroke": 6.7,
-  "codeLength": 2.15,
-  "accuracyRate": 97.35,
-  "charCount": 200,
-  "wrongCharCount": 5,
-  "duration": 97.56
-}
-
-// Response 201
-{
-  "code": 200,
-  "data": {
-    "id": 1001,
-    "rank": 42,
-    "personalBest": false
-  }
-}
-```
-
-#### GET /api/v1/users/me/stats
-
-```json
-// Response 200
-{
-  "code": 200,
-  "data": {
-    "totalPractices": 156,
-    "avgSpeed": 98.7,
-    "maxSpeed": 145.2,
-    "avgAccuracy": 96.3,
-    "totalDuration": 18720.5,
-    "recentTrend": [
-      { "date": "2026-03-01", "avgSpeed": 95.2, "maxSpeed": 110.0 },
-      { "date": "2026-03-02", "avgSpeed": 97.8, "maxSpeed": 125.3 },
-      { "date": "2026-03-03", "avgSpeed": 101.5, "maxSpeed": 132.1 }
-    ]
-  }
-}
-```
-
 ---
 
-## 五、核心亮点设计
+## 核心亮点设计
 
-### 5.1 排行榜（Redis ZSET）
+### 排行榜（Redis ZSET）
 
 ```java
 // 提交成绩时更新排行榜
@@ -449,7 +284,7 @@ public List<RankingVO> getTopN(String type, int n) {
 
 **面试谈资**：为什么用 ZSET 不用 SQL `ORDER BY`？→ O(logN) 写入 + O(logN+M) 范围查询 vs 全表排序。
 
-### 5.2 随机文本（避免慢查询）
+### 随机文本（避免慢查询）
 
 ```java
 // 方案：预热 ID 池 + SRANDMEMBER
@@ -475,7 +310,7 @@ public Text getRandomText(String sourceKey) {
 
 **面试谈资**：为什么不用 `ORDER BY RAND() LIMIT 1`？→ 全表扫描 + filesort，大数据量下性能灾难。
 
-### 5.3 成绩防作弊
+### 成绩防作弊
 
 ```java
 @PostMapping("/scores")
@@ -500,7 +335,7 @@ public Result<ScoreVO> submitScore(@Valid @RequestBody ScoreSubmitDTO dto) {
 }
 ```
 
-### 5.4 个人统计概览
+### 个人统计概览（SQL）
 
 ```sql
 -- 总览统计
@@ -527,7 +362,7 @@ ORDER BY date;
 
 ---
 
-## 六、项目分包结构
+## 项目分包结构
 
 ```
 typetype-server/
@@ -569,82 +404,114 @@ typetype-server/
 
 ---
 
-## 七、Python 客户端改造要点
+## Python 客户端改造要点
 
-改动极小，这是现有六边形架构的红利。
+改动可以控制得比较小，但建议严格沿用当前客户端的边界：
 
-### 7.1 新增 SpringBootTextService
+- QML / Adapter 不直接对接 Spring Boot 细节
+- 仍然通过 `TextProvider` Port 隔离外部文本服务
+- 仍然复用 `LoadTextUseCase -> TextSourceGateway` 这条应用层入口
+- 具体是否“替换现有远程来源”还是“支持多个远程来源共存”，由 `TextSourceGateway` 演进来承接，不要把路由逻辑放回 QML / Adapter
+
+### 1. 新增 SpringBootTextProvider
 
 ```python
-# src/backend/services/springboot_text_service.py
-class SpringBootTextService:
-    """Spring Boot 文本服务，实现 TextFetcher 协议。"""
+# src/backend/integration/springboot_text_provider.py
+from src.backend.ports.text_provider import TextProvider
+
+
+class SpringBootTextProvider(TextProvider):
+    """Spring Boot 文本服务，实现 TextProvider 协议。"""
 
     def __init__(self, api_client: ApiClient, base_url: str):
         self._api_client = api_client
         self._base_url = base_url
 
-    def fetch_text(self, source_id: str) -> str | None:
+    def get_catalog(self) -> list[TextCatalogItem]:
+        url = f"{self._base_url}/api/v1/text-sources"
+        data = self._api_client.request("GET", url)
+        # 解析为 TextCatalogItem 列表
+        ...
+
+    def fetch_text_by_key(self, source_key: str) -> str | None:
         url = f"{self._base_url}/api/v1/texts/random"
-        data = self._api_client.request("GET", url, params={"sourceKey": source_id})
+        data = self._api_client.request(
+            "GET",
+            url,
+            params={"sourceKey": source_key},
+        )
         if data is None:
-            last_error = self._api_client.last_error
-            if last_error:
-                raise last_error
             return None
         return data.get("data", {}).get("content")
 ```
 
-### 7.2 main.py 注入切换
+### 2. `main.py` 最小改动注入方案
+
+如果目标是**把当前远程文本服务整体切到 Spring Boot**，最小改动是直接替换 `RemoteTextProvider` 的注入位置，而不是在 `TextAdapter` / QML 增加判断：
 
 ```python
-springboot_service = SpringBootTextService(
+# main.py
+springboot_provider = SpringBootTextProvider(
     api_client=api_client,
     base_url=os.environ.get("TYPETYPE_TEXT_API_BASE_URL", "http://localhost:8080"),
 )
-text_gateway = TextGateway(
+text_gateway = TextSourceGateway(
     runtime_config=runtime_config,
-    text_fetchers={"springboot": springboot_service},
-    clipboard=clipboard,
+    text_provider=springboot_provider,
     local_text_loader=local_text_loader,
 )
-load_text_usecase = LoadTextUseCase(gateway=text_gateway)
+load_text_usecase = LoadTextUseCase(
+    text_gateway=text_gateway,
+    clipboard_reader=clipboard,
+)
 ```
 
-### 7.3 RuntimeConfig 新增来源
+### 3. 如果要支持多个远程提供方共存
 
-```python
+当前客户端代码里 `TextSourceGateway` 只依赖一个 `TextProvider`。  
+如果后续要同时保留“旧远程来源 + Spring Boot 来源”，建议：
+
+1. 先扩展 Application 层边界（例如让 Gateway 能识别 provider key）
+2. 保持 QML / Adapter 无感
+3. 让来源路由仍由 Application 层负责
+
+不要直接在 QML 里拼 URL，也不要让 `TextAdapter` 承担业务路由。
+
+### 4. RuntimeConfig 新增来源
+
+```json
 "springboot_random": {
     "label": "服务器随机",
-    "type": "network",
-    "url": "http://localhost:8080/api/v1/texts/random",
+    "has_ranking": true
 }
 ```
 
-### 7.4 环境变量配置
+如果需要更细粒度配置，可以进一步扩展 `RuntimeConfig`，但建议优先复用当前的 `base_url` / `api_timeout` 能力，保持配置面简洁。
+
+### 5. 环境变量配置
 
 | 变量名 | 说明 | 默认值 |
-|---|---|---|
+|--------|------|--------|
 | `TYPETYPE_TEXT_API_BASE_URL` | 文本 API 地址 | `http://localhost:8080` |
 | `TYPETYPE_SCORE_API_BASE_URL` | 成绩 API 地址 | `http://localhost:8080` |
 | `TYPETYPE_API_TIMEOUT` | API 超时时间 (秒) | `20.0` |
 
 ---
 
-## 八、面试话术建议
+## 面试话术建议
 
 被问到"为什么做这个后端"时，按这个逻辑链回答：
 
 1. 桌面端已有完整的打字 + 计分流程，但**文本依赖第三方**、**成绩纯本地**
 2. Spring Boot 后端解决三个问题：**自主文本管理**、**成绩云端持久化 + 排行**、**用户体系**
-3. 客户端采用六边形架构，通过 `TextFetcher` 协议解耦，切换后端只需换注入 —— 体现**面向接口编程**
+3. 客户端采用六边形架构，通过 `TextProvider` 协议解耦，切换后端只需换注入 —— 体现**面向接口编程**
 4. 后端用 Redis ZSET 做排行榜、预热 ID 池做随机文本、JWT 双 token 做认证 —— 每个选型都有**性能或安全层面的理由**
 5. 成绩提交做交叉校验 + 频率限制 —— 体现**安全防御意识**
 
 ### 面试核心考点覆盖
 
 | 考点 | 本项目覆盖 |
-|---|---|
+|------|------------|
 | 分层架构 | Controller → Service → Repository，DTO/VO 分离 |
 | 数据库建模 | ER 关系、字段类型选择、冗余字段取舍 |
 | 索引设计 | 复合索引、覆盖索引、排序索引 |
@@ -662,5 +529,6 @@ load_text_usecase = LoadTextUseCase(gateway=text_gateway)
 
 | 日期 | 变更 |
 |------|------|
+| 2026-04-06 | 重命名为 SPRING_BOOT.md，整理结构 |
 | 2026-03-21 | 添加文档链接，更新格式 |
 | 2026-03-15 | 初始版本，完整后端设计方案 |

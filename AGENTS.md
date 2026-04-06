@@ -60,19 +60,21 @@ Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disabl
 
 ## 2. 当前架构（以代码为准）
 
+> 完整的架构文档请见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，本文档是补充速查和陷阱案例。
+
 ```
 src/backend/
 ├── application/
 │   ├── exception_handler.py  # 全局异常处理（网络异常 → 用户友好消息）
-│   ├── gateways/      # Port 适配（TextGateway, ScoreGateway）
-│   ├── ports/         # 协议：Clipboard/TextFetcher/LocalTextLoader/AsyncExecutor
+│   ├── gateways/      # Port 适配（TextSourceGateway, ScoreGateway）
 │   └── usecases/      # 业务编排：LoadTextUseCase（仅此一个有编排价值的）
+├── ports/             # 协议定义（独立顶层）：TextProvider, LocalTextLoader 等
 ├── config/            # RuntimeConfig
 ├── domain/
 │   └── services/      # 纯业务逻辑（TypingService, AuthService, CharStatsService）
 ├── infrastructure/    # ApiClient 与网络异常模型
-├── integration/       # 内外集成（SaiWenTextFetcher, RemoteCatalogTextFetcher, SqliteCharStatsRepository）
-├── models/            # 领域模型（SessionStat, CharStat, TextSource, DTO）
+├── integration/       # 内外集成（RemoteTextProvider, SqliteCharStatsRepository）
+├── models/            # 领域模型（SessionStat, CharStat, DTO）
 ├── presentation/
 │   ├── adapters/      # Qt 适配层（TypingAdapter, TextAdapter）
 │   └── bridge.py      # Bridge（appBridge）
@@ -101,7 +103,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 ┌─────────────────────────▼───────────────────────────────┐
 │                     Application Layer                   │
 │        UseCases: LoadTextUseCase（路由+业务验证）         │
-│        Gateways: TextGateway, ScoreGateway              │
+│        Gateways: TextSourceGateway, ScoreGateway        │
 │        ExceptionHandler: GlobalExceptionHandler        │
 └─────────┬───────────────────────────┬───────────────────┘
            │                           │
@@ -144,7 +146,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 | | CharStatsService | 字符维度统计（缓存、持久化、薄弱字查询） |
 | **Application** | LoadTextUseCase | 文本加载路由 + 业务验证（异常上浮到 BaseWorker） |
 | | GlobalExceptionHandler | 网络异常 → 用户友好消息集中映射 |
-| **Gateways** | TextGateway | Port 适配 + 配置查询 |
+| **Gateways** | TextSourceGateway | Port 适配 + 配置查询 |
 | | ScoreGateway | DTO 转换 + 剪贴板操作 |
 | **Workers** | BaseWorker | 统一捕获后台任务异常，调用 GlobalExceptionHandler |
 | **Presentation** | Bridge | QML 通信适配层：属性代理、信号转发、Slot 入口 |

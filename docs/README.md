@@ -1,97 +1,91 @@
-# TypeType 文档中心
+# TypeType 开发者文档中心
 
-> 最后更新：2026-04-03
+> 最后更新：2026-04-06
+>
+> 本目录面向开发者。**当前源码始终比文档更权威**；若文档与代码冲突，请先相信代码，再回头修文档。
+
+---
+
+## 新开发者建议阅读顺序
+
+1. [DEVELOPING.md](./DEVELOPING.md) —— 先把项目跑起来，知道从哪里下手
+2. [ARCHITECTURE.md](./ARCHITECTURE.md) —— 理解当前分层、依赖方向、核心数据流
+3. [../AGENTS.md](../AGENTS.md) —— 查仓库级开发约束、已知陷阱、验证要求
+4. [roadmap.md](./roadmap.md) —— 了解已完成功能与未来方向（**规划文档，不是事实来源**）
+5. [AI_AGENT_PLAN.md](./AI_AGENT_PLAN.md) / [SPRING_BOOT.md](./SPRING_BOOT.md) —— 仅在做对应扩展时阅读
 
 ---
 
 ## 文档索引
 
-### 核心文档
+### 核心开发文档
 
-| 文档 | 说明 | 状态 |
+| 文档 | 类型 | 说明 |
 |------|------|------|
-| [developer-architecture-handbook.md](./developer-architecture-handbook.md) | **开发者架构手册** - 当前客户端架构事实、文本加载闭口后的边界规则与协作约束 | ✅ 当前源码事实来源 |
-| [guide.md](./guide.md) | **AI Agent 转化规划指南** - 项目规划与方案文档 | ✅ 规划文档 |
-| [roadmap.md](./roadmap.md) | **功能路线图** - 当前完成状态与后续规划 | ✅ 规划文档 |
-| [spring-boot-backend-design.md](./spring-boot-backend-design.md) | **Spring Boot 后端设计方案** - 服务端方案与集成设想 | ✅ 后端方案文档 |
+| [DEVELOPING.md](./DEVELOPING.md) | 上手指南 | 环境搭建、运行、调试、开发流程、提交前检查 |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | 事实文档 | 当前客户端架构、对象装配、数据流、边界规则 |
+| [roadmap.md](./roadmap.md) | 规划文档 | 当前功能状态、路线图、后续设想 |
 
-### 项目根文档
+### 扩展方案文档
+
+| 文档 | 类型 | 说明 |
+|------|------|------|
+| [AI_AGENT_PLAN.md](./AI_AGENT_PLAN.md) | 规划文档 | AI Typing Coach / LangGraph 方向改造方案 |
+| [SPRING_BOOT.md](./SPRING_BOOT.md) | 规划文档 | Spring Boot 服务端设计与客户端接入思路 |
+
+### 根目录补充文档
 
 | 文档 | 位置 | 说明 |
 |------|------|------|
-| AGENTS.md | [../AGENTS.md](../AGENTS.md) | 项目开发指南（架构、代码风格、测试） |
-| README.md | [../README.md](../README.md) | 项目概览与快速开始 |
+| [README.md](../README.md) | 仓库根目录 | 面向用户/访客的项目概览 |
+| [AGENTS.md](../AGENTS.md) | 仓库根目录 | 仓库级开发约束、验证要求、已知陷阱 |
+| [CLAUDE.md](../CLAUDE.md) | 仓库根目录 | Claude Code 协作说明 |
 
 ---
 
-## 文档关系
+## 文档权威优先级
 
-若出现架构描述冲突：
+出现冲突时，按下列顺序判断：
 
-1. 先看当前源码
-2. 再看 [developer-architecture-handbook.md](./developer-architecture-handbook.md)
-3. 若问题涉及文本加载边界归属，以该手册中的“最终形态”与边界规则为准
-4. 其他文档中的架构描述按“规划/历史背景”理解，除非它明确声明自己是当前事实来源
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      TypeType 项目                           │
-└─────────────────────────┬───────────────────────────────────┘
-                          │
-        ┌─────────────────┼─────────────────┐
-        │                 │                 │
-        ▼                 ▼                 ▼
-┌───────────────┐ ┌───────────────┐ ┌───────────────┐
-│   客户端改造   │ │   后端设计    │ │   功能规划    │
-│   (guide.md)  │ │ (spring-boot) │ │ (roadmap.md)  │
-└───────┬───────┘ └───────┬───────┘ └───────┬───────┘
-        │                 │                 │
-        └─────────────────┼─────────────────┘
-                          │
-                          ▼
-                ┌─────────────────────┐
-                │    AI Agent 改造    │
-                │   面试项目杀手锏    │
-                └─────────────────────┘
-```
+1. **当前源码**
+2. [ARCHITECTURE.md](./ARCHITECTURE.md)
+3. [DEVELOPING.md](./DEVELOPING.md)
+4. 其他 `docs/*.md` 规划文档
+5. 历史文档 / 聊天记录 / 旧方案草稿
 
 ---
 
-## 快速导航
+## 当前这套文档已对齐的事实（2026-04-06 校验）
 
-### 我想了解...
-
-#### ...AI Agent 改造方案
-→ [guide.md](./guide.md) - 完整的 Agent 架构、技术选型、实施路线
-
-#### ...后端如何设计
-→ [spring-boot-backend-design.md](./spring-boot-backend-design.md) - 数据库、API、缓存、安全
-
-#### ...项目当前进度
-→ [roadmap.md](./roadmap.md) - 已完成、进行中、待开发功能
-
-#### ...如何开始开发
-→ [AGENTS.md](../AGENTS.md) - 开发环境、命令、架构说明
-
-#### ...分层边界与协作规范
-→ [developer-architecture-handbook.md](./developer-architecture-handbook.md) - 当前架构判断、目标架构与协作约定
+- 启动与依赖注入入口：`main.py`
+- 当前客户端事实架构：`src/backend/{presentation,application,domain,ports,integration,infrastructure}`
+- 当前 QML 入口：`src/qml/Main.qml`
+- 当前主功能页：`TypingPage.qml`、`WeakCharsPage.qml`、排行榜页、`ProfilePage.qml`、`SettingsPage.qml`
+- 当前 CI 工作流名称：`ci.yml`、`multi-platform-tests.yml`、`build-release.yml`
+- 当前文本加载主链路：`Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway`
 
 ---
 
-## 文档维护规范
+## 你可能最常用的入口
 
-### 命名规范
-- 英文文件名，小写 + 短横线分隔
-- 示例：`spring-boot-backend-design.md` ✅ / `SpringBoot后端设计.md` ❌
+- 想跑项目：看 [DEVELOPING.md#快速开始](./DEVELOPING.md#快速开始)
+- 想知道改哪个层：看 [ARCHITECTURE.md#修改一个功能时怎么判断改哪里](./ARCHITECTURE.md#修改一个功能时怎么判断改哪里)
+- 想查文本加载流程：看 [ARCHITECTURE.md#文本加载链路](./ARCHITECTURE.md#文本加载链路)
+- 想查打字统计陷阱：看 [DEVELOPING.md#高频坑位](./DEVELOPING.md#高频坑位)
+- 想查仓库级硬约束：看 [../AGENTS.md](../AGENTS.md)
 
-### 更新日期
-- 每个文档顶部标注 `最后更新：YYYY-MM-DD`
-- 重大变更需在文档底部添加 Changelog
+---
 
-### 内容组织
-- 每个文档聚焦一个主题
-- 避免跨文档重复内容（使用链接引用）
-- 代码示例保持与实际代码同步
+## 文档维护约定
+
+- 先改代码，再同步文档；**架构变更必须同步更新 `ARCHITECTURE.md`**
+- 新开发者第一次阅读应能在 10 分钟内回答：
+  - 程序从哪里启动？
+  - QML 如何调用 Python？
+  - 文本加载走哪条链路？
+  - 新功能应该放在哪一层？
+- 不为“看起来更规范”而随意重命名文档；优先保证链接稳定、内容准确
+- 规划类文档必须显式标注“不是当前实现事实来源”
 
 ---
 
@@ -99,10 +93,6 @@
 
 | 日期 | 变更 |
 |------|------|
-| 2026-04-03 | 重写 developer-architecture-handbook.md，明确其为客户端架构事实来源并更新文本加载闭口后的边界规则 |
-| 2026-04-03 | 为 guide / roadmap / spring-boot 文档补充“规划文档”定位说明 |
-| 2026-03-21 | 新增 developer-architecture-handbook.md（开发者架构手册） |
-| 2026-03-21 | 创建文档索引，重命名功能路线图文件 |
-| 2026-03-21 | 新增 guide.md（AI Agent 转化规划） |
-| 2026-03-19 | 新增 Typetype功能路线图.md |
-| 2026-03-15 | 新增 spring-boot-backend-design.md |
+| 2026-04-06 | 基于当前源码重新校验索引、修正失效链接、补充新开发者阅读顺序 |
+| 2026-04-03 | 重写 ARCHITECTURE，明确其为客户端架构事实来源 |
+| 2026-03-21 | 创建文档索引 |
