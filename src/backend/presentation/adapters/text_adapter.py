@@ -1,7 +1,7 @@
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ...application.exception_handler import GlobalExceptionHandler
-from ...application.usecases.load_text_usecase import LoadTextUseCase
+from ...application.usecases.load_text_usecase import LoadTextUseCase, TextLoadPlan
 from ...config.runtime_config import RuntimeConfig
 from ...workers.text_load_worker import TextLoadWorker
 
@@ -75,15 +75,15 @@ class TextAdapter(QObject):
             return
 
         if plan.execution_mode == "sync":
-            self._load_sync(source_key)
+            self._load_sync(plan)
         else:
-            self._load_async(source_key)
+            self._load_async(plan)
 
-    def _load_sync(self, source_key: str) -> None:
+    def _load_sync(self, plan: TextLoadPlan) -> None:
         """同步执行文本加载。"""
         self._set_text_loading(True)
         try:
-            result = self._load_text_usecase.load(source_key)
+            result = self._load_text_usecase.load(plan)
             if result.success:
                 self._on_text_loaded(result.text)
             else:
@@ -95,12 +95,12 @@ class TextAdapter(QObject):
         finally:
             self._set_text_loading(False)
 
-    def _load_async(self, source_key: str) -> None:
+    def _load_async(self, plan: TextLoadPlan) -> None:
         """异步执行文本加载。"""
         self._set_text_loading(True)
         worker = TextLoadWorker(
             load_text_usecase=self._load_text_usecase,
-            source_key=source_key,
+            plan=plan,
         )
         worker.signals.succeeded.connect(self._on_text_loaded)
         worker.signals.failed.connect(self._on_text_load_failed)

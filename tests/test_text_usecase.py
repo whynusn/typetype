@@ -1,4 +1,11 @@
+from dataclasses import dataclass
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
+
+
+@dataclass
+class DummyTextSourceEntry:
+    key: str
+    local_path: str | None = None
 
 
 class DummyTextSourceGateway:
@@ -19,10 +26,13 @@ class DummyTextSourceGateway:
     def set_execution_mode(self, execution_mode: str):
         self._execution_mode = execution_mode
 
-    def get_execution_mode(self, source_key: str):
-        return self._execution_mode
+    def plan_load(self, source_key: str):
+        dummy_entry = DummyTextSourceEntry(key=source_key)
+        if self._execution_mode == "sync":
+            dummy_entry.local_path = "dummy/path.txt"
+        return dummy_entry
 
-    def load_text_by_key(self, source_key: str):
+    def load_from_plan(self, source):
         if self._success:
             return (True, self._text, "")
         return (False, None, self._error_message)
@@ -46,7 +56,8 @@ def test_load_success():
         clipboard_reader=DummyClipboardReader(),
     )
 
-    result = usecase.load("any_key")
+    plan = usecase.plan_load("any_key")
+    result = usecase.load(plan)
     assert result.success
     assert result.text == "test text"
 
@@ -74,7 +85,8 @@ def test_load_failure():
         clipboard_reader=DummyClipboardReader(),
     )
 
-    result = usecase.load("any_key")
+    plan = usecase.plan_load("any_key")
+    result = usecase.load(plan)
     assert not result.success
     assert result.error_message == "网络错误"
 

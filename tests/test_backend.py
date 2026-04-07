@@ -1,7 +1,7 @@
 """Bridge 模块测试。"""
 
 from PySide6.QtCore import QObject, Signal
-
+from dataclasses import dataclass
 
 from src.backend.presentation.bridge import Bridge
 from src.backend.domain.services.char_stats_service import CharStatsService
@@ -10,7 +10,6 @@ from src.backend.domain.services.auth_service import AuthService
 from src.backend.integration.noop_char_stats_repository import NoopCharStatsRepository
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.application.gateways.score_gateway import ScoreGateway
-from src.backend.application.gateways.text_source_gateway import TextSourceGateway
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.presentation.adapters.typing_adapter import TypingAdapter
 from src.backend.presentation.adapters.text_adapter import TextAdapter
@@ -23,6 +22,12 @@ from typing import cast
 
 class DummyListener(QObject):
     keyPressed = Signal(int, str)
+
+
+@dataclass
+class DummySource:
+    key: str
+    local_path: str | None = None
 
 
 class TestBridgeSpecialPlatform:
@@ -42,8 +47,16 @@ class TestBridgeSpecialPlatform:
         runtime_config.get_text_source_options.return_value = []
         runtime_config.default_text_source_key = "builtin_demo"
 
-        text_gateway = MagicMock(spec=TextSourceGateway)
+        # Don't use spec=TextSourceGateway because the interface changed
+        # The new interface has plan_load + load_from_plan instead of repeated lookups
+        text_gateway = MagicMock()
         text_gateway.load_text_by_key.return_value = (True, "test text", "")
+        text_gateway.get_execution_mode.return_value = "sync"
+        text_gateway.plan_load.return_value = (
+            "sync",
+            DummySource(key="test", local_path="test.txt"),
+        )
+        text_gateway.load_from_plan.return_value = (True, "test text", "")
 
         load_text_usecase = LoadTextUseCase(
             text_gateway=text_gateway,

@@ -10,7 +10,6 @@
 - 业务流程编排（由 LoadTextUseCase 负责）
 """
 
-from typing import Literal
 from typing import TYPE_CHECKING
 
 from ...config.runtime_config import RuntimeConfig
@@ -18,7 +17,7 @@ from ...ports.local_text_loader import LocalTextLoader
 from ...ports.text_provider import TextProvider
 
 if TYPE_CHECKING:
-    pass
+    from config.text_source_config import TextSourceEntry
 
 
 class TextSourceGateway:
@@ -34,29 +33,21 @@ class TextSourceGateway:
         self._text_provider = text_provider
         self._local_text_loader = local_text_loader
 
-    def get_execution_mode(self, source_key: str) -> Literal["sync", "async"]:
-        """根据 source_key 返回 Presentation 应执行的加载模式。"""
-        source = self._runtime_config.get_text_source(source_key)
-        if not source:
-            raise ValueError(f"未知文本来源({source_key})")
-        return "sync" if source.local_path else "async"
+    def plan_load(self, source_key: str) -> "TextSourceEntry":
+        """规划加载：查找来源。
 
-    def load_text_by_key(self, source_key: str) -> tuple[bool, str | None, str]:
-        """根据 source_key 加载文本。
-
-        Args:
-            source_key: 文本来源键
-
-        Returns:
-            tuple: (success, text, error_message)
-                success: 是否加载成功
-                text: 文本内容（成功时）或 None
-                error_message: 错误信息（失败时）
+        只执行一次 get_text_source 查询，得到的结果会缓存在 TextLoadPlan 中供后续加载使用。
         """
         source = self._runtime_config.get_text_source(source_key)
         if not source:
-            return False, None, f"未知文本来源({source_key})"
+            raise ValueError(f"未知文本来源({source_key})")
+        return source
 
+    def load_from_plan(self, source: "TextSourceEntry") -> tuple[bool, str | None, str]:
+        """根据已规划的来源条目加载文本。
+
+        不需要再次查找 source，直接使用已找到的条目。
+        """
         if source.local_path:
             return self._load_from_local(source.local_path)
 

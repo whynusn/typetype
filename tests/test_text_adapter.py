@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+from config.text_source_config import TextSourceEntry
 from src.backend.application.usecases.load_text_usecase import (
     LoadTextResult,
     TextLoadPlan,
@@ -30,7 +31,10 @@ def _build_adapter() -> tuple[TextAdapter, MagicMock, MagicMock]:
 
 def test_request_load_text_sync_uses_usecase_plan_only():
     adapter, runtime_config, load_text_usecase = _build_adapter()
-    load_text_usecase.plan_load.return_value = TextLoadPlan(execution_mode="sync")
+    source_entry = TextSourceEntry(key="local", label="Local", local_path="local.txt")
+    load_text_usecase.plan_load.return_value = TextLoadPlan(
+        source_entry=source_entry,
+    )
     load_text_usecase.load.return_value = LoadTextResult(success=True, text="sync text")
     loaded_texts: list[str] = []
     loading_states: list[bool] = []
@@ -46,13 +50,19 @@ def test_request_load_text_sync_uses_usecase_plan_only():
     assert loading_states == [True, False]
     assert adapter.text_loading is False
     load_text_usecase.plan_load.assert_called_once_with("local")
-    load_text_usecase.load.assert_called_once_with("local")
+    # load now receives the plan, not the source_key
+    assert load_text_usecase.load.called
+    args = load_text_usecase.load.call_args
+    assert args[0][0] == load_text_usecase.plan_load.return_value
     runtime_config.get_text_source.assert_not_called()
 
 
 def test_request_load_text_async_enqueues_worker_from_usecase_plan():
     adapter, runtime_config, load_text_usecase = _build_adapter()
-    load_text_usecase.plan_load.return_value = TextLoadPlan(execution_mode="async")
+    source_entry = TextSourceEntry(key="remote", label="Remote", local_path=None)
+    load_text_usecase.plan_load.return_value = TextLoadPlan(
+        source_entry=source_entry,
+    )
     thread_pool = DummyThreadPool()
     adapter._thread_pool = thread_pool
     loaded_texts: list[str] = []
@@ -74,7 +84,7 @@ def test_request_load_text_async_enqueues_worker_from_usecase_plan():
     assert loading_states == [True, False]
     assert adapter.text_loading is False
     load_text_usecase.plan_load.assert_called_once_with("remote")
-    load_text_usecase.load.assert_not_called()
+    load_text_usecase.load.assert_not_called()  # worker will call it
     runtime_config.get_text_source.assert_not_called()
 
 

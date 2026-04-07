@@ -1,13 +1,23 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING
 
 from ..gateways.text_source_gateway import TextSourceGateway
 from ...ports.clipboard import ClipboardReader
 
+if TYPE_CHECKING:
+    from config.text_source_config import TextSourceEntry
+
 
 @dataclass(frozen=True)
 class TextLoadPlan:
-    execution_mode: Literal["sync", "async"]
+    """文本加载计划，持有已查找好的来源条目，避免重复查询。"""
+
+    source_entry: "TextSourceEntry"
+
+    @property
+    def execution_mode(self) -> str:
+        """根据是否有本地路径返回执行模式：sync 本地同步，async 网络异步。"""
+        return "sync" if self.source_entry.local_path else "async"
 
 
 @dataclass
@@ -39,20 +49,21 @@ class LoadTextUseCase:
 
     def plan_load(self, source_key: str) -> TextLoadPlan:
         """返回文本加载的执行计划。"""
-        return TextLoadPlan(
-            execution_mode=self._text_gateway.get_execution_mode(source_key)
-        )
+        source_entry = self._text_gateway.plan_load(source_key)
+        return TextLoadPlan(source_entry=source_entry)
 
-    def load(self, source_key: str) -> LoadTextResult:
-        """根据 source_key 加载文本。
+    def load(self, plan: TextLoadPlan) -> LoadTextResult:
+        """根据执行计划加载文本。
 
         Args:
-            source_key: 文本来源键
+            plan: 预生成的加载计划
 
         Returns:
             LoadTextResult: 加载结果
         """
-        success, text, error_message = self._text_gateway.load_text_by_key(source_key)
+        success, text, error_message = self._text_gateway.load_from_plan(
+            plan.source_entry
+        )
         return LoadTextResult(
             success=success, text=text or "", error_message=error_message
         )
