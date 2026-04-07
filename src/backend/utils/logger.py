@@ -79,9 +79,8 @@ def _setup_logging() -> None:
 
     # Rotating file handler (only if log directory is writable)
     if _LOG_FILE is not None:
-        log_file: Path = _LOG_FILE
         file_handler = RotatingFileHandler(
-            log_file,
+            _LOG_FILE,
             maxBytes=_MAX_SIZE,
             backupCount=_BACKUP_COUNT,
             encoding="utf-8",
