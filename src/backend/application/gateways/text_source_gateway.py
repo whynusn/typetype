@@ -12,6 +12,7 @@
 
 from typing import TYPE_CHECKING
 
+from ...models.dto.fetched_text import FetchedText
 from ...config.runtime_config import RuntimeConfig
 from ...ports.local_text_loader import LocalTextLoader
 from ...ports.text_provider import TextProvider
@@ -43,10 +44,15 @@ class TextSourceGateway:
             raise ValueError(f"未知文本来源({source_key})")
         return source
 
-    def load_from_plan(self, source: "TextSourceEntry") -> tuple[bool, str | None, str]:
+    def load_from_plan(
+        self, source: "TextSourceEntry"
+    ) -> tuple[bool, FetchedText | None, str]:
         """根据已规划的来源条目加载文本。
 
         不需要再次查找 source，直接使用已找到的条目。
+
+        Returns:
+            tuple[bool, FetchedText | None, str]: (成功, 文本对象, 错误信息)
         """
         if source.local_path:
             return self._load_from_local(source.local_path)
@@ -54,18 +60,22 @@ class TextSourceGateway:
         # 网络来源
         return self._load_from_network(source.key)
 
-    def _load_from_local(self, path: str | None) -> tuple[bool, str | None, str]:
+    def _load_from_local(
+        self, path: str | None
+    ) -> tuple[bool, FetchedText | None, str]:
         """从本地文件加载文本。"""
         if not path:
             return False, None, "本地来源缺少路径"
         text = self._local_text_loader.load_text(path)
         if text is None:
             return False, None, "无法读取本地文件"
-        return True, text, ""
+        return True, FetchedText(content=text), ""
 
-    def _load_from_network(self, source_key: str) -> tuple[bool, str | None, str]:
+    def _load_from_network(
+        self, source_key: str
+    ) -> tuple[bool, FetchedText | None, str]:
         """从网络加载文本。"""
-        text = self._text_provider.fetch_text_by_key(source_key)
-        if text is None:
+        fetched = self._text_provider.fetch_text_by_key(source_key)
+        if fetched is None:
             return False, None, f"无法获取网络文本({source_key})"
-        return True, text, ""
+        return True, fetched, ""

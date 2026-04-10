@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..infrastructure.network_errors import CatalogServiceError
+from ..models.dto.fetched_text import FetchedText
 from ..models.dto.text_catalog_item import TextCatalogItem
 
 if TYPE_CHECKING:
@@ -52,7 +53,13 @@ class RemoteTextProvider:
         except Exception:
             raise CatalogServiceError("文本库目录加载异常")
 
-    def fetch_text_by_key(self, source_key: str) -> str | None:
+    def fetch_text_by_key(self, source_key: str) -> FetchedText | None:
+        """从服务器获取文本。
+
+        Returns:
+            FetchedText: 包含 id、content、title 的文本对象
+            None: 请求失败时返回
+        """
         try:
             url = f"{self._base_url}/api/v1/texts/latest/{source_key}"
             response = self._api_client.request(
@@ -64,7 +71,15 @@ class RemoteTextProvider:
                 data = response.get("data")
                 if isinstance(data, dict):
                     content = data.get("content")
-                    return content if isinstance(content, str) else None
+                    if not isinstance(content, str):
+                        return None
+                    text_id = data.get("id")
+                    title = data.get("title", "")
+                    return FetchedText(
+                        content=content,
+                        text_id=int(text_id) if text_id is not None else None,
+                        title=title if isinstance(title, str) else "",
+                    )
             return None
         except Exception:
             return None

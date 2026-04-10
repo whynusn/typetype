@@ -21,6 +21,7 @@ class TextLoadPlan:
 class LoadTextResult:
     success: bool
     text: str
+    text_id: int | None = None
     error_message: str = ""
 
 
@@ -58,11 +59,15 @@ class LoadTextUseCase:
         Returns:
             LoadTextResult: 加载结果
         """
-        success, text, error_message = self._text_gateway.load_from_plan(
+        success, fetched, error_message = self._text_gateway.load_from_plan(
             plan.source_entry
         )
+        if not success or fetched is None:
+            return LoadTextResult(success=False, text="", error_message=error_message)
         return LoadTextResult(
-            success=success, text=text or "", error_message=error_message
+            success=True,
+            text=fetched.content,
+            text_id=fetched.text_id,
         )
 
     def load_from_clipboard(self) -> LoadTextResult:
