@@ -17,6 +17,7 @@ from src.backend.infrastructure.api_client import ApiClient
 from src.backend.integration.api_client_auth_provider import ApiClientAuthProvider
 from src.backend.integration.api_client_score_submitter import ApiClientScoreSubmitter
 from src.backend.integration.leaderboard_fetcher import LeaderboardFetcher
+from src.backend.integration.text_uploader import TextUploader
 from src.backend.domain.services.auth_service import AuthService
 from src.backend.domain.services.char_stats_service import CharStatsService
 from src.backend.domain.services.typing_service import TypingService
@@ -150,15 +151,25 @@ def main():
         token_provider=_get_jwt_token,
     )
 
+    # Text uploader
+    text_upload_url = f"{runtime_config.base_url}/api/v1/texts/upload"
+    text_uploader = TextUploader(
+        api_client=api_client,
+        upload_url=text_upload_url,
+        token_provider=_get_jwt_token,
+    )
+
     # Adapters
     typing_adapter = TypingAdapter(
         typing_service=typing_service,
         score_gateway=score_gateway,
         score_submitter=score_submitter,
+        text_uploader=text_uploader,
     )
     text_adapter = TextAdapter(
         runtime_config=runtime_config,
         load_text_usecase=load_text_usecase,
+        local_text_loader=local_text_loader,
     )
     auth_adapter = AuthAdapter(auth_service=auth_service)
     char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
