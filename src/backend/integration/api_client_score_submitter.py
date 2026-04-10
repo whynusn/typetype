@@ -5,7 +5,7 @@ from typing import Any
 
 from ..infrastructure.api_client import ApiClient
 from ..models.entity.session_stat import SessionStat
-from ..utils.logger import log_warning, log_info
+from ..utils.logger import log_warning
 
 
 class ApiClientScoreSubmitter:
@@ -113,10 +113,13 @@ class ApiClientScoreSubmitter:
             return True
 
         if code == 10003 and on_text_not_found and client_text_id:
-            log_info(
-                f"[ScoreSubmitter] 检测到 NOT_FOUND 调用 callback: client_text_id={client_text_id}"
+            log_warning(
+                f"[ScoreSubmitter] 检测到文本不存在，触发自动上传: client_text_id={client_text_id}"
             )
             on_text_not_found(client_text_id, text_content, text_title)
+            # callback 会自动重试，这里不返回 False
+            # 返回 True 表示处理中，用户不需要看到错误
+            return True
 
         log_warning(f"[ScoreSubmitter] 提交失败: {data.get('message', '未知错误')}")
         return False
