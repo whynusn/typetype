@@ -142,12 +142,15 @@ class TypingAdapter(QObject):
         source_key = self._typing_service.text_source_key
         if source_key == "custom" or not self._text_uploader or not content:
             return
-        log_info("[TypingAdapter] 检测到文本不存在，正在上传...")
+        log_info(
+            f"[TypingAdapter] 检测到文本不存在，正在上传: client_text_id={client_text_id}, title={title}"
+        )
         real_text_id = self._text_uploader.upload(client_text_id, content, title)
         if real_text_id:
-            self.setTextId(real_text_id)
+            # 注意：不更新 text_id，客户端始终保持 hash 值
+            # 服务器已存储 client_text_id，下次提交可按此查找
             log_info(
-                f"[TypingAdapter] 上传成功，正在重新提交成绩 real_text_id={real_text_id}"
+                f"[TypingAdapter] 上传成功: real_text_id={real_text_id}, 重新提交成绩"
             )
             self._submit_score()
 

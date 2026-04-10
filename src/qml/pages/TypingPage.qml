@@ -140,6 +140,7 @@ Item {
     StackView.onActivating: {
         if (appBridge) {
             appBridge.setTextId(appBridge.defaultTextId);
+            appBridge.setTextTitle(appBridge.defaultTextTitle);
         }
     }
 

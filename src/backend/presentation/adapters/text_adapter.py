@@ -166,3 +166,11 @@ class TextAdapter(QObject):
             if content:
                 return text_id_from_content(source.label, content)
         return 0
+
+    def get_default_source_label(self) -> str:
+        """获取默认文本来源的 label。"""
+        default_key = self._runtime_config.text_source_config.default_key
+        source = self._runtime_config.text_source_config.get_source(default_key)
+        if source:
+            return source.label
+        return ""

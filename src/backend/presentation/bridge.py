@@ -144,6 +144,10 @@ class Bridge(QObject):
     def defaultTextId(self) -> int:
         return self._text_adapter.get_default_source_text_id()
 
+    @Property(str, constant=True)
+    def defaultTextTitle(self) -> str:
+        return self._text_adapter.get_default_source_label()
+
     @Property(list, constant=True)
     def textSourceOptions(self) -> list:
         return self._text_adapter.get_source_options()
