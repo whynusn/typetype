@@ -1,6 +1,6 @@
 # TypeType 架构设计手册
 
-> 最后更新：2026-04-06
+> 最后更新：2026-04-11
 >
 > 本文档描述 **当前客户端实现**。若其他文档与其冲突，以当前源码和本文为准。
 
@@ -42,15 +42,18 @@ TypeType 是一个 **PySide6 + QML 桌面打字练习应用**：
 
 ## 当前实现快照
 
-截至 2026-04-06，当前代码里的稳定事实包括：
+截至 2026-04-11，当前代码里的稳定事实包括：
 
 - 启动入口：`main.py`
 - QML 根页面：`src/qml/Main.qml`
-- 当前唯一明确承担“业务编排”的 UseCase：`LoadTextUseCase`
+- 当前唯一明确承担”业务编排”的 UseCase：`LoadTextUseCase`
 - 当前主要业务服务：`TypingService`、`CharStatsService`、`AuthService`
 - 当前文本来源实现：`RemoteTextProvider` + `QtLocalTextLoader`
 - 当前字符统计持久化：`SqliteCharStatsRepository`
 - 当前 Python/QML 通信门面：`presentation/bridge.py`
+- 当前成绩提交实现：`ApiClientScoreSubmitter`
+- 当前文本上传实现：`TextUploader`
+- text_id 生成：`utils/text_id.py`（基于 label + content hash）
 
 ---
 
@@ -74,7 +77,7 @@ QML UI
 | Application | `LoadTextUseCase` | 文本加载编排入口 |
 | Application | `TextSourceGateway` / `ScoreGateway` / `GlobalExceptionHandler` | 来源路由、DTO/剪贴板、异常消息映射 |
 | Domain | `TypingService` / `CharStatsService` / `AuthService` | 纯业务逻辑、状态管理、统计计算 |
-| Ports | `TextProvider` / `LocalTextLoader` / `Clipboard*` / `AuthProvider` / `CharStatsRepository` | 抽象协议 |
+| Ports | `TextProvider` / `LocalTextLoader` / `Clipboard*` / `AuthProvider` / `CharStatsRepository` / `TextUploader` / `ScoreSubmitter` | 抽象协议 |
 | Integration | `RemoteTextProvider` / `QtLocalTextLoader` / `ApiClientAuthProvider` / `SqliteCharStatsRepository` 等 | Port 实现 |
 | Infrastructure | `ApiClient` / `network_errors.py` | 通用 HTTP 客户端、网络异常分类 |
 
@@ -105,17 +108,26 @@ src/backend/
 │   └── network_errors.py
 ├── integration/
 │   ├── api_client_auth_provider.py
+│   ├── api_client_score_submitter.py
 │   ├── global_key_listener.py
 │   ├── noop_char_stats_repository.py
 │   ├── qt_async_executor.py
 │   ├── qt_local_text_loader.py
 │   ├── remote_text_provider.py
 │   ├── sqlite_char_stats_repository.py
-│   └── system_identifier.py
+│   ├── system_identifier.py
+│   └── text_uploader.py
 ├── models/
 │   ├── dto/
 │   └── entity/
 ├── ports/
+│   ├── auth_provider.py
+│   ├── char_stats_repository.py
+│   ├── clipboard.py
+│   ├── local_text_loader.py
+│   ├── score_submitter.py
+│   ├── text_provider.py
+│   └── text_uploader.py
 ├── presentation/
 │   ├── bridge.py
 │   └── adapters/
@@ -160,6 +172,7 @@ RuntimeConfig
   -> RemoteTextProvider / SqliteCharStatsRepository / ApiClientAuthProvider
   -> ScoreGateway / TextSourceGateway / LoadTextUseCase
   -> CharStatsService / TypingService / AuthService
+  -> ApiClientScoreSubmitter / TextUploader
   -> TypingAdapter / TextAdapter / AuthAdapter / CharStatsAdapter
   -> Bridge
   -> appBridge 注入 QML
@@ -190,9 +203,13 @@ ToolLine.qml
   -> LoadTextUseCase.load(plan)
   -> TextSourceGateway.load_from_plan(sourceEntry)
   -> QtLocalTextLoader 或 RemoteTextProvider
-  -> TextAdapter 发射 textLoaded / textLoadFailed
+  -> TextAdapter 发射 textLoaded(text, text_id, source_label) / textLoadFailed
   -> TypingPage.applyLoadedText(...)
 ```
+
+**text_id 生成时机：**
+- 本地文本：在 `TextSourceGateway._load_from_local()` 中基于 label + content 生成
+- 网络文本：由服务器返回
 
 ### 文本加载里各层到底负责什么
 
@@ -279,6 +296,34 @@ main.py
   -> AuthService.initialize()
   -> validate_token() / refresh_token()
 ```
+
+---
+
+### 文本上传链路（无感上传）
+
+当用户打字完成提交成绩时，若服务器返回"文本不存在"错误，客户端会自动上传文本：
+
+```text
+TypingAdapter._submit_score()
+  -> ScoreSubmitter.submit(...)
+  -> 服务器返回 NOT_FOUND (code=10003)
+  -> TypingAdapter._on_text_not_found()
+  -> TextUploader.upload(text_id, content, title)
+  -> 服务器返回真实 text_id
+  -> 重新提交成绩
+```
+
+**text_id 生成规则：**
+
+本地文本的 `text_id` 由 `utils/text_id.py` 基于 `label + content` 联合 hash 生成：
+
+```python
+text_id = int(sha256(f"{label}:{content}").hexdigest()[:8], 16) % (10**9)
+```
+
+这样设计的原因：
+- 防止用户修改本地文件后仍使用相同 text_id
+- 同一 label + 内容始终生成相同 ID，避免重复上传
 
 ---
 
@@ -401,6 +446,7 @@ Domain 可以依赖 **抽象协议（Port）**，不能依赖 **具体 Qt / HTTP
 
 | 日期 | 变更 |
 |------|------|
+| 2026-04-11 | 新增 TextUploader Port、text_id 生成逻辑、无感上传链路；移除配置中 text_id 字段 |
 | 2026-04-06 | 基于当前源码重写：补充对象装配、QML 页面结构、真实数据流与边界判断 |
 | 2026-04-03 | 重写文本加载闭口后的边界规则 |
 | 2026-03-21 | 首次创建 |
