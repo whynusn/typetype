@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from ...application.gateways.leaderboard_gateway import LeaderboardGateway
+from ..application.gateways.leaderboard_gateway import LeaderboardGateway
 from .base_worker import BaseWorker
 
 
