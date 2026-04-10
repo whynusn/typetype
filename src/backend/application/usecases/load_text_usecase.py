@@ -22,6 +22,7 @@ class LoadTextResult:
     success: bool
     text: str
     text_id: int | None = None
+    source_label: str = ""
     error_message: str = ""
 
 
@@ -68,6 +69,7 @@ class LoadTextUseCase:
             success=True,
             text=fetched.content,
             text_id=fetched.text_id,
+            source_label=plan.source_entry.label,
         )
 
     def load_from_clipboard(self) -> LoadTextResult:
@@ -77,4 +79,8 @@ class LoadTextUseCase:
             return LoadTextResult(
                 success=False, text="", error_message="当前剪贴板无文本内容"
             )
-        return LoadTextResult(success=True, text=text)
+        return LoadTextResult(
+            success=True,
+            text=text,
+            source_label="剪贴板",
+        )

@@ -37,7 +37,7 @@ class Bridge(QObject):
     readOnlyChanged = Signal()
     historyRecordUpdated = Signal(dict)
     typingEnded = Signal()
-    textLoaded = Signal(str, int)  # (text_content, text_id), text_id=-1 表示无ID
+    textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
     loggedinChanged = Signal()
@@ -140,6 +140,10 @@ class Bridge(QObject):
     def defaultTextSourceKey(self) -> str:
         return self._text_adapter.get_default_source_key()
 
+    @Property(int, constant=True)
+    def defaultTextId(self) -> int:
+        return self._text_adapter.get_default_source_text_id()
+
     @Property(list, constant=True)
     def textSourceOptions(self) -> list:
         return self._text_adapter.get_source_options()
@@ -216,6 +220,11 @@ class Bridge(QObject):
     def setTextId(self, text_id: int) -> None:
         """设置当前文本ID（用于成绩提交）。"""
         self._typing_adapter.setTextId(text_id)
+
+    @Slot(str)
+    def setTextTitle(self, title: str) -> None:
+        """设置当前文本标题（用于上传）。"""
+        self._typing_adapter.setTextTitle(title)
 
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:

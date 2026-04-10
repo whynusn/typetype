@@ -88,14 +88,16 @@ Item {
             endDialog.open();
         }
 
-        function onTextLoaded(text, textId) {
+        function onTextLoaded(text, textId, sourceLabel) {
             applyLoadedText(text);
-            // 设置文本ID用于成绩提交
             if (appBridge && textId !== undefined) {
                 if (textId <= 0) {
                     textId = 0;
                 }
                 appBridge.setTextId(textId);
+                if (sourceLabel) {
+                    appBridge.setTextTitle(sourceLabel);
+                }
             }
         }
 
@@ -133,6 +135,12 @@ Item {
 
     Keys.onPressed: function (event) {
         handleKeyPressEvent(event);
+    }
+
+    StackView.onActivating: {
+        if (appBridge) {
+            appBridge.setTextId(appBridge.defaultTextId);
+        }
     }
 
     ColumnLayout {

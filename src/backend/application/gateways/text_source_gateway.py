@@ -55,13 +55,13 @@ class TextSourceGateway:
             tuple[bool, FetchedText | None, str]: (成功, 文本对象, 错误信息)
         """
         if source.local_path:
-            return self._load_from_local(source.local_path)
+            return self._load_from_local(source.local_path, source.label)
 
         # 网络来源
         return self._load_from_network(source.key)
 
     def _load_from_local(
-        self, path: str | None
+        self, path: str | None, label: str = ""
     ) -> tuple[bool, FetchedText | None, str]:
         """从本地文件加载文本。"""
         if not path:
@@ -69,7 +69,10 @@ class TextSourceGateway:
         text = self._local_text_loader.load_text(path)
         if text is None:
             return False, None, "无法读取本地文件"
-        return True, FetchedText(content=text), ""
+        from ...utils.text_id import text_id_from_content
+
+        text_id = text_id_from_content(label, text) if label else 0
+        return True, FetchedText(content=text, text_id=text_id), ""
 
     def _load_from_network(
         self, source_key: str

@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ...application.exception_handler import GlobalExceptionHandler
@@ -8,6 +10,9 @@ from ...application.usecases.load_text_usecase import (
 )
 from ...config.runtime_config import RuntimeConfig
 from ...workers.text_load_worker import TextLoadWorker
+
+if TYPE_CHECKING:
+    from ...ports.local_text_loader import LocalTextLoader
 
 
 class TextAdapter(QObject):
@@ -24,7 +29,7 @@ class TextAdapter(QObject):
     """
 
     # 信号定义
-    textLoaded = Signal(str, int)  # (text_content, text_id)，text_id 为 -1 表示无 ID
+    textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
 
@@ -32,10 +37,12 @@ class TextAdapter(QObject):
         self,
         runtime_config: RuntimeConfig,
         load_text_usecase: LoadTextUseCase,
+        local_text_loader: "LocalTextLoader",
     ):
         super().__init__()
         self._runtime_config = runtime_config
         self._load_text_usecase = load_text_usecase
+        self._local_text_loader = local_text_loader
         self._text_loading = False
         self._thread_pool = QThreadPool.globalInstance()
 
@@ -53,10 +60,11 @@ class TextAdapter(QObject):
 
         text = result.text if hasattr(result, "text") else str(result)
         text_id = result.text_id if hasattr(result, "text_id") else None
+        source_label = result.source_label if hasattr(result, "source_label") else ""
         if not isinstance(text, str):
             self.textLoadFailed.emit("加载文本失败：返回数据格式错误")
             return
-        self.textLoaded.emit(text, text_id if text_id is not None else -1)
+        self.textLoaded.emit(text, text_id if text_id is not None else -1, source_label)
 
     def _on_text_load_failed(self, message: str) -> None:
         self.textLoadFailed.emit(message)
@@ -142,7 +150,19 @@ class TextAdapter(QObject):
 
     def get_source_options(self) -> list[dict[str, str]]:
         """获取 UI 可选的来源列表。"""
-        return self._runtime_config.get_text_source_options()
+        return self._runtime_config.text_source_config.get_source_options()
 
     def get_default_source_key(self) -> str:
-        return self._runtime_config.default_text_source_key
+        return self._runtime_config.text_source_config.default_key
+
+    def get_default_source_text_id(self) -> int:
+        """获取默认文本来源的 text_id（基于 label + 默认内容 hash）。"""
+        from ...utils.text_id import text_id_from_content
+
+        default_key = self._runtime_config.text_source_config.default_key
+        source = self._runtime_config.text_source_config.get_source(default_key)
+        if source and source.local_path:
+            content = self._local_text_loader.load_text(source.local_path)
+            if content:
+                return text_id_from_content(source.label, content)
+        return 0
