@@ -16,11 +16,11 @@ class TextUploader(Protocol):
     - integration.text_uploader.NoopTextUploader: 空实现
     """
 
-    def upload(self, text_id: int, content: str, title: str) -> int | None:
+    def upload(self, client_text_id: int, content: str, title: str) -> int | None:
         """上传文本到服务器。
 
         Args:
-            text_id: 客户端计算的文本ID
+            client_text_id: 客户端计算的文本ID（hash）
             content: 文本内容
             title: 文本标题
 

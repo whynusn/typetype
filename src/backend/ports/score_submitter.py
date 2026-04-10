@@ -21,6 +21,7 @@ class ScoreSubmitter(Protocol):
         self,
         score_data: SessionStat,
         text_id: int | None = None,
+        client_text_id: int | None = None,
         text_content: str = "",
         text_title: str = "",
         on_text_not_found: Callable[[int, str, str], None] | None = None,
@@ -29,10 +30,11 @@ class ScoreSubmitter(Protocol):
 
         Args:
             score_data: 会话统计数据
-            text_id: 文本ID（来自服务器），可选
+            text_id: 服务器数据库主键 ID，可选
+            client_text_id: 客户端生成的 hash ID，可选
             text_content: 文本内容（用于上传），可选
             text_title: 文本标题（用于上传），可选
-            on_text_not_found: 文本不存在时的回调(text_id, content, title)，可选
+            on_text_not_found: 文本不存在时的回调(client_text_id, content, title)，可选
 
         Returns:
             bool: 提交是否成功

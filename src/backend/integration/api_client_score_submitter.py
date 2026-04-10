@@ -25,6 +25,7 @@ class ApiClientScoreSubmitter:
         self,
         score_data: SessionStat,
         text_id: int | None = None,
+        client_text_id: int | None = None,
         text_content: str = "",
         text_title: str = "",
         on_text_not_found: Callable[[int, str, str], None] | None = None,
@@ -33,7 +34,8 @@ class ApiClientScoreSubmitter:
 
         Args:
             score_data: 会话统计数据
-            text_id: 文本ID（来自服务器）
+            text_id: 服务器数据库主键 ID（可选）
+            client_text_id: 客户端生成的 hash ID（可选）
             text_content: 文本内容（用于上传）
             text_title: 文本标题（用于上传）
             on_text_not_found: 文本不存在时的回调
@@ -41,8 +43,8 @@ class ApiClientScoreSubmitter:
         Returns:
             bool: 提交是否成功
         """
-        if text_id is None:
-            log_warning("[ScoreSubmitter] 无法提交成绩：缺少 text_id")
+        if text_id is None and client_text_id is None:
+            log_warning("[ScoreSubmitter] 无法提交成绩：缺少 text_id 和 client_text_id")
             return False
 
         token = self._token_provider()
@@ -50,7 +52,7 @@ class ApiClientScoreSubmitter:
             log_warning("[ScoreSubmitter] 无法提交成绩：未登录")
             return False
 
-        payload = self._build_payload(score_data, text_id)
+        payload = self._build_payload(score_data, text_id, client_text_id)
         headers = {"Authorization": f"Bearer {token}"}
 
         data = self._api_client.request(
@@ -61,13 +63,21 @@ class ApiClientScoreSubmitter:
         )
 
         return self._parse_response(
-            data, text_id, text_content, text_title, on_text_not_found
+            data,
+            client_text_id or 0,
+            text_content,
+            text_title,
+            on_text_not_found,
         )
 
-    def _build_payload(self, score_data: SessionStat, text_id: int) -> dict[str, Any]:
+    def _build_payload(
+        self,
+        score_data: SessionStat,
+        text_id: int | None,
+        client_text_id: int | None,
+    ) -> dict[str, Any]:
         """构建请求体。"""
-        return {
-            "textId": text_id,
+        payload = {
             "speed": round(score_data.speed, 2),
             "effectiveSpeed": round(score_data.effectiveSpeed, 2),
             "keyStroke": round(score_data.keyStroke, 2),
@@ -77,11 +87,16 @@ class ApiClientScoreSubmitter:
             "wrongCharCount": score_data.wrong_char_count,
             "duration": round(score_data.time, 2),
         }
+        if text_id is not None:
+            payload["textId"] = text_id
+        if client_text_id is not None:
+            payload["clientTextId"] = client_text_id
+        return payload
 
     def _parse_response(
         self,
         data: dict[str, Any] | None,
-        text_id: int,
+        client_text_id: int,
         text_content: str,
         text_title: str,
         on_text_not_found: Callable[[int, str, str], None] | None,
@@ -97,11 +112,11 @@ class ApiClientScoreSubmitter:
         if code == 200:
             return True
 
-        if code == 10003 and on_text_not_found:
+        if code == 10003 and on_text_not_found and client_text_id:
             log_info(
-                f"[ScoreSubmitter] 检测到 NOT_FOUND 调用 callback: text_id={text_id}"
+                f"[ScoreSubmitter] 检测到 NOT_FOUND 调用 callback: client_text_id={client_text_id}"
             )
-            on_text_not_found(text_id, text_content, text_title)
+            on_text_not_found(client_text_id, text_content, text_title)
 
         log_warning(f"[ScoreSubmitter] 提交失败: {data.get('message', '未知错误')}")
         return False
@@ -114,6 +129,7 @@ class NoopScoreSubmitter:
         self,
         score_data: SessionStat,
         text_id: int | None = None,
+        client_text_id: int | None = None,
         text_content: str = "",
         text_title: str = "",
         on_text_not_found: Callable[[int, str, str], None] | None = None,

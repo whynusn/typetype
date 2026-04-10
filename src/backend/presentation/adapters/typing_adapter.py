@@ -123,27 +123,27 @@ class TypingAdapter(QObject):
             return
 
         score_data = self._typing_service.score_data
-        text_id = self._typing_service.text_id
+        client_text_id = self._typing_service.text_id
 
         log_info(
-            f"[TypingAdapter] _submit_score: text_id={text_id}, title={self._typing_service.text_title}"
+            f"[TypingAdapter] _submit_score: client_text_id={client_text_id}, title={self._typing_service.text_title}"
         )
-        if text_id is not None and text_id > 0:
+        if client_text_id is not None and client_text_id > 0:
             self._score_submitter.submit(
                 score_data,
-                text_id,
-                self._typing_service.plain_doc,
-                self._typing_service.text_title,
+                client_text_id=client_text_id,
+                text_content=self._typing_service.plain_doc,
+                text_title=self._typing_service.text_title,
                 on_text_not_found=self._on_text_not_found,
             )
 
-    def _on_text_not_found(self, text_id: int, content: str, title: str) -> None:
+    def _on_text_not_found(self, client_text_id: int, content: str, title: str) -> None:
         """文本不存在时自动上传。"""
         source_key = self._typing_service.text_source_key
         if source_key == "custom" or not self._text_uploader or not content:
             return
         log_info("[TypingAdapter] 检测到文本不存在，正在上传...")
-        real_text_id = self._text_uploader.upload(text_id, content, title)
+        real_text_id = self._text_uploader.upload(client_text_id, content, title)
         if real_text_id:
             self.setTextId(real_text_id)
             log_info(
