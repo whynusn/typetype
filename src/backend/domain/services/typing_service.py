@@ -39,6 +39,7 @@ class TypingState:
     wrong_char_prefix_sum: list[int] = field(default_factory=list)
     last_commit_time_ms: float = 0.0
     plain_doc: str = ""
+    text_id: int | None = None  # 当前文本ID，用于成绩提交
 
 
 class TypingService:
@@ -92,6 +93,10 @@ class TypingService:
     def total_time(self) -> float:
         return self._state.score_data.time
 
+    @property
+    def text_id(self) -> int | None:
+        return self._state.text_id
+
     def start(self) -> None:
         """开始打字。"""
         self._state.last_commit_time_ms = time() * 1000
@@ -128,6 +133,10 @@ class TypingService:
     def set_plain_doc(self, text: str) -> None:
         """设置目标文本。"""
         self._state.plain_doc = text
+
+    def set_text_id(self, text_id: int | None) -> None:
+        """设置当前文本ID。"""
+        self._state.text_id = text_id
 
     def set_text_source(self, text_source_key: str, text_id: str = "") -> None:
         """设置文本来源标识。"""
