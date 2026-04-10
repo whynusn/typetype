@@ -4,7 +4,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
-from ...integration.leaderboard_fetcher import LeaderboardFetcher
+from ...application.gateways.leaderboard_gateway import LeaderboardGateway
 from ...workers.leaderboard_worker import LeaderboardWorker
 
 
@@ -22,9 +22,9 @@ class LeaderboardAdapter(QObject):
     leaderboardLoadFailed = Signal(str)
     leaderboardLoadingChanged = Signal()
 
-    def __init__(self, leaderboard_fetcher: LeaderboardFetcher):
+    def __init__(self, leaderboard_gateway: LeaderboardGateway):
         super().__init__()
-        self._leaderboard_fetcher = leaderboard_fetcher
+        self._leaderboard_gateway = leaderboard_gateway
         self._thread_pool = QThreadPool.globalInstance()
         self._loading = False
 

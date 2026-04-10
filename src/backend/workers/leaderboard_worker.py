@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from ..integration.leaderboard_fetcher import LeaderboardFetcher
+from ...application.gateways.leaderboard_gateway import LeaderboardGateway
 from .base_worker import BaseWorker
 
 
@@ -11,24 +11,17 @@ class LeaderboardWorker(BaseWorker):
 
     def __init__(
         self,
-        leaderboard_fetcher: LeaderboardFetcher,
+        leaderboard_gateway: LeaderboardGateway,
         source_key: str,
     ):
-        self._leaderboard_fetcher = leaderboard_fetcher
+        self._leaderboard_gateway = leaderboard_gateway
         self._source_key = source_key
         super().__init__(task=self._fetch_leaderboard, error_prefix="加载排行榜失败")
 
     def _fetch_leaderboard(self) -> dict[str, Any]:
-        """获取排行榜数据。
-
-        Returns:
-            dict 包含:
-                - text_info: 文本信息 (id, title)
-                - leaderboard: 排行榜记录列表
-                - total: 总记录数
-        """
+        """获取排行榜数据。"""
         # 1. 获取最新文本
-        text_info = self._leaderboard_fetcher.get_latest_text_by_source(
+        text_info = self._leaderboard_gateway.get_latest_text_by_source(
             self._source_key
         )
         if text_info is None:
@@ -39,7 +32,7 @@ class LeaderboardWorker(BaseWorker):
             raise Exception("文本信息缺少 ID")
 
         # 2. 获取排行榜
-        leaderboard_data = self._leaderboard_fetcher.get_leaderboard(text_id)
+        leaderboard_data = self._leaderboard_gateway.get_leaderboard(text_id)
         if leaderboard_data is None:
             raise Exception("无法获取排行榜数据")
 

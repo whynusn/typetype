@@ -9,6 +9,7 @@ import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
 from src.backend.application.gateways.score_gateway import ScoreGateway
 from src.backend.application.gateways.text_source_gateway import TextSourceGateway
+from src.backend.application.gateways.leaderboard_gateway import LeaderboardGateway
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.presentation.bridge import Bridge
 from src.backend.config.runtime_config import RuntimeConfig
@@ -168,7 +169,8 @@ def main():
         base_url=runtime_config.base_url,
         token_provider=_get_jwt_token,
     )
-    leaderboard_adapter = LeaderboardAdapter(leaderboard_fetcher=leaderboard_fetcher)
+    leaderboard_gateway = LeaderboardGateway(leaderboard_fetcher=leaderboard_fetcher)
+    leaderboard_adapter = LeaderboardAdapter(leaderboard_gateway=leaderboard_gateway)
 
     # Platform detection
     system_identifier = SystemIdentifier()
