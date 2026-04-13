@@ -90,10 +90,12 @@ Item {
 
         function onTextLoaded(text, textId, sourceLabel) {
             applyLoadedText(text);
+            if (appBridge && textId > 0) {
+                appBridge.setTextId(textId);
+            }
             if (appBridge && sourceLabel) {
                 appBridge.setTextTitle(sourceLabel);
             }
-            // 不再需要设置 source_key，成绩提交只依赖 textId
         }
 
         function onTextLoadFailed(message) {
