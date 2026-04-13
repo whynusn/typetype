@@ -221,10 +221,10 @@ class Bridge(QObject):
         """设置当前文本标题（用于上传）。"""
         self._typing_adapter.setTextTitle(title)
 
-    @Slot(str)
-    def setTextSource(self, source_key: str) -> None:
-        """设置当前文本来源key。"""
-        self._typing_adapter.setTextSource(source_key)
+    @Slot(int)
+    def setTextId(self, text_id: int) -> None:
+        """设置当前文本ID（用于成绩提交）。"""
+        self._typing_adapter.setTextId(text_id if text_id > 0 else None)
 
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:

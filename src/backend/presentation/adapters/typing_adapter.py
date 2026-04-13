@@ -114,15 +114,15 @@ class TypingAdapter(QObject):
         return False
 
     def _submit_score(self) -> None:
-        """提交成绩到服务器（服务端一站式 findOrCreate）。"""
+        """提交成绩到服务器（仅服务端文本可提交）。"""
         if self._score_submitter is None:
             return
-        score_data = self._typing_service.score_data
+        text_id = self._typing_service.text_id
+        if text_id is None or text_id <= 0:
+            return  # 纯练习模式或未载文，不提交
         self._score_submitter.submit(
-            score_data,
-            text_content=self._typing_service.plain_doc,
-            source_key=self._typing_service.text_source_key,
-            text_title=self._typing_service.text_title,
+            self._typing_service.score_data,
+            text_id=text_id,
         )
 
     # 对外公开的 Slot 方法
@@ -178,9 +178,9 @@ class TypingAdapter(QObject):
         """设置当前文本标题（用于上传）。"""
         self._typing_service.set_text_title(title)
 
-    def setTextSource(self, source_key: str) -> None:
-        """设置当前文本来源key。"""
-        self._typing_service.set_text_source(source_key)
+    def setTextId(self, text_id: int | None) -> None:
+        """设置当前文本ID（用于成绩提交）。"""
+        self._typing_service.set_text_id(text_id)
 
     def handleStartStatus(self, status: bool) -> None:
         if self._typing_service.state.is_started != status:

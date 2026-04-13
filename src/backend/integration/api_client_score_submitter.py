@@ -11,8 +11,7 @@ from ..utils.logger import log_warning
 class ApiClientScoreSubmitter:
     """通过 HTTP API 提交成绩到 Spring Boot 后端。
 
-    服务端一站式 findOrCreate：客户端把 content + sourceKey 一起发给服务端，
-    服务端在 ScoreService.submitScore() 中完成"查找或创建文本 + 记录成绩"。
+    只有服务端存在的文本才能提交成绩，因此只需传入 text_id。
     """
 
     def __init__(
@@ -28,17 +27,13 @@ class ApiClientScoreSubmitter:
     def submit(
         self,
         score_data: SessionStat,
-        text_content: str = "",
-        source_key: str = "",
-        text_title: str = "",
+        text_id: int,
     ) -> bool:
         """提交成绩到服务器。
 
         Args:
             score_data: 会话统计数据
-            text_content: 文本内容（用于服务端 findOrCreate）
-            source_key: 文本来源 key（用于服务端 findOrCreate）
-            text_title: 文本标题
+            text_id: 服务端文本ID（必须是已存在的文本）
 
         Returns:
             bool: 提交是否成功
@@ -48,7 +43,7 @@ class ApiClientScoreSubmitter:
             log_warning("[ScoreSubmitter] 无法提交成绩：未登录")
             return False
 
-        payload = self._build_payload(score_data, text_content, source_key)
+        payload = self._build_payload(score_data, text_id)
         headers = {"Authorization": f"Bearer {token}"}
 
         data = self._api_client.request(
@@ -63,11 +58,11 @@ class ApiClientScoreSubmitter:
     def _build_payload(
         self,
         score_data: SessionStat,
-        text_content: str,
-        source_key: str,
+        text_id: int,
     ) -> dict[str, Any]:
         """构建请求体。"""
-        payload = {
+        return {
+            "textId": text_id,
             "speed": round(score_data.speed, 2),
             "effectiveSpeed": round(score_data.effectiveSpeed, 2),
             "keyStroke": round(score_data.keyStroke, 2),
@@ -77,11 +72,6 @@ class ApiClientScoreSubmitter:
             "wrongCharCount": score_data.wrong_char_count,
             "duration": round(score_data.time, 2),
         }
-        if text_content:
-            payload["textContent"] = text_content
-        if source_key:
-            payload["sourceKey"] = source_key
-        return payload
 
     def _parse_response(
         self,
@@ -108,8 +98,6 @@ class NoopScoreSubmitter:
     def submit(
         self,
         score_data: SessionStat,
-        text_content: str = "",
-        source_key: str = "",
-        text_title: str = "",
+        text_id: int,
     ) -> bool:
         return False

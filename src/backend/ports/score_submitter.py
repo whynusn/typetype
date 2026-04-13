@@ -19,17 +19,13 @@ class ScoreSubmitter(Protocol):
     def submit(
         self,
         score_data: SessionStat,
-        text_content: str = "",
-        source_key: str = "",
-        text_title: str = "",
+        text_id: int,
     ) -> bool:
         """提交成绩到服务器。
 
         Args:
             score_data: 会话统计数据
-            text_content: 文本内容（用于服务端 findOrCreate）
-            source_key: 文本来源 key（用于服务端 findOrCreate）
-            text_title: 文本标题
+            text_id: 服务端文本ID（必须是已存在的文本）
 
         Returns:
             bool: 提交是否成功

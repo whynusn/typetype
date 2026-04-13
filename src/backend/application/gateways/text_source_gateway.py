@@ -69,7 +69,7 @@ class TextSourceGateway:
         text = self._local_text_loader.load_text(path)
         if text is None:
             return False, None, "无法读取本地文件"
-        # 客户端不再计算 hash，text_id 由服务端在提交成绩时 findOrCreate
+        # 本地文本不参与排行榜，text_id 为 None
         return True, FetchedText(content=text, text_id=None), ""
 
     def _load_from_network(
@@ -80,6 +80,5 @@ class TextSourceGateway:
         if fetched is None:
             return False, None, f"无法获取网络文本({source_key})"
 
-        # 客户端不再计算 hash 覆盖 text_id
-        # text_id 由服务端在提交成绩时 findOrCreate
+        # 网络来源：直接使用服务端返回的 text_id
         return True, fetched, ""

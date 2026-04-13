@@ -106,10 +106,6 @@ class TypingService:
     def text_title(self) -> str:
         return self._state.text_title
 
-    @property
-    def text_source_key(self) -> str:
-        return self._state.score_data.text_source_key
-
     def start(self) -> None:
         """开始打字。"""
         self._state.last_commit_time_ms = time() * 1000
@@ -154,11 +150,6 @@ class TypingService:
     def set_text_title(self, title: str) -> None:
         """设置当前文本标题。"""
         self._state.text_title = title
-
-    def set_text_source(self, text_source_key: str, text_id: str = "") -> None:
-        """设置文本来源标识。"""
-        self._state.score_data.text_source_key = text_source_key
-        self._state.score_data.text_id = text_id
 
     def set_read_only(self, read_only: bool) -> bool:
         """设置只读状态，返回是否发生变化。"""

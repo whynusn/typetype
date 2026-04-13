@@ -83,7 +83,7 @@ class LoadTextUseCase:
             return LoadTextResult(
                 success=False, text="", error_message="当前剪贴板无文本内容"
             )
-        # 客户端不再计算 hash，text_id 由服务端在提交成绩时 findOrCreate
+        # 剪贴板文本不参与排行榜，text_id 为 None
         return LoadTextResult(
             success=True,
             text=text,

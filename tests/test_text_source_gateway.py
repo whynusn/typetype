@@ -63,7 +63,7 @@ def test_load_from_plan_uses_local_loader_for_local_source():
     assert success is True
     assert fetched is not None
     assert fetched.content == "local text"
-    # 客户端不再计算 hash，text_id 由服务端 findOrCreate
+    # 本地文本不参与排行榜，text_id 为 None
     assert fetched.text_id is None
     assert error == ""
     # No repeated lookup for source entry since it's already in the plan

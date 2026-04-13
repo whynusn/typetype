@@ -16,8 +16,7 @@ class SessionStat:
     # 唯一标识
     id: str = field(default_factory=lambda: str(uuid4()))
 
-    # 文本来源标识（用于排行榜）
-    text_source_key: str = ""
+    # 文本ID（服务端主键，仅服务端文本可提交成绩）
     text_id: str = ""
 
     # 打字统计数据
