@@ -131,6 +131,17 @@ Item {
         }
     }
 
+    // 监听上传结果：云端上传成功时自动设置 text_id
+    Connections {
+        target: appBridge
+        enabled: appBridge !== null
+        function onUploadResult(success, message, textId) {
+            if (success && textId > 0) {
+                appBridge.setTextId(textId);
+            }
+        }
+    }
+
     Keys.onPressed: function (event) {
         handleKeyPressEvent(event);
     }

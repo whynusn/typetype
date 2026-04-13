@@ -50,7 +50,7 @@ class Bridge(QObject):
     leaderboardLoaded = Signal(dict)
     leaderboardLoadFailed = Signal(str)
     leaderboardLoadingChanged = Signal()
-    uploadResult = Signal(bool, str)
+    uploadResult = Signal(bool, str, int)  # (success, message, server_text_id)
 
     def __init__(
         self,

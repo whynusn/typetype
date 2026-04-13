@@ -187,7 +187,7 @@ FluentPage {
     Connections {
         target: appBridge
         enabled: appBridge !== null
-        function onUploadResult(success, message) {
+        function onUploadResult(success, message, textId) {
             uploadBtn.enabled = true;
             if (success) {
                 clearForm();
