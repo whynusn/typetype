@@ -5,6 +5,15 @@ from src.backend.domain.services.auth_service import AuthService
 from src.backend.models.dto.auth_dto import AuthResult
 
 
+# Patch SecureStorage globally for all tests (no keyring backend in sandbox)
+_secure_storage_patcher = patch.multiple(
+    "src.backend.security.secure_storage.SecureStorage",
+    save_jwt=MagicMock(),
+    get_jwt=MagicMock(return_value=None),
+)
+_secure_storage_patcher.start()
+
+
 def _make_provider(
     login_result: AuthResult | None = None,
     refresh_result: AuthResult | None = None,
@@ -124,7 +133,7 @@ class TestAuthLogoutReset:
         with patch.object(svc, "_auth_provider", provider):
             svc.login("u", "p")
         assert svc.refresh_interval_seconds == 780
-        with patch("keyring.delete_password"):
+        with patch("src.backend.domain.services.auth_service.keyring.delete_password"):
             svc.logout()
         assert svc.refresh_interval_seconds == 0
         assert svc.token_remaining_seconds == 0
