@@ -99,7 +99,9 @@ Item {
         }
 
         function onTextLoadFailed(message) {
-            applyLoadedText(message);
+            // 加载失败时只更新显示文本，不调用 handleLoadedText（不禁用 readOnly）
+            // 用户无法在加载失败的文本上打字
+            upperPane.text = message;
         }
     }
 
