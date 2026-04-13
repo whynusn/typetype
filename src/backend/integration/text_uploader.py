@@ -19,7 +19,9 @@ class TextUploader:
         self._upload_url = upload_url
         self._token_provider = token_provider
 
-    def upload(self, client_text_id: int, content: str, title: str, source_key: str) -> int | None:
+    def upload(
+        self, client_text_id: int, content: str, title: str, source_key: str
+    ) -> int | None:
         """上传文本到服务器。
 
         Args:
@@ -39,7 +41,12 @@ class TextUploader:
         log_warning(
             f"[TextUploader] 开始上传文本：client_text_id={client_text_id}, title={title}, source_key={source_key}, length={len(content)}"
         )
-        payload = {"clientTextId": client_text_id, "content": content, "title": title, "sourceKey": source_key}
+        payload = {
+            "clientTextId": client_text_id,
+            "content": content,
+            "title": title,
+            "sourceKey": source_key,
+        }
         headers = {"Authorization": f"Bearer {token}"}
 
         data = self._api_client.request(
@@ -66,5 +73,7 @@ class TextUploader:
 class NoopTextUploader:
     """空实现，用于禁用上传场景。"""
 
-    def upload(self, client_text_id: int, content: str, title: str, source_key: str) -> int | None:
+    def upload(
+        self, client_text_id: int, content: str, title: str, source_key: str
+    ) -> int | None:
         return None

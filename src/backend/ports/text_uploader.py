@@ -16,7 +16,9 @@ class TextUploader(Protocol):
     - integration.text_uploader.NoopTextUploader: 空实现
     """
 
-    def upload(self, client_text_id: int, content: str, title: str, source_key: str) -> int | None:
+    def upload(
+        self, client_text_id: int, content: str, title: str, source_key: str
+    ) -> int | None:
         """上传文本到服务器。
 
         Args:
