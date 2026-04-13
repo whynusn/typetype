@@ -163,6 +163,7 @@ def main():
     typing_adapter = TypingAdapter(
         typing_service=typing_service,
         score_gateway=score_gateway,
+        runtime_config=runtime_config,
         score_submitter=score_submitter,
         text_uploader=text_uploader,
     )

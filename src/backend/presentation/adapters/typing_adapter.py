@@ -20,6 +20,7 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtQuick import QQuickTextDocument
 
+from ...config.runtime_config import RuntimeConfig
 from ...application.gateways.score_gateway import ScoreGateway
 from ...domain.services.typing_service import TypingService
 from ...utils.logger import log_info, log_warning
@@ -46,6 +47,7 @@ class TypingAdapter(QObject):
         self,
         typing_service: TypingService,
         score_gateway: ScoreGateway,
+        runtime_config: RuntimeConfig,
         score_submitter: "ScoreSubmitter | None" = None,
         text_uploader: "TextUploader | None" = None,
         time_interval: float = 0.15,
@@ -53,6 +55,7 @@ class TypingAdapter(QObject):
         super().__init__()
         self._typing_service = typing_service
         self._score_gateway = score_gateway
+        self._runtime_config = runtime_config
         self._score_submitter = score_submitter
         self._text_uploader = text_uploader
         self.timeInterval = time_interval
@@ -140,12 +143,24 @@ class TypingAdapter(QObject):
     def _on_text_not_found(self, client_text_id: int, content: str, title: str) -> None:
         """文本不存在时自动上传。"""
         source_key = self._typing_service.text_source_key
-        if source_key == "custom" or not self._text_uploader or not content:
+        if not self._text_uploader or not content:
+            return
+        # 允许自动上传的情况：
+        # 1. source_key == "custom"（剪贴板自定义文本）
+        # 2. source_key 在配置中存在且有 local_path（配置的本地文件来源）
+        allow_upload = False
+        if source_key == "custom":
+            allow_upload = True
+        else:
+            source_entry = self._runtime_config.get_text_source(source_key)
+            if source_entry and source_entry.local_path:
+                allow_upload = True
+        if not allow_upload:
             return
         log_info(
-            f"[TypingAdapter] 检测到文本不存在，正在上传: client_text_id={client_text_id}, title={title}"
+            f"[TypingAdapter] 检测到文本不存在，正在上传: client_text_id={client_text_id}, title={title}, source_key={source_key}"
         )
-        real_text_id = self._text_uploader.upload(client_text_id, content, title)
+        real_text_id = self._text_uploader.upload(client_text_id, content, title, source_key)
         if real_text_id:
             # 注意：不更新 text_id，客户端始终保持 hash 值
             # 服务器已存储 client_text_id，下次提交可按此查找
@@ -210,6 +225,10 @@ class TypingAdapter(QObject):
     def setTextTitle(self, title: str) -> None:
         """设置当前文本标题（用于上传）。"""
         self._typing_service.set_text_title(title)
+
+    def setTextSource(self, source_key: str) -> None:
+        """设置当前文本来源key。"""
+        self._typing_service.set_text_source(source_key)
 
     def handleStartStatus(self, status: bool) -> None:
         if self._typing_service.state.is_started != status:

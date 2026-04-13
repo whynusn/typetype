@@ -231,6 +231,11 @@ class Bridge(QObject):
         self._typing_adapter.setTextTitle(title)
 
     @Slot(str)
+    def setTextSource(self, source_key: str) -> None:
+        """设置当前文本来源key。"""
+        self._typing_adapter.setTextSource(source_key)
+
+    @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
         self._text_adapter.requestLoadText(source_key)
 

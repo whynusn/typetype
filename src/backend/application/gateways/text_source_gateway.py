@@ -13,6 +13,7 @@
 from typing import TYPE_CHECKING
 
 from ...models.dto.fetched_text import FetchedText
+from ...utils.text_id import text_id_from_content
 from ...config.runtime_config import RuntimeConfig
 from ...ports.local_text_loader import LocalTextLoader
 from ...ports.text_provider import TextProvider
@@ -69,8 +70,6 @@ class TextSourceGateway:
         text = self._local_text_loader.load_text(path)
         if text is None:
             return False, None, "无法读取本地文件"
-        from ...utils.text_id import text_id_from_content
-
         text_id = text_id_from_content(label, text) if label else 0
         return True, FetchedText(content=text, text_id=text_id), ""
 
@@ -81,4 +80,13 @@ class TextSourceGateway:
         fetched = self._text_provider.fetch_text_by_key(source_key)
         if fetched is None:
             return False, None, f"无法获取网络文本({source_key})"
+
+        # 对于网络文本，始终计算 client_text_id (hash) 基于 source_key + content
+        # 这样无论文本是否已存在于服务器，我们都能用正确的 hash 提交成绩
+        client_text_id = text_id_from_content(source_key, fetched.content)
+
+        # 将计算出的 hash 覆盖到 fetched.text_id，客户端将此用作 client_text_id
+        # 服务器主键不用于客户端提交，只在服务器端内部使用
+        fetched.text_id = client_text_id
+
         return True, fetched, ""

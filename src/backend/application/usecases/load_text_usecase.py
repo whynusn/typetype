@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from ...utils.text_id import text_id_from_content
 from ..gateways.text_source_gateway import TextSourceGateway
 from ...config.text_source_config import TextSourceEntry
 from ...ports.clipboard import ClipboardReader
@@ -65,11 +66,15 @@ class LoadTextUseCase:
         )
         if not success or fetched is None:
             return LoadTextResult(success=False, text="", error_message=error_message)
+
+        # 如果远程加载返回了具体标题，使用具体标题；否则使用来源标签
+        result_title = fetched.title if fetched.title else plan.source_entry.label
+
         return LoadTextResult(
             success=True,
             text=fetched.content,
             text_id=fetched.text_id,
-            source_label=plan.source_entry.label,
+            source_label=result_title,
         )
 
     def load_from_clipboard(self) -> LoadTextResult:
@@ -79,8 +84,11 @@ class LoadTextUseCase:
             return LoadTextResult(
                 success=False, text="", error_message="当前剪贴板无文本内容"
             )
+        # 预先计算 clientTextId，避免后续上传时为 0 导致冲突
+        client_text_id = text_id_from_content("custom", text)
         return LoadTextResult(
             success=True,
             text=text,
+            text_id=client_text_id,
             source_label="剪贴板",
         )

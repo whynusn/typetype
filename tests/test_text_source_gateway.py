@@ -73,6 +73,7 @@ def test_load_from_plan_uses_local_loader_for_local_source():
 
 def test_load_from_plan_uses_text_provider_for_remote_source():
     from src.backend.models.dto.fetched_text import FetchedText
+    from src.backend.utils.text_id import text_id_from_content
 
     gateway, runtime_config, text_provider, local_text_loader = _build_gateway(
         TextSourceEntry(key="remote", label="Remote")
@@ -87,7 +88,11 @@ def test_load_from_plan_uses_text_provider_for_remote_source():
     assert success is True
     assert fetched is not None
     assert fetched.content == "remote text"
-    assert fetched.text_id == 789
+    # 修复后，网络文本使用 source_key + content 计算 hash 作为 client_text_id
+    # 不再保留原来的服务器主键 789
+    expected_client_text_id = text_id_from_content("remote", "remote text")
+    assert fetched.text_id == expected_client_text_id
+    assert fetched.text_id != 789  # 验证确实被覆盖了
     assert error == ""
     # No repeated lookup for source entry since it's already in the plan
     runtime_config.get_text_source.assert_not_called()

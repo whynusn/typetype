@@ -62,6 +62,7 @@ class TestBridgeSpecialPlatform:
         typing_adapter = TypingAdapter(
             typing_service=typing_service,
             score_gateway=score_gateway,
+            runtime_config=runtime_config,
         )
         local_text_loader = MagicMock()
         text_adapter = TextAdapter(

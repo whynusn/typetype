@@ -9,6 +9,7 @@ Pane {
 
     property var textSourceOptions: []
     property string defaultTextSourceKey: ""
+    readonly property string currentSourceKey: sourceSelector.currentValue
 
     signal requestLoadText(string sourceKey)
     signal requestLoadTextFromClipboard // 定义从剪贴板载文信号

@@ -8,6 +8,8 @@ import "../components"
 Item {
     id: typingPage
     property bool loggedin: false  // Will be injected by NavigationView
+    property bool isClipboardLoad: false  // 标记下一次加载是否来自剪贴板
+    property string pendingSourceKey: ""  // 用户点击载文时的 sourceKey，用于 onTextLoaded 回调
 
     //=====================================
     // 函数
@@ -99,6 +101,15 @@ Item {
                     appBridge.setTextTitle(sourceLabel);
                 }
             }
+            // 必须设置正确的 source_key，否则上传会出错
+            if (isClipboardLoad) {
+                // 剪贴板载文 → 使用 custom 来源
+                appBridge.setTextSource("custom");
+                isClipboardLoad = false;
+            } else if (pendingSourceKey) {
+                // 使用用户点击载文时的 sourceKey（比读 ComboBox 更可靠）
+                appBridge.setTextSource(pendingSourceKey);
+            }
         }
 
         function onTextLoadFailed(message) {
@@ -121,10 +132,13 @@ Item {
         enabled: typingPage.StackView.status === StackView.Active
 
         function onRequestLoadText(sourceKey) {
+            pendingSourceKey = sourceKey;
             appBridge.requestLoadText(sourceKey);
         }
 
         function onRequestLoadTextFromClipboard() {
+            // 标记下一次加载是剪贴板自定义文本，使用 custom source_key
+            isClipboardLoad = true;
             appBridge.loadTextFromClipboard();
         }
 
