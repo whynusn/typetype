@@ -101,9 +101,7 @@ class AuthAdapter(QObject):
 
         remaining = self._auth_service.token_remaining_seconds
         if remaining <= self.REFRESH_AHEAD_SECONDS:
-            log_info(
-                f"[AuthAdapter] 后台恢复检查：剩余 {remaining}s，立即刷新"
-            )
+            log_info(f"[AuthAdapter] 后台恢复检查：剩余 {remaining}s，立即刷新")
             self._refresh_timer.stop()
             self._on_refresh_timer()
         elif not self._refresh_timer.isActive():
