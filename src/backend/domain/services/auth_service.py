@@ -1,3 +1,5 @@
+import time
+
 import keyring
 
 from ...ports.auth_provider import AuthProvider
@@ -8,11 +10,15 @@ from ...utils.logger import log_warning
 class AuthService:
     """认证服务，纯业务逻辑，无 Qt 依赖。"""
 
+    REFRESH_AHEAD_SECONDS = 120
+
     def __init__(self, auth_provider: AuthProvider):
         self._auth_provider = auth_provider
         self._current_user_id = ""
         self._current_username = ""
         self._current_nickname = ""
+        self._expires_in: int = 0
+        self._token_issued_at: float = 0.0
 
     @property
     def is_logged_in(self) -> bool:
@@ -30,6 +36,21 @@ class AuthService:
     def current_nickname(self) -> str:
         return self._current_nickname
 
+    @property
+    def refresh_interval_seconds(self) -> int:
+        """计算刷新间隔（毫秒返回秒），至少 60 秒。"""
+        if self._expires_in <= 0:
+            return 0
+        return max(self._expires_in - self.REFRESH_AHEAD_SECONDS, 60)
+
+    @property
+    def token_remaining_seconds(self) -> int:
+        """计算 token 剩余有效秒数。"""
+        if self._expires_in <= 0 or self._token_issued_at <= 0:
+            return 0
+        elapsed = time.monotonic() - self._token_issued_at
+        return max(int(self._expires_in - elapsed), 0)
+
     def login(self, username: str, password: str) -> tuple[bool, str, dict]:
         result = self._auth_provider.login(username, password)
         if not result.success:
@@ -37,6 +58,9 @@ class AuthService:
 
         SecureStorage.save_jwt("current_user", result.access_token)
         SecureStorage.save_jwt("current_user_refresh", result.refresh_token)
+
+        self._expires_in = result.expires_in
+        self._token_issued_at = time.monotonic()
 
         user_info = result.user_info
         self._current_user_id = str(user_info.get("id", ""))
@@ -60,6 +84,8 @@ class AuthService:
         self._current_user_id = ""
         self._current_username = ""
         self._current_nickname = ""
+        self._expires_in = 0
+        self._token_issued_at = 0.0
 
     def refresh_token(self) -> tuple[bool, dict]:
         refresh_token = SecureStorage.get_jwt("current_user_refresh")
@@ -73,6 +99,9 @@ class AuthService:
         SecureStorage.save_jwt("current_user", result.access_token)
         if result.refresh_token:
             SecureStorage.save_jwt("current_user_refresh", result.refresh_token)
+
+        self._expires_in = result.expires_in
+        self._token_issued_at = time.monotonic()
 
         user_info = result.user_info
         self._current_user_id = str(user_info.get("id", ""))

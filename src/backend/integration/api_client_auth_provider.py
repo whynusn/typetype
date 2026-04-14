@@ -60,6 +60,7 @@ class ApiClientAuthProvider:
             success=True,
             access_token=payload.get("accessToken", ""),
             refresh_token=payload.get("refreshToken", ""),
+            expires_in=payload.get("expiresIn", 0),
             user_info=payload.get("user", {}),
         )
 

@@ -51,6 +51,7 @@ class Bridge(QObject):
     leaderboardLoadFailed = Signal(str)
     leaderboardLoadingChanged = Signal()
     uploadResult = Signal(bool, str)
+    tokenExpired = Signal()
 
     def __init__(
         self,
@@ -105,6 +106,7 @@ class Bridge(QObject):
         self._auth_adapter.loggedinChanged.connect(self.loggedinChanged.emit)
         self._auth_adapter.userInfoChanged.connect(self.userInfoChanged.emit)
         self._auth_adapter.loginResult.connect(self.loginResult.emit)
+        self._auth_adapter.tokenExpired.connect(self.tokenExpired.emit)
 
     def _connect_char_stats_signals(self) -> None:
         self._char_stats_adapter.weakestCharsLoaded.connect(
@@ -292,6 +294,11 @@ class Bridge(QObject):
 
     def initializeLoginState(self) -> None:
         self._auth_adapter.initialize_login_state()
+
+    @Slot()
+    def checkTokenStatus(self) -> None:
+        """应用从后台恢复时检查 token 状态。"""
+        self._auth_adapter.check_token_status()
 
     @Slot()
     def loadWeakChars(self) -> None:
