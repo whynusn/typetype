@@ -55,7 +55,7 @@ class Bridge(QObject):
     textListLoaded = Signal(list)
     textListLoadFailed = Signal(str)
     textListLoadingChanged = Signal()
-    uploadResult = Signal(bool, str)
+    uploadResult = Signal(bool, str, int)  # (success, message, server_text_id)
     tokenExpired = Signal()
 
     def __init__(
@@ -279,7 +279,7 @@ class Bridge(QObject):
     ) -> None:
         """上传文本，支持同时上传到本地和云端。"""
         if not self._upload_text_adapter:
-            self.uploadResult.emit(False, "上传功能未初始化")
+            self.uploadResult.emit(False, "上传功能未初始化", 0)
             return
         self._upload_text_adapter.upload(title, content, sourceKey, toLocal, toCloud)
 

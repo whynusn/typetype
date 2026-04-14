@@ -61,12 +61,8 @@ Pane {
             }
 
             // 把底层的 textDocument（QQuickTextDocument）传给 Python 的 appBridge
-            Component.onCompleted: {
-                // 载入初始文本
-                if (appBridge) {
-                    appBridge.handleLoadedText(textArea.textDocument);
-                }
-            }
+            // 注意：不在这里调 handleLoadedText，等文本加载完成后再由 applyLoadedText 调用
+            // 避免用户在 text_id 尚未设置时就开始打字
 
             function setCursorAndScroll(cursorPos) {
                 if (cursorPos < 0 || cursorPos > textArea.length) {

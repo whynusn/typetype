@@ -41,7 +41,7 @@ class UploadTextAdapter(QObject):
     - 信号通知上传结果
     """
 
-    uploadFinished = Signal(bool, str)
+    uploadFinished = Signal(bool, str, int)  # (success, message, server_text_id)
 
     def __init__(
         self,
@@ -60,6 +60,7 @@ class UploadTextAdapter(QObject):
         """上传文本到指定目标，支持同时上传本地和云端。"""
         results: list[str] = []
         errors: list[str] = []
+        server_text_id: int = 0
 
         if to_local:
             try:
@@ -70,15 +71,19 @@ class UploadTextAdapter(QObject):
 
         if to_cloud:
             try:
-                self._do_upload_cloud(title, content, source_key)
+                rid = self._do_upload_cloud(title, content, source_key)
                 results.append("云端")
+                if rid is not None:
+                    server_text_id = rid
             except Exception as e:
                 errors.append(f"云端: {e}")
 
         if errors:
-            self.uploadFinished.emit(False, "；".join(errors))
+            self.uploadFinished.emit(False, "；".join(errors), server_text_id)
         else:
-            self.uploadFinished.emit(True, f"已上传到{'/'.join(results)}")
+            self.uploadFinished.emit(
+                True, f"已上传到{'/'.join(results)}", server_text_id
+            )
 
     def _do_upload_local(self, title: str, content: str, source_key: str) -> None:
         """写文件到本地并更新 config.json 的 text_sources 配置。"""
@@ -93,12 +98,13 @@ class UploadTextAdapter(QObject):
         self._update_config(source_key, title, filename)
         log_info(f"[UploadTextAdapter] 本地保存成功: {file_path}")
 
-    def _do_upload_cloud(self, title: str, content: str, source_key: str) -> None:
-        """调用 TextUploader 上传到云端。"""
+    def _do_upload_cloud(self, title: str, content: str, source_key: str) -> int | None:
+        """调用 TextUploader 上传到云端，返回服务端文本 ID。"""
         result_id = self._text_uploader.upload(content, title, source_key)
         if result_id is None:
             raise RuntimeError("服务器未返回有效ID")
         log_info(f"[UploadTextAdapter] 云端上传成功: id={result_id}")
+        return result_id
 
     @Slot(str, str, str)
     def upload_to_local(self, title: str, content: str, source_key: str) -> None:
