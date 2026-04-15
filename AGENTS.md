@@ -67,20 +67,68 @@ src/backend/
 ├── application/
 │   ├── exception_handler.py  # 全局异常处理（网络异常 → 用户友好消息）
 │   ├── gateways/      # Port 适配（TextSourceGateway, ScoreGateway）
+│   │   ├── score_gateway.py
+│   │   ├── text_source_gateway.py
+│   │   └── leaderboard_gateway.py   # 排行榜数据获取网关（Port 适配）
 │   └── usecases/      # 业务编排：LoadTextUseCase（仅此一个有编排价值的）
+│       └── load_text_usecase.py
 ├── ports/             # 协议定义（独立顶层）：TextProvider, LocalTextLoader 等
+│   ├── auth_provider.py
+│   ├── char_stats_repository.py
+│   ├── clipboard.py
+│   ├── local_text_loader.py
+│   ├── score_submitter.py
+│   ├── text_provider.py
+│   ├── text_uploader.py
+│   ├── async_executor.py
+│   ├── leaderboard_provider.py
+│   └── ranking_repository.py
 ├── config/            # 运行时 JSON 配置文件
+│   ├── runtime_config.py
+│   └── text_source_config.py
 ├── domain/
 │   └── services/      # 纯业务逻辑（TypingService, AuthService, CharStatsService）
+│       ├── auth_service.py
+│       ├── char_stats_service.py
+│       └── typing_service.py
 ├── infrastructure/    # ApiClient 与网络异常模型
+│   ├── api_client.py
+│   └── network_errors.py
 ├── integration/       # 内外集成（RemoteTextProvider, SqliteCharStatsRepository）
-├── models/            # 领域模型（SessionStat, CharStat, DTO）
+│   ├── api_client_auth_provider.py
+│   ├── api_client_score_submitter.py
+│   ├── global_key_listener.py
+│   ├── noop_char_stats_repository.py
+│   ├── qt_async_executor.py
+│   ├── qt_local_text_loader.py
+│   ├── remote_text_provider.py
+│   ├── sqlite_char_stats_repository.py
+│   ├── system_identifier.py
+│   ├── text_uploader.py
+│   └── leaderboard_fetcher.py    # LeaderboardProvider 实现
+├── models/
+│   ├── dto/
+│   │   └── text_catalog_item.py
+│   └── entity/        # 领域模型（SessionStat, CharStat）
 ├── presentation/
 │   ├── adapters/      # Qt 适配层（TypingAdapter, TextAdapter）
+│   │   ├── typing_adapter.py
+│   │   ├── text_adapter.py
+│   │   ├── auth_adapter.py
+│   │   ├── char_stats_adapter.py
+│   │   ├── leaderboard_adapter.py
+│   │   └── upload_text_adapter.py
 │   └── bridge.py      # Bridge（appBridge）
 ├── security/          # 加密与安全存储
 ├── utils/             # 工具类（Logger）
-└── workers/           # 后台任务（BaseWorker, TextLoadWorker, SessionStatWorker）
+│   └── text_id.py
+└── workers/           # 后台任务（BaseWorker, TextLoadWorker, SessionStatWorker)
+    ├── base_worker.py
+    ├── text_load_worker.py
+    ├── session_stat_worker.py
+    ├── leaderboard_worker.py
+    ├── text_list_worker.py
+    └── weak_chars_query_worker.py
 ```
 
 RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
@@ -148,10 +196,16 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，不修改）
 | | GlobalExceptionHandler | 网络异常 → 用户友好消息集中映射 |
 | **Gateways** | TextSourceGateway | Port 适配 + 配置查询 |
 | | ScoreGateway | DTO 转换 + 剪贴板操作 |
+| | LeaderboardGateway | 排行榜 Port 适配 + 数据代理 |
 | **Workers** | BaseWorker | 统一捕获后台任务异常，调用 GlobalExceptionHandler |
+| | LeaderboardWorker | 排行榜后台加载 |
+| | TextListWorker | 文本列表后台加载 |
+| | WeakCharsQueryWorker | 弱字符后台查询 |
 | **Presentation** | Bridge | QML 通信适配层：属性代理、信号转发、Slot 入口 |
 | | TypingAdapter | Qt 适配（计时器、文本着色、信号发射） |
 | | TextAdapter | Qt 适配（异步 Worker、信号发射） |
+| | LeaderboardAdapter | 排行榜 Qt 适配（异步 Worker、信号管理） |
+| | UploadTextAdapter | 文本上传 Qt 适配（本地写入 + 云端上传） |
 
 ### 架构约束（防止职责混乱）
 
@@ -264,9 +318,10 @@ bridge = Bridge(
 
 ### 推荐接口（v1）
 
-- `GET /api/v1/texts/random?sourceKey={key}`
-- `GET /api/v1/text-sources`
-- `POST /api/v1/scores`
+- `GET /api/v1/texts/latest/{sourceKey}` — 获取指定来源的最新文本
+- `GET /api/v1/texts/catalog` — 获取所有可用文本来源
+- `POST /api/v1/scores` — 提交成绩（只发 textId，不发 sourceKey/content）
+- `GET /api/v1/texts/{textId}/leaderboard` — 获取文本排行榜
 
 ### 客户端实现建议
 

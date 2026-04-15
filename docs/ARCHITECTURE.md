@@ -1,6 +1,6 @@
 # TypeType 架构设计手册
 
-> 最后更新：2026-04-11
+> 最后更新：2026-04-15
 >
 > 本文档描述 **当前客户端实现**。若其他文档与其冲突，以当前源码和本文为准。
 
@@ -42,7 +42,7 @@ TypeType 是一个 **PySide6 + QML 桌面打字练习应用**：
 
 ## 当前实现快照
 
-截至 2026-04-11，当前代码里的稳定事实包括：
+截至 2026-04-15，当前代码里的稳定事实包括：
 
 - 启动入口：`main.py`
 - QML 根页面：`src/qml/Main.qml`
@@ -73,12 +73,13 @@ QML UI
 |----|----------|------|
 | QML | `src/qml/` | 页面、交互、布局、局部 UI 状态 |
 | Presentation | `Bridge` | QML 门面：属性代理、信号转发、Slot 入口 |
-| Presentation | `TypingAdapter` / `TextAdapter` / `AuthAdapter` / `CharStatsAdapter` | Qt 适配、线程协调、错误回传 |
+| Presentation | `TypingAdapter` / `TextAdapter` / `AuthAdapter` / `CharStatsAdapter` / `LeaderboardAdapter` / `UploadTextAdapter` | Qt 适配、线程协调、错误回传 |
 | Application | `LoadTextUseCase` | 文本加载编排入口 |
-| Application | `TextSourceGateway` / `ScoreGateway` / `GlobalExceptionHandler` | 来源路由、DTO/剪贴板、异常消息映射 |
+| Application | `TextSourceGateway` / `ScoreGateway` / `LeaderboardGateway` / `GlobalExceptionHandler` | 来源路由、DTO/剪贴板、异常消息映射 |
+| Workers | `BaseWorker` / `TextLoadWorker` / `SessionStatWorker` / `LeaderboardWorker` / `TextListWorker` / `WeakCharsQueryWorker` | 后台任务执行、异常统一处理 |
 | Domain | `TypingService` / `CharStatsService` / `AuthService` | 纯业务逻辑、状态管理、统计计算 |
-| Ports | `TextProvider` / `LocalTextLoader` / `Clipboard*` / `AuthProvider` / `CharStatsRepository` / `TextUploader` / `ScoreSubmitter` | 抽象协议 |
-| Integration | `RemoteTextProvider` / `QtLocalTextLoader` / `ApiClientAuthProvider` / `SqliteCharStatsRepository` 等 | Port 实现 |
+| Ports | `TextProvider` / `LocalTextLoader` / `Clipboard*` / `AuthProvider` / `CharStatsRepository` / `TextUploader` / `ScoreSubmitter` / `LeaderboardProvider` / `AsyncExecutor` | 抽象协议 |
+| Integration | `RemoteTextProvider` / `QtLocalTextLoader` / `ApiClientAuthProvider` / `SqliteCharStatsRepository` / `LeaderboardFetcher` 等 | Port 实现 |
 | Infrastructure | `ApiClient` / `network_errors.py` | 通用 HTTP 客户端、网络异常分类 |
 
 ---
@@ -93,7 +94,8 @@ src/backend/
 │   ├── exception_handler.py
 │   ├── gateways/
 │   │   ├── score_gateway.py
-│   │   └── text_source_gateway.py
+│   │   ├── text_source_gateway.py
+│   │   └── leaderboard_gateway.py
 │   └── usecases/
 │       └── load_text_usecase.py
 ├── config/
@@ -116,9 +118,11 @@ src/backend/
 │   ├── remote_text_provider.py
 │   ├── sqlite_char_stats_repository.py
 │   ├── system_identifier.py
-│   └── text_uploader.py
+│   ├── text_uploader.py
+│   └── leaderboard_fetcher.py
 ├── models/
 │   ├── dto/
+│   │   └── text_catalog_item.py
 │   └── entity/
 ├── ports/
 │   ├── auth_provider.py
@@ -127,13 +131,29 @@ src/backend/
 │   ├── local_text_loader.py
 │   ├── score_submitter.py
 │   ├── text_provider.py
-│   └── text_uploader.py
+│   ├── text_uploader.py
+│   ├── async_executor.py
+│   ├── leaderboard_provider.py
+│   └── ranking_repository.py
 ├── presentation/
 │   ├── bridge.py
 │   └── adapters/
+│       ├── typing_adapter.py
+│       ├── text_adapter.py
+│       ├── auth_adapter.py
+│       ├── char_stats_adapter.py
+│       ├── leaderboard_adapter.py
+│       └── upload_text_adapter.py
 ├── security/
 ├── utils/
+│   └── text_id.py
 └── workers/
+    ├── base_worker.py
+    ├── text_load_worker.py
+    ├── session_stat_worker.py
+    ├── leaderboard_worker.py
+    ├── text_list_worker.py
+    └── weak_chars_query_worker.py
 ```
 
 ### QML 侧
@@ -148,14 +168,17 @@ src/qml/
 │   ├── WeeklyLeaderboard.qml
 │   ├── AllTimeLeaderboard.qml
 │   ├── ProfilePage.qml
-│   └── SettingsPage.qml
+│   ├── SettingsPage.qml
+│   ├── TextLeaderboardPage.qml
+│   └── UploadTextPage.qml
 ├── typing/
 │   ├── ToolLine.qml
 │   ├── UpperPane.qml
 │   ├── ScoreArea.qml
 │   ├── LowerPane.qml
 │   ├── HistoryArea.qml
-│   └── EndDialog.qml
+│   ├── EndDialog.qml
+│   └── LeaderboardPanel.qml
 └── components/
     └── AppText.qml
 ```
@@ -420,6 +443,7 @@ Domain 可以依赖 **抽象协议（Port）**，不能依赖 **具体 Qt / HTTP
 
 | 日期 | 变更 |
 |------|------|
+| 2026-04-15 | 补全文档遗漏：新增 LeaderboardProvider/AsyncExecutor 端口、LeaderboardGateway/Adapter/Worker、TextListWorker、WeakCharsQueryWorker、UploadTextAdapter、text_id 工具等 |
 | 2026-04-11 | 新增 TextUploader Port、text_id 生成逻辑、无感上传链路；移除配置中 text_id 字段 |
 | 2026-04-06 | 基于当前源码重写：补充对象装配、QML 页面结构、真实数据流与边界判断 |
 | 2026-04-03 | 重写文本加载闭口后的边界规则 |
