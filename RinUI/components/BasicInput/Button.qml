@@ -25,7 +25,6 @@ Button {
     icon.width: font.pixelSize * 1.3
     icon.height: font.pixelSize * 1.3
 
-    font: text.font
 
     // accessibility
     FocusIndicator {
