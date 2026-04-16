@@ -44,6 +44,8 @@ class Bridge(QObject):
     loggedinChanged = Signal()
     userInfoChanged = Signal()
     loginResult = Signal(bool, str)
+    registerResult = Signal(bool, str)
+    loginStateInitialized = Signal(bool)
     cursorPosChanged = Signal(int)
     specialPlatformConfirmed = Signal(bool)
     weakestCharsLoaded = Signal(list)
@@ -113,7 +115,11 @@ class Bridge(QObject):
         self._auth_adapter.loggedinChanged.connect(self.loggedinChanged.emit)
         self._auth_adapter.userInfoChanged.connect(self.userInfoChanged.emit)
         self._auth_adapter.loginResult.connect(self.loginResult.emit)
+        self._auth_adapter.registerResult.connect(self.registerResult.emit)
         self._auth_adapter.tokenExpired.connect(self.tokenExpired.emit)
+        self._auth_adapter.loginStateInitialized.connect(
+            self.loginStateInitialized.emit
+        )
 
     def _connect_char_stats_signals(self) -> None:
         self._char_stats_adapter.weakestCharsLoaded.connect(
@@ -180,6 +186,10 @@ class Bridge(QObject):
     @Property(list, constant=True)
     def rankingSourceOptions(self) -> list:
         return self._text_adapter.get_ranking_source_options()
+
+    @Property(list, constant=True)
+    def uploadTextSourceOptions(self) -> list:
+        return self._text_adapter.get_upload_source_options()
 
     @Property(float, notify=totalTimeChanged)
     def totalTime(self) -> float:
@@ -323,6 +333,10 @@ class Bridge(QObject):
     @Slot(str, str)
     def login(self, username: str, password: str) -> None:
         self._auth_adapter.login(username, password)
+
+    @Slot(str, str, str)
+    def register(self, username: str, password: str, nickname: str = "") -> None:
+        self._auth_adapter.register(username, password, nickname)
 
     @Slot()
     def logout(self) -> None:

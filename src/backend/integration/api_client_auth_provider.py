@@ -13,11 +13,13 @@ class ApiClientAuthProvider:
         login_url: str,
         validate_url: str,
         refresh_url: str,
+        register_url: str = "",
     ):
         self._api_client = api_client
         self._login_url = login_url
         self._validate_url = validate_url
         self._refresh_url = refresh_url
+        self._register_url = register_url
 
     def login(self, username: str, password: str) -> AuthResult:
         data = self._api_client.request(
@@ -26,6 +28,21 @@ class ApiClientAuthProvider:
             json={"username": username, "password": password},
         )
         return self._parse_auth_response(data)
+
+    def register(self, username: str, password: str, nickname: str = "") -> AuthResult:
+        payload: dict[str, Any] = {
+            "username": username,
+            "password": password,
+            "confirmPassword": password,
+        }
+        if nickname:
+            payload["nickname"] = nickname
+        data = self._api_client.request(
+            "POST",
+            self._register_url,
+            json=payload,
+        )
+        return self._parse_register_response(data)
 
     def validate_token(self, token: str) -> AuthResult:
         data = self._api_client.request(
@@ -70,6 +87,23 @@ class ApiClientAuthProvider:
             return AuthResult(success=False)
         if data.get("code") != 200:
             return AuthResult(success=False)
+        return AuthResult(
+            success=True,
+            user_info=data.get("data", {}),
+        )
+
+    def _parse_register_response(self, data: dict[str, Any] | None) -> AuthResult:
+        """解析注册响应（不含 token）。"""
+        if data is None:
+            return AuthResult(
+                success=False,
+                error_message=str(self._api_client.last_error or "网络请求失败"),
+            )
+        if data.get("code") != 200:
+            return AuthResult(
+                success=False,
+                error_message=data.get("message", "注册失败"),
+            )
         return AuthResult(
             success=True,
             user_info=data.get("data", {}),

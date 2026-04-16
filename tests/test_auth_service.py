@@ -137,3 +137,64 @@ class TestAuthLogoutReset:
             svc.logout()
         assert svc.refresh_interval_seconds == 0
         assert svc.token_remaining_seconds == 0
+
+
+class TestAuthServiceRegister:
+    def test_register_success_auto_login(self):
+        provider = _make_provider(
+            login_result=AuthResult(
+                success=True,
+                access_token="a",
+                refresh_token="r",
+                expires_in=900,
+                user_info={"id": "1", "nickname": "newuser"},
+            )
+        )
+        provider.register.return_value = AuthResult(
+            success=True,
+            user_info={"id": "1", "nickname": "newuser"},
+        )
+        svc = AuthService(auth_provider=provider)
+        success, message, user_info = svc.register("newuser", "password123", "newuser")
+        assert success is True
+        assert message == "登录成功"
+        assert user_info["id"] == "1"
+        assert svc.is_logged_in
+        assert svc.current_username == "newuser"
+        provider.register.assert_called_once_with("newuser", "password123", "newuser")
+        provider.login.assert_called_once_with("newuser", "password123")
+
+    def test_register_failed_provider_error(self):
+        provider = _make_provider()
+        provider.register.return_value = AuthResult(
+            success=False,
+            error_message="用户名已存在",
+        )
+        svc = AuthService(auth_provider=provider)
+        success, message, user_info = svc.register("existing", "password123")
+        assert success is False
+        assert message == "用户名已存在"
+        assert user_info == {}
+        assert not svc.is_logged_in
+        provider.login.assert_not_called()
+
+    def test_register_propagates_login_correctly(self):
+        provider = _make_provider(
+            login_result=AuthResult(
+                success=True,
+                access_token="tok",
+                refresh_token="ref",
+                expires_in=600,
+                user_info={"id": "42", "nickname": "nick"},
+            )
+        )
+        provider.register.return_value = AuthResult(
+            success=True,
+            user_info={"id": "42", "nickname": "nick"},
+        )
+        svc = AuthService(auth_provider=provider)
+        success, _, _ = svc.register("user", "pass123", "nick")
+        assert success is True
+        assert svc.current_user_id == "42"
+        assert svc.current_nickname == "nick"
+        assert svc.refresh_interval_seconds == 480  # 600 - 120

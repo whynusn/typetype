@@ -17,6 +17,7 @@ class RuntimeConfig:
     login_api_url: str = ""
     validate_api_url: str = ""
     refresh_api_url: str = ""
+    register_api_url: str = ""
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     catalog_items: list[TextCatalogItem] = field(default_factory=list)
@@ -88,6 +89,8 @@ class RuntimeConfig:
             self.validate_api_url = f"{self.base_url}/api/v1/users/me"
         if not self.refresh_api_url:
             self.refresh_api_url = f"{self.base_url}/api/v1/auth/refresh"
+        if not self.register_api_url:
+            self.register_api_url = f"{self.base_url}/api/v1/auth/register"
 
     @property
     def default_text_source_key(self) -> str:

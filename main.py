@@ -142,6 +142,7 @@ def main():
         login_url=runtime_config.login_api_url,
         validate_url=runtime_config.validate_api_url,
         refresh_url=runtime_config.refresh_api_url,
+        register_url=runtime_config.register_api_url,
     )
     auth_service = AuthService(auth_provider=auth_provider)
 

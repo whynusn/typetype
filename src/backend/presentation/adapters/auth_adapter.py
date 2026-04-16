@@ -1,15 +1,18 @@
-from PySide6.QtCore import QObject, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, QThreadPool, Signal, Slot
 
 from ...domain.services.auth_service import AuthService
 from ...utils.logger import log_info, log_warning
+from ...workers.base_worker import BaseWorker
 
 
 class AuthAdapter(QObject):
     loggedinChanged = Signal()
     userInfoChanged = Signal()
     loginResult = Signal(bool, str)
+    registerResult = Signal(bool, str)
     tokenExpired = Signal()
     tokenRefreshed = Signal()
+    loginStateInitialized = Signal(bool)
 
     RETRY_INTERVAL_MS = 60000
     MAX_RETRY = 10
@@ -37,12 +40,39 @@ class AuthAdapter(QObject):
 
     @Slot(str, str)
     def login(self, username: str, password: str) -> None:
-        success, message, _ = self._auth_service.login(username, password)
+        worker = BaseWorker(
+            lambda: self._auth_service.login(username, password),
+            error_prefix="登录失败",
+        )
+        worker.signals.succeeded.connect(self._on_login_result)
+        worker.signals.failed.connect(lambda msg: self.loginResult.emit(False, msg))
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_login_result(self, result: tuple[bool, str, dict]) -> None:
+        success, message, _ = result
         if success:
             self.loggedinChanged.emit()
             self.userInfoChanged.emit()
             self._start_refresh_timer()
         self.loginResult.emit(success, message)
+
+    @Slot(str, str, str)
+    def register(self, username: str, password: str, nickname: str = "") -> None:
+        worker = BaseWorker(
+            lambda: self._auth_service.register(username, password, nickname),
+            error_prefix="注册失败",
+        )
+        worker.signals.succeeded.connect(self._on_register_result)
+        worker.signals.failed.connect(lambda msg: self.registerResult.emit(False, msg))
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_register_result(self, result: tuple[bool, str, dict]) -> None:
+        success, message, _ = result
+        if success:
+            self.loggedinChanged.emit()
+            self.userInfoChanged.emit()
+            self._start_refresh_timer()
+        self.registerResult.emit(success, message)
 
     @Slot()
     def logout(self) -> None:
@@ -53,8 +83,19 @@ class AuthAdapter(QObject):
         self.userInfoChanged.emit()
 
     def initialize_login_state(self) -> None:
-        self._auth_service.initialize()
-        if self._auth_service.is_logged_in:
+        worker = BaseWorker(
+            self._auth_service.initialize,
+            error_prefix="登录状态初始化失败",
+        )
+        worker.signals.succeeded.connect(self._on_initialize_result)
+        worker.signals.failed.connect(
+            lambda msg: self.loginStateInitialized.emit(False)
+        )
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_initialize_result(self, is_logged_in: bool) -> None:
+        self.loginStateInitialized.emit(is_logged_in)
+        if is_logged_in:
             self.loggedinChanged.emit()
             self.userInfoChanged.emit()
             self._start_refresh_timer()
@@ -73,7 +114,16 @@ class AuthAdapter(QObject):
         if not self._auth_service.is_logged_in:
             return
 
-        success, _ = self._auth_service.refresh_token()
+        worker = BaseWorker(
+            self._auth_service.refresh_token,
+            error_prefix="Token 刷新失败",
+        )
+        worker.signals.succeeded.connect(self._on_refresh_result)
+        worker.signals.failed.connect(self._on_refresh_failed)
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_refresh_result(self, result: tuple[bool, dict]) -> None:
+        success, _ = result
         if success:
             log_info("[AuthAdapter] Token 定时刷新成功")
             self._retry_count = 0
@@ -82,16 +132,19 @@ class AuthAdapter(QObject):
             self.tokenRefreshed.emit()
             self._start_refresh_timer()
         else:
-            self._retry_count += 1
-            if self._retry_count <= self.MAX_RETRY:
-                log_warning(
-                    f"[AuthAdapter] Token 刷新失败，{self._retry_count}/{self.MAX_RETRY}，"
-                    f"{self.RETRY_INTERVAL_MS // 1000}s 后重试"
-                )
-                self._refresh_timer.start(self.RETRY_INTERVAL_MS)
-            else:
-                log_warning("[AuthAdapter] Token 刷新重试已达上限，停止重试")
-                self.tokenExpired.emit()
+            self._on_refresh_failed("refresh_token returned False")
+
+    def _on_refresh_failed(self, _msg: str = "") -> None:
+        self._retry_count += 1
+        if self._retry_count <= self.MAX_RETRY:
+            log_warning(
+                f"[AuthAdapter] Token 刷新失败，{self._retry_count}/{self.MAX_RETRY}，"
+                f"{self.RETRY_INTERVAL_MS // 1000}s 后重试"
+            )
+            self._refresh_timer.start(self.RETRY_INTERVAL_MS)
+        else:
+            log_warning("[AuthAdapter] Token 刷新重试已达上限，停止重试")
+            self.tokenExpired.emit()
 
     @Slot()
     def check_token_status(self) -> None:

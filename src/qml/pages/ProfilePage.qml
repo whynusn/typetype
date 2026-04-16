@@ -72,6 +72,17 @@ FluentPage {
         }
     }
 
+    // 注册按钮（未登录时显示）
+    Button {
+        id: registerButton
+        Layout.alignment: Qt.AlignCenter
+        text: qsTr("注册")
+        visible: appBridge ? !appBridge.loggedin : true
+        onClicked: {
+            registerDialog.open();
+        }
+    }
+
     Dialog {
         id: loginDialog
         title: qsTr("登录")
@@ -146,6 +157,99 @@ FluentPage {
             } else {
                 errorText.text = message;
                 errorText.visible = true;
+            }
+        }
+        function onRegisterResult(success, message) {
+            registerBtn.enabled = true;
+            if (success) {
+                registerDialog.close();
+            } else {
+                registerErrorText.text = message;
+                registerErrorText.visible = true;
+            }
+        }
+    }
+
+    Dialog {
+        id: registerDialog
+        title: qsTr("注册")
+        modal: true
+
+        ColumnLayout {
+            width: 300
+            spacing: 12
+
+            TextField {
+                id: registerUsernameField
+                placeholderText: qsTr("用户名（3-20位，字母数字下划线）")
+                Layout.fillWidth: true
+            }
+
+            TextField {
+                id: registerPasswordField
+                placeholderText: qsTr("密码（6-30位）")
+                echoMode: TextInput.Password
+                Layout.fillWidth: true
+            }
+
+            TextField {
+                id: registerConfirmField
+                placeholderText: qsTr("确认密码")
+                echoMode: TextInput.Password
+                Layout.fillWidth: true
+            }
+
+            TextField {
+                id: registerNicknameField
+                placeholderText: qsTr("昵称（可选）")
+                Layout.fillWidth: true
+            }
+
+            Text {
+                id: registerErrorText
+                visible: false
+                color: Theme.currentTheme.colors.systemCriticalColor
+                typography: Typography.Caption
+                Layout.fillWidth: true
+                horizontalAlignment: Qt.AlignCenter
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Button {
+                    text: qsTr("取消")
+                    Layout.fillWidth: true
+                    onClicked: registerDialog.close()
+                }
+
+                Button {
+                    id: registerBtn
+                    text: qsTr("注册")
+                    highlighted: true
+                    Layout.fillWidth: true
+                    onClicked: {
+                        const username = registerUsernameField.text.trim();
+                        const password = registerPasswordField.text;
+                        const confirm = registerConfirmField.text;
+                        const nickname = registerNicknameField.text.trim();
+                        if (!username || !password) {
+                            registerErrorText.text = qsTr("请输入用户名和密码");
+                            registerErrorText.visible = true;
+                            return;
+                        }
+                        if (password !== confirm) {
+                            registerErrorText.text = qsTr("两次密码不一致");
+                            registerErrorText.visible = true;
+                            return;
+                        }
+                        registerErrorText.visible = false;
+                        registerBtn.enabled = false;
+                        if (appBridge)
+                            appBridge.register(username, password, nickname);
+                    }
+                }
             }
         }
     }
