@@ -46,6 +46,44 @@ FluentPage {
     // FluentPage 内部是 Flickable，fillHeight 无法提供有效高度，需要显式计算
     property int _availableHeight: height - (title !== "" ? 80 : 0) - bottomPadding - 18
 
+    // 内联错误横幅
+    Frame {
+        Layout.fillWidth: true
+        visible: errorMessage !== ""
+        radius: 6
+        hoverable: false
+        color: Theme.currentTheme.colors.systemCriticalBackgroundColor
+        padding: 10
+        Layout.bottomMargin: 6
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 8
+
+            IconWidget {
+                Layout.preferredWidth: 18
+                Layout.preferredHeight: 18
+                icon: "ic_fluent_warning_20_filled"
+                color: Theme.currentTheme.colors.systemCriticalColor
+            }
+
+            Text {
+                Layout.fillWidth: true
+                typography: Typography.Body
+                color: Theme.currentTheme.colors.textColor
+                text: errorMessage
+                wrapMode: Text.WordWrap
+            }
+
+            ToolButton {
+                icon.name: "ic_fluent_dismiss_20_regular"
+                size: 16
+                flat: true
+                onClicked: errorMessage = ""
+            }
+        }
+    }
+
     RowLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: Math.max(textLeaderboardPage._availableHeight, 300)
@@ -787,27 +825,16 @@ FluentPage {
         }
     ]
 
-    // 错误提示
-    InfoBar {
-        id: errorInfoBar
-        parent: textLeaderboardPage.parent
-        severity: Severity.Error
-        title: qsTr("加载失败")
-        text: ""
-        visible: false
-        closable: true
-        position: Position.Top
+    // 错误提示（内联显示，不用 InfoBar 避免定位问题）
+    property string errorMessage: ""
 
-        function showError(message) {
-            text = message
-            visible = true
-        }
-    }
+    // ========== 主布局 ==========
 
     // ========== 信号连接 ==========
-    // catalogLoaded 只在 loadCatalog() 主动调用后才发出，无需 StackView.status 守卫
+    // catalogLoaded 信号需要 StackView.status 守卫，防止页面切换期间触发 loadTextList 级联调用
     Connections {
         target: appBridge
+        enabled: textLeaderboardPage.StackView.status === StackView.Active
 
         function onCatalogLoaded(catalog) {
             syncSourceOptions(catalog);
@@ -818,7 +845,7 @@ FluentPage {
         }
 
         function onCatalogLoadFailed(message) {
-            errorInfoBar.showError(message);
+            errorMessage = message;
         }
     }
 
@@ -845,12 +872,12 @@ FluentPage {
                 selectedTextTitle = texts[0].title;
                 appBridge.loadLeaderboardByTextId(texts[0].id);
             }
-            errorInfoBar.visible = false;
+            errorMessage = "";
         }
 
         function onTextListLoadFailed(message) {
             textListModel.clear();
-            errorInfoBar.showError(message);
+            errorMessage = message;
         }
 
         function onLeaderboardLoaded(data) {
@@ -860,21 +887,19 @@ FluentPage {
             if (data.leaderboard) {
                 leaderboardRecords = data.leaderboard;
             }
-            errorInfoBar.visible = false;
+            errorMessage = "";
         }
 
         function onLeaderboardLoadFailed(message) {
             leaderboardRecords = [];
-            errorInfoBar.showError(message);
+            errorMessage = message;
         }
     }
 
     // ========== 页面激活时加载数据 ==========
-    property bool catalogLoadedOnce: false
     StackView.onActivated: {
-        if (appBridge && !catalogLoadedOnce) {
-            appBridge.loadCatalog();
-            catalogLoadedOnce = true;
+        if (appBridge) {
+            appBridge.refreshCatalog();
         }
     }
 

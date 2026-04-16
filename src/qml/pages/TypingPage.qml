@@ -72,9 +72,10 @@ Item {
         font.pointSize: fontMetricsText.sharedFontSize
     }
 
-    // textLoaded/textLoadFailed 只在 requestLoadText() 主动调用后才发出，无需守卫
+    // textLoaded/textLoadFailed 只在 requestLoadText() 主动调用后才发出，需要守卫防止页面切换后旧请求完成阻塞
     Connections {
         target: appBridge
+        enabled: typingPage.StackView.status === StackView.Active
 
         function onTextLoaded(text, textId, sourceLabel) {
             applyLoadedText(text);
@@ -246,7 +247,7 @@ Item {
                 Layout.fillHeight: true
                 Layout.minimumHeight: 200
                 visible: showLeaderboard
-                textId: appBridge.textId  // 绑定属性，会自动更新
+                textId: appBridge ? appBridge.textId : 0
                 onCloseRequested: showLeaderboard = false
 
                 Behavior on Layout.preferredWidth {

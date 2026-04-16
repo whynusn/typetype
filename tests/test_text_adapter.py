@@ -30,15 +30,15 @@ def _build_adapter() -> tuple[TextAdapter, MagicMock, MagicMock]:
     return adapter, runtime_config, load_text_usecase
 
 
-def test_request_load_text_sync_uses_usecase_plan_only():
+def test_request_load_text_local_source_enqueues_worker():
+    """本地来源也走 Worker，避免 _lookup_server_text_id 的同步 HTTP 阻塞 UI。"""
     adapter, runtime_config, load_text_usecase = _build_adapter()
     source_entry = TextSourceEntry(key="local", label="Local", local_path="local.txt")
     load_text_usecase.plan_load.return_value = TextLoadPlan(
         source_entry=source_entry,
     )
-    load_text_usecase.load.return_value = LoadTextResult(
-        success=True, text="sync text", text_id=123
-    )
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
     loaded_texts: list[tuple[str, int]] = []
     loading_states: list[bool] = []
 
@@ -51,14 +51,18 @@ def test_request_load_text_sync_uses_usecase_plan_only():
 
     adapter.requestLoadText("local")
 
+    # 本地来源不再走同步路径，而是走 Worker
+    assert len(thread_pool.started_workers) == 1
+    worker = thread_pool.started_workers[0]
+    result = LoadTextResult(success=True, text="sync text", text_id=123)
+    worker.signals.succeeded.emit(result)
+    worker.signals.finished.emit()
+
     assert loaded_texts == [("sync text", 123)]
     assert loading_states == [True, False]
     assert adapter.text_loading is False
     load_text_usecase.plan_load.assert_called_once_with("local")
-    # load now receives the plan, not the source_key
-    assert load_text_usecase.load.called
-    args = load_text_usecase.load.call_args
-    assert args[0][0] == load_text_usecase.plan_load.return_value
+    load_text_usecase.load.assert_not_called()  # worker will call it
     runtime_config.get_text_source.assert_not_called()
 
 
@@ -84,7 +88,6 @@ def test_request_load_text_async_enqueues_worker_from_usecase_plan():
 
     assert len(thread_pool.started_workers) == 1
     worker = thread_pool.started_workers[0]
-    # Worker now emits LoadTextResult, not just string
     result = LoadTextResult(success=True, text="async text", text_id=456)
     worker.signals.succeeded.emit(result)
     worker.signals.finished.emit()

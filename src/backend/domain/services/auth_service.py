@@ -69,7 +69,9 @@ class AuthService:
 
         return True, "登录成功", user_info
 
-    def register(self, username: str, password: str, nickname: str = "") -> tuple[bool, str, dict]:
+    def register(
+        self, username: str, password: str, nickname: str = ""
+    ) -> tuple[bool, str, dict]:
         result = self._auth_provider.register(username, password, nickname)
         if not result.success:
             return False, result.error_message, {}

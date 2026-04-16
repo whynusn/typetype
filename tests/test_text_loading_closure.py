@@ -37,32 +37,24 @@ class DummySourceEntry:
 
 
 class DummyTextGateway:
-    def __init__(self, execution_mode: str = "sync"):
-        self.execution_mode = execution_mode
-
     def plan_load(self, source_key: str):
-        dummy_entry = DummySourceEntry(key=source_key)
-        if self.execution_mode == "sync":
-            dummy_entry.local_path = f"{source_key}.txt"
-        return dummy_entry
+        return DummySourceEntry(key=source_key)
 
     def load_from_plan(self, source):
         return (True, f"loaded:{source.key}", "")
 
 
-def test_plan_load_returns_application_owned_execution_mode():
+def test_plan_load_returns_source_entry_from_gateway():
     usecase = LoadTextUseCase(
-        text_gateway=DummyTextGateway(execution_mode="async"),
+        text_gateway=DummyTextGateway(),
         clipboard_reader=DummyClipboardReader(),
     )
 
     plan = usecase.plan_load("remote")
-
-    assert plan.execution_mode == "async"
     assert plan.source_entry.key == "remote"
 
 
-def test_text_source_gateway_exposes_execution_mode_from_runtime_config():
+def test_text_source_gateway_plan_load_returns_source_entry():
     local_entry = TextSourceEntry(
         key="local", label="Local", local_path="/tmp/text.txt"
     )
@@ -83,6 +75,7 @@ def test_text_source_gateway_exposes_execution_mode_from_runtime_config():
 
 
 def test_text_adapter_uses_usecase_plan_and_skips_runtime_strategy_lookup():
+    """本地来源也走 Worker，验证 plan_load 被调用且 runtime_config 不被直接查询。"""
     runtime_config = MagicMock(spec=RuntimeConfig)
     runtime_config.get_text_source_options.return_value = []
     runtime_config.default_text_source_key = "builtin_demo"
@@ -91,9 +84,6 @@ def test_text_adapter_uses_usecase_plan_and_skips_runtime_strategy_lookup():
     load_text_usecase.plan_load.return_value = TextLoadPlan(
         source_entry=source_entry,
     )
-    load_text_usecase.load.return_value = LoadTextResult(
-        success=True, text="sync text", text_id=123
-    )
 
     local_text_loader = MagicMock(spec=LocalTextLoader)
     adapter = TextAdapter(
@@ -101,6 +91,7 @@ def test_text_adapter_uses_usecase_plan_and_skips_runtime_strategy_lookup():
         load_text_usecase=load_text_usecase,
         local_text_loader=local_text_loader,
     )
+    adapter._thread_pool = DummyThreadPool()
     loaded_texts: list[tuple[str, int]] = []
     loading_states: list[bool] = []
     adapter.textLoaded.connect(
@@ -112,14 +103,19 @@ def test_text_adapter_uses_usecase_plan_and_skips_runtime_strategy_lookup():
 
     adapter.requestLoadText("local")
 
+    # 本地来源走 Worker，不再同步调用 load
+    assert len(adapter._thread_pool.started_workers) == 1
+    worker = adapter._thread_pool.started_workers[0]
+    result = LoadTextResult(success=True, text="sync text", text_id=123)
+    worker.signals.succeeded.emit(result)
+    worker.signals.finished.emit()
+
     assert loaded_texts == [("sync text", 123)]
     assert loading_states == [True, False]
     assert adapter.text_loading is False
     load_text_usecase.plan_load.assert_called_once_with("local")
-    # load receives the plan object, not source_key
-    assert load_text_usecase.load.called
-    args = load_text_usecase.load.call_args
-    assert args[0][0] == load_text_usecase.plan_load.return_value
+    # load is called by the Worker, not by the adapter directly
+    load_text_usecase.load.assert_not_called()
     runtime_config.get_text_source.assert_not_called()
 
 

@@ -6,6 +6,8 @@ import RinUI
 Item {
     id: weakCharsPage
 
+    property bool loadedOnce: false
+
     Flickable {
         anchors.fill: parent
         anchors.margins: 16
@@ -146,9 +148,10 @@ Item {
         }
     }
 
-    StackView.onActivating: {
-        if (appBridge) {
+    StackView.onActivated: {
+        if (appBridge && !loadedOnce) {
             appBridge.loadWeakChars()
+            loadedOnce = true
         }
     }
 }

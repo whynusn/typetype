@@ -11,11 +11,6 @@ class TextLoadPlan:
 
     source_entry: TextSourceEntry
 
-    @property
-    def execution_mode(self) -> str:
-        """根据是否有本地路径返回执行模式：sync 本地同步，async 网络异步。"""
-        return "sync" if self.source_entry.local_path else "async"
-
 
 @dataclass
 class LoadTextResult:

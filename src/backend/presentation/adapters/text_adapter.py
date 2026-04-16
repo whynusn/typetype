@@ -20,7 +20,7 @@ class TextAdapter(QObject):
 
     职责：
     - Qt 信号管理
-    - 线程协调（本地同步、网络异步）
+    - 线程协调（所有加载均走后台 Worker，避免主线程阻塞）
     - 错误回传
     - UI 配置展示（来源选项、默认来源）
 
@@ -76,9 +76,9 @@ class TextAdapter(QObject):
     def requestLoadText(self, source_key: str) -> None:
         """请求加载文本。
 
-        Presentation 仅执行 Application 给出的加载计划：
-        - sync: 同步调用
-        - async: 后台 Worker 调用
+        所有加载均走后台 Worker，包括本地文件加载。
+        原因：本地文件加载内部会调用 _lookup_server_text_id 回查服务端，
+        这涉及同步 HTTP 请求，如果在主线程执行会阻塞 UI。
         """
         if self._text_loading:
             return
@@ -91,29 +91,10 @@ class TextAdapter(QObject):
             )
             return
 
-        if plan.execution_mode == "sync":
-            self._load_sync(plan)
-        else:
-            self._load_async(plan)
-
-    def _load_sync(self, plan: TextLoadPlan) -> None:
-        """同步执行文本加载。"""
-        self._set_text_loading(True)
-        try:
-            result = self._load_text_usecase.load(plan)
-            if result.success:
-                self._on_text_loaded(result)
-            else:
-                self._on_text_load_failed(f"加载文本失败：{result.error_message}")
-        except Exception as e:
-            self._on_text_load_failed(
-                f"加载文本失败：{GlobalExceptionHandler.handle(e)}"
-            )
-        finally:
-            self._set_text_loading(False)
+        self._load_async(plan)
 
     def _load_async(self, plan: TextLoadPlan) -> None:
-        """异步执行文本加载。"""
+        """异步执行文本加载（后台 Worker）。"""
         self._set_text_loading(True)
         worker = TextLoadWorker(
             load_text_usecase=self._load_text_usecase,
@@ -169,3 +150,11 @@ class TextAdapter(QObject):
         if source:
             return source.label
         return ""
+
+    def get_upload_source_options(self) -> list[dict[str, str]]:
+        """获取可用于云端上传的来源列表（排除仅本地源）。"""
+        return [
+            {"key": source.key, "label": source.label}
+            for source in self._runtime_config.text_source_config.sources.values()
+            if not source.local_path  # 只保留没有 local_path 的服务端源
+        ]

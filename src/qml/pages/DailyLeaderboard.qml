@@ -15,6 +15,48 @@ FluentPage {
     property bool textContentExpanded: false
 
     // 排行榜表格
+    // 错误提示（内联显示，不用 InfoBar 避免定位问题）
+    property string errorMessage: ""
+
+    // 内联错误横幅
+    Frame {
+        Layout.fillWidth: true
+        visible: errorMessage !== ""
+        radius: 6
+        hoverable: false
+        color: Theme.currentTheme.colors.systemCriticalBackgroundColor
+        padding: 10
+        Layout.bottomMargin: 6
+
+        RowLayout {
+            anchors.fill: parent
+            spacing: 8
+
+            IconWidget {
+                Layout.preferredWidth: 18
+                Layout.preferredHeight: 18
+                icon: "ic_fluent_warning_20_filled"
+                color: Theme.currentTheme.colors.systemCriticalColor
+            }
+
+            Text {
+                Layout.fillWidth: true
+                typography: Typography.Body
+                color: Theme.currentTheme.colors.textColor
+                text: errorMessage
+                wrapMode: Text.WordWrap
+            }
+
+            ToolButton {
+                icon.name: "ic_fluent_dismiss_20_regular"
+                size: 16
+                flat: true
+                onClicked: errorMessage = ""
+            }
+        }
+    }
+
+    // 排行榜表格
     Frame {
         id: leaderboardFrame
         Layout.fillWidth: true
@@ -632,23 +674,6 @@ FluentPage {
         }
     ]
 
-    // 错误提示
-    InfoBar {
-        id: errorInfoBar
-        parent: dailyLeaderboardPage.parent  // 放到页面父级，避免布局冲突
-        severity: Severity.Error
-        title: qsTr("加载失败")
-        text: ""
-        visible: false
-        closable: true
-        position: Position.Top
-
-        function showError(message) {
-            text = message
-            visible = true
-        }
-    }
-
     // 信号连接
     Connections {
         target: appBridge
@@ -661,11 +686,11 @@ FluentPage {
             if (data.leaderboard) {
                 dailyLeaderboardPage.leaderboardRecords = data.leaderboard
             }
-            errorInfoBar.visible = false
+            errorMessage = ""
         }
 
         function onLeaderboardLoadFailed(message) {
-            errorInfoBar.showError(message)
+            errorMessage = message
         }
     }
 }

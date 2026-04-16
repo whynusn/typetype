@@ -14,16 +14,6 @@ FluentPage {
         id: sourceListModel
     }
 
-    function reloadSourceList() {
-        sourceListModel.clear();
-        if (appBridge && appBridge.textSourceOptions) {
-            for (var i = 0; i < appBridge.textSourceOptions.length; i++) {
-                sourceListModel.append(appBridge.textSourceOptions[i]);
-            }
-        }
-        sourceListModel.append({"key": "__custom__", "label": qsTr("自定义")});
-    }
-
     function clearForm() {
         titleField.text = "";
         contentArea.text = "";
@@ -36,17 +26,36 @@ FluentPage {
         errorText.text = "";
     }
 
-    StackView.onActivating: {
-        reloadSourceList();
+    function syncSourceOptionsForTarget() {
+        sourceListModel.clear();
+        var options = null;
+        if (uploadPage.toCloud) {
+            options = appBridge && appBridge.uploadTextSourceOptions ? appBridge.uploadTextSourceOptions : null;
+        } else {
+            options = appBridge && appBridge.textSourceOptions ? appBridge.textSourceOptions : null;
+        }
+        if (options) {
+            for (var i = 0; i < options.length; i++) {
+                sourceListModel.append(options[i]);
+            }
+        }
+        sourceListModel.append({"key": "__custom__", "label": qsTr("自定义")});
+        if (sourceComboBox.currentIndex >= sourceListModel.count) {
+            sourceComboBox.currentIndex = 0;
+        }
+    }
+
+    Component.onCompleted: {
+        syncSourceOptionsForTarget();
+    }
+
+    // 每次页面激活重新同步，确保目录刷新后能看到最新选项
+    StackView.onActivated: {
+        syncSourceOptionsForTarget();
     }
 
     ColumnLayout {
         spacing: 16
-
-        Text {
-            typography: Typography.Title
-            text: qsTr("上传文本")
-        }
 
         Text {
             typography: Typography.Body
@@ -109,6 +118,7 @@ FluentPage {
                 checked: true
                 onCheckedChanged: {
                     uploadPage.toLocal = checked;
+                    syncSourceOptionsForTarget();
                 }
             }
 
@@ -118,6 +128,7 @@ FluentPage {
                 enabled: appBridge ? appBridge.loggedin : false
                 onCheckedChanged: {
                     uploadPage.toCloud = checked;
+                    syncSourceOptionsForTarget();
                 }
             }
         }

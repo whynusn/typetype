@@ -26,6 +26,12 @@ class LeaderboardFetcher:
             return {"Authorization": f"Bearer {token}"}
         return {}
 
+    def _check_network_error(self) -> None:
+        """检查 ApiClient 是否有未处理的网络错误，有则重新抛出。"""
+        err = self._api_client.last_error
+        if err is not None:
+            raise err
+
     def get_catalog(self) -> list[dict[str, Any]] | None:
         """获取服务端文本来源目录。
 
@@ -38,6 +44,7 @@ class LeaderboardFetcher:
         )
         if response is None:
             log_warning("[LeaderboardFetcher] 获取文本来源目录失败")
+            self._check_network_error()
             return None
         if isinstance(response, dict):
             data = response.get("data")
@@ -60,6 +67,7 @@ class LeaderboardFetcher:
         )
         if response is None:
             log_warning(f"[LeaderboardFetcher] 获取最新文本失败: {source_key}")
+            self._check_network_error()
             return None
         if isinstance(response, dict):
             data = response.get("data")
@@ -82,6 +90,7 @@ class LeaderboardFetcher:
         )
         if response is None:
             log_warning(f"[LeaderboardFetcher] 获取文本列表失败: {source_key}")
+            self._check_network_error()
             return None
         if isinstance(response, dict):
             data = response.get("data")
@@ -104,6 +113,7 @@ class LeaderboardFetcher:
         )
         if response is None:
             log_warning(f"[LeaderboardFetcher] 获取文本详情失败: text_id={text_id}")
+            self._check_network_error()
             return None
         if isinstance(response, dict):
             data = response.get("data")
@@ -133,6 +143,7 @@ class LeaderboardFetcher:
         )
         if response is None:
             log_warning(f"[LeaderboardFetcher] 获取排行榜失败: text_id={text_id}")
+            self._check_network_error()
             return None
         if isinstance(response, dict):
             data = response.get("data")
