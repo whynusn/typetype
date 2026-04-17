@@ -33,7 +33,7 @@ jobs:
       - name: 准备构建目录
         run: |
           mkdir -p build-src
-          cp -a main.py pyproject.toml uv.lock src resources RinUI build-src/
+          cp -a main.py pyproject.toml uv.lock src resources RinUI config build-src/
 
       - name: 安装依赖
         run: uv sync --frozen
@@ -55,6 +55,7 @@ jobs:
             --include-qt-plugins=qml \
             --include-package=RinUI \
             --include-data-dir=RinUI=RinUI \
+            --include-data-dir=config=config \
             --output-dir=deployment \
             --quiet \
             --noinclude-qt-translations \
@@ -103,7 +104,7 @@ jobs:
       - name: 准备构建目录
         run: |
           New-Item -ItemType Directory -Force -Path build-src | Out-Null
-          Copy-Item -Recurse -Force main.py,pyproject.toml,uv.lock,src,resources,RinUI -Destination build-src
+          Copy-Item -Recurse -Force main.py,pyproject.toml,uv.lock,src,resources,RinUI,config -Destination build-src
 
       - name: 安装依赖
         run: uv sync --frozen
@@ -125,6 +126,7 @@ jobs:
             --include-qt-plugins=qml `
             --include-package=RinUI `
             --include-data-dir=RinUI=RinUI `
+            --include-data-dir=config=config `
             --output-dir=deployment `
             --quiet `
             --noinclude-qt-translations `
