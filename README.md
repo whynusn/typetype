@@ -1,4 +1,23 @@
-# TypeType
+<div align="center">
+  <img src="resources/images/TypeTypeLogo.png" alt="TypeType Logo" width="200" />
+  <h1>TypeType</h1>
+  <p>基于 PySide6 + QML 的跨平台中文打字练习工具</p>
+
+  [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+  [![PySide6](https://img.shields.io/badge/PySide6-QML-41CD52?logo=qt&logoColor=white)](https://www.qt.io/qt-for-python)
+  [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+  [![CI](https://img.shields.io/github/actions/workflow/status/whynusn/typetype/ci.yml?branch=main&label=ci)](https://github.com/whynusn/typetype/actions)
+  [![Tests](https://img.shields.io/github/actions/workflow/status/whynusn/typetype/multi-platform-tests.yml?branch=main&label=tests)](https://github.com/whynusn/typetype/actions)
+  [![Ruff](https://img.shields.io/badge/style-ruff-261230?logo=ruff&logoColor=white)](https://github.com/astral-sh/ruff)
+  [![uv](https://img.shields.io/badge/pkg-uv-DE5FE9?logo=python&logoColor=white)](https://github.com/astral-sh/uv)
+
+  [![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)](https://github.com/whynusn/typetype)
+  [![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](https://github.com/whynusn/typetype)
+  [![Nuitka](https://img.shields.io/badge/pack-Nuitka-2B69C3)](https://github.com/Nuitka/Nuitka)
+
+  ---
+
+</div>
 
 TypeType 是一个基于 **PySide6 + QML** 的跨平台中文打字练习工具。
 
@@ -193,6 +212,10 @@ sudo usermod -aG input $USER
 
 ---
 
+<div align="center">
+
 ## 许可证
 
-MIT
+MIT © 2026 [Kurisu](https://github.com/whynusn)
+
+</div>

@@ -112,6 +112,15 @@ uv run python -m nuitka main.py \
 
 **Font subsetting**: Always use `*-subset.ttf` to reduce package size.
 
+**⚠️ 打包配置同步清单**: 修改 Nuitka `--include-data-*` 参数时，必须同步更新以下 5 个位置：
+1. `AGENTS.md`
+2. `README.md`
+3. `docs/DEVELOPING.md`
+4. `skills/typetype-development/SKILL.md`
+5. `.github/workflows/build-release.yml` — 两处都要改：
+   - "准备构建目录"步骤：`cp -a` / `Copy-Item` 中添加目录
+   - "运行打包"步骤：Nuitka 命令中添加 `--include-data-dir` 参数
+
 ## Git Workflow
 
 - `main` branch: stable, always deployable

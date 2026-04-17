@@ -82,8 +82,7 @@ src/backend/
 │   ├── text_provider.py
 │   ├── text_uploader.py
 │   ├── async_executor.py
-│   ├── leaderboard_provider.py
-│   └── ranking_repository.py
+│   └── leaderboard_provider.py
 ├── config/            # 运行时 JSON 配置文件
 │   ├── runtime_config.py
 │   └── text_source_config.py
@@ -109,8 +108,13 @@ src/backend/
 │   └── leaderboard_fetcher.py    # LeaderboardProvider 实现
 ├── models/
 │   ├── dto/
+│   │   ├── auth_dto.py
+│   │   ├── fetched_text.py
+│   │   ├── score_dto.py
 │   │   └── text_catalog_item.py
 │   └── entity/        # 领域模型（SessionStat, CharStat）
+│       ├── char_stat.py
+│       └── session_stat.py
 ├── presentation/
 │   ├── adapters/      # Qt 适配层（TypingAdapter, TextAdapter）
 │   │   ├── typing_adapter.py
@@ -121,14 +125,16 @@ src/backend/
 │   │   └── upload_text_adapter.py
 │   └── bridge.py      # Bridge（appBridge）
 ├── security/          # 加密与安全存储
-├── utils/             # 工具类（Logger）
+│   ├── crypt.py
+│   └── secure_storage.py
+├── utils/             # 工具类（Logger, text_id）
+│   ├── logger.py
 │   └── text_id.py
-└── workers/           # 后台任务（BaseWorker, TextLoadWorker, SessionStatWorker)
+└── workers/           # 后台任务（BaseWorker, TextLoadWorker 等）
     ├── base_worker.py
-    ├── text_load_worker.py
-    ├── session_stat_worker.py
     ├── catalog_worker.py
     ├── leaderboard_worker.py
+    ├── text_load_worker.py
     ├── text_list_worker.py
     └── weak_chars_query_worker.py
 ```

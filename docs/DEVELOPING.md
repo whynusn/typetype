@@ -1,6 +1,6 @@
 # TypeType 开发指南
 
-> 最后更新：2026-04-06
+> 最后更新：2026-04-17
 >
 > 目标：让第一次接手 TypeType 的开发者，能在最短时间内把项目跑起来、看懂主链路，并知道新需求该落在哪一层。
 
@@ -88,10 +88,10 @@ workers/        # 后台任务（QRunnable）
 2. 注册全局 UI 字体（HarmonyOS）
 3. 读取 `RuntimeConfig`
 4. 创建基础设施对象：`ApiClient`、`QtLocalTextLoader`、`QtAsyncExecutor`
-5. 创建集成实现：`RemoteTextProvider`、`SqliteCharStatsRepository`、`ApiClientAuthProvider`
+5. 创建集成实现：`RemoteTextProvider`、`SqliteCharStatsRepository`、`ApiClientAuthProvider`、`LeaderboardFetcher`
 6. 创建领域服务：`TypingService`、`CharStatsService`、`AuthService`
-7. 创建应用层对象：`ScoreGateway`、`TextSourceGateway`、`LoadTextUseCase`
-8. 创建适配层对象：`TypingAdapter`、`TextAdapter`、`AuthAdapter`、`CharStatsAdapter`
+7. 创建应用层对象：`ScoreGateway`、`TextSourceGateway`、`LeaderboardGateway`、`LoadTextUseCase`
+8. 创建适配层对象：`TypingAdapter`、`TextAdapter`、`AuthAdapter`、`CharStatsAdapter`、`LeaderboardAdapter`、`UploadTextAdapter`
 9. 创建 `Bridge`，注入为 QML 全局 `appBridge`
 10. 加载 `src/qml/Main.qml`
 
@@ -294,6 +294,7 @@ logger.info("普通信息")
 - `typing/LowerPane.qml`
 - `typing/HistoryArea.qml`
 - `typing/EndDialog.qml`
+- `typing/LeaderboardPanel.qml`
 
 ---
 
@@ -437,6 +438,7 @@ Windows 额外参数：
 
 ## 版本历史
 
-| 日期 | 变更 |
-|------|------|
-| 2026-04-06 | 基于当前代码重写上手路径、修正 CI/链接/提交规范、补充真实开发流程与坑位 |
+|| 日期 | 变更 |
+||------|------|
+|| 2026-04-17 | 补充 LeaderboardAdapter/Gateway/Worker、UploadTextAdapter 到启动步骤和 QML 组件列表 |
+|| 2026-04-06 | 基于当前代码重写上手路径、修正 CI/链接/提交规范、补充真实开发流程与坑位 |

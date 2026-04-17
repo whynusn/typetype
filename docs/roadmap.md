@@ -1,6 +1,6 @@
 # TypeType 功能路线图
 
-> 最后更新：2026-04-06
+> 最后更新：2026-04-17
 >
 > 本文档用于说明 **当前已完成能力** 与 **后续规划方向**。
 >
@@ -75,6 +75,28 @@ Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
   - `build-release.yml`
 - Nuitka 打包脚本
 
+### 6. 排行榜（基础实现）
+
+已完成：
+
+- `LeaderboardProvider` Port 协议
+- `LeaderboardGateway` + `LeaderboardAdapter` + `LeaderboardWorker`
+- `TextLeaderboardPage.qml`（Master-Detail 文本排行浏览）
+- `DailyLeaderboard.qml`（日榜页面）
+- `typing/LeaderboardPanel.qml`（TypingPage 右侧面板）
+- 成绩提交后自动刷新排行榜
+
+已知未修复 Bug：见 `docs/unfixed-bugs-2026-04-15.md`
+
+### 7. 成绩提交与文本上传
+
+已完成：
+
+- `ApiClientScoreSubmitter`（服务端文本可提交成绩）
+- `TextUploader`（本地文本上传到云端）
+- `UploadTextAdapter` + `UploadTextPage.qml`
+- 上传结果 text_id 通过信号传递到 TypingPage
+
 ---
 
 ## 当前代码中的核心对象
@@ -86,13 +108,25 @@ Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
 - `TextAdapter`
 - `AuthAdapter`
 - `CharStatsAdapter`
+- `LeaderboardAdapter`
+- `UploadTextAdapter`
 
 ### Application
 
 - `LoadTextUseCase`
 - `TextSourceGateway`
 - `ScoreGateway`
+- `LeaderboardGateway`
 - `GlobalExceptionHandler`
+
+### Workers
+
+- `BaseWorker`
+- `TextLoadWorker`
+- `CatalogWorker`
+- `LeaderboardWorker`
+- `TextListWorker`
+- `WeakCharsQueryWorker`
 
 ### Domain
 
@@ -109,6 +143,10 @@ Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
 - `SqliteCharStatsRepository`
 - `ApiClient`
 - `ApiClientAuthProvider`
+- `ApiClientScoreSubmitter`
+- `LeaderboardFetcher`
+- `TextUploader`
+- `QtAsyncExecutor`
 
 ---
 
@@ -124,15 +162,14 @@ Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
 - 载文接入：复用 `LoadTextUseCase` / `TextSourceGateway` 边界
 - UI 展示：新增页面或在 `TypingPage` 扩展入口
 
-### B. 成绩上报与排行榜闭环
+### B. 排行榜闭环完善
 
-当前仓库已有排行榜页面骨架，但服务端闭环仍可继续完善。
+基础实现已完成（见上方"已完成功能 #6"），但仍有未修复 Bug：
+- ToolLine 按钮显示异常
+- TextLeaderboardPage ComboBox 为空
+- 排行榜日期列不显示
 
-建议目标：
-
-- 成绩提交
-- 日榜 / 周榜 / 总榜真实数据
-- 用户历史与个人统计页联动
+详见 `docs/unfixed-bugs-2026-04-15.md`。
 
 ### C. 远端同步字符统计
 
@@ -168,14 +205,14 @@ Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
 
 ## 建议的优先级
 
-| 优先级 | 方向 | 原因 |
-|--------|------|------|
-| 高 | 推荐练习 | 直接复用现有 CharStats 能力，改动可控 |
-| 高 | 排行榜闭环 | 与现有页面结构配合度高 |
-| 中 | 远端同步字符统计 | 架构价值高，但涉及服务端协作 |
-| 中 | Spring Boot 接入 | 价值高，但跨端改动更大 |
-| 中 | AI Typing Coach | 展示性强，但属于扩展型能力 |
-| 低 | 更细粒度学习分析 | 需要更多数据模型与 UI 设计 |
+|| 优先级 | 方向 | 原因 |
+||--------|------|------|
+|| 高 | 推荐练习 | 直接复用现有 CharStats 能力，改动可控 |
+|| 高 | 排行榜 Bug 修复 | 基础已实现，修复 3 个未解决问题即可闭环 |
+|| 中 | 远端同步字符统计 | 架构价值高，但涉及服务端协作 |
+|| 中 | Spring Boot 接入 | 价值高，但跨端改动更大 |
+|| 中 | AI Typing Coach | 展示性强，但属于扩展型能力 |
+|| 低 | 更细粒度学习分析 | 需要更多数据模型与 UI 设计 |
 
 ---
 
@@ -187,10 +224,11 @@ Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
 - 基于薄弱字的文本选择/生成
 - 训练完成后回流统计
 
-### Milestone 2：排行榜与个人数据闭环
+### Milestone 2：排行榜与个人数据闭环（部分完成）
 
-- 成绩提交通路
-- 排行榜真实数据源
+- ✅ 成绩提交通路（ApiClientScoreSubmitter）
+- ✅ 排行榜基础实现（TextLeaderboardPage + LeaderboardPanel）
+- 🔧 排行榜 Bug 修复（见 unfixed-bugs-2026-04-15.md）
 - 个人中心统计完善
 
 ### Milestone 3：云同步
@@ -216,6 +254,7 @@ Bridge -> TextAdapter -> LoadTextUseCase -> TextSourceGateway
 
 ## 版本历史
 
-| 日期 | 变更 |
-|------|------|
-| 2026-04-06 | 基于当前代码重写路线图，移除历史命名与过时分层描述 |
+|| 日期 | 变更 |
+||------|------|
+|| 2026-04-17 | 更新核心对象清单（补 LeaderboardAdapter/Gateway/Worker、UploadTextAdapter 等）；排行榜与成绩提交移至已完成功能；优先级表更新 |
+|| 2026-04-06 | 基于当前代码重写路线图，移除历史命名与过时分层描述 |
