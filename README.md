@@ -202,13 +202,12 @@ sudo usermod -aG input $USER
 
 ## 开发者文档
 
-开发建议从这里开始：
+从 [ARCHITECTURE.md](./docs/ARCHITECTURE.md) 开始 — 快速开始、架构、数据流、陷阱全在里面。
 
-- [docs/README.md](./docs/README.md) —— 文档索引
-- [docs/DEVELOPING.md](./docs/DEVELOPING.md) —— 上手与开发流程
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) —— 当前事实架构
-- [docs/roadmap.md](./docs/roadmap.md) —— 功能路线图与后续方向
-- [AGENTS.md](./AGENTS.md) —— 仓库级开发约束与已知陷阱
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 唯一事实来源（"宪法"）
+- [docs/reference/](./docs/reference/) — 配置/QML/API 速查表
+- [docs/history/](./docs/history/) — 历史设计文档归档
+- [AGENTS.md](./AGENTS.md) — AI Agent 开发约束
 
 ---
 
