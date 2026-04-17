@@ -185,4 +185,5 @@ jobs:
             release-assets/typetype-linux-amd64.tar.gz
             release-assets/typetype-windows-amd64.zip
           draft: false
+          generate_release_notes: true
           prerelease: false
