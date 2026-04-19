@@ -391,22 +391,16 @@ class Bridge(QObject):
         将当前文本的所有字符随机打乱，重置打字状态。
         乱序后的文本不参与排行榜（text_id 清空）。
         """
-        import random
-
-        text = self._typing_adapter._typing_service.plain_doc
-        if not text:
+        result = self._typing_adapter.shuffle_and_prepare()
+        if not result:
             return
-        chars = list(text)
-        random.shuffle(chars)
-        shuffled = "".join(chars)
 
-        self._typing_adapter.prepare_for_text_load()
+        shuffled, title = result
         # 清空 text_id：乱序内容与服务端不匹配，不提交成绩
         self._text_id = 0
         self._typing_adapter.setTextId(None)
         self.textIdChanged.emit()
         # 发射 textLoaded 信号，QML 侧 applyLoadedText + handleLoadedText 重置打字状态
-        title = self._typing_adapter._typing_service.text_title
         self.textLoaded.emit(shuffled, -1, title)
 
     @Slot(str)

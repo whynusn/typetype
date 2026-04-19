@@ -149,6 +149,26 @@ class TypingAdapter(QObject):
         if changed:
             self.readOnlyChanged.emit()
 
+    def shuffle_and_prepare(self) -> tuple[str, str] | None:
+        """乱序当前文本并准备加载。
+
+        Returns:
+            (shuffled_text, title) 元组，或 None（无文本时）。
+        """
+        import random
+
+        text = self._typing_service.plain_doc
+        if not text:
+            return None
+
+        chars = list(text)
+        random.shuffle(chars)
+        shuffled = "".join(chars)
+        title = self._typing_service.text_title
+
+        self.prepare_for_text_load()
+        return shuffled, title
+
     # 对外公开的 Slot 方法
 
     def handlePressed(self) -> None:
