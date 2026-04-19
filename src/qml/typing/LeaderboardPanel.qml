@@ -329,10 +329,12 @@ Frame {
 
     // 当 textId 变化时，清除旧数据或加载新数据
     onTextIdChanged: {
-        if (root.textId <= 0) {
+        // 无论 textId 是变有效还是切换到另一个有效值，都先清空避免展示旧数据
+        if (root.textId > 0 || root.leaderboardRecords.length > 0) {
             root.leaderboardRecords = [];
             root.currentTextInfo = null;
-        } else if (visible && appBridge) {
+        }
+        if (root.textId > 0 && visible && appBridge) {
             // 本地文本异步回查到 textId 后，面板已可见时自动加载排行榜
             appBridge.loadLeaderboardByTextId(root.textId);
         }
