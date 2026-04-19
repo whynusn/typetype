@@ -65,8 +65,13 @@ class CharStatsService:
         else:
             self._repo.save_batch(entries)
 
-    def get_weakest_chars(self, n: int = 10) -> list[CharStat]:
-        return self._repo.get_weakest_chars(n)
+    def get_weakest_chars(
+        self,
+        n: int = 10,
+        sort_mode: str = "error_rate",
+        weights: dict | None = None,
+    ) -> list[CharStat]:
+        return self._repo.get_chars_by_sort(sort_mode, weights, n)
 
     def get_all(self) -> dict[str, CharStat]:
         return dict(self._cache)
