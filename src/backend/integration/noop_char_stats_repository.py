@@ -13,6 +13,14 @@ class NoopCharStatsRepository:
     def get_batch(self, chars: list[str]) -> list[CharStat]:
         return []
 
+    def get_chars_by_sort(
+        self,
+        sort_mode: str = "error_rate",
+        weights: dict | None = None,
+        n: int = 10,
+    ) -> list[CharStat]:
+        return []
+
     def get_weakest_chars(self, n: int) -> list[CharStat]:
         return []
 

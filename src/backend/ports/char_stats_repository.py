@@ -22,6 +22,21 @@ class CharStatsRepository(Protocol):
         """批量获取字符统计。"""
         ...
 
+    def get_chars_by_sort(
+        self,
+        sort_mode: str = "error_rate",
+        weights: dict | None = None,
+        n: int = 10,
+    ) -> list[CharStat]:
+        """按指定排序模式获取薄弱字列表。
+
+        Args:
+            sort_mode: 排序模式 — "error_rate" | "error_count" | "weighted"
+            weights: weighted 模式的权重 {"error_rate": float, "total_count": float, "error_count": float}
+            n: 返回数量
+        """
+        ...
+
     def get_weakest_chars(self, n: int) -> list[CharStat]:
         """获取最薄弱的 n 个字符统计"""
         ...
