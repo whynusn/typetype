@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ...application.exception_handler import GlobalExceptionHandler
 from ...application.usecases.load_text_usecase import (
@@ -82,7 +82,8 @@ class TextAdapter(QObject):
             try:
                 resolved_id = gateway.lookup_text_id(source_key, content)
                 if resolved_id is not None:
-                    QTimer.singleShot(0, lambda: self.localTextIdResolved.emit(resolved_id))
+                    # 从 daemon thread 直接发射信号，Qt 自动走 QueuedConnection 到主线程的 slot
+                    self.localTextIdResolved.emit(resolved_id)
             except Exception:
                 pass
 
