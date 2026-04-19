@@ -323,14 +323,18 @@ QML 输入事件
 
 ```text
 WeakCharsPage.qml
-  -> appBridge.loadWeakChars()
-  -> CharStatsAdapter.loadWeakChars()
+  -> appBridge.loadWeakChars(n, sortMode, weights)
+  -> CharStatsAdapter.loadWeakChars(n, sort_mode, weights)
   -> WeakCharsQueryWorker
-  -> CharStatsService.get_weakest_chars(10)
-  -> SqliteCharStatsRepository.get_weakest_chars(10)
+  -> CharStatsService.get_weakest_chars(n, sort_mode, weights)
+  -> SqliteCharStatsRepository.get_chars_by_sort(sort_mode, weights, n)
   -> Adapter 发射 weakestCharsLoaded
   -> QML 渲染列表
 ```
+
+排序模式：`error_rate`（默认）| `error_count` | `weighted`（需传 `weights` dict）。
+
+打字结束后 `typingEnded` 信号触发 WeakCharsPage 自动刷新薄弱字列表。
 
 ---
 

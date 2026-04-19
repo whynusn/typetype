@@ -200,7 +200,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 |------|------|------|
 | **Domain Services** | TypingService | 打字统计纯逻辑（SessionStat 状态、键数累积） |
 | | AuthService | 登录认证（login/logout、token 验证与刷新） |
-| | CharStatsService | 字符维度统计（缓存、持久化、薄弱字查询） |
+| | CharStatsService | 字符维度统计（缓存、持久化、薄弱字查询、自定义排序） |
 | **Application** | LoadTextUseCase | 文本加载编排 + 业务验证（异常上浮到 BaseWorker） |
 | | GlobalExceptionHandler | 网络异常 → 用户友好消息集中映射 |
 | **Gateways** | TextSourceGateway | Port 适配 + 配置查询 |
@@ -215,6 +215,26 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 | | TextAdapter | Qt 适配（所有加载走 Worker、信号发射、UI 配置展示） |
 | | LeaderboardAdapter | 排行榜 Qt 适配（异步 Worker、信号管理） |
 | | UploadTextAdapter | 文本上传 Qt 适配（本地写入 + 云端上传） |
+
+### 薄弱字排序功能
+
+薄弱字（Weak Chars）支持自定义排序模式，全链路传递排序参数：
+
+**数据流**：WeakCharsPage.qml → Bridge → CharStatsAdapter → WeakCharsQueryWorker → CharStatsService → CharStatsRepository
+
+**排序模式**（`CharStatsRepository.get_chars_by_sort`）：
+
+| sort_mode | 说明 |
+|-----------|------|
+| `error_rate` | 按错误率排序（默认） |
+| `error_count` | 按错误次数排序 |
+| `weighted` | 加权排序，权重由 `weights` 参数指定 |
+
+weighted 模式的 `weights` 参数格式：`{"error_rate": float, "total_count": float, "error_count": float}`。
+
+**CharStatsService.get_weakest_chars(n, sort_mode, weights)** 直接透传参数到 Repository，无额外业务逻辑。
+
+**QML 交互**：WeakCharsPage 提供 ComboBox 选择排序模式，weighted 模式下额外显示各维度的权重 ComboBox。`typingEnded` 信号触发薄弱字列表自动刷新。
 
 ### 架构约束（防止职责混乱）
 
@@ -540,41 +560,23 @@ enter: Transition {
 
 **历史记录**：2026-04-16 发现并修复。
 
-### ⚠️ FluentPage 内容区子项不能使用 anchors
+### ⚠️ RinUI ComboBox 的 `onActivated` 信号不触发
 
-**问题**：FluentPage 的 `content` 属性是内部 `container`（ColumnLayout）的 `data` alias。因此 FluentPage 的直接子项实际上是 ColumnLayout 的子项，受 Layout 管理器控制。
+**问题**：在 RinUI 框架下，ComboBox 使用 `textRole`/`valueRole` 绑定 ListModel 时，`onActivated` 信号处理函数不被执行。用户点击下拉选项后，回调不触发。
 
-**错误做法**：在 FluentPage 内容区使用 `anchors`：
+**原因**：RinUI 没有自己的 ComboBox 组件，使用 Qt Quick Controls 2 的原生 ComboBox。但 RinUI 的某些内部机制可能干扰了 `onActivated` 信号的转发。SettingsPage 已使用 `onCurrentIndexChanged` 而非 `onActivated`。
+
+**正确做法**：改用 `onCurrentIndexChanged`。排序等需要去重的场景加守卫：
 ```qml
-// ❌ 错误：FluentPage 内容区子项使用 anchors
-FluentPage {
-    ColumnLayout {
-        anchors.fill: parent  // ← 触发 "Detected anchors on an item managed by a layout"
-        // ...
+onCurrentIndexChanged: {
+    if (currentIndex >= 0 && currentIndex < model.count) {
+        var val = model.get(currentIndex).value;
+        if (val !== currentVal) {
+            currentVal = val;
+            doSomething();
+        }
     }
 }
 ```
 
-**正确做法**：使用 `Layout.*` 附加属性：
-```qml
-// ✅ 正确：FluentPage 内容区子项使用 Layout 属性
-FluentPage {
-    ColumnLayout {
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        // ...
-    }
-}
-```
-
-**区分**：非 Layout 容器（Frame、Rectangle、Pane 等）内的 Layout 管理器可以用 `anchors.fill: parent` 定位自身，这是合法的：
-```qml
-// ✅ 正确：Frame 不是 Layout 管理器
-Frame {
-    ColumnLayout {
-        anchors.fill: parent  // ← 合法，parent 是 Frame
-    }
-}
-```
-
-**历史记录**：2026-04-19 发现并修复。SettingsPage 的 ColumnLayout 使用 `anchors.fill: parent` 导致运行时警告。
+**历史记录**：2026-04-19，薄弱字排序功能和文本排行页面修复。

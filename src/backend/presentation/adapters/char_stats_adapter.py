@@ -18,11 +18,21 @@ class CharStatsAdapter(QObject):
         self.weakestCharsLoaded.emit(data)
 
     @Slot()
-    def loadWeakChars(self) -> None:
+    def loadWeakChars(
+        self,
+        n: int = 10,
+        sort_mode: str = "error_rate",
+        weights: dict | None = None,
+    ) -> None:
         if not self._char_stats_service:
             self.weakestCharsLoaded.emit([])
             return
-        worker = WeakCharsQueryWorker(self._char_stats_service, 10)
+        worker = WeakCharsQueryWorker(
+            self._char_stats_service,
+            n=n,
+            sort_mode=sort_mode,
+            weights=weights,
+        )
         worker.signals.succeeded.connect(self._on_weak_chars_loaded)
         worker.signals.failed.connect(lambda msg: log_info(f"[CharStatsAdapter] {msg}"))
         QThreadPool.globalInstance().start(worker)

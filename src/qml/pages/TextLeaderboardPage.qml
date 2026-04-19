@@ -107,7 +107,7 @@ FluentPage {
                     model: sourceListModel
                     textRole: "label"
                     valueRole: "key"
-                    onActivated: {
+                    onCurrentIndexChanged: {
                         var key = currentValue;
                         if (key && appBridge) {
                             selectedTextId = -1;

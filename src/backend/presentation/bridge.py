@@ -357,8 +357,15 @@ class Bridge(QObject):
         self._auth_adapter.check_token_status()
 
     @Slot()
-    def loadWeakChars(self) -> None:
-        self._char_stats_adapter.loadWeakChars()
+    @Slot(int)
+    @Slot(int, str)
+    @Slot(int, str, "QVariantMap")
+    def loadWeakChars(self, n=10, sortMode="error_rate", weights=None):
+        self._char_stats_adapter.loadWeakChars(
+            n=n,
+            sort_mode=sortMode,
+            weights=weights if weights else None,
+        )
 
     @Slot(str)
     def loadLeaderboard(self, source_key: str) -> None:

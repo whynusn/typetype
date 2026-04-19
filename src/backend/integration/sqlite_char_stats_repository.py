@@ -51,22 +51,41 @@ class SqliteCharStatsRepository:
             ).fetchall()
         return [self._row_to_stat(row) for row in rows]
 
-    def get_weakest_chars(self, n: int) -> list[CharStat]:
+    def get_chars_by_sort(
+        self,
+        sort_mode: str = "error_rate",
+        weights: dict | None = None,
+        n: int = 10,
+    ) -> list[CharStat]:
         if n <= 0:
             return []
+        if sort_mode == "error_rate":
+            order_by = "CAST(error_char_count AS REAL) / char_count DESC"
+        elif sort_mode == "error_count":
+            order_by = "error_char_count DESC"
+        elif sort_mode == "weighted":
+            w = weights or {}
+            w_rate = float(w.get("error_rate", 0.6))
+            w_total = float(w.get("total_count", 0.2))
+            w_err = float(w.get("error_count", 0.2))
+            order_by = (
+                f"POWER(CAST(error_char_count AS REAL) / MAX(char_count, 1), {w_rate}) "
+                f"* POWER(LOG(MAX(char_count, 1) + 1), {w_total}) "
+                f"* POWER(LOG(MAX(error_char_count, 0) + 1), {w_err}) DESC"
+            )
+        else:
+            order_by = "CAST(error_char_count AS REAL) / char_count DESC"
+
         with sqlite3.connect(self._db_path) as conn:
             rows = conn.execute(
-                """
-                    SELECT char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen
-                    FROM char_stats
-                    WHERE char_count > 0
-                    ORDER BY ((total_ms * 1.0 / char_count) * 0.1 +
-                              (error_char_count * 100.0 / char_count) * 0.9) DESC
-                    LIMIT ?
-                """,
+                f"SELECT char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen "
+                f"FROM char_stats WHERE char_count > 0 ORDER BY {order_by} LIMIT ?",
                 (n,),
             ).fetchall()
         return [self._row_to_stat(row) for row in rows]
+
+    def get_weakest_chars(self, n: int) -> list[CharStat]:
+        return self.get_chars_by_sort("error_rate", None, n)
 
     def save(self, stat: CharStat) -> None:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
