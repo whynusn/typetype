@@ -307,6 +307,8 @@ bridge = Bridge(
 - UI 不执行耗时任务，耗时逻辑走 `workers`
 - RinUI `ContextMenu` 的 `height` 动画必须用 `Behavior on height`，不能在 `enter` transition 中动画（原因见已知陷阱）
 - `FluentPage` 不使用 `layer.effect: OpacityMask`（GPU 离屏渲染阻塞页面切换）
+- **FluentPage 内容区的直接子项必须使用 `Layout.*` 属性而非 `anchors`**：FluentPage 的 `content` 注入到内部 `container`（ColumnLayout），因此子项受 Layout 管理器控制，使用 anchors 会触发 "Detected anchors on an item that is managed by a layout" 警告
+- **非 Layout 容器内的 Layout 管理器可用 anchors 定位自身**：如 `Frame { ColumnLayout { anchors.fill: parent } }` 是合法的，因为 Frame 不是 Layout 管理器
 - Python 与 QML 通信优先走信号槽
 
 ## 4. 测试策略
@@ -537,3 +539,42 @@ enter: Transition {
 **原则**：当属性值依赖异步计算结果（如 `ListView.contentHeight`）时，不要在 `enter` transition 中对该属性做动画——transition 的 `to` 值在启动时就被求值，此时异步数据可能尚未就绪。应使用 `Behavior` 让属性绑定自然驱动动画。
 
 **历史记录**：2026-04-16 发现并修复。
+
+### ⚠️ FluentPage 内容区子项不能使用 anchors
+
+**问题**：FluentPage 的 `content` 属性是内部 `container`（ColumnLayout）的 `data` alias。因此 FluentPage 的直接子项实际上是 ColumnLayout 的子项，受 Layout 管理器控制。
+
+**错误做法**：在 FluentPage 内容区使用 `anchors`：
+```qml
+// ❌ 错误：FluentPage 内容区子项使用 anchors
+FluentPage {
+    ColumnLayout {
+        anchors.fill: parent  // ← 触发 "Detected anchors on an item managed by a layout"
+        // ...
+    }
+}
+```
+
+**正确做法**：使用 `Layout.*` 附加属性：
+```qml
+// ✅ 正确：FluentPage 内容区子项使用 Layout 属性
+FluentPage {
+    ColumnLayout {
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        // ...
+    }
+}
+```
+
+**区分**：非 Layout 容器（Frame、Rectangle、Pane 等）内的 Layout 管理器可以用 `anchors.fill: parent` 定位自身，这是合法的：
+```qml
+// ✅ 正确：Frame 不是 Layout 管理器
+Frame {
+    ColumnLayout {
+        anchors.fill: parent  // ← 合法，parent 是 Frame
+    }
+}
+```
+
+**历史记录**：2026-04-19 发现并修复。SettingsPage 的 ColumnLayout 使用 `anchors.fill: parent` 导致运行时警告。
