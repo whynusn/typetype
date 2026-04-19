@@ -8,10 +8,7 @@ FluentPage {
 
     ColumnLayout {
         Layout.fillWidth: true
-<<<<<<< Updated upstream
-=======
         Layout.fillHeight: true
->>>>>>> Stashed changes
         spacing: 4
 
         Text {
