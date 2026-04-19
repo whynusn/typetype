@@ -69,6 +69,9 @@ Page {
             y: headerContainer.height + 18
             x: (parent.width - width) / 2
             width: Math.min(fluentPage.width - fluentPage.horizontalPadding * 2, fluentPage.wrapperWidth)  // 24 + 24 的边距
+=======
+            width: Math.min(fluentPage.width - fluentPage.horizontalPadding * 2, fluentPage.wrapperWidth)
+>>>>>>> Stashed changes
             spacing: 14
         }
     }
