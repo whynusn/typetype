@@ -105,7 +105,7 @@ Pane {
         }
 
         Button {
-            id: suffle
+            id: shuffle
             width: 130
             height: 36
             anchors.verticalCenter: parent.verticalCenter
@@ -117,7 +117,7 @@ Pane {
 
         // Spacer to push leaderboard button to the right
         Item {
-            width: parent.width - rowLayout.implicitWidth
+            width: Math.max(0, parent.width - rowLayout.implicitWidth)
         }
 
         // 排行榜切换按钮
