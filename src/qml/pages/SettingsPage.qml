@@ -6,8 +6,40 @@ import RinUI
 FluentPage {
     title: qsTr("设置")
 
-    Text {
-        typography: Typography.Body
-        text: qsTr("设置页面正在建设中…")
+    ColumnLayout {
+        anchors.fill: parent
+        spacing: 4
+
+        Text {
+            typography: Typography.Subtitle
+            text: qsTr("外观")
+            Layout.bottomMargin: 8
+        }
+
+        SettingCard {
+            Layout.fillWidth: true
+            title: qsTr("主题模式")
+            icon.name: "ic_fluent_dark_theme_20_regular"
+            description: qsTr("在亮色和暗色主题之间切换，或跟随系统设置")
+
+            ComboBox {
+                id: themeComboBox
+                model: [qsTr("亮色"), qsTr("暗色"), qsTr("跟随系统")]
+                currentIndex: {
+                    var themeName = Theme.getTheme()
+                    if (themeName === "Light") return 0
+                    if (themeName === "Dark") return 1
+                    if (themeName === "Auto") return 2
+                    return 0
+                }
+                onCurrentIndexChanged: {
+                    var modes = ["Light", "Dark", "Auto"]
+                    var selected = modes[currentIndex]
+                    if (Theme.getTheme() !== selected) {
+                        Theme.setTheme(selected)
+                    }
+                }
+            }
+        }
     }
 }
