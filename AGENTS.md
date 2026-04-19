@@ -327,6 +327,8 @@ bridge = Bridge(
 - UI 不执行耗时任务，耗时逻辑走 `workers`
 - RinUI `ContextMenu` 的 `height` 动画必须用 `Behavior on height`，不能在 `enter` transition 中动画（原因见已知陷阱）
 - `FluentPage` 不使用 `layer.effect: OpacityMask`（GPU 离屏渲染阻塞页面切换）
+- **FluentPage 内容区的直接子项必须使用 `Layout.*` 属性而非 `anchors`**：FluentPage 的 `content` 注入到内部 `container`（ColumnLayout），因此子项受 Layout 管理器控制，使用 anchors 会触发 "Detected anchors on an item that is managed by a layout" 警告
+- **非 Layout 容器内的 Layout 管理器可用 anchors 定位自身**：如 `Frame { ColumnLayout { anchors.fill: parent } }` 是合法的，因为 Frame 不是 Layout 管理器
 - Python 与 QML 通信优先走信号槽
 
 ## 4. 测试策略

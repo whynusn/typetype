@@ -8,8 +8,8 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from .config import (
     DEFAULT_CONFIG,
+    AppUIConfig,
     BackdropEffect,
-    RinConfig,
     is_win10,
     is_win11,
     is_windows,
@@ -101,7 +101,7 @@ class ThemeManager(QObject):
         清理资源并停止主题监听。
         """
         if self.listener:
-            RinConfig.save_config()
+            AppUIConfig.save_config()
             print("Save config.")
             self.listener.stop()
             self.listener.wait()  # 等待线程结束
@@ -129,7 +129,7 @@ class ThemeManager(QObject):
         self.is_darkdetect_supported = check_darkdetect_support()
 
         try:
-            self.current_theme = RinConfig["theme"]["current_theme"]
+            self.current_theme = AppUIConfig["theme"]["current_theme"]
         except Exception as e:
             print(f"Failed to load config because of {e}, using default config")
 
@@ -184,7 +184,7 @@ class ThemeManager(QObject):
             elif is_win10() and effect_type == BackdropEffect.Acrylic.value:
                 self._apply_win10_effect(effect_type, hwnd)
 
-        RinConfig["backdrop_effect"] = effect_type
+        AppUIConfig["backdrop_effect"] = effect_type
         # print(
         #     f"Applied \"{effect_type.strip().capitalize()}\" effect with "
         #     f"{platform.system() + '11' if is_win11() else '10'}"
@@ -196,7 +196,7 @@ class ThemeManager(QObject):
         应用 Windows 10 背景效果
         :param effect_type: str, 背景效果类型（acrylic, tabbed(actually blur)
         """
-        backdrop_color = RinConfig["win10_feat"][
+        backdrop_color = AppUIConfig["win10_feat"][
             "backdrop_dark" if self.is_dark_theme() else "backdrop_light"
         ]
 
@@ -255,9 +255,9 @@ class ThemeManager(QObject):
                 )
             elif (
                 is_win10()
-                and RinConfig["backdrop_effect"] == BackdropEffect.Acrylic.value
+                and AppUIConfig["backdrop_effect"] == BackdropEffect.Acrylic.value
             ):
-                self._apply_win10_effect(RinConfig["backdrop_effect"], hwnd)
+                self._apply_win10_effect(AppUIConfig["backdrop_effect"], hwnd)
             else:
                 print(f"Cannot apply backdrop on {platform.system()}")
 
@@ -284,7 +284,7 @@ class ThemeManager(QObject):
         if self.current_theme != theme:
             print(f"Switching to '{theme}' theme")
             self.current_theme = theme
-            RinConfig["theme"]["current_theme"] = theme
+            AppUIConfig["theme"]["current_theme"] = theme
             self._update_window_theme()
             self.themeChanged.emit(self._actual_theme())
 
@@ -300,15 +300,15 @@ class ThemeManager(QObject):
     @Slot(result=str)
     def get_backdrop_effect(self):
         """获取当前背景效果"""
-        return RinConfig["backdrop_effect"]
+        return AppUIConfig["backdrop_effect"]
 
     @Slot(str)
     def set_theme_color(self, color):
         """设置当前主题颜色"""
-        RinConfig["theme_color"] = color
-        RinConfig.save_config()
+        AppUIConfig["theme_color"] = color
+        AppUIConfig.save_config()
 
     @Slot(result=str)
     def get_theme_color(self):
         """获取当前主题颜色"""
-        return RinConfig["theme_color"]
+        return AppUIConfig["theme_color"]

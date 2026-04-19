@@ -2,6 +2,17 @@
   "base_url": "http://127.0.0.1:8080",
   "default_text_source_key": "builtin_demo",
   "api_timeout": 20.0,
+  "ui": {
+    "theme": {
+      "current_theme": "Auto"
+    },
+    "win10_feat": {
+      "backdrop_light": 2801795071,
+      "backdrop_dark": 2785017856
+    },
+    "theme_color": "#605ed2",
+    "backdrop_effect": "none"
+  },
   "text_sources": {
     "builtin_demo": {
       "label": "本地示例",
