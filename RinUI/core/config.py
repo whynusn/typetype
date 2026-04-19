@@ -39,7 +39,7 @@ def resource_path(relative_path):
 rinui_core_path = Path(__file__).resolve().parent  # RinUI/core 目录
 
 BASE_DIR = Path.cwd().resolve()
-PATH = BASE_DIR / "RinUI" / "config"
+APP_CONFIG_PATH = BASE_DIR / "config"
 RINUI_PATH = resource_path(
     rinui_core_path.parent.parent
 )  # 使用 resource_path 处理路径，等同 ../../
@@ -70,69 +70,85 @@ class BackdropEffect(Enum):
     Tabbed = "tabbed"
 
 
-class ConfigManager:
-    def __init__(self, path, filename):
-        """
-        Json Config Manager
-        :param path: json config file path
-        :param filename: json config file name (eg: rin_ui.json)
-        """
-        self.path = Path(path)
-        self.filename = filename
-        self.config = {}
-        self.full_path = self.path / self.filename
+class AppUIConfigManager:
+    """应用层 UI 配置管理器，读写 config/config.json 的 ui 字段。
 
-    def load_config(self, default_config):
-        if default_config is None:
-            print('Warning: "default_config" is None, use empty config instead.')
-            default_config = {}
-        # 如果文件存在，加载配置
-        if self.full_path.exists():
-            with self.full_path.open(encoding="utf-8") as f:
-                self.config = json.load(f)
-        else:
-            self.config = default_config  # 如果文件不存在，使用默认配置
+    所有运行时修改（主题切换等）都写入 config/config.json 的 ui 字段，
+    不修改 RinUI 文件夹内容。
+    """
+
+    def __init__(self, config_path: Path, defaults: dict):
+        self._config_path = Path(config_path)
+        self._defaults = defaults
+        self.config: dict = {}
+        self._full_app_config: dict = {}
+        self.load()
+
+    def load(self) -> None:
+        """加载配置：优先从 config/config.json 的 ui 字段读取，回退到默认值。"""
+        if self._config_path.exists():
+            try:
+                with self._config_path.open(encoding="utf-8") as f:
+                    self._full_app_config = json.load(f)
+                self.config = self._full_app_config.get("ui", {})
+            except Exception:
+                self.config = {}
+        # 用默认值补齐缺失的键
+        self._merge_defaults()
+        if not self.config:
             self.save_config()
 
-    def update_config(self):  # 更新配置
+    def _merge_defaults(self) -> None:
+        """用默认值填充缺失的配置键（不覆盖已有值）。"""
+        import copy
+
+        merged = copy.deepcopy(self._defaults)
+        self._deep_merge(merged, self.config)
+        self.config = merged
+
+    @staticmethod
+    def _deep_merge(base: dict, override: dict) -> None:
+        """将 override 中的值合并到 base，override 优先。"""
+        for key, value in override.items():
+            if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+                AppUIConfigManager._deep_merge(base[key], value)
+            else:
+                base[key] = value
+
+    def save_config(self) -> None:
+        """将 UI 配置写回 config/config.json 的 ui 字段。"""
         try:
-            with self.full_path.open(encoding="utf-8") as f:
-                self.config = json.load(f)
+            # 先读取完整的应用配置文件
+            if self._config_path.exists():
+                with self._config_path.open(encoding="utf-8") as f:
+                    self._full_app_config = json.load(f)
+            else:
+                self._full_app_config = {}
+
+            # 更新 ui 字段
+            self._full_app_config["ui"] = self.config
+
+            # 确保目录存在
+            self._config_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with self._config_path.open("w", encoding="utf-8") as f:
+                json.dump(self._full_app_config, f, ensure_ascii=False, indent=4)
         except Exception as e:
-            print(f"Error: {e}")
-            self.config = {}
+            print(f"Error saving UI config: {e}")
 
-    def upload_config(self, key=str or list, value=None):
-        if type(key) is str:
-            self.config[key] = value
-        elif type(key) is list:
-            for k in key:
-                self.config[k] = value
-        else:
-            msg = "Key must be str or list"
-            raise TypeError(msg) from None
-        self.save_config()
-
-    def save_config(self):
-        try:
-            # 确保配置文件目录存在
-            if not self.path.exists():
-                self.path.mkdir(parents=True)
-            with self.full_path.open("w", encoding="utf-8") as f:
-                json.dump(self.config, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            print(f"Error: {e}")
-
-    def __getitem__(self, key):
+    def __getitem__(self, key: str):
         return self.config.get(key)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value) -> None:
         self.config[key] = value
         self.save_config()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return json.dumps(self.config, ensure_ascii=False, indent=4)
 
 
-RinConfig = ConfigManager(path=PATH, filename="rin_ui.json")
-RinConfig.load_config(DEFAULT_CONFIG)  # 加载配置
+# 应用层 UI 配置（读写 config/config.json 的 ui 字段）
+AppUIConfig = AppUIConfigManager(
+    config_path=APP_CONFIG_PATH / "config.json",
+    defaults=DEFAULT_CONFIG,
+)
