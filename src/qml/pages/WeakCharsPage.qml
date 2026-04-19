@@ -58,10 +58,15 @@ Item {
                     textRole: "text"
                     valueRole: "value"
                     currentIndex: 0
-                    onActivated: {
-                        sortBy = sortModeModel.get(currentIndex).value;
-                        weightPanel.visible = (sortBy === "weighted");
-                        reloadWeakChars();
+                    onCurrentIndexChanged: {
+                        if (currentIndex >= 0 && currentIndex < sortModeModel.count) {
+                            var newSort = sortModeModel.get(currentIndex).value;
+                            if (newSort !== sortBy) {
+                                sortBy = newSort;
+                                weightPanel.visible = (sortBy === "weighted");
+                                reloadWeakChars();
+                            }
+                        }
                     }
                 }
                 Item { Layout.fillWidth: true }
@@ -81,7 +86,7 @@ Item {
                         Layout.preferredWidth: 56
                         model: ["0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1"]
                         currentIndex: 6
-                        onActivated: { sortWeights.error_rate = parseFloat(model[index]); reloadWeakChars(); }
+                        onCurrentIndexChanged: { sortWeights.error_rate = parseFloat(model[currentIndex]); reloadWeakChars(); }
                     }
                 }
                 // 出现频率 weight
@@ -93,7 +98,7 @@ Item {
                         Layout.preferredWidth: 56
                         model: ["0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1"]
                         currentIndex: 2
-                        onActivated: { sortWeights.total_count = parseFloat(model[index]); reloadWeakChars(); }
+                        onCurrentIndexChanged: { sortWeights.total_count = parseFloat(model[currentIndex]); reloadWeakChars(); }
                     }
                 }
                 // 错误次数 weight
@@ -105,7 +110,7 @@ Item {
                         Layout.preferredWidth: 56
                         model: ["0", "0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9", "1"]
                         currentIndex: 2
-                        onActivated: { sortWeights.error_count = parseFloat(model[index]); reloadWeakChars(); }
+                        onCurrentIndexChanged: { sortWeights.error_count = parseFloat(model[currentIndex]); reloadWeakChars(); }
                     }
                 }
             }
