@@ -65,19 +65,20 @@ class TextSourceGateway:
     def _load_from_local(
         self, path: str | None, label: str = "", source_key: str = ""
     ) -> tuple[bool, FetchedText | None, str]:
-        """从本地文件加载文本，并尝试回查服务端获取 text_id。
+        """从本地文件加载文本。
 
-        此方法在 Worker 后台线程中调用，同步 HTTP 请求不会阻塞 UI。
+        只读本地文件，立即返回。text_id 由调用方通过后台线程异步回查。
         """
         if not path:
             return False, None, "本地来源缺少路径"
         text = self._local_text_loader.load_text(path)
         if text is None:
             return False, None, "无法读取本地文件"
+        return True, FetchedText(content=text, text_id=None), ""
 
-        # 回查服务端获取 text_id
-        text_id = self._lookup_server_text_id(source_key, text)
-        return True, FetchedText(content=text, text_id=text_id), ""
+    def lookup_text_id(self, source_key: str, content: str) -> int | None:
+        """通过 clientTextId 异步回查服务端文本 ID（供后台线程调用）。"""
+        return self._lookup_server_text_id(source_key, content)
 
     def _lookup_server_text_id(self, source_key: str, content: str) -> int | None:
         """通过 clientTextId 回查服务端文本 ID。

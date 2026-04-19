@@ -327,11 +327,14 @@ Frame {
         }
     }
 
-    // 当 textId 变化时（如乱序清空），清除旧排行榜数据
+    // 当 textId 变化时，清除旧数据或加载新数据
     onTextIdChanged: {
         if (root.textId <= 0) {
             root.leaderboardRecords = [];
             root.currentTextInfo = null;
+        } else if (visible && appBridge) {
+            // 本地文本异步回查到 textId 后，面板已可见时自动加载排行榜
+            appBridge.loadLeaderboardByTextId(root.textId);
         }
     }
 
