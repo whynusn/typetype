@@ -32,6 +32,7 @@ class TextAdapter(QObject):
     textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
+    localTextIdResolved = Signal(int)  # 本地文本异步回查到的 text_id
 
     def __init__(
         self,
@@ -61,10 +62,32 @@ class TextAdapter(QObject):
         text = result.text if hasattr(result, "text") else str(result)
         text_id = result.text_id if hasattr(result, "text_id") else None
         source_label = result.source_label if hasattr(result, "source_label") else ""
+        source_key = result.source_key if hasattr(result, "source_key") else ""
         if not isinstance(text, str):
             self.textLoadFailed.emit("加载文本失败：返回数据格式错误")
             return
         self.textLoaded.emit(text, text_id if text_id is not None else -1, source_label)
+
+        # 本地文本 text_id=None 时，后台线程异步回查服务端 text_id
+        if text_id is None and source_key:
+            self._lookup_text_id_async(source_key, text)
+
+    def _lookup_text_id_async(self, source_key: str, content: str) -> None:
+        """后台线程异步回查服务端 text_id。"""
+        import threading
+
+        gateway = self._load_text_usecase._text_gateway
+
+        def _do_lookup():
+            try:
+                resolved_id = gateway.lookup_text_id(source_key, content)
+                if resolved_id is not None:
+                    # 从 daemon thread 直接发射信号，Qt 自动走 QueuedConnection 到主线程的 slot
+                    self.localTextIdResolved.emit(resolved_id)
+            except Exception:
+                pass
+
+        threading.Thread(target=_do_lookup, daemon=True).start()
 
     def _on_text_load_failed(self, message: str) -> None:
         self.textLoadFailed.emit(message)
@@ -77,9 +100,8 @@ class TextAdapter(QObject):
         """请求加载文本。
 
         所有加载均走后台 Worker，包括本地文件加载。
-        原因：本地文件加载内部会调用 _lookup_server_text_id 回查服务端，
-        这涉及同步 HTTP 请求，如果在主线程执行会阻塞 UI。
-        由于回查也在 Worker 内完成，text_id 随加载结果一起返回，无需额外异步回查。
+        本地文件加载只读文件立即返回（text_id=None），服务端 text_id 通过
+        后台线程异步回查，回查完成后自动 setTextId 使排行榜/成绩提交可用。
         """
         if self._text_loading:
             return

@@ -72,7 +72,7 @@ def test_load_from_plan_local_source_no_server_match():
 
 
 def test_load_from_plan_local_source_with_server_match():
-    """本地文本在服务端有匹配时 text_id 通过回查获得。"""
+    """本地文本 text_id 由 lookup_text_id 异步回查获得。"""
     gateway, runtime_config, text_provider, local_text_loader = _build_gateway(
         TextSourceEntry(
             key="builtin_demo", label="本地示例", local_path="/tmp/text.txt"
@@ -84,22 +84,19 @@ def test_load_from_plan_local_source_with_server_match():
         key="builtin_demo", label="本地示例", local_path="/tmp/text.txt"
     )
 
+    # load_from_plan 始终返回 text_id=None（不再同步回查）
     success, fetched, error = gateway.load_from_plan(source)
-
     assert success is True
     assert fetched is not None
     assert fetched.content == "你好，世界。"
-    assert fetched.text_id is None  # 无匹配，text_id 为 None
+    assert fetched.text_id is None
 
-    # 设置 mock 使回查成功
+    # lookup_text_id 单独调用，回查服务端 text_id
     text_provider.fetch_text_by_client_id.return_value = FetchedText(
         content="你好，世界。", text_id=752
     )
-
-    success, fetched, error = gateway.load_from_plan(source)
-
-    assert success is True
-    assert fetched.text_id == 752  # 有匹配时 text_id 由回查获得
+    resolved = gateway.lookup_text_id("builtin_demo", "你好，世界。")
+    assert resolved == 752
 
 
 def test_load_from_plan_uses_text_provider_for_remote_source():

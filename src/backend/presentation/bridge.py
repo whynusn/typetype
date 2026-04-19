@@ -110,6 +110,12 @@ class Bridge(QObject):
         self._text_adapter.textLoaded.connect(self.textLoaded.emit)
         self._text_adapter.textLoadFailed.connect(self.textLoadFailed.emit)
         self._text_adapter.textLoadingChanged.connect(self.textLoadingChanged.emit)
+        self._text_adapter.localTextIdResolved.connect(self._on_local_text_id_resolved)
+
+    def _on_local_text_id_resolved(self, text_id: int) -> None:
+        """本地文本异步回查到 text_id 后自动设置。"""
+        if text_id and text_id > 0:
+            self.setTextId(text_id)
 
     def _connect_auth_signals(self) -> None:
         self._auth_adapter.loggedinChanged.connect(self.loggedinChanged.emit)

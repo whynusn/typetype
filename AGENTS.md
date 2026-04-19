@@ -472,7 +472,11 @@ StackView.onActivating: {
 
 **问题**：本地文本加载曾在主线程同步执行，导致页面切换时 UI 严重阻塞。
 
-**原因**：本地文本来源（如 `builtin_demo`）有 `local_path`，`_load_from_local()` 除了读文件外，还调用 `_lookup_server_text_id()` 回查服务端获取 `text_id`。这个回查涉及同步 HTTP 请求（`fetch_text_by_client_id`），可能耗时数百毫秒。当默认来源是本地来源时，每次进入跟打页面都会在主线程触发这个同步网络请求，导致 UI 冻结。
+**原因**：本地文本来源（如 `builtin_demo`）有 `local_path`，旧代码的 `_load_from_local()` 除了读文件外，还调用 `_lookup_server_text_id()` 回查服务端获取 `text_id`。这个回查涉及同步 HTTP 请求（`fetch_text_by_client_id`），可能耗时数百毫秒。当默认来源是本地来源时，每次进入跟打页面都会在主线程触发这个同步网络请求，导致 UI 冻结。
+
+**当前架构（两阶段异步）：**
+1. **Worker 阶段**：`_load_from_local()` 只读文件，立即返回 text_id=None，载文即时显示
+2. **Daemon thread 阶段**：TextAdapter 检测到 text_id=None 时，启动后台 daemon thread 调用 `gateway.lookup_text_id()` 异步回查；成功后通过 `localTextIdResolved` 信号 → Bridge.setTextId() 更新排行榜
 
 **错误做法**：根据 `execution_mode` 决定走同步还是异步：
 ```python
@@ -493,7 +497,7 @@ def requestLoadText(self, source_key: str) -> None:
 
 **原则**：任何可能涉及 I/O（文件、网络）的操作都不应在主线程同步执行，即使"理论上"是快速的本地操作，也可能隐含网络调用（如回查服务端 ID）。
 
-**历史记录**：2026-04-16 发现并修复。默认来源 `builtin_demo` 是本地文件，`_lookup_server_text_id` 发起同步 HTTP 请求导致跟打页面切换时 UI 阻塞。
+**历史记录**：2026-04-16 发现并修复。默认来源 `builtin_demo` 是本地文件，`_lookup_server_text_id` 发起同步 HTTP 请求导致跟打页面切换时 UI 阻塞。2026-04-19 进一步拆分为两阶段：Worker 只读文件，HTTP 回查移至 daemon thread。修复 `QTimer.singleShot` lambda 在该 Qt 环境下静默失败的问题，改用 Qt 原生 QueuedConnection 跨线程信号。
 
 ### ⚠️ RinUI ContextMenu 的 height 不能用 enter transition 动画驱动
 
