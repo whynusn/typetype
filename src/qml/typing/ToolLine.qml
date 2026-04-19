@@ -16,6 +16,7 @@ Pane {
     signal requestLoadTextFromClipboard // 定义从剪贴板载文信号
     signal requestRetype
     signal requestToggleLeaderboard
+    signal requestShuffle
 
     // 将 JS 数组转换为 ListModel，使 RinUI ContextMenu 能正确按 textRole 读取
     ListModel {
@@ -103,8 +104,21 @@ Pane {
             }
         }
 
+        Button {
+            id: suffle
+            width: 130
+            height: 36
+            anchors.verticalCenter: parent.verticalCenter
+            text: "乱序[F4]"
+            onClicked: {
+                root.requestShuffle();
+            }
+        }
+
         // Spacer to push leaderboard button to the right
-        Item { width: parent.width - rowLayout.implicitWidth }
+        Item {
+            width: parent.width - rowLayout.implicitWidth
+        }
 
         // 排行榜切换按钮
         Button {

@@ -15,73 +15,82 @@ Frame {
 
     signal closeRequested
 
-    ColumnLayout {
-        anchors.fill: parent
-        spacing: 0
+    // Header — 固定在顶部，不受下方 ColumnLayout 影响
+    Rectangle {
+        id: headerBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 36
+        color: Theme.currentTheme.colors.subtleColor
 
-        // Header
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 36
-            color: Theme.currentTheme.colors.subtleColor
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 10
+            anchors.rightMargin: 6
+            spacing: 6
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.leftMargin: 10
-                anchors.rightMargin: 6
-                spacing: 6
+            IconWidget {
+                Layout.preferredWidth: 16
+                Layout.preferredHeight: 16
+                Layout.alignment: Qt.AlignVCenter
+                icon: "ic_fluent_trophy_20_filled"
+                color: Theme.currentTheme.colors.primaryColor
+            }
 
-                IconWidget {
-                    Layout.preferredWidth: 16
-                    Layout.preferredHeight: 16
-                    Layout.alignment: Qt.AlignVCenter
-                    icon: "ic_fluent_trophy_20_filled"
-                    color: Theme.currentTheme.colors.primaryColor
-                }
+            Text {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                typography: Typography.BodyStrong
+                font.pixelSize: 13
+                text: currentTextInfo ? currentTextInfo.title : qsTr("排行榜")
+                elide: Text.ElideRight
+            }
 
-                Text {
-                    Layout.fillWidth: true
-                    Layout.alignment: Qt.AlignVCenter
-                    typography: Typography.BodyStrong
-                    font.pixelSize: 13
-                    text: currentTextInfo ? currentTextInfo.title : qsTr("排行榜")
-                    elide: Text.ElideRight
-                }
-
-                Button {
-                    Layout.preferredWidth: 24
-                    Layout.preferredHeight: 24
-                    flat: true
-                    enabled: appBridge ? !appBridge.leaderboardLoading : true
-                    onClicked: {
-                        if (appBridge && root.textId > 0) {
-                            appBridge.loadLeaderboardByTextId(root.textId);
-                        }
-                    }
-                    contentItem: IconWidget {
-                        icon: "ic_fluent_arrow_sync_20_regular"
-                        size: 12
-                        color: Theme.currentTheme.colors.textSecondaryColor
+            Button {
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
+                flat: true
+                enabled: appBridge ? !appBridge.leaderboardLoading : true
+                onClicked: {
+                    if (appBridge && root.textId > 0) {
+                        appBridge.loadLeaderboardByTextId(root.textId);
                     }
                 }
-
-                Button {
-                    Layout.preferredWidth: 24
-                    Layout.preferredHeight: 24
-                    text: "✕"
-                    flat: true
-                    font.pixelSize: 11
-                    onClicked: root.closeRequested()
+                contentItem: IconWidget {
+                    icon: "ic_fluent_arrow_sync_20_regular"
+                    size: 12
+                    color: Theme.currentTheme.colors.textSecondaryColor
                 }
             }
-        }
 
-        // Separator
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Theme.currentTheme.colors.cardBorderColor
+            Button {
+                Layout.preferredWidth: 24
+                Layout.preferredHeight: 24
+                text: "✕"
+                flat: true
+                font.pixelSize: 11
+                onClicked: root.closeRequested()
+            }
         }
+    }
+
+    // Separator under header
+    Rectangle {
+        id: headerSeparator
+        anchors.top: headerBar.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 1
+        color: Theme.currentTheme.colors.cardBorderColor
+    }
+
+    ColumnLayout {
+        anchors.top: headerSeparator.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        spacing: 0
 
         // My rank card (compact, visible when logged in and has data)
         Rectangle {
@@ -315,6 +324,14 @@ Frame {
     onVisibleChanged: {
         if (visible && root.textId > 0 && appBridge) {
             appBridge.loadLeaderboardByTextId(root.textId);
+        }
+    }
+
+    // 当 textId 变化时（如乱序清空），清除旧排行榜数据
+    onTextIdChanged: {
+        if (root.textId <= 0) {
+            root.leaderboardRecords = [];
+            root.currentTextInfo = null;
         }
     }
 

@@ -46,6 +46,13 @@ Item {
             handleRetypeRequest();
             event.accepted = true;
         }
+
+        // --- F4 按键响应 ---
+        if (event.key === Qt.Key_F4) {
+            if (appBridge)
+                appBridge.requestShuffle();
+            event.accepted = true;
+        }
     }
 
     //======================================
@@ -123,6 +130,10 @@ Item {
         target: toolLine
         enabled: typingPage.StackView.status === StackView.Active
 
+        function onRequestShuffle() {
+            appBridge.requestShuffle();
+        }
+
         function onRequestLoadText(sourceKey) {
             appBridge.requestLoadText(sourceKey);
         }
@@ -165,7 +176,9 @@ Item {
 
     StackView.onActivated: {
         if (appBridge) {
-            Qt.callLater(function() { appBridge.requestLoadText(appBridge.defaultTextSourceKey); });
+            Qt.callLater(function () {
+                appBridge.requestLoadText(appBridge.defaultTextSourceKey);
+            });
         }
     }
 
@@ -251,7 +264,10 @@ Item {
                 onCloseRequested: showLeaderboard = false
 
                 Behavior on Layout.preferredWidth {
-                    NumberAnimation { duration: 200; easing.type: Easing.OutQuad }
+                    NumberAnimation {
+                        duration: 200
+                        easing.type: Easing.OutQuad
+                    }
                 }
             }
         }
