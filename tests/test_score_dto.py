@@ -48,13 +48,15 @@ class TestScoreSummaryDTO:
 
         dto = ScoreSummaryDTO.from_score_data(score)
 
-        assert len(dto.items) == 6
+        assert len(dto.items) == 7
         assert dto.items[0].label == "速度"
         assert dto.items[0].unit == "字/分"
         assert dto.items[4].label == "准确率"
         assert dto.items[4].unit == "%"
         assert dto.items[5].label == "回改"
         assert dto.items[5].unit == "次"
+        assert dto.items[6].label == "退格"
+        assert dto.items[6].unit == "次"
 
     def test_to_plain_text(self):
         """应输出纯文本格式摘要"""

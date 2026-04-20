@@ -67,6 +67,12 @@ class ScoreSummaryDTO:
                     unit="次",
                     value_format="d",
                 ),
+                ScoreSummaryItemDTO(
+                    label="退格",
+                    value=score_data.backspace_count,
+                    unit="次",
+                    value_format="d",
+                ),
             ]
         )
 
