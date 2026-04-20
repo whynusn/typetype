@@ -15,7 +15,7 @@ class ScoreSummaryItemDTO:
     """成绩摘要项 DTO。"""
 
     label: str
-    value: float
+    value: float | int
     unit: str
     value_format: str
 

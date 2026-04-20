@@ -143,6 +143,25 @@ class TestBridgeSpecialPlatform:
         bridge.on_key_received(65, "kbd0")
         assert typing_adapter.score_data.key_stroke_count == 0
 
+    def test_backspace_key_accumulates_backspace_and_key_stroke(self):
+        """退格键（keyCode=14）应同时累积退格次数和击键数"""
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        listener = DummyListener()
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            key_listener=cast(GlobalKeyListener, listener),
+        )
+        typing_adapter.handleStartStatus(True)
+        bridge.setLowerPaneFocused(True)
+        bridge.on_key_received(14, "kbd0")
+        assert typing_adapter.score_data.backspace_count == 1
+        assert typing_adapter.score_data.key_stroke_count == 1
+
     def test_request_load_text_locks_typing_until_text_ready(self):
         typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
             self._create_mock_services()

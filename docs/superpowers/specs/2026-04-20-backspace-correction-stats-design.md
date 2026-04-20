@@ -4,16 +4,16 @@
 
 新增两个打字统计指标：
 - **回改**：用户删除字符的次数（选中多个字符并一键删除算 1 次）
-- **退格**：用户按下退格键的次数（仅 Wayland + evdev 可用）
+- **退格**：用户按下退格键的次数（Wayland 通过 evdev 精确检测，非 Wayland 通过 QML 检测但受 IME preedit 限制可能不完整）
 
 ## 平台差异
 
 | 指标 | Wayland (evdev) | 非 Wayland |
 |------|----------------|------------|
 | 回改 | QML textChanged | QML textChanged |
-| 退格 | evdev KEY_BACKSPACE 检测 | 不可用（和码长/击键同属平台限制） |
+| 退格 | evdev KEY_BACKSPACE 检测（精确） | QML Keys.onPressed 检测（受 IME preedit 限制） |
 
-**非 Wayland 不统计退格**：在 fcitx5 等 IME 的 preedit 阶段，QML `onTextChanged` 不触发（preedit 退格只影响 `preeditText`，不影响主 `text`）。与码长/击键一样，退格需要物理按键级别数据。
+**非 Wayland 退格统计**：通过 QML `Keys.onPressed` + `!isSpecialPlatform` 守卫实现，与码长/击键逻辑一致。在 fcitx5 等 IME 的 preedit 阶段，退格操作只影响 `preeditText` 而不触发 `Keys.onPressed`，因此统计可能不完整。Wayland 下两路互斥（evdev 路径在先，QML 路径由 `isSpecialPlatform` 守卫跳过），不会重复计数。
 
 ## 改动链路
 

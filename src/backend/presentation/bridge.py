@@ -16,6 +16,9 @@ from PySide6.QtQuick import QQuickTextDocument
 
 from ..utils.logger import log_info
 
+# evdev 键码常量（Linux input event codes）
+EVDEV_KEY_BACKSPACE = 14
+
 if TYPE_CHECKING:
     from ..integration.global_key_listener import GlobalKeyListener
     from .adapters.auth_adapter import AuthAdapter
@@ -169,8 +172,7 @@ class Bridge(QObject):
 
     def on_key_received(self, keyCode: int, deviceName: str) -> None:
         if self._lower_pane_focused:
-            # evdev KEY_BACKSPACE = 14
-            if keyCode == 14:
+            if keyCode == EVDEV_KEY_BACKSPACE:
                 self._typing_adapter.handleBackspace()
             self._typing_adapter.handlePressed()
 
