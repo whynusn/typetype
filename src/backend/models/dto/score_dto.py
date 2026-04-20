@@ -61,6 +61,12 @@ class ScoreSummaryDTO:
                     unit="%",
                     value_format=".1f",
                 ),
+                ScoreSummaryItemDTO(
+                    label="回改",
+                    value=score_data.correction_count,
+                    unit="次",
+                    value_format="d",
+                ),
             ]
         )
 
@@ -91,6 +97,8 @@ class HistoryRecordDTO:
     key_stroke: float
     code_length: float
     wrong_num: int
+    backspace_count: int
+    correction_count: int
     char_num: int
     time: float
     date: str
@@ -103,6 +111,8 @@ class HistoryRecordDTO:
             key_stroke=round(score_data.keyStroke, 2),
             code_length=round(score_data.codeLength, 2),
             wrong_num=score_data.wrong_char_count,
+            backspace_count=score_data.backspace_count,
+            correction_count=score_data.correction_count,
             char_num=score_data.char_count,
             time=round(score_data.time, 2),
             date=score_data.date,
@@ -115,6 +125,8 @@ class HistoryRecordDTO:
             "keyStroke": self.key_stroke,
             "codeLength": self.code_length,
             "wrongNum": self.wrong_num,
+            "backspaceCount": self.backspace_count,
+            "correctionCount": self.correction_count,
             "charNum": self.char_num,
             "time": self.time,
             "date": self.date,

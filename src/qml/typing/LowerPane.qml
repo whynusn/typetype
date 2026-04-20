@@ -50,6 +50,12 @@ Pane {
 
             readOnly: appBridge ? appBridge.textReadOnly : true
 
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Backspace && appBridge && !appBridge.isSpecialPlatform) {
+                    appBridge.accumulateBackspace();
+                }
+            }
+
             onActiveFocusChanged: {
                 root.lowerPaneFocusChanged(activeFocus);
             }
@@ -125,6 +131,9 @@ Pane {
                     //==============================================
                     if (growLength) {
                         appBridge.handleCommittedText(committedText, growLength);
+                        if (growLength < 0) {
+                            appBridge.accumulateCorrection();
+                        }
                     }
                     //==============================================
                 }

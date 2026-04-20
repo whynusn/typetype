@@ -11,6 +11,8 @@
 | `codeLength` | `float` | 码长（击/字） |
 | `charNum` | `str` | 已打字数（显示用） |
 | `wrongNum` | `int` | 错误字数 |
+| `backspace` | `int` | 退格键按下次数 |
+| `correction` | `int` | 回改次数 |
 | `totalTime` | `float` | 总用时（秒） |
 | `textReadOnly` | `bool` | 是否只读（未载文时禁止打字） |
 | `textLoading` | `bool` | 文本加载中 |
@@ -55,6 +57,8 @@
 | `cursorPosChanged` | `(int pos)` | 光标位置变化 |
 | `specialPlatformConfirmed` | `(bool confirmed)` | 特殊平台确认 |
 | `textIdChanged` | 无 | textId 变化 |
+| `backspaceChanged` | 无 | 退格次数变化 |
+| `correctionChanged` | 无 | 回改次数变化 |
 
 ## Slots（QML 可调用的方法）
 
@@ -62,6 +66,8 @@
 |------|------|------|
 | `handlePinyin` | `(str s)` | 处理拼音输入 |
 | `handlePressed` | 无 | 处理按键事件 |
+| `accumulateCorrection` | 无 | 累积回改次数（QML 文本删除时调用） |
+| `accumulateBackspace` | 无 | 累积退格次数（QML 退格键按下时调用） |
 | `setLowerPaneFocused` | `(bool focused)` | 设置输入区焦点状态 |
 | `handleCommittedText` | `(str s, int growLength)` | 处理提交的文本 |
 | `handleLoadedText` | `(QQuickTextDocument doc)` | 处理已加载的文本文档 |
