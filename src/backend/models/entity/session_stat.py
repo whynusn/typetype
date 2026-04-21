@@ -24,6 +24,8 @@ class SessionStat:
     key_stroke_count: int = 0
     char_count: int = 0
     wrong_char_count: int = 0
+    backspace_count: int = 0
+    correction_count: int = 0
     date: str = ""
 
     def __post_init__(self):
@@ -35,6 +37,10 @@ class SessionStat:
             self.char_count = 0
         if self.wrong_char_count < 0:
             self.wrong_char_count = 0
+        if self.backspace_count < 0:
+            self.backspace_count = 0
+        if self.correction_count < 0:
+            self.correction_count = 0
         if not self.date:
             self.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 

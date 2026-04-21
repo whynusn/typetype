@@ -108,7 +108,9 @@ FluentPage {
                     textRole: "label"
                     valueRole: "key"
                     onCurrentIndexChanged: {
-                        var key = currentValue;
+                        // 使用 model.get() 取值，避免 currentValue 绑定时序问题
+                        var key = (currentIndex >= 0 && currentIndex < sourceListModel.count)
+                            ? sourceListModel.get(currentIndex).key : "";
                         if (key && appBridge) {
                             selectedTextId = -1;
                             selectedTextTitle = "";
@@ -787,7 +789,9 @@ FluentPage {
                 onClicked: {
                     if (appBridge) {
                         // 刷新当前选中来源的文本列表，不重置 ComboBox
-                        var key = sourceComboBox.currentValue;
+                        var idx = sourceComboBox.currentIndex;
+                        var key = (idx >= 0 && idx < sourceListModel.count)
+                            ? sourceListModel.get(idx).key : "";
                         if (key) {
                             textListModel.clear();
                             selectedTextId = -1;
@@ -838,10 +842,7 @@ FluentPage {
 
         function onCatalogLoaded(catalog) {
             syncSourceOptions(catalog);
-            // 自动加载第一个来源的文本列表
-            if (catalog && catalog.length > 0) {
-                appBridge.loadTextList(catalog[0].key);
-            }
+            // syncSourceOptions 设 currentIndex=0 会自动触发 loadTextList，无需显式调用
         }
 
         function onCatalogLoadFailed(message) {

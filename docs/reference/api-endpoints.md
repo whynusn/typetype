@@ -3,47 +3,65 @@
 > 后端项目：`typetype-server`（Java Spring Boot）
 > 基础 URL：由 `RuntimeConfig.base_url` 配置，默认 `http://127.0.0.1:8080`
 
-## 认证
+## 认证（AuthController: `/api/v1/auth`）
 
-| 方法 | 端点 | 说明 | Auth |
-|------|------|------|------|
-| POST | `/api/v1/auth/login` | 登录，返回 JWT | ❌ |
-| POST | `/api/v1/auth/register` | 注册 | ❌ |
-| POST | `/api/v1/auth/refresh` | 刷新 token | ✅ |
-| GET | `/api/v1/auth/validate` | 校验 token | ✅ |
+| 方法 | 端点 | 客户端调用 | Auth |
+|------|------|-----------|------|
+| POST | `/api/v1/auth/login` | ✅ `ApiClientAuthProvider` | ❌ |
+| POST | `/api/v1/auth/register` | ✅ `ApiClientAuthProvider` | ❌ |
+| POST | `/api/v1/auth/refresh` | ✅ `ApiClientAuthProvider` | ✅ |
+| POST | `/api/v1/auth/logout` | ❌ | ✅ |
 
-## 文本
+## 用户（UserController: `/api/v1/users`）
 
-| 方法 | 端点 | 说明 | Auth |
-|------|------|------|------|
-| GET | `/api/v1/texts/catalog` | 获取所有 active 来源 | ❌ |
-| GET | `/api/v1/texts/latest/{sourceKey}` | 获取来源最新文本 | ❌ |
-| GET | `/api/v1/texts/{textId}/leaderboard` | 按 textId 查排行榜 | ❌ |
-| GET | `/api/v1/texts/{textId}/best` | 当前用户最佳成绩 | ✅ |
-| GET | `/api/v1/texts/by-source/{sourceKey}` | 列出来源下所有文本摘要 | ❌ |
-| POST | `/api/v1/texts/upload` | 上传文本 | ✅ |
+| 方法 | 端点 | 客户端调用 | Auth |
+|------|------|-----------|------|
+| GET | `/api/v1/users/me` | ✅ `ApiClientAuthProvider`（token 校验） | ✅ |
+| GET | `/api/v1/users/{id}` | ❌ | ✅ |
 
-## 成绩
+## 文本（TextController: `/api/v1/texts`）
 
-| 方法 | 端点 | 说明 | Auth |
-|------|------|------|------|
-| POST | `/api/v1/scores` | 提交成绩（需 textId > 0） | ✅ |
+| 方法 | 端点 | 客户端调用 | Auth |
+|------|------|-----------|------|
+| GET | `/api/v1/texts/catalog` | ✅ `RemoteTextProvider` / `LeaderboardFetcher` | ❌ |
+| GET | `/api/v1/texts/latest/{sourceKey}` | ✅ `RemoteTextProvider` / `LeaderboardFetcher` | ❌ |
+| GET | `/api/v1/texts/{id}` | ✅ `LeaderboardFetcher` | ❌ |
+| GET | `/api/v1/texts/source/{sourceKey}` | ❌ | ❌ |
+| GET | `/api/v1/texts/by-source/{sourceKey}` | ✅ `LeaderboardFetcher` | ❌ |
+| GET | `/api/v1/texts/by-client-text-id/{clientTextId}` | ✅ `RemoteTextProvider` | ❌ |
+| POST | `/api/v1/texts/upload` | ✅ `TextUploader` | ✅ |
 
-## 客户端对应关系
+## 成绩（ScoreController: `/api/v1`）
 
-| 客户端组件 | 调用的端点 |
-|-----------|-----------|
-| `RemoteTextProvider` | `/api/v1/texts/latest/{sourceKey}`, `/api/v1/texts/catalog` |
-| `ApiClientAuthProvider` | `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/refresh`, `/api/v1/auth/validate` |
-| `ApiClientScoreSubmitter` | `/api/v1/scores` |
-| `LeaderboardFetcher` | `/api/v1/texts/{textId}/leaderboard`, `/api/v1/texts/by-source/{sourceKey}` |
-| `TextUploader` | `/api/v1/texts/upload` |
+| 方法 | 端点 | 客户端调用 | Auth |
+|------|------|-----------|------|
+| POST | `/api/v1/scores` | ✅ `ApiClientScoreSubmitter` | ✅ |
+| GET | `/api/v1/scores/history` | ❌ | ✅ |
+| GET | `/api/v1/texts/{textId}/scores` | ❌ | ❌ |
+| GET | `/api/v1/texts/{textId}/leaderboard` | ✅ `LeaderboardFetcher` | ❌ |
+| GET | `/api/v1/texts/{textId}/best` | ❌ | ✅ |
+
+## 排行榜（特殊端点）
+
+| 方法 | 端点 | 客户端调用 | Auth |
+|------|------|-----------|------|
+| GET | `/api/v1/texts/{textId}/leaderboard` | ✅ `LeaderboardFetcher` | ❌ |
 
 ## 认证方式
 
 所有 `Auth=✅` 的端点需要 HTTP Header：
 ```
-Authorization: Bearer <access_token>
+Authorization: Bearer ***
 ```
 
 Token 由 `SecureStorage.get_jwt("current_user")` 获取，通过 `_get_jwt_token` 函数注入各组件。
+
+## 客户端组件 → 端点映射
+
+| 客户端组件 | 调用的端点 |
+|-----------|-----------|
+| `ApiClientAuthProvider` | `/api/v1/auth/login`, `/api/v1/auth/register`, `/api/v1/auth/refresh`, `/api/v1/users/me` |
+| `ApiClientScoreSubmitter` | `/api/v1/scores` |
+| `RemoteTextProvider` | `/api/v1/texts/catalog`, `/api/v1/texts/latest/{sourceKey}`, `/api/v1/texts/by-client-text-id/{clientTextId}` |
+| `LeaderboardFetcher` | `/api/v1/texts/catalog`, `/api/v1/texts/latest/{sourceKey}`, `/api/v1/texts/{id}`, `/api/v1/texts/by-source/{sourceKey}`, `/api/v1/texts/{textId}/leaderboard` |
+| `TextUploader` | `/api/v1/texts/upload` |

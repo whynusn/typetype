@@ -40,6 +40,8 @@ class TypingAdapter(QObject):
     typingEnded = Signal()
     readOnlyChanged = Signal()
     historyRecordUpdated = Signal(dict)
+    backspaceChanged = Signal()
+    correctionChanged = Signal()
 
     def __init__(
         self,
@@ -177,6 +179,16 @@ class TypingAdapter(QObject):
             self.keyStrokeChanged.emit()
             self.codeLengthChanged.emit()
 
+    def handleBackspace(self) -> None:
+        if self._typing_service.state.is_started:
+            self._typing_service.accumulate_backspace()
+            self.backspaceChanged.emit()
+
+    def handleCorrection(self) -> None:
+        if self._typing_service.state.is_started:
+            self._typing_service.accumulate_correction()
+            self.correctionChanged.emit()
+
     def handleCommittedText(self, s: str, grow_length: int) -> None:
         char_updates, is_completed = self._typing_service.handle_committed_text(
             s, grow_length
@@ -277,6 +289,14 @@ class TypingAdapter(QObject):
     @property
     def wrong_num(self) -> int:
         return self._typing_service.wrong_num
+
+    @property
+    def backspace_count(self) -> int:
+        return self._typing_service.backspace_count
+
+    @property
+    def correction_count(self) -> int:
+        return self._typing_service.correction_count
 
     @property
     def char_num(self) -> str:

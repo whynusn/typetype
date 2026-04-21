@@ -16,6 +16,9 @@ from PySide6.QtQuick import QQuickTextDocument
 
 from ..utils.logger import log_info
 
+# evdev 键码常量（Linux input event codes）
+EVDEV_KEY_BACKSPACE = 14
+
 if TYPE_CHECKING:
     from ..integration.global_key_listener import GlobalKeyListener
     from .adapters.auth_adapter import AuthAdapter
@@ -48,6 +51,8 @@ class Bridge(QObject):
     loginStateInitialized = Signal(bool)
     cursorPosChanged = Signal(int)
     specialPlatformConfirmed = Signal(bool)
+    backspaceChanged = Signal()
+    correctionChanged = Signal()
     weakestCharsLoaded = Signal(list)
     leaderboardLoaded = Signal(dict)
     leaderboardLoadFailed = Signal(str)
@@ -105,6 +110,8 @@ class Bridge(QObject):
         self._typing_adapter.historyRecordUpdated.connect(
             self.historyRecordUpdated.emit
         )
+        self._typing_adapter.backspaceChanged.connect(self.backspaceChanged.emit)
+        self._typing_adapter.correctionChanged.connect(self.correctionChanged.emit)
 
     def _connect_text_load_signals(self) -> None:
         self._text_adapter.textLoaded.connect(self.textLoaded.emit)
@@ -165,6 +172,8 @@ class Bridge(QObject):
 
     def on_key_received(self, keyCode: int, deviceName: str) -> None:
         if self._lower_pane_focused:
+            if keyCode == EVDEV_KEY_BACKSPACE:
+                self._typing_adapter.handleBackspace()
             self._typing_adapter.handlePressed()
 
     # 属性代理
@@ -217,6 +226,14 @@ class Bridge(QObject):
     def wrongNum(self) -> int:
         return self._typing_adapter.wrong_num
 
+    @Property(int, notify=backspaceChanged)
+    def backspace(self) -> int:
+        return self._typing_adapter.backspace_count
+
+    @Property(int, notify=correctionChanged)
+    def correction(self) -> int:
+        return self._typing_adapter.correction_count
+
     @Property(str, notify=charNumChanged)
     def charNum(self) -> str:
         return self._typing_adapter.char_num
@@ -262,6 +279,14 @@ class Bridge(QObject):
     @Slot()
     def handlePressed(self) -> None:
         self._typing_adapter.handlePressed()
+
+    @Slot()
+    def accumulateCorrection(self) -> None:
+        self._typing_adapter.handleCorrection()
+
+    @Slot()
+    def accumulateBackspace(self) -> None:
+        self._typing_adapter.handleBackspace()
 
     @Slot(bool)
     def setLowerPaneFocused(self, focused: bool) -> None:

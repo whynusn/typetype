@@ -9,9 +9,13 @@
 | `typeSpeed` | `float` | 当前速度（字/分） |
 | `keyStroke` | `float` | 击键（击/秒） |
 | `codeLength` | `float` | 码长（击/字） |
-| `charNum` | `int` | 已打字数 |
+| `charNum` | `str` | 已打字数（显示用） |
+| `wrongNum` | `int` | 错误字数 |
+| `backspace` | `int` | 退格键按下次数 |
+| `correction` | `int` | 回改次数 |
 | `totalTime` | `float` | 总用时（秒） |
-| `readOnly` | `bool` | 是否只读（未载文时禁止打字） |
+| `textReadOnly` | `bool` | 是否只读（未载文时禁止打字） |
+| `textLoading` | `bool` | 文本加载中 |
 | `loggedin` | `bool` | 登录状态 |
 | `currentUser` | `str` | 当前用户名 |
 | `userNickname` | `str` | 当前用户昵称 |
@@ -22,6 +26,8 @@
 | `uploadTextSourceOptions` | `list[dict]` | 上传目标来源选项 |
 | `leaderboardLoading` | `bool` | 排行榜加载中 |
 | `textListLoading` | `bool` | 文本列表加载中 |
+| `rankingSourceOptions` | `list[dict]` | 排行榜来源选项列表 |
+| `isSpecialPlatform` | `bool` | 是否特殊平台（需确认） |
 
 ## Signals（QML 通过 Connections 监听）
 
@@ -49,7 +55,10 @@
 | `uploadResult` | `(bool success, str message, int textId)` | 上传结果 |
 | `tokenExpired` | 无 | token 过期 |
 | `cursorPosChanged` | `(int pos)` | 光标位置变化 |
+| `specialPlatformConfirmed` | `(bool confirmed)` | 特殊平台确认 |
 | `textIdChanged` | 无 | textId 变化 |
+| `backspaceChanged` | 无 | 退格次数变化 |
+| `correctionChanged` | 无 | 回改次数变化 |
 
 ## Slots（QML 可调用的方法）
 
@@ -57,6 +66,8 @@
 |------|------|------|
 | `handlePinyin` | `(str s)` | 处理拼音输入 |
 | `handlePressed` | 无 | 处理按键事件 |
+| `accumulateCorrection` | 无 | 累积回改次数（QML 文本删除时调用） |
+| `accumulateBackspace` | 无 | 累积退格次数（QML 退格键按下时调用） |
 | `setLowerPaneFocused` | `(bool focused)` | 设置输入区焦点状态 |
 | `handleCommittedText` | `(str s, int growLength)` | 处理提交的文本 |
 | `handleLoadedText` | `(QQuickTextDocument doc)` | 处理已加载的文本文档 |
@@ -76,10 +87,11 @@
 | `register` | `(str username, str password, str nickname)` | 注册 |
 | `logout` | 无 | 登出 |
 | `checkTokenStatus` | 无 | 检查 token 状态 |
-| `loadWeakChars` | 无 | 加载薄弱字 |
+| `loadWeakChars` | `(int n=10, str sortMode="error_rate", dict weights=None)` | 加载薄弱字 |
 | `loadLeaderboard` | `(str sourceKey)` | 加载来源最新排行榜 |
 | `loadLeaderboardByTextId` | `(int textId)` | 按文本 ID 加载排行榜 |
 | `loadTextList` | `(str sourceKey)` | 加载来源下文本列表 |
 | `loadCatalog` | 无 | 加载来源目录 |
 | `refreshCatalog` | 无 | 强制刷新来源目录 |
+| `requestShuffle` | 无 | 乱序当前文本 |
 | `copyToClipboard` | `(str text)` | 复制文本到剪贴板 |
