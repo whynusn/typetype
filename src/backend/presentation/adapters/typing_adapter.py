@@ -156,6 +156,19 @@ class TypingAdapter(QObject):
         if changed:
             self.readOnlyChanged.emit()
 
+    def prepare_for_slice_load(self) -> None:
+        """为分片载文做准备：只停止和锁定，不清统计数据。
+
+        handleLoadedText() 会统一重置状态。
+        不调用 clear() 避免中间态导致 QML 着色异常。
+        """
+        self._second_timer.stop()
+        self._typing_service.stop()
+        self._typing_service.set_text_id(None)
+        changed = self._typing_service.set_read_only(True)
+        if changed:
+            self.readOnlyChanged.emit()
+
     def shuffle_and_prepare(self) -> tuple[str, str] | None:
         """乱序当前文本并准备加载。
 

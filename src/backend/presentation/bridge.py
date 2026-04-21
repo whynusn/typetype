@@ -566,8 +566,8 @@ class Bridge(QObject):
         # 设置片索引（注入到 historyRecordUpdated 的 record 中）
         self._typing_adapter.set_slice_index(idx)
 
-        # 准备载文（清状态、停计时、锁定输入）
-        self._typing_adapter.prepare_for_text_load()
+        # 准备载文（只停计时和锁定，不清统计数据）
+        self._typing_adapter.prepare_for_slice_load()
 
         # 清空 text_id（分片不提交成绩）
         self._text_id = 0
@@ -666,7 +666,7 @@ class Bridge(QObject):
         idx = self._current_slice + 1
         total = len(self._slices)
         self._typing_adapter.set_slice_index(idx)
-        self._typing_adapter.prepare_for_text_load()
+        self._typing_adapter.prepare_for_slice_load()
         self._text_id = 0
         self._typing_adapter.setTextId(None)
         self.textIdChanged.emit()
