@@ -85,10 +85,6 @@ Item {
         enabled: typingPage.StackView.status === StackView.Active
 
         function onTextLoaded(text, textId, sourceLabel) {
-            // 载文 Dialog 打开时，textLoaded 供 Dialog 预览，不应用到打字区
-            if (typingPage.sliceDialogOpen) {
-                return;
-            }
             applyLoadedText(text);
             if (appBridge && textId > 0) {
                 appBridge.setTextId(textId);
@@ -322,9 +318,6 @@ Item {
         textSourceOptions: appBridge ? appBridge.textSourceOptions : []
         defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
     }
-
-    // 载文 Dialog 打开时，阻止 textLoaded 应用到打字区（仅供 Dialog 预览）
-    property bool sliceDialogOpen: sliceConfigDialog.visible
 
     // 载文模式状态栏
     Rectangle {
