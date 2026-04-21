@@ -12,14 +12,14 @@ Dialog {
     standardButtons: Dialog.Cancel
     closePolicy: Popup.NoAutoClose
 
-    width: 480
-    height: 600
+    width: 500
+    height: 620
 
     // 供外部注入
     property var textSourceOptions: []
     property string defaultTextSourceKey: ""
 
-    // 来源列表 Model
+    // 来源列表 Model（从 catalog 加载）
     ListModel {
         id: sourceListModel
     }
@@ -29,56 +29,55 @@ Dialog {
         id: textListModel
     }
 
-    onTextSourceOptionsChanged: {
+    // 同步 catalog 到 sourceListModel（参考 TextLeaderboardPage）
+    function syncSourceOptions(catalog) {
         sourceListModel.clear();
-        for (var i = 0; i < textSourceOptions.length; i++) {
-            sourceListModel.append(textSourceOptions[i]);
-        }
-        if (defaultTextSourceKey) {
-            for (var j = 0; j < sourceListModel.count; j++) {
-                if (sourceListModel.get(j).key === defaultTextSourceKey) {
-                    sourceComboBox.currentIndex = j;
-                    break;
-                }
+        if (catalog) {
+            for (var i = 0; i < catalog.length; i++) {
+                sourceListModel.append(catalog[i]);
+            }
+            if (catalog.length > 0) {
+                sourceComboBox.currentIndex = 0;
             }
         }
     }
 
-    // 当前选中的文本内容
-    property string selectedTextContent: ""
-
-    // 加载文本列表
-    function loadTextListForSource(sourceKey) {
-        textListModel.clear();
-        selectedTextContent = "";
+    // Dialog 打开时加载 catalog
+    onOpened: {
         if (appBridge) {
-            appBridge.loadTextList(sourceKey);
+            appBridge.loadCatalog();
         }
+        contentTextArea.text = "";
+        textListModel.clear();
     }
 
-    // 监听 textListLoaded 信号
+    // 监听 catalog 和 textList 信号
     Connections {
         target: appBridge
         enabled: root.visible
 
+        function onCatalogLoaded(catalog) {
+            root.syncSourceOptions(catalog);
+        }
+
         function onTextListLoaded(texts) {
             textListModel.clear();
             for (var i = 0; i < texts.length; i++) {
-                textListModel.append(texts[i]);
-            }
-            // 自动选中第一项
-            if (texts.length > 0 && appBridge) {
-                appBridge.requestLoadText(
-                    sourceComboBox.currentValue || root.defaultTextSourceKey
-                );
+                var t = texts[i];
+                // 服务端字段映射：charCount → char_count，过滤 undefined
+                textListModel.append({
+                    id: t.id || 0,
+                    title: t.title || "",
+                    char_count: t.charCount || 0,
+                    clientTextId: t.clientTextId || 0
+                });
             }
         }
 
         function onTextLoaded(text, textId, sourceLabel) {
-            // 载文 Dialog 打开时收到 textLoaded → 填充 TextArea
+            // Dialog 打开时收到 textLoaded → 填充 TextArea 预览
             if (root.visible) {
                 contentTextArea.text = text;
-                selectedTextContent = text;
             }
         }
     }
@@ -97,7 +96,7 @@ Dialog {
         var fullText = fullTextCheck.checked;
 
         if (fullText) {
-            sliceSize = text.length; // 不分片
+            sliceSize = text.length;
         }
 
         var retypeEnabled = retypeCheck.checked;
@@ -123,280 +122,316 @@ Dialog {
     }
 
     // ============================
-    // 布局
+    // 布局（可滚动）
     // ============================
-    contentItem: ColumnLayout {
-        spacing: 12
+    contentItem: ScrollView {
+        id: scrollView
+        clip: true
+        ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-        // --- 文本内容输入 ---
-        Frame {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.minimumHeight: 120
-            radius: 6
-            hoverable: false
+        ColumnLayout {
+            width: scrollView.width
+            spacing: 12
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 4
+            // --- 文本内容输入 ---
+            Frame {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                radius: 6
+                hoverable: false
 
-                Text {
-                    text: "文本内容"
-                    font.bold: true
-                    font.pixelSize: 13
-                    color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                }
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 4
 
-                ScrollView {
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    Text {
+                        text: "文本内容"
+                        font.bold: true
+                        font.pixelSize: 13
+                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                    }
 
-                    TextArea {
-                        id: contentTextArea
-                        placeholderText: "在此输入或粘贴文本，也可从下方文本库选择..."
-                        wrapMode: TextArea.Wrap
-                        selectByMouse: true
-                        font.pixelSize: 14
+                    ScrollView {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+
+                        TextArea {
+                            id: contentTextArea
+                            placeholderText: "在此输入或粘贴文本，也可从下方文本库选择..."
+                            wrapMode: TextArea.Wrap
+                            selectByMouse: true
+                            font.pixelSize: 14
+                        }
                     }
                 }
             }
-        }
 
-        // --- 从文本库选择 ---
-        Frame {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 180
-            radius: 6
-            hoverable: false
+            // --- 从文本库选择 ---
+            Frame {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 200
+                radius: 6
+                hoverable: false
 
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 4
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 4
 
-                Text {
-                    text: "从文本库选择"
-                    font.bold: true
-                    font.pixelSize: 13
-                    color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                }
+                    Text {
+                        text: "从文本库选择"
+                        font.bold: true
+                        font.pixelSize: 13
+                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                    }
 
-                ComboBox {
-                    id: sourceComboBox
-                    Layout.fillWidth: true
-                    model: sourceListModel
-                    textRole: "label"
-                    valueRole: "key"
-                    onCurrentIndexChanged: {
-                        var idx = currentIndex;
-                        var key = (idx >= 0 && idx < sourceListModel.count)
-                            ? sourceListModel.get(idx).key : "";
-                        if (key) {
-                            root.loadTextListForSource(key);
+                    ComboBox {
+                        id: sourceComboBox
+                        Layout.fillWidth: true
+                        model: sourceListModel
+                        textRole: "label"
+                        valueRole: "key"
+                        onCurrentIndexChanged: {
+                            // 参考 TextLeaderboardPage：用 model.get() 取 key
+                            var key = (currentIndex >= 0 && currentIndex < sourceListModel.count)
+                                ? sourceListModel.get(currentIndex).key : "";
+                            if (key && appBridge) {
+                                textListModel.clear();
+                                appBridge.loadTextList(key);
+                            }
                         }
                     }
-                }
 
-                ListView {
-                    id: textListView
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: textListModel
+                    ListView {
+                        id: textListView
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        clip: true
+                        model: textListModel
+                        currentIndex: -1
 
-                    delegate: Rectangle {
-                        width: textListView.width
-                        height: 32
-                        color: textListView.currentIndex === index
-                            ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor + "30" : "#3399ff30")
-                            : "transparent"
-                        radius: 4
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 8
-                            anchors.rightMargin: 8
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: model.title || ""
-                                elide: Text.ElideRight
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                            }
-
-                            Text {
-                                text: (model.charCount || 0) + "字"
-                                font.pixelSize: 12
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                            }
+                        ScrollBar.vertical: ScrollBar {
+                            policy: ScrollBar.AsNeeded
                         }
 
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                textListView.currentIndex = index;
-                                // 点击文本列表项 → 预览加载文本到 TextArea
-                                if (appBridge) {
-                                    var sourceKey = sourceListModel.get(sourceComboBox.currentIndex).key;
-                                    appBridge.requestLoadTextForPreview(sourceKey);
+                        Text {
+                            anchors.centerIn: parent
+                            text: "暂无文本"
+                            font.pixelSize: 12
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#999"
+                            visible: textListModel.count === 0
+                        }
+
+                        delegate: Rectangle {
+                            width: textListView.width
+                            height: 36
+                            radius: 4
+                            property bool isSelected: textListView.currentIndex === index
+                            color: isSelected
+                                ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor + "20" : "#3399ff20")
+                                : "transparent"
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                spacing: 4
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: model.title || ""
+                                    elide: Text.ElideRight
+                                    font.pixelSize: 13
+                                    font.weight: isSelected ? Font.DemiBold : Font.Normal
+                                    color: isSelected
+                                        ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#3399ff")
+                                        : (Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333")
+                                }
+
+                                Text {
+                                    text: {
+                                        var chars = model.char_count !== undefined ? model.char_count : "?";
+                                        return chars + "字";
+                                    }
+                                    font.pixelSize: 11
+                                    color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    textListView.currentIndex = index;
+                                    // 点击文本 → 通过预览加载到 TextArea
+                                    if (appBridge) {
+                                        var srcKey = (sourceComboBox.currentIndex >= 0
+                                            && sourceComboBox.currentIndex < sourceListModel.count)
+                                            ? sourceListModel.get(sourceComboBox.currentIndex).key : "";
+                                        if (srcKey) {
+                                            appBridge.requestLoadTextForPreview(srcKey);
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // --- 分片设置 ---
-        Frame {
-            Layout.fillWidth: true
-            implicitHeight: sliceSettingsColumn.implicitHeight + 24
-            radius: 6
-            hoverable: false
+            // --- 分片设置 ---
+            Frame {
+                Layout.fillWidth: true
+                implicitHeight: sliceSettingsColumn.implicitHeight + 24
+                radius: 6
+                hoverable: false
 
-            ColumnLayout {
-                id: sliceSettingsColumn
-                anchors.fill: parent
-                spacing: 8
-
-                Text {
-                    text: "分片设置"
-                    font.bold: true
-                    font.pixelSize: 13
-                    color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: 12
-
-                    Text {
-                        text: "每片字数:"
-                        font.pixelSize: 13
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                    }
-
-                    ComboBox {
-                        id: sliceSizeCombo
-                        model: ["20", "30", "50", "80", "100", "150", "200"]
-                        currentIndex: 1  // 默认 30
-                        enabled: !fullTextCheck.checked
-                    }
-
-                    CheckBox {
-                        id: fullTextCheck
-                        text: "全文载入（不分片）"
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-            }
-        }
-
-        // --- 重打条件 ---
-        Frame {
-            Layout.fillWidth: true
-            implicitHeight: retypeColumn.implicitHeight + 24
-            radius: 6
-            hoverable: false
-
-            ColumnLayout {
-                id: retypeColumn
-                anchors.fill: parent
-                spacing: 8
-
-                RowLayout {
-                    Layout.fillWidth: true
-
-                    CheckBox {
-                        id: retypeCheck
-                        text: "开启重打条件"
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
+                ColumnLayout {
+                    id: sliceSettingsColumn
+                    anchors.fill: parent
                     spacing: 8
-                    visible: retypeCheck.checked
 
                     Text {
-                        text: "当"
+                        text: "分片设置"
+                        font.bold: true
                         font.pixelSize: 13
                         color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                     }
 
-                    ComboBox {
-                        id: metricCombo
-                        model: ListModel {
-                            ListElement { text: "速度(CPM)"; value: "speed" }
-                            ListElement { text: "准确率(%)"; value: "accuracy" }
-                            ListElement { text: "错字数"; value: "wrong_char_count" }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 12
+
+                        Text {
+                            text: "每片字数:"
+                            font.pixelSize: 13
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                         }
-                        textRole: "text"
-                        valueRole: "value"
-                    }
 
-                    ComboBox {
-                        id: operatorCombo
-                        model: ListModel {
-                            ListElement { text: "<"; value: "lt" }
-                            ListElement { text: "≤"; value: "le" }
-                            ListElement { text: "≥"; value: "ge" }
-                            ListElement { text: ">"; value: "gt" }
+                        ComboBox {
+                            id: sliceSizeCombo
+                            model: ["20", "30", "50", "80", "100", "150", "200"]
+                            currentIndex: 1
+                            enabled: !fullTextCheck.checked
                         }
-                        textRole: "text"
-                        valueRole: "value"
-                    }
 
-                    ComboBox {
-                        id: thresholdCombo
-                        model: {
-                            if (metricCombo.currentIndex === 0) {
-                                // 速度: 20-300
-                                var m = [];
-                                for (var i = 20; i <= 300; i += 10) m.push(String(i));
-                                return m;
-                            } else if (metricCombo.currentIndex === 1) {
-                                // 准确率: 50-100
-                                var m2 = [];
-                                for (var j = 50; j <= 100; j += 5) m2.push(String(j));
-                                return m2;
-                            } else {
-                                // 错字数: 0-50
-                                var m3 = [];
-                                for (var k = 0; k <= 50; k += 1) m3.push(String(k));
-                                return m3;
-                            }
+                        CheckBox {
+                            id: fullTextCheck
+                            text: "全文载入（不分片）"
                         }
-                        currentIndex: metricCombo.currentIndex === 0 ? 4 : (metricCombo.currentIndex === 1 ? 6 : 0)
+
+                        Item { Layout.fillWidth: true }
                     }
-
-                    Text {
-                        text: "时重打"
-                        font.pixelSize: 13
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                    }
-
-                    Item { Layout.fillWidth: true }
-                }
-
-                CheckBox {
-                    id: shuffleCheck
-                    text: "重打时乱序"
-                    visible: retypeCheck.checked
                 }
             }
-        }
 
-        // --- 开始按钮 ---
-        Button {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 36
-            text: "开始载文"
-            enabled: contentTextArea.text.trim().length > 0
-            onClicked: root.startSliceTyping()
+            // --- 重打条件 ---
+            Frame {
+                Layout.fillWidth: true
+                implicitHeight: retypeColumn.implicitHeight + 24
+                radius: 6
+                hoverable: false
+
+                ColumnLayout {
+                    id: retypeColumn
+                    anchors.fill: parent
+                    spacing: 8
+
+                    RowLayout {
+                        Layout.fillWidth: true
+
+                        CheckBox {
+                            id: retypeCheck
+                            text: "开启重打条件"
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        visible: retypeCheck.checked
+
+                        Text {
+                            text: "当"
+                            font.pixelSize: 13
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                        }
+
+                        ComboBox {
+                            id: metricCombo
+                            model: ListModel {
+                                ListElement { text: "速度(CPM)"; value: "speed" }
+                                ListElement { text: "准确率(%)"; value: "accuracy" }
+                                ListElement { text: "错字数"; value: "wrong_char_count" }
+                            }
+                            textRole: "text"
+                            valueRole: "value"
+                        }
+
+                        ComboBox {
+                            id: operatorCombo
+                            model: ListModel {
+                                ListElement { text: "<"; value: "lt" }
+                                ListElement { text: "≤"; value: "le" }
+                                ListElement { text: "≥"; value: "ge" }
+                                ListElement { text: ">"; value: "gt" }
+                            }
+                            textRole: "text"
+                            valueRole: "value"
+                        }
+
+                        ComboBox {
+                            id: thresholdCombo
+                            model: {
+                                if (metricCombo.currentIndex === 0) {
+                                    var m = [];
+                                    for (var i = 20; i <= 300; i += 10) m.push(String(i));
+                                    return m;
+                                } else if (metricCombo.currentIndex === 1) {
+                                    var m2 = [];
+                                    for (var j = 50; j <= 100; j += 5) m2.push(String(j));
+                                    return m2;
+                                } else {
+                                    var m3 = [];
+                                    for (var k = 0; k <= 50; k += 1) m3.push(String(k));
+                                    return m3;
+                                }
+                            }
+                            currentIndex: metricCombo.currentIndex === 0 ? 4 : (metricCombo.currentIndex === 1 ? 6 : 0)
+                        }
+
+                        Text {
+                            text: "时重打"
+                            font.pixelSize: 13
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                        }
+
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    CheckBox {
+                        id: shuffleCheck
+                        text: "重打时乱序"
+                        visible: retypeCheck.checked
+                    }
+                }
+            }
+
+            // --- 开始按钮 ---
+            Button {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                text: "开始载文"
+                enabled: contentTextArea.text.trim().length > 0
+                onClicked: root.startSliceTyping()
+            }
+
+            // 底部间距
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 4
+            }
         }
     }
 }
