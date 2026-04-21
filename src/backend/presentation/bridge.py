@@ -313,8 +313,9 @@ class Bridge(QObject):
         self._typing_adapter.handleCommittedText(s, growLength)
 
     @Slot(QQuickTextDocument)
-    def handleLoadedText(self, quickDoc: QQuickTextDocument) -> None:
-        self._typing_adapter.handleLoadedText(quickDoc)
+    @Slot(QQuickTextDocument, str)
+    def handleLoadedText(self, quickDoc: QQuickTextDocument, text: str = "") -> None:
+        self._typing_adapter.handleLoadedText(quickDoc, text)
 
     @Slot(str)
     def setTextTitle(self, title: str) -> None:

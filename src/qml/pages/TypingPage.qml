@@ -24,7 +24,7 @@ Item {
         // 先改lowerPaneText，再改upperPaneText (用于正确计算wrongNum)
         lowerPane.text = "";
         upperPane.text = plainText;
-        appBridge.handleLoadedText(upperPane.textDocument);
+        appBridge.handleLoadedText(upperPane.textDocument, plainText);
     }
 
     function handleKeyPressEvent(event) {

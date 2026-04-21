@@ -52,7 +52,7 @@ Pane {
             id: textArea
             readOnly: true
             wrapMode: TextArea.Wrap
-            textFormat: TextEdit.RichText   // 支持富文本格式
+            textFormat: TextEdit.PlainText   // PlainText 避免 RichText 转换导致 toPlainText() 异常
             font.pixelSize: 14
             text: "你好，世界。"
             color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textColor : "black"

@@ -16,7 +16,7 @@
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtQuick import QQuickTextDocument
 
@@ -252,9 +252,15 @@ class TypingAdapter(QObject):
         if is_completed:
             self._check_typing_complete()
 
-    def handleLoadedText(self, quick_doc: QQuickTextDocument) -> None:
+    @Slot(QQuickTextDocument)
+    @Slot(QQuickTextDocument, str)
+    def handleLoadedText(self, quick_doc: QQuickTextDocument, text: str = "") -> None:
         if quick_doc:
             self._rich_doc = quick_doc.textDocument()
+            # 使用 QML 传来的 text 直接 setPlainText，避免 RichText 模式下
+            # toPlainText() 可能返回空的问题
+            if text:
+                self._rich_doc.setPlainText(text)
             plain_doc = self._rich_doc.toPlainText()
             self._cursor = QTextCursor(self._rich_doc)
             self._typing_service.set_plain_doc(plain_doc)
