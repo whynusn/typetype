@@ -257,14 +257,14 @@ class TypingAdapter(QObject):
     def handleLoadedText(self, quick_doc: QQuickTextDocument, text: str = "") -> None:
         if quick_doc:
             self._rich_doc = quick_doc.textDocument()
-            # 使用 QML 传来的 text 直接 setPlainText，避免 RichText 模式下
-            # toPlainText() 可能返回空的问题
             if text:
                 self._rich_doc.setPlainText(text)
             plain_doc = self._rich_doc.toPlainText()
             self._cursor = QTextCursor(self._rich_doc)
-            self._typing_service.set_plain_doc(plain_doc)
+            # 先 set_total_chars（归零 char_count），再 set_plain_doc（设置文本）
+            # 避免 set_plain_doc 触发 onTextChanged 时 char_count 仍为旧值导致负位置
             self._typing_service.set_total_chars(len(plain_doc))
+            self._typing_service.set_plain_doc(plain_doc)
         self._typing_service.clear()
         self._typing_service.state.is_started = False
         self._emit_typing_signals()
