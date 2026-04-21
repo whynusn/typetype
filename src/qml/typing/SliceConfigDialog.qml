@@ -30,7 +30,7 @@ Dialog {
         id: textListModel
     }
 
-    // 缓存文本列表原始数据（含 content）
+    // 缓存文本列表原始数据（含 id）
     property var rawTextList: []
 
     // 同步 catalog 到 sourceListModel（参考 TextLeaderboardPage）
@@ -76,10 +76,16 @@ Dialog {
                     clientTextId: t.clientTextId || 0
                 });
             }
-            // 自动选中第一篇文本，填充到 TextArea
-            if (texts.length > 0 && texts[0].content) {
+            // 自动选中第一篇并获取内容
+            if (texts.length > 0 && texts[0].id) {
                 textListView.currentIndex = 0;
-                contentTextArea.text = texts[0].content;
+                appBridge.getTextContentById(texts[0].id);
+            }
+        }
+
+        function onTextContentLoaded(content, title) {
+            if (root.visible) {
+                contentTextArea.text = content;
             }
         }
     }
@@ -264,11 +270,11 @@ Dialog {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     textListView.currentIndex = index;
-                                    // 点击文本 → 从缓存的原始数据中取 content 填充 TextArea
+                                    // 点击文本 → 按 ID 获取完整内容
                                     if (index >= 0 && index < root.rawTextList.length) {
                                         var t = root.rawTextList[index];
-                                        if (t.content) {
-                                            contentTextArea.text = t.content;
+                                        if (t.id && appBridge) {
+                                            appBridge.getTextContentById(t.id);
                                         }
                                     }
                                 }

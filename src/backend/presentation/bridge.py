@@ -69,6 +69,7 @@ class Bridge(QObject):
     sliceModeChanged = Signal()
     sliceStatusChanged = Signal(str)
     allSlicesCompleted = Signal(str)  # 携带聚合成绩 HTML 消息
+    textContentLoaded = Signal(str, str)  # (content, title) - 按 ID 获取的文本内容
 
     def __init__(
         self,
@@ -433,6 +434,25 @@ class Bridge(QObject):
         不清状态、不停计时。文本内容通过 textLoaded 信号返回。
         """
         self._text_adapter.requestLoadText(source_key)
+
+    @Slot(int)
+    def getTextContentById(self, text_id: int) -> None:
+        """按文本 ID 异步获取完整内容。结果通过 textContentLoaded 信号返回。"""
+        if not self._leaderboard_adapter:
+            return
+        from ..workers.text_content_worker import TextContentWorker
+
+        gateway = self._leaderboard_adapter._leaderboard_gateway
+        worker = TextContentWorker(leaderboard_gateway=gateway, text_id=text_id)
+        worker.signals.succeeded.connect(self._on_text_content_loaded)
+        from PySide6.QtCore import QThreadPool
+
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_text_content_loaded(self, data: dict) -> None:
+        content = data.get("content", "")
+        title = data.get("title", "")
+        self.textContentLoaded.emit(content or "", title or "")
 
     @Slot()
     def loadCatalog(self) -> None:
