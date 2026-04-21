@@ -7,7 +7,8 @@ import "../components"
 Dialog {
     id: root
 
-    modal: true
+    modal: false
+    dim: false
     title: "载文设置"
     standardButtons: Dialog.Cancel
     closePolicy: Popup.NoAutoClose
