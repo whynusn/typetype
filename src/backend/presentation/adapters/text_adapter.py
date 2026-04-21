@@ -181,3 +181,7 @@ class TextAdapter(QObject):
             for source in self._runtime_config.text_source_config.sources.values()
             if not source.local_path  # 只保留没有 local_path 的服务端源
         ]
+
+    def get_base_url(self) -> str:
+        """获取当前 API 服务地址。"""
+        return self._runtime_config.base_url

@@ -20,6 +20,10 @@ class LeaderboardFetcher:
         self._base_url = base_url
         self._token_provider = token_provider
 
+    def update_base_url(self, new_base_url: str) -> None:
+        """更新 base_url。"""
+        self._base_url = new_base_url
+
     def _get_auth_headers(self) -> dict[str, str]:
         token = self._token_provider()
         if token:

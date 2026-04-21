@@ -1,6 +1,8 @@
 import pytest
 
-from src.backend.integration.sqlite_char_stats_repository import SqliteCharStatsRepository
+from src.backend.integration.sqlite_char_stats_repository import (
+    SqliteCharStatsRepository,
+)
 from src.backend.models.entity.char_stat import CharStat
 
 
@@ -11,15 +13,24 @@ def populated_repo(tmp_path):
     repo.init_db()
     test_data = [
         # (char, char_count, error_char_count, total_ms)
-        ("A", 100, 50, 10000.0),   # 50% error rate
+        ("A", 100, 50, 10000.0),  # 50% error rate
         ("B", 1000, 10, 50000.0),  # 1% error rate
-        ("C", 10, 10, 5000.0),     # 100% error rate
+        ("C", 10, 10, 5000.0),  # 100% error rate
         ("D", 500, 100, 30000.0),  # 20% error rate
-        ("E", 5, 1, 2000.0),       # 20% error rate
+        ("E", 5, 1, 2000.0),  # 20% error rate
     ]
     for char, cc, ecc, tms in test_data:
-        repo.save(CharStat(char=char, char_count=cc, error_char_count=ecc,
-                           total_ms=tms, min_ms=1.0, max_ms=100.0, last_seen="2026-01-01"))
+        repo.save(
+            CharStat(
+                char=char,
+                char_count=cc,
+                error_char_count=ecc,
+                total_ms=tms,
+                min_ms=1.0,
+                max_ms=100.0,
+                last_seen="2026-01-01",
+            )
+        )
     return repo
 
 
@@ -80,7 +91,11 @@ class TestSortByWeighted:
 
     def test_custom_weights(self, populated_repo):
         # Custom weights: favor error_count heavily
-        result = populated_repo.get_chars_by_sort("weighted", weights={"error_rate": 0.1, "total_count": 0.1, "error_count": 0.8}, n=10)
+        result = populated_repo.get_chars_by_sort(
+            "weighted",
+            weights={"error_rate": 0.1, "total_count": 0.1, "error_count": 0.8},
+            n=10,
+        )
         assert len(result) == 5
         # D has highest error_count (100), should rank high
         chars = [s.char for s in result]

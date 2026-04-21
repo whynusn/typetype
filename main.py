@@ -74,6 +74,25 @@ def _load_common_chars() -> list[str]:
         return []
 
 
+def _update_base_url(
+    runtime_config: RuntimeConfig,
+    text_provider: RemoteTextProvider,
+    auth_provider: ApiClientAuthProvider,
+    score_submitter: ApiClientScoreSubmitter,
+    text_uploader: TextUploader,
+    leaderboard_provider: LeaderboardFetcher,
+    new_base_url: str,
+) -> None:
+    """统一更新 base_url 到 RuntimeConfig 及所有依赖对象，并持久化。"""
+    runtime_config.update_base_url(new_base_url)
+    text_provider.update_base_url(runtime_config.base_url)
+    auth_provider.update_base_url(runtime_config.base_url)
+    score_submitter.update_base_url(runtime_config.base_url)
+    text_uploader.update_base_url(runtime_config.base_url)
+    leaderboard_provider.update_base_url(runtime_config.base_url)
+    log_info(f"[main] base_url 已更新为: {runtime_config.base_url}")
+
+
 def main():
     install_qt_message_handler()
     app = QGuiApplication(sys.argv)
@@ -213,6 +232,15 @@ def main():
         upload_text_adapter=upload_text_adapter,
         leaderboard_adapter=leaderboard_adapter,
         key_listener=key_listener,
+        base_url_update_callback=lambda new_url: _update_base_url(
+            runtime_config=runtime_config,
+            text_provider=text_provider,
+            auth_provider=auth_provider,
+            score_submitter=score_submitter,
+            text_uploader=text_uploader,
+            leaderboard_provider=leaderboard_provider,
+            new_base_url=new_url,
+        ),
     )
 
     bridge.initializeLoginState()

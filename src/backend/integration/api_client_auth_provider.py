@@ -21,6 +21,14 @@ class ApiClientAuthProvider:
         self._refresh_url = refresh_url
         self._register_url = register_url
 
+    def update_base_url(self, new_base_url: str) -> None:
+        """更新 base_url 及其派生的 API URL。"""
+        new_base_url = new_base_url.rstrip("/")
+        self._login_url = f"{new_base_url}/api/v1/auth/login"
+        self._validate_url = f"{new_base_url}/api/v1/users/me"
+        self._refresh_url = f"{new_base_url}/api/v1/auth/refresh"
+        self._register_url = f"{new_base_url}/api/v1/auth/register"
+
     def login(self, username: str, password: str) -> AuthResult:
         data = self._api_client.request(
             "POST",

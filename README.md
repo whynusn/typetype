@@ -61,6 +61,8 @@ uv sync
 uv run python main.py
 ```
 
+> **联网功能说明：** 排行榜、载文等联网功能依赖 [typetype-server](https://github.com/whynusn/typetype-server) 服务端，默认配置指向 `127.0.0.1:8080`。当前服务端还存在不少安全性问题，所以 IP 暂不便公开。想体验在线服务可以联系 `whynusn@qq.com`，或者参考服务端仓库自行本地部署后修改 `config/config.example.json` 中的 `base_url`。仅使用本地打字功能则无需服务端。
+
 ### Linux Wayland 权限
 
 全局键盘监听需要读取 `/dev/input/event*`，通常需要将用户加入 `input` 组：
@@ -218,6 +220,12 @@ Windows 建议追加：
 ## 相关搜索关键词
 
 > 中文打字练习, 跟打器, 码长统计, 击键统计, 打字速度测试, Wayland 打字工具, evdev 键盘监听, Linux 中文输入练习, Chinese typing practice, typing tutor, keystroke statistics, code length, typing speed test
+
+---
+
+## 致谢
+
+- [RinUI](https://github.com/RinLit-233-shiroko/Rin-UI) — Fluent Design 风格 QML 组件库（MIT License © 2025 RinLit）
 
 ---
 

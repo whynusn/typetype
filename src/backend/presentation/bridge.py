@@ -9,12 +9,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
 
 from ..utils.logger import log_info
+
+# evdev 键码常量（Linux input event codes）
+EVDEV_KEY_BACKSPACE = 14
 
 if TYPE_CHECKING:
     from ..integration.global_key_listener import GlobalKeyListener
@@ -48,6 +51,8 @@ class Bridge(QObject):
     loginStateInitialized = Signal(bool)
     cursorPosChanged = Signal(int)
     specialPlatformConfirmed = Signal(bool)
+    backspaceChanged = Signal()
+    correctionChanged = Signal()
     weakestCharsLoaded = Signal(list)
     leaderboardLoaded = Signal(dict)
     leaderboardLoadFailed = Signal(str)
@@ -60,6 +65,7 @@ class Bridge(QObject):
     uploadResult = Signal(bool, str, int)  # (success, message, server_text_id)
     tokenExpired = Signal()
     textIdChanged = Signal()
+    baseUrlChanged = Signal()
 
     def __init__(
         self,
@@ -70,6 +76,7 @@ class Bridge(QObject):
         upload_text_adapter: UploadTextAdapter | None = None,
         leaderboard_adapter: LeaderboardAdapter | None = None,
         key_listener: GlobalKeyListener | None = None,
+        base_url_update_callback: Callable[[str], None] | None = None,
     ):
         super().__init__()
         self._typing_adapter = typing_adapter
@@ -79,6 +86,7 @@ class Bridge(QObject):
         self._upload_text_adapter = upload_text_adapter
         self._leaderboard_adapter = leaderboard_adapter
         self._key_listener = key_listener
+        self._base_url_update_callback = base_url_update_callback
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
@@ -105,6 +113,8 @@ class Bridge(QObject):
         self._typing_adapter.historyRecordUpdated.connect(
             self.historyRecordUpdated.emit
         )
+        self._typing_adapter.backspaceChanged.connect(self.backspaceChanged.emit)
+        self._typing_adapter.correctionChanged.connect(self.correctionChanged.emit)
 
     def _connect_text_load_signals(self) -> None:
         self._text_adapter.textLoaded.connect(self.textLoaded.emit)
@@ -165,6 +175,8 @@ class Bridge(QObject):
 
     def on_key_received(self, keyCode: int, deviceName: str) -> None:
         if self._lower_pane_focused:
+            if keyCode == EVDEV_KEY_BACKSPACE:
+                self._typing_adapter.handleBackspace()
             self._typing_adapter.handlePressed()
 
     # 属性代理
@@ -217,6 +229,14 @@ class Bridge(QObject):
     def wrongNum(self) -> int:
         return self._typing_adapter.wrong_num
 
+    @Property(int, notify=backspaceChanged)
+    def backspace(self) -> int:
+        return self._typing_adapter.backspace_count
+
+    @Property(int, notify=correctionChanged)
+    def correction(self) -> int:
+        return self._typing_adapter.correction_count
+
     @Property(str, notify=charNumChanged)
     def charNum(self) -> str:
         return self._typing_adapter.char_num
@@ -253,6 +273,11 @@ class Bridge(QObject):
     def textId(self) -> int:
         return self._text_id
 
+    @Property(str, notify=baseUrlChanged)
+    def baseUrl(self) -> str:
+        """当前 API 服务地址。"""
+        return self._text_adapter.get_base_url()
+
     # Slot 入口
 
     @Slot(str)
@@ -262,6 +287,14 @@ class Bridge(QObject):
     @Slot()
     def handlePressed(self) -> None:
         self._typing_adapter.handlePressed()
+
+    @Slot()
+    def accumulateCorrection(self) -> None:
+        self._typing_adapter.handleCorrection()
+
+    @Slot()
+    def accumulateBackspace(self) -> None:
+        self._typing_adapter.handleBackspace()
 
     @Slot(bool)
     def setLowerPaneFocused(self, focused: bool) -> None:
@@ -424,3 +457,10 @@ class Bridge(QObject):
         clipboard = QGuiApplication.clipboard()
         if clipboard:
             clipboard.setText(text)
+
+    @Slot(str)
+    def setBaseUrl(self, new_base_url: str) -> None:
+        """更新 API 服务地址，持久化到配置文件，并同步更新所有依赖对象。"""
+        if self._base_url_update_callback:
+            self._base_url_update_callback(new_base_url)
+        self.baseUrlChanged.emit()

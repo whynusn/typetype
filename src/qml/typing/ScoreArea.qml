@@ -64,5 +64,17 @@ Pane {
             checked: true
             Layout.alignment: Qt.AlignVCenter
         }
+        PillButton {
+            id: correctionCount
+            text: "回改: " + (appBridge ? appBridge.correction : 0)
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
+        }
+        PillButton {
+            id: backspaceCount
+            text: "退格: " + (appBridge ? appBridge.backspace : 0)
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
+        }
     }
 }

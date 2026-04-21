@@ -24,6 +24,11 @@ class ApiClientScoreSubmitter:
         self._submit_url = submit_url
         self._token_provider = token_provider
 
+    def update_base_url(self, new_base_url: str) -> None:
+        """更新 base_url 及其派生的提交 URL。"""
+        new_base_url = new_base_url.rstrip("/")
+        self._submit_url = f"{new_base_url}/api/v1/scores"
+
     def submit(
         self,
         score_data: SessionStat,

@@ -42,6 +42,7 @@ class LeaderboardAdapter(QObject):
         self._loading = False
         self._text_list_loading = False
         self._catalog_cache: list | None = None
+        self._current_text_list_request: int = 0
 
     def _set_loading(self, loading: bool) -> None:
         if self._loading != loading:
@@ -156,28 +157,35 @@ class LeaderboardAdapter(QObject):
     def loadTextList(self, source_key: str) -> None:
         """加载来源下的文本列表。
 
-        Args:
-            source_key: 文本来源标识，如 "jisubei"
+        使用请求 ID 追踪，丢弃过期响应（解决快速切换来源时的竞态条件）。
         """
-        if self._text_list_loading:
-            return
+        self._current_text_list_request += 1
+        request_id = self._current_text_list_request
 
         self._set_text_list_loading(True)
         worker = TextListWorker(
             leaderboard_gateway=self._leaderboard_gateway,
             source_key=source_key,
         )
-        worker.signals.succeeded.connect(self._on_text_list_loaded)
-        worker.signals.failed.connect(self._on_text_list_failed)
+        worker.signals.succeeded.connect(
+            lambda data: self._on_text_list_loaded(data, request_id)
+        )
+        worker.signals.failed.connect(
+            lambda msg: self._on_text_list_failed(msg, request_id)
+        )
         self._thread_pool.start(worker)
 
-    def _on_text_list_loaded(self, data: dict[str, Any]) -> None:
-        """处理文本列表加载成功。"""
+    def _on_text_list_loaded(self, data: dict[str, Any], request_id: int) -> None:
+        """处理文本列表加载成功。丢弃过期请求的响应。"""
+        if request_id != self._current_text_list_request:
+            return
         self._set_text_list_loading(False)
         self.textListLoaded.emit(data.get("texts", []))
 
-    def _on_text_list_failed(self, message: str) -> None:
-        """处理文本列表加载失败。"""
+    def _on_text_list_failed(self, message: str, request_id: int) -> None:
+        """处理文本列表加载失败。丢弃过期请求的响应。"""
+        if request_id != self._current_text_list_request:
+            return
         self._set_text_list_loading(False)
         self.textListLoadFailed.emit(message)
 

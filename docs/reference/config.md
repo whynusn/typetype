@@ -15,7 +15,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `label` | `str` | ✅ | 显示名称 |
+| `label` | `str` | ❌ | 显示名称（默认取 key 值） |
 | `local_path` | `str` | ❌ | 本地文件路径（有则走本地加载，无则走远程 API） |
 | `has_ranking` | `bool` | ❌ | 是否参与排行榜（默认 false） |
 
@@ -45,6 +45,6 @@
 |------|------|------|
 | `default_text_source_key` | `str` | 默认来源 key |
 | `login_api_url` | `str` | 登录接口 URL |
-| `validate_api_url` | `str` | token 校验接口 URL |
+| `validate_api_url` | `str` | token 校验接口 URL（默认 `/api/v1/users/me`） |
 | `refresh_api_url` | `str` | token 刷新接口 URL |
 | `register_api_url` | `str` | 注册接口 URL |
