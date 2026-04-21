@@ -76,6 +76,11 @@ Dialog {
                     clientTextId: t.clientTextId || 0
                 });
             }
+            // 自动选中第一篇文本，填充到 TextArea
+            if (texts.length > 0 && texts[0].content) {
+                textListView.currentIndex = 0;
+                contentTextArea.text = texts[0].content;
+            }
         }
     }
 
