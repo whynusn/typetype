@@ -30,6 +30,9 @@ Dialog {
         id: textListModel
     }
 
+    // 缓存文本列表原始数据（含 content）
+    property var rawTextList: []
+
     // 同步 catalog 到 sourceListModel（参考 TextLeaderboardPage）
     function syncSourceOptions(catalog) {
         sourceListModel.clear();
@@ -63,22 +66,15 @@ Dialog {
 
         function onTextListLoaded(texts) {
             textListModel.clear();
+            root.rawTextList = texts;
             for (var i = 0; i < texts.length; i++) {
                 var t = texts[i];
-                // 服务端字段映射：charCount → char_count，过滤 undefined
                 textListModel.append({
                     id: t.id || 0,
                     title: t.title || "",
                     char_count: t.charCount || 0,
                     clientTextId: t.clientTextId || 0
                 });
-            }
-        }
-
-        function onTextLoaded(text, textId, sourceLabel) {
-            // Dialog 打开时收到 textLoaded → 填充 TextArea 预览
-            if (root.visible) {
-                contentTextArea.text = text;
             }
         }
     }
@@ -263,13 +259,11 @@ Dialog {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     textListView.currentIndex = index;
-                                    // 点击文本 → 通过预览加载到 TextArea
-                                    if (appBridge) {
-                                        var srcKey = (sourceComboBox.currentIndex >= 0
-                                            && sourceComboBox.currentIndex < sourceListModel.count)
-                                            ? sourceListModel.get(sourceComboBox.currentIndex).key : "";
-                                        if (srcKey) {
-                                            appBridge.requestLoadTextForPreview(srcKey);
+                                    // 点击文本 → 从缓存的原始数据中取 content 填充 TextArea
+                                    if (index >= 0 && index < root.rawTextList.length) {
+                                        var t = root.rawTextList[index];
+                                        if (t.content) {
+                                            contentTextArea.text = t.content;
                                         }
                                     }
                                 }
