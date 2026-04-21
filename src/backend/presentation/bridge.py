@@ -581,29 +581,16 @@ class Bridge(QObject):
     @Slot()
     def collectSliceResult(self) -> None:
         """收集当前片的 SessionStat 快照。"""
-        stat = self._typing_adapter.score_data
-        if not stat:
+        stats = self._typing_adapter.get_last_slice_stats()
+        if not stats:
             return
-        self._slice_stats.append(
-            {
-                "speed": stat.speed,
-                "keyStroke": stat.keyStroke,
-                "codeLength": stat.codeLength,
-                "accuracy": stat.accuracy,
-                "effectiveSpeed": stat.effectiveSpeed,
-                "wrong_char_count": stat.wrong_char_count,
-                "backspace_count": stat.backspace_count,
-                "correction_count": stat.correction_count,
-                "char_count": stat.char_count,
-                "time": stat.time,
-            }
-        )
+        self._slice_stats.append(stats)
 
         idx = self._current_slice + 1
         total = len(self._slices)
         status = (
             f"载文模式: 第 {idx}/{total} 片"
-            f"  |  上一片: {stat.speed:.0f}CPM {stat.accuracy:.1f}%"
+            f"  |  上一片: {stats['speed']:.0f}CPM {stats['accuracy']:.1f}%"
         )
         self.sliceStatusChanged.emit(status)
 

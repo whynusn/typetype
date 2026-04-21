@@ -74,6 +74,8 @@ class TypingAdapter(QObject):
 
         # 载文模式片索引（None = 非分片模式）
         self._slice_index: int | None = None
+        # 分片完成时的 score_data 快照（在 _check_typing_complete 中捕获）
+        self._last_slice_stats: dict | None = None
 
     def _match_color_format(self) -> None:
         self._no_fmt.setBackground(QColor("transparent"))
@@ -113,6 +115,22 @@ class TypingAdapter(QObject):
             if changed:
                 self.readOnlyChanged.emit()
             self._typing_service.flush_char_stats()
+
+            # 分片模式：在任何清理之前捕获 score_data 快照
+            if self._slice_index is not None:
+                s = self._typing_service.score_data
+                self._last_slice_stats = {
+                    "speed": s.speed,
+                    "keyStroke": s.keyStroke,
+                    "codeLength": s.codeLength,
+                    "accuracy": s.accuracy,
+                    "effectiveSpeed": s.effectiveSpeed,
+                    "wrong_char_count": s.wrong_char_count,
+                    "backspace_count": s.backspace_count,
+                    "correction_count": s.correction_count,
+                    "char_count": s.char_count,
+                    "time": s.time,
+                }
 
             # 异步提交成绩到服务器（后台线程，不阻塞 UI）
             self._submit_score_async()
@@ -157,13 +175,13 @@ class TypingAdapter(QObject):
             self.readOnlyChanged.emit()
 
     def prepare_for_slice_load(self) -> None:
-        """为分片载文做准备：只停止和锁定，不清统计数据。
+        """为分片载文做准备。
 
-        handleLoadedText() 会统一重置状态。
-        不调用 clear() 避免中间态导致 QML 着色异常。
+        与 prepare_for_text_load() 完全一致，确保 QML 事件处理时序与正常载文相同。
         """
         self._second_timer.stop()
         self._typing_service.stop()
+        self._typing_service.clear()
         self._typing_service.set_text_id(None)
         changed = self._typing_service.set_read_only(True)
         if changed:
@@ -332,3 +350,7 @@ class TypingAdapter(QObject):
     def set_slice_index(self, idx: int | None) -> None:
         """设置载文模式的片索引（None = 非分片模式）。"""
         self._slice_index = idx
+
+    def get_last_slice_stats(self) -> dict | None:
+        """获取最近一次分片完成时的 score_data 快照。"""
+        return self._last_slice_stats
