@@ -65,6 +65,10 @@ class Bridge(QObject):
     uploadResult = Signal(bool, str, int)  # (success, message, server_text_id)
     tokenExpired = Signal()
     textIdChanged = Signal()
+    # 载文模式信号
+    sliceModeChanged = Signal()
+    sliceStatusChanged = Signal(str)
+    allSlicesCompleted = Signal(str)  # 携带聚合成绩 HTML 消息
 
     def __init__(
         self,
@@ -87,6 +91,17 @@ class Bridge(QObject):
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
+
+        # 载文模式状态
+        self._slice_mode = False
+        self._slices: list[str] = []
+        self._current_slice = 0
+        self._retype_enabled = False
+        self._retype_metric = ""
+        self._retype_operator = ""
+        self._retype_threshold = 0.0
+        self._retype_shuffle = False
+        self._slice_stats: list[dict] = []
 
         self._connect_typing_signals()
         self._connect_text_load_signals()
@@ -410,6 +425,15 @@ class Bridge(QObject):
         if self._leaderboard_adapter:
             self._leaderboard_adapter.loadTextList(source_key)
 
+    @Slot(str)
+    def requestLoadTextForPreview(self, source_key: str) -> None:
+        """为载文 Dialog 预览加载文本（不触发打字流程）。
+
+        与 requestLoadText 不同，此方法不调用 prepare_for_text_load，
+        不清状态、不停计时。文本内容通过 textLoaded 信号返回。
+        """
+        self._text_adapter.requestLoadText(source_key)
+
     @Slot()
     def loadCatalog(self) -> None:
         """从服务端加载文本来源目录。"""
@@ -449,3 +473,229 @@ class Bridge(QObject):
         clipboard = QGuiApplication.clipboard()
         if clipboard:
             clipboard.setText(text)
+
+    # ==========================================
+    # 载文模式
+    # ==========================================
+
+    @Property(bool, notify=sliceModeChanged)
+    def sliceMode(self) -> bool:
+        return self._slice_mode
+
+    @Property(int, constant=True)
+    def totalSliceCount(self) -> int:
+        return len(self._slices)
+
+    @Slot(str, int, bool, str, str, float, bool)
+    def setupSliceMode(
+        self,
+        text: str,
+        slice_size: int,
+        retype_enabled: bool,
+        metric: str,
+        operator: str,
+        threshold: float,
+        shuffle: bool,
+    ) -> None:
+        """初始化载文模式：分片文本并加载第一片。
+
+        Args:
+            text: 原始文本
+            slice_size: 每片字数
+            retype_enabled: 是否开启重打条件
+            metric: 重打指标 (speed/accuracy/wrong_char_count)
+            operator: 比较符 (lt/le/ge/gt)
+            threshold: 重打阈值
+            shuffle: 重打时是否乱序
+        """
+        if not text or slice_size <= 0:
+            return
+
+        # 分片
+        self._slices = []
+        for i in range(0, len(text), slice_size):
+            self._slices.append(text[i : i + slice_size])
+
+        if not self._slices:
+            return
+
+        self._current_slice = 0
+        self._retype_enabled = retype_enabled
+        self._retype_metric = metric
+        self._retype_operator = operator
+        self._retype_threshold = threshold
+        self._retype_shuffle = shuffle
+        self._slice_stats = []
+        self._slice_mode = True
+        self.sliceModeChanged.emit()
+
+        self.sliceStatusChanged.emit(f"载文模式: 第 1/{len(self._slices)} 片")
+
+        # 加载第一片
+        self._load_current_slice()
+
+    def _load_current_slice(self) -> None:
+        """加载当前片到打字区。"""
+        if self._current_slice >= len(self._slices):
+            return
+
+        slice_text = self._slices[self._current_slice]
+        idx = self._current_slice + 1
+        total = len(self._slices)
+
+        # 设置片索引（注入到 historyRecordUpdated 的 record 中）
+        self._typing_adapter.set_slice_index(idx)
+
+        # 准备载文（清状态、停计时、锁定输入）
+        self._typing_adapter.prepare_for_text_load()
+
+        # 清空 text_id（分片不提交成绩）
+        self._text_id = 0
+        self._typing_adapter.setTextId(None)
+        self.textIdChanged.emit()
+
+        # 发射 textLoaded，QML 侧完成 applyLoadedText + handleLoadedText
+        label = f"载文 {idx}/{total}"
+        self.textLoaded.emit(slice_text, -1, label)
+
+    @Slot()
+    def collectSliceResult(self) -> None:
+        """收集当前片的 SessionStat 快照。"""
+        stat = self._typing_adapter.score_data
+        if not stat:
+            return
+        self._slice_stats.append(
+            {
+                "speed": stat.speed,
+                "keyStroke": stat.keyStroke,
+                "codeLength": stat.codeLength,
+                "accuracy": stat.accuracy,
+                "effectiveSpeed": stat.effectiveSpeed,
+                "wrong_char_count": stat.wrong_char_count,
+                "backspace_count": stat.backspace_count,
+                "correction_count": stat.correction_count,
+                "char_count": stat.char_count,
+                "time": stat.time,
+            }
+        )
+
+        idx = self._current_slice + 1
+        total = len(self._slices)
+        status = (
+            f"载文模式: 第 {idx}/{total} 片"
+            f"  |  上一片: {stat.speed:.0f}CPM {stat.accuracy:.1f}%"
+        )
+        self.sliceStatusChanged.emit(status)
+
+    @Slot(result=bool)
+    def isLastSlice(self) -> bool:
+        """当前片是否为最后一片。"""
+        return self._current_slice >= len(self._slices) - 1
+
+    @Slot()
+    def loadNextSlice(self) -> None:
+        """载入下一片。"""
+        if self._current_slice < len(self._slices) - 1:
+            self._current_slice += 1
+            self._load_current_slice()
+
+    @Slot(result=bool)
+    def shouldRetype(self) -> bool:
+        """检查当前片成绩是否触发重打条件。"""
+        if not self._retype_enabled or not self._slice_stats:
+            return False
+
+        last = self._slice_stats[-1]
+        value = last.get(self._retype_metric, 0)
+
+        ops = {
+            "lt": lambda v, t: v < t,
+            "le": lambda v, t: v <= t,
+            "ge": lambda v, t: v >= t,
+            "gt": lambda v, t: v > t,
+        }
+        op_func = ops.get(self._retype_operator)
+        if not op_func:
+            return False
+        return op_func(value, self._retype_threshold)
+
+    @Slot()
+    def handleSliceRetype(self) -> None:
+        """根据重打配置自动处理重打（原样或乱序）。"""
+        if self._retype_shuffle:
+            self.shuffleCurrentSlice()
+        else:
+            self._reload_current_slice()
+
+    def _reload_current_slice(self) -> None:
+        """重打当前片（原样重新加载）。"""
+        self._load_current_slice()
+
+    @Slot()
+    def shuffleCurrentSlice(self) -> None:
+        """乱序当前片并加载。"""
+        import random
+
+        if self._current_slice >= len(self._slices):
+            return
+
+        chars = list(self._slices[self._current_slice])
+        random.shuffle(chars)
+        shuffled = "".join(chars)
+
+        idx = self._current_slice + 1
+        total = len(self._slices)
+        self._typing_adapter.set_slice_index(idx)
+        self._typing_adapter.prepare_for_text_load()
+        self._text_id = 0
+        self._typing_adapter.setTextId(None)
+        self.textIdChanged.emit()
+        self.textLoaded.emit(shuffled, -1, f"载文 {idx}/{total}（乱序）")
+
+    @Slot(result=str)
+    def buildAggregateScore(self) -> str:
+        """计算所有片的聚合成绩，返回 HTML 消息。"""
+        if not hasattr(self, "_typing_adapter") or not self._typing_adapter:
+            return ""
+        score_gateway = self._typing_adapter._score_gateway
+        return score_gateway.build_aggregate_message(
+            self._slice_stats, len(self._slices)
+        )
+
+    @Slot()
+    def copyAggregateScore(self) -> None:
+        """复制聚合成绩到剪贴板。"""
+        score_gateway = self._typing_adapter._score_gateway
+        text = score_gateway.build_aggregate_plain_text(
+            self._slice_stats, len(self._slices)
+        )
+        if text:
+            self.copyToClipboard(text)
+
+    @Slot()
+    def exitSliceMode(self) -> None:
+        """退出载文模式，清理状态。"""
+        self._slice_mode = False
+        self._slices = []
+        self._current_slice = 0
+        self._slice_stats = []
+        self._retype_enabled = False
+        self._typing_adapter.set_slice_index(None)
+        self.sliceModeChanged.emit()
+        self.sliceStatusChanged.emit("")
+
+    @Slot(result=str)
+    def getSliceStatus(self) -> str:
+        """返回当前片进度摘要。"""
+        if not self._slice_mode:
+            return ""
+        total = len(self._slices)
+        idx = self._current_slice + 1
+        return f"载文模式: 第 {idx}/{total} 片"
+
+    @Slot(result="QVariantMap")
+    def getLastSliceStats(self) -> dict:
+        """返回最后一片的成绩快照。"""
+        if not self._slice_stats:
+            return {}
+        return self._slice_stats[-1]

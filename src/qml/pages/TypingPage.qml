@@ -85,6 +85,10 @@ Item {
         enabled: typingPage.StackView.status === StackView.Active
 
         function onTextLoaded(text, textId, sourceLabel) {
+            // 载文 Dialog 打开时，textLoaded 供 Dialog 预览，不应用到打字区
+            if (typingPage.sliceDialogOpen) {
+                return;
+            }
             applyLoadedText(text);
             if (appBridge && textId > 0) {
                 appBridge.setTextId(textId);
@@ -107,12 +111,39 @@ Item {
         enabled: typingPage.StackView.status === StackView.Active
 
         function onHistoryRecordUpdated(newRecord) {
+            // 载文模式：在字数列追加片索引标记
+            if (newRecord.slice_index !== undefined && newRecord.slice_index > 0) {
+                var total = appBridge ? appBridge.totalSliceCount : 0;
+                newRecord.charNum = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
+            }
             historyArea.tableModel.insertRow(0, newRecord);
         }
 
         function onTypingEnded() {
-            endDialog.scoreMessage = appBridge.getScoreMessage();
-            endDialog.open();
+            if (appBridge && appBridge.sliceMode) {
+                // 载文模式：跳过 EndDialog，自动推进
+                appBridge.collectSliceResult();
+                if (appBridge.isLastSlice()) {
+                    // 最后一片：弹出综合成绩
+                    var msg = appBridge.buildAggregateScore();
+                    endDialog.scoreMessage = msg;
+                    endDialog.isSliceAggregate = true;
+                    endDialog.open();
+                    appBridge.exitSliceMode();
+                } else {
+                    // 判断重打条件
+                    if (appBridge.shouldRetype()) {
+                        appBridge.handleSliceRetype();
+                    } else {
+                        appBridge.loadNextSlice();
+                    }
+                }
+            } else {
+                // 正常模式
+                endDialog.scoreMessage = appBridge.getScoreMessage();
+                endDialog.isSliceAggregate = false;
+                endDialog.open();
+            }
         }
     }
 
@@ -149,6 +180,10 @@ Item {
 
         function onRequestToggleLeaderboard() {
             showLeaderboard = !showLeaderboard;
+        }
+
+        function onRequestOpenSliceConfig() {
+            sliceConfigDialog.open();
         }
     }
 
@@ -277,5 +312,55 @@ Item {
         id: endDialog
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2
+        property bool isSliceAggregate: false
+    }
+
+    SliceConfigDialog {
+        id: sliceConfigDialog
+        x: (parent.width - width) / 2
+        y: (parent.height - height) / 2
+        textSourceOptions: appBridge ? appBridge.textSourceOptions : []
+        defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
+    }
+
+    // 载文 Dialog 打开时，阻止 textLoaded 应用到打字区（仅供 Dialog 预览）
+    property bool sliceDialogOpen: sliceConfigDialog.visible
+
+    // 载文模式状态栏
+    Rectangle {
+        id: sliceStatusBar
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: 28
+        visible: appBridge && appBridge.sliceMode
+
+        color: Theme.currentTheme
+            ? Theme.currentTheme.colors.systemCautionColor + "18"
+            : "#fff3cd"
+        border.color: Theme.currentTheme
+            ? Theme.currentTheme.colors.systemCautionColor + "40"
+            : "#ffc10740"
+        border.width: 1
+
+        Text {
+            anchors.centerIn: parent
+            text: {
+                if (!appBridge || !appBridge.sliceMode) return "";
+                return appBridge.getSliceStatus();
+            }
+            font.pixelSize: 12
+            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+        }
+    }
+
+    // 监听 sliceStatusChanged 更新状态栏
+    Connections {
+        target: appBridge
+        enabled: appBridge !== null
+
+        function onSliceStatusChanged(status) {
+            // 状态栏文本通过 getSliceStatus() 自动更新
+        }
     }
 }

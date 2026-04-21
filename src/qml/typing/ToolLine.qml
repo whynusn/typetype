@@ -17,6 +17,7 @@ Pane {
     signal requestRetype
     signal requestToggleLeaderboard
     signal requestShuffle
+    signal requestOpenSliceConfig // 打开载文设置 Dialog
 
     // 将 JS 数组转换为 ListModel，使 RinUI ContextMenu 能正确按 textRole 读取
     ListModel {
@@ -78,7 +79,7 @@ Pane {
             anchors.verticalCenter: parent.verticalCenter
             text: "载文"
             onClicked: {
-                root.requestLoadText(sourceSelector.currentValue || root.defaultTextSourceKey);
+                root.requestOpenSliceConfig();
             }
         }
 

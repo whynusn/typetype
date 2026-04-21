@@ -72,6 +72,9 @@ class TypingAdapter(QObject):
         # 后台线程池
         self._thread_pool = QThreadPool.globalInstance()
 
+        # 载文模式片索引（None = 非分片模式）
+        self._slice_index: int | None = None
+
     def _match_color_format(self) -> None:
         self._no_fmt.setBackground(QColor("transparent"))
         self._correct_fmt.setBackground(QColor("gray"))
@@ -116,6 +119,8 @@ class TypingAdapter(QObject):
 
             self.typingEnded.emit()
             record = self._typing_service.get_history_record()
+            if self._slice_index is not None:
+                record["slice_index"] = self._slice_index
             self.historyRecordUpdated.emit(record)
             return True
         return False
@@ -310,3 +315,7 @@ class TypingAdapter(QObject):
 
     def copy_score_message(self) -> None:
         self._score_gateway.copy_score_to_clipboard(self._typing_service.score_data)
+
+    def set_slice_index(self, idx: int | None) -> None:
+        """设置载文模式的片索引（None = 非分片模式）。"""
+        self._slice_index = idx
