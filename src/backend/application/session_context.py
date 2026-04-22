@@ -115,9 +115,7 @@ class TypingSessionContext:
         self._phase = SessionPhase.READY
         self._derive_upload_status()
 
-    def setup_local_session(
-        self, source_key: str, text_id: int | None = None
-    ) -> None:
+    def setup_local_session(self, source_key: str, text_id: int | None = None) -> None:
         self._source_mode = SourceMode.LOCAL
         self._text_id = text_id
         self._text_id_resolved = text_id is not None
@@ -191,6 +189,7 @@ class TypingSessionContext:
     def get_shuffled_slice_text(self) -> str:
         """返回乱序后的当前片文本。"""
         import random
+
         text = self.get_current_slice_text()
         if not text:
             return ""
@@ -200,7 +199,13 @@ class TypingSessionContext:
 
     def collect_slice_result(self, stats: dict | None) -> None:
         """收集当前片的 SessionStat 快照。"""
-        if stats:
+        if not stats:
+            return
+
+        target_index = self._slice_index - 1
+        if 0 <= target_index < len(self._slice_stats):
+            self._slice_stats[target_index] = stats
+        elif target_index == len(self._slice_stats):
             self._slice_stats.append(stats)
 
     def is_last_slice(self) -> bool:
@@ -292,20 +297,19 @@ class TypingSessionContext:
         self._derive_upload_status()
 
     def advance_slice(self) -> None:
-        if self._source_mode == SourceMode.SLICE and self._slice_index < self._slice_total:
+        if (
+            self._source_mode == SourceMode.SLICE
+            and self._slice_index < self._slice_total
+        ):
             self._slice_index += 1
             self._phase = SessionPhase.READY
 
     # === 订阅 ===
 
-    def subscribe_upload_status(
-        self, callback: Callable[[UploadStatus], None]
-    ) -> None:
+    def subscribe_upload_status(self, callback: Callable[[UploadStatus], None]) -> None:
         self._on_upload_status_changed.append(callback)
 
-    def subscribe_eligibility_reason(
-        self, callback: Callable[[str], None]
-    ) -> None:
+    def subscribe_eligibility_reason(self, callback: Callable[[str], None]) -> None:
         self._on_eligibility_reason_changed.append(callback)
 
     # === 内部 ===
