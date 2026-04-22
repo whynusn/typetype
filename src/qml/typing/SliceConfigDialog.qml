@@ -121,10 +121,17 @@ Dialog {
         }
 
         if (appBridge) {
-            appBridge.setupSliceMode(
-                text, sliceSize,
-                retypeEnabled, metric, operator, threshold, shuffle
-            );
+            if (fullText) {
+                var srcIdx = sourceComboBox.currentIndex;
+                var srcKey = (srcIdx >= 0 && srcIdx < sourceListModel.count)
+                    ? sourceListModel.get(srcIdx).key : "";
+                appBridge.loadFullText(text, srcKey);
+            } else {
+                appBridge.setupSliceMode(
+                    text, sliceSize,
+                    retypeEnabled, metric, operator, threshold, shuffle
+                );
+            }
         }
         root.close();
     }

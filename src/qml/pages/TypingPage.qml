@@ -9,22 +9,35 @@ Item {
     id: typingPage
     property bool loggedin: false  // Will be injected by NavigationView
     property bool showLeaderboard: false
+    property string sliceStatusText: ""
 
     //=====================================
     // 函数
     //=====================================
 
     function handleRetypeRequest() {
+        lowerPane.suppressTextChanged = true;
         lowerPane.text = "";
+        lowerPane.suppressTextChanged = false;
         if (appBridge)
-            appBridge.handleStartStatus(false);
+            appBridge.handleLoadedText(upperPane.textDocument, upperPane.text);
+        Qt.callLater(function() {
+            lowerPane.lastText = lowerPane.text;
+        });
     }
 
     function applyLoadedText(plainText) {
-        // 先改lowerPaneText，再改upperPaneText (用于正确计算wrongNum)
+        lowerPane.suppressTextChanged = true;
         lowerPane.text = "";
+        lowerPane.suppressTextChanged = false;
         upperPane.text = plainText;
         appBridge.handleLoadedText(upperPane.textDocument, plainText);
+        // handleLoadedText 完成后，延迟到当前事件循环末尾再同步 lastText。
+        // 这样可以捕获所有异步 onTextChanged 事件（如 IME preedit 清除），
+        // 确保 lastText 始终与 lowerPane.text 一致。
+        Qt.callLater(function() {
+            lowerPane.lastText = lowerPane.text;
+        });
     }
 
     function handleKeyPressEvent(event) {
@@ -183,10 +196,15 @@ Item {
         }
     }
 
-    // 监听上传结果：云端上传成功时自动设置 text_id
+    // 监听 sliceStatusChanged 更新状态栏 & 上传结果
     Connections {
         target: appBridge
         enabled: appBridge !== null
+
+        function onSliceStatusChanged(status) {
+            typingPage.sliceStatusText = status;
+        }
+
         function onUploadResult(success, message, textId) {
             if (success && textId > 0) {
                 appBridge.setTextId(textId);
@@ -199,14 +217,14 @@ Item {
     }
 
     StackView.onActivating: {
-        if (appBridge) {
+        if (appBridge && !appBridge.sliceMode) {
             appBridge.setTextTitle(appBridge.defaultTextTitle);
             appBridge.setTextId(0);
         }
     }
 
     StackView.onActivated: {
-        if (appBridge) {
+        if (appBridge && !appBridge.sliceMode) {
             Qt.callLater(function () {
                 appBridge.requestLoadText(appBridge.defaultTextSourceKey);
             });
@@ -281,6 +299,31 @@ Item {
                         Layout.fillHeight: true  // 拿走所有剩余空间
                         Layout.minimumHeight: 72  // 最小高度保证至少能看到一条历史记录
                     }
+
+                    // 载文模式状态栏
+                    Rectangle {
+                        id: sliceStatusBar
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 24
+                        Layout.minimumHeight: 24
+                        visible: appBridge && appBridge.sliceMode
+
+                        color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.cardColor
+                            : "#f8f8f8"
+                        border.color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.dividerColor
+                            : "#e0e0e0"
+                        border.width: 1
+                        radius: 4
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: typingPage.sliceStatusText
+                            font.pixelSize: 12
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.secondaryColor : "#666"
+                        }
+                    }
                 }
             }
 
@@ -319,41 +362,4 @@ Item {
         defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
     }
 
-    // 载文模式状态栏
-    Rectangle {
-        id: sliceStatusBar
-        anchors.bottom: parent.bottom
-        anchors.left: parent.left
-        anchors.right: parent.right
-        height: 28
-        visible: appBridge && appBridge.sliceMode
-
-        color: Theme.currentTheme
-            ? Theme.currentTheme.colors.systemCautionColor + "18"
-            : "#fff3cd"
-        border.color: Theme.currentTheme
-            ? Theme.currentTheme.colors.systemCautionColor + "40"
-            : "#ffc10740"
-        border.width: 1
-
-        Text {
-            anchors.centerIn: parent
-            text: {
-                if (!appBridge || !appBridge.sliceMode) return "";
-                return appBridge.getSliceStatus();
-            }
-            font.pixelSize: 12
-            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-        }
-    }
-
-    // 监听 sliceStatusChanged 更新状态栏
-    Connections {
-        target: appBridge
-        enabled: appBridge !== null
-
-        function onSliceStatusChanged(status) {
-            // 状态栏文本通过 getSliceStatus() 自动更新
-        }
-    }
 }

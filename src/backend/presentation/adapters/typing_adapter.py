@@ -101,6 +101,8 @@ class TypingAdapter(QObject):
         self.codeLengthChanged.emit()
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
+        self.backspaceChanged.emit()
+        self.correctionChanged.emit()
 
     def _check_typing_complete(self) -> bool:
         if (
@@ -135,10 +137,14 @@ class TypingAdapter(QObject):
             # 异步提交成绩到服务器（后台线程，不阻塞 UI）
             self._submit_score_async()
 
-            self.typingEnded.emit()
+            # 必须在 typingEnded.emit() 之前构建 history record，
+            # 因为 QML 的 onTypingEnded 回调会同步触发 loadNextSlice →
+            # prepare_for_text_load → clear()，清零 time/key_stroke 等数据
             record = self._typing_service.get_history_record()
             if self._slice_index is not None:
                 record["slice_index"] = self._slice_index
+
+            self.typingEnded.emit()
             self.historyRecordUpdated.emit(record)
             return True
         return False
@@ -165,19 +171,10 @@ class TypingAdapter(QObject):
         log_warning(f"[TypingAdapter] {error_msg}")
 
     def prepare_for_text_load(self) -> None:
-        """为新一轮载文做准备：停止当前输入并锁定输入区。"""
-        self._second_timer.stop()
-        self._typing_service.stop()
-        self._typing_service.clear()
-        self._typing_service.set_text_id(None)
-        changed = self._typing_service.set_read_only(True)
-        if changed:
-            self.readOnlyChanged.emit()
+        """为新一轮载文做准备：停止当前输入并锁定输入区。
 
-    def prepare_for_slice_load(self) -> None:
-        """为分片载文做准备。
-
-        与 prepare_for_text_load() 完全一致，确保 QML 事件处理时序与正常载文相同。
+        无论是全文载文还是分片载文，都走此方法准备。
+        后续 QML 侧 applyLoadedText → handleLoadedText 会完成完整初始化。
         """
         self._second_timer.stop()
         self._typing_service.stop()
@@ -255,16 +252,17 @@ class TypingAdapter(QObject):
     @Slot(QQuickTextDocument)
     @Slot(QQuickTextDocument, str)
     def handleLoadedText(self, quick_doc: QQuickTextDocument, text: str = "") -> None:
-        if quick_doc:
-            self._rich_doc = quick_doc.textDocument()
-            if text:
-                self._rich_doc.setPlainText(text)
-            plain_doc = self._rich_doc.toPlainText()
-            self._cursor = QTextCursor(self._rich_doc)
-            # 先 set_total_chars（归零 char_count），再 set_plain_doc（设置文本）
-            # 避免 set_plain_doc 触发 onTextChanged 时 char_count 仍为旧值导致负位置
-            self._typing_service.set_total_chars(len(plain_doc))
-            self._typing_service.set_plain_doc(plain_doc)
+        if not quick_doc:
+            return
+        self._rich_doc = quick_doc.textDocument()
+        if text:
+            self._rich_doc.setPlainText(text)
+        plain_doc = self._rich_doc.toPlainText()
+        self._cursor = QTextCursor(self._rich_doc)
+        # 先 set_total_chars（归零 char_count），再 set_plain_doc（设置文本）
+        # 避免 set_plain_doc 触发 onTextChanged 时 char_count 仍为旧值导致负位置
+        self._typing_service.set_total_chars(len(plain_doc))
+        self._typing_service.set_plain_doc(plain_doc)
         self._typing_service.clear()
         self._typing_service.state.is_started = False
         self._emit_typing_signals()
@@ -286,12 +284,18 @@ class TypingAdapter(QObject):
                 self._typing_service.clear()
                 self._typing_service.start()
                 self._second_timer.start()
+                self.backspaceChanged.emit()
+                self.correctionChanged.emit()
             else:
                 self._second_timer.stop()
                 self._typing_service.stop()
                 self._typing_service.clear()
+                self.backspaceChanged.emit()
+                self.correctionChanged.emit()
         elif not status:
             self._typing_service.clear()
+            self.backspaceChanged.emit()
+            self.correctionChanged.emit()
         changed = self._typing_service.set_read_only(False)
         if changed:
             self.readOnlyChanged.emit()

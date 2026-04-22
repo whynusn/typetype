@@ -14,6 +14,8 @@ Pane {
     // 记录上一次的文本长度，用于计算增量
     property string lastText: ""
     property bool isSpecialPlatform: appBridge ? appBridge.isSpecialPlatform : false
+    // 程序化设置文本时为 true，抑制 onTextChanged 中的统计逻辑
+    property bool suppressTextChanged: false
 
     // 信号：通知 Bridge 焦点变化
     signal lowerPaneFocusChanged(bool hasFocus)
@@ -49,6 +51,12 @@ Pane {
             placeholderTextColor: "#999999"
 
             readOnly: appBridge ? appBridge.textReadOnly : true
+
+            onReadOnlyChanged: {
+                if (!readOnly) {
+                    root.lastText = text;
+                }
+            }
 
             Keys.onPressed: function(event) {
                 if (event.key === Qt.Key_Backspace && appBridge && !appBridge.isSpecialPlatform) {
@@ -89,18 +97,19 @@ Pane {
             // 捕获上屏字符
             // ==========================================
             onTextChanged: {
-                // if (appBridge) appBridge.onInputEnd();
-
-                // 这里是你之前的“提取增量字符”的逻辑
+                // 程序化设置文本时只更新 lastText，不触发统计逻辑
                 var currentText = text;
-                // 注意：这里需要处理“用户删字”的情况
+                if (root.suppressTextChanged) {
+                    root.lastText = currentText;
+                    return;
+                }
+
+                // 注意：这里需要处理"用户删字"的情况
                 var startPos = textArea.cursorPosition;
                 var growLength = currentText.length - root.lastText.length;
                 if (growLength > 0)
                     startPos -= growLength;
                 var committedText = currentText.substring(startPos);
-
-                //console.log("textChanged!!\n");
 
                 if (appBridge) {
                     //==============================================

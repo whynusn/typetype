@@ -330,7 +330,32 @@ class Bridge(QObject):
         self.textIdChanged.emit()
 
     @Slot(str)
+    @Slot(str, str)
+    def loadFullText(self, text: str, source_key: str = "") -> None:
+        """全文载入（不分片），走正常文本加载路径。
+
+        与 setupSliceMode 的区别：不进入 slice_mode，排行榜/成绩正常工作。
+        复用 textLoaded 信号链：QML applyLoadedText → handleLoadedText。
+        异步回查服务端 text_id 使排行榜可用。
+        """
+        if not text:
+            return
+        # 确保退出之前可能的分片模式
+        if self._slice_mode:
+            self.exitSliceMode()
+        self._typing_adapter.prepare_for_text_load()
+        self._text_id = 0
+        self._typing_adapter.setTextId(None)
+        self.textIdChanged.emit()
+        self.textLoaded.emit(text, -1, "自定义文本")
+        # 异步回查服务端 text_id（复用 TextAdapter 的 localTextIdResolved 信号链）
+        lookup_key = source_key if source_key else "custom"
+        self._text_adapter.lookup_text_id(lookup_key, text)
+
+    @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
+        if self._slice_mode:
+            return  # 分片模式下禁止外部载文，避免覆盖当前片
         self._typing_adapter.prepare_for_text_load()
         self._text_adapter.requestLoadText(source_key)
 
@@ -556,7 +581,12 @@ class Bridge(QObject):
         self._load_current_slice()
 
     def _load_current_slice(self) -> None:
-        """加载当前片到打字区。"""
+        """加载当前片到打字区。
+
+        完全复用全文载文的流程：prepare_for_text_load → textLoaded 信号 →
+        QML applyLoadedText → handleLoadedText，与 requestShuffle / requestLoadText
+        走完全相同的路径。
+        """
         if self._current_slice >= len(self._slices):
             return
 
@@ -567,8 +597,8 @@ class Bridge(QObject):
         # 设置片索引（注入到 historyRecordUpdated 的 record 中）
         self._typing_adapter.set_slice_index(idx)
 
-        # 准备载文（只停计时和锁定，不清统计数据）
-        self._typing_adapter.prepare_for_slice_load()
+        # 复用全文载文的 prepare 流程
+        self._typing_adapter.prepare_for_text_load()
 
         # 清空 text_id（分片不提交成绩）
         self._text_id = 0
@@ -577,6 +607,7 @@ class Bridge(QObject):
 
         # 发射 textLoaded，QML 侧完成 applyLoadedText + handleLoadedText
         label = f"载文 {idx}/{total}"
+        self.sliceStatusChanged.emit(f"载文模式: 第 {idx}/{total} 片")
         self.textLoaded.emit(slice_text, -1, label)
 
     @Slot()
@@ -654,7 +685,7 @@ class Bridge(QObject):
         idx = self._current_slice + 1
         total = len(self._slices)
         self._typing_adapter.set_slice_index(idx)
-        self._typing_adapter.prepare_for_slice_load()
+        self._typing_adapter.prepare_for_text_load()
         self._text_id = 0
         self._typing_adapter.setTextId(None)
         self.textIdChanged.emit()
