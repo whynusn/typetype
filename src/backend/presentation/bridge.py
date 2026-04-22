@@ -98,17 +98,6 @@ class Bridge(QObject):
         self._lower_pane_focused = False
         self._text_id = 0
 
-        # 载文模式状态
-        self._slice_mode = False
-        self._slices: list[str] = []
-        self._current_slice = 0
-        self._retype_enabled = False
-        self._retype_metric = ""
-        self._retype_operator = ""
-        self._retype_threshold = 0.0
-        self._retype_shuffle = False
-        self._slice_stats: list[dict] = []
-
         self._connect_typing_signals()
         self._connect_text_load_signals()
         self._connect_auth_signals()
@@ -366,7 +355,8 @@ class Bridge(QObject):
         if not text:
             return
         # 确保退出之前可能的分片模式
-        if self._slice_mode:
+        session = self._typing_adapter._session_context
+        if session and session.source_mode:
             self.exitSliceMode()
         self._typing_adapter.prepare_for_text_load()
         self._text_id = 0
@@ -381,8 +371,9 @@ class Bridge(QObject):
 
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
-        if self._slice_mode:
-            return  # 分片模式下禁止外部载文，避免覆盖当前片
+        session = self._typing_adapter._session_context
+        if session and session.source_mode:
+            return
         self._typing_adapter.prepare_for_text_load()
         self._text_adapter.requestLoadText(source_key)
 
@@ -543,11 +534,19 @@ class Bridge(QObject):
 
     @Property(bool, notify=sliceModeChanged)
     def sliceMode(self) -> bool:
-        return self._slice_mode
+        session = self._typing_adapter._session_context
+        if session:
+            from ..application.session_context import SourceMode
+
+            return session.source_mode == SourceMode.SLICE
+        return False
 
     @Property(int, constant=True)
     def totalSliceCount(self) -> int:
-        return len(self._slices)
+        session = self._typing_adapter._session_context
+        if session:
+            return session.slice_total
+        return 0
 
     @Slot(str, int, bool, str, str, float, bool)
     def setupSliceMode(
@@ -574,27 +573,22 @@ class Bridge(QObject):
         if not text or slice_size <= 0:
             return
 
-        # 分片
-        self._slices = []
-        for i in range(0, len(text), slice_size):
-            self._slices.append(text[i : i + slice_size])
-
-        if not self._slices:
+        # 委托给 session_context
+        session = self._typing_adapter._session_context
+        if not session:
             return
+        total = session.setup_slice_mode(
+            text=text,
+            slice_size=slice_size,
+            retype_enabled=retype_enabled,
+            metric=metric,
+            operator=operator,
+            threshold=threshold,
+            shuffle=shuffle,
+        )
 
-        self._current_slice = 0
-        self._retype_enabled = retype_enabled
-        self._retype_metric = metric
-        self._retype_operator = operator
-        self._retype_threshold = threshold
-        self._retype_shuffle = shuffle
-        self._slice_stats = []
-        self._slice_mode = True
-        self.sliceModeChanged.emit()
-        # 设置会话状态机
-        self._typing_adapter.setup_slice_session(len(self._slices))
-
-        self.sliceStatusChanged.emit(f"载文模式: 第 1/{len(self._slices)} 片")
+        if total <= 0:
+            return
 
         # 加载第一片
         self._load_current_slice()
@@ -606,12 +600,16 @@ class Bridge(QObject):
         QML applyLoadedText → handleLoadedText，与 requestShuffle / requestLoadText
         走完全相同的路径。
         """
-        if self._current_slice >= len(self._slices):
+        session = self._typing_adapter._session_context
+        if not session:
+            return
+        idx = session.slice_index
+        total = session.slice_total
+
+        if idx <= 0 or idx > total:
             return
 
-        slice_text = self._slices[self._current_slice]
-        idx = self._current_slice + 1
-        total = len(self._slices)
+        slice_text = session.get_current_slice_text()
 
         # 设置片索引（注入到 historyRecordUpdated 的 record 中）
         self._typing_adapter.set_slice_index(idx)
@@ -635,53 +633,40 @@ class Bridge(QObject):
         stats = self._typing_adapter.get_last_slice_stats()
         if not stats:
             return
-        self._slice_stats.append(stats)
-
-        idx = self._current_slice + 1
-        total = len(self._slices)
-        status = (
-            f"载文模式: 第 {idx}/{total} 片"
-            f"  |  上一片: {stats['speed']:.0f}CPM {stats['accuracy']:.1f}%"
-        )
-        self.sliceStatusChanged.emit(status)
+        session = self._typing_adapter._session_context
+        if session:
+            session.collect_slice_result(stats)
+            self.sliceStatusChanged.emit(session.get_slice_status())
 
     @Slot(result=bool)
     def isLastSlice(self) -> bool:
-        """当前片是否为最后一片。"""
-        return self._current_slice >= len(self._slices) - 1
+        session = self._typing_adapter._session_context
+        if session:
+            return session.is_last_slice()
+        return False
 
     @Slot()
     def loadNextSlice(self) -> None:
         """载入下一片。"""
-        if self._current_slice < len(self._slices) - 1:
-            self._current_slice += 1
+        session = self._typing_adapter._session_context
+        if session and not session.is_last_slice():
+            session.advance_slice()
             self._typing_adapter.advance_slice()
             self._load_current_slice()
 
     @Slot(result=bool)
     def shouldRetype(self) -> bool:
         """检查当前片成绩是否触发重打条件。"""
-        if not self._retype_enabled or not self._slice_stats:
-            return False
-
-        last = self._slice_stats[-1]
-        value = last.get(self._retype_metric, 0)
-
-        ops = {
-            "lt": lambda v, t: v < t,
-            "le": lambda v, t: v <= t,
-            "ge": lambda v, t: v >= t,
-            "gt": lambda v, t: v > t,
-        }
-        op_func = ops.get(self._retype_operator)
-        if not op_func:
-            return False
-        return op_func(value, self._retype_threshold)
+        session = self._typing_adapter._session_context
+        if session:
+            return session.should_retype()
+        return False
 
     @Slot()
     def handleSliceRetype(self) -> None:
         """根据重打配置自动处理重打（原样或乱序）。"""
-        if self._retype_shuffle:
+        session = self._typing_adapter._session_context
+        if session and session.retype_shuffle:
             self.shuffleCurrentSlice()
         else:
             self._reload_current_slice()
@@ -693,17 +678,15 @@ class Bridge(QObject):
     @Slot()
     def shuffleCurrentSlice(self) -> None:
         """乱序当前片并加载。"""
-        import random
-
-        if self._current_slice >= len(self._slices):
+        session = self._typing_adapter._session_context
+        if not session:
+            return
+        shuffled = session.get_shuffled_slice_text()
+        if not shuffled:
             return
 
-        chars = list(self._slices[self._current_slice])
-        random.shuffle(chars)
-        shuffled = "".join(chars)
-
-        idx = self._current_slice + 1
-        total = len(self._slices)
+        idx = session.slice_index
+        total = session.slice_total
         self._typing_adapter.set_slice_index(idx)
         self._typing_adapter.prepare_for_text_load()
         self._text_id = 0
@@ -714,31 +697,35 @@ class Bridge(QObject):
     @Slot(result=str)
     def buildAggregateScore(self) -> str:
         """计算所有片的聚合成绩，返回 HTML 消息。"""
-        if not self._typing_adapter:
+        session = self._typing_adapter._session_context
+        if not session:
             return ""
-        return self._typing_adapter.build_aggregate_score(
-            self._slice_stats, len(self._slices)
-        )
+        data = session.get_aggregate_data()
+        if not data:
+            return ""
+        slice_stats, slice_count = data
+        return self._typing_adapter.build_aggregate_score(slice_stats, slice_count)
 
     @Slot()
     def copyAggregateScore(self) -> None:
         """复制聚合成绩到剪贴板。"""
-        if not self._typing_adapter:
+        session = self._typing_adapter._session_context
+        if not session:
             return
-        text = self._typing_adapter.copy_aggregate_score(
-            self._slice_stats, len(self._slices)
-        )
+        data = session.get_aggregate_data()
+        if not data:
+            return
+        slice_stats, slice_count = data
+        text = self._typing_adapter.copy_aggregate_score(slice_stats, slice_count)
         if text:
             self.copyToClipboard(text)
 
     @Slot()
     def exitSliceMode(self) -> None:
         """退出载文模式，清理状态。"""
-        self._slice_mode = False
-        self._slices = []
-        self._current_slice = 0
-        self._slice_stats = []
-        self._retype_enabled = False
+        session = self._typing_adapter._session_context
+        if session:
+            session.exit_slice_mode()
         self._typing_adapter.set_slice_index(None)
         self.sliceModeChanged.emit()
         self.sliceStatusChanged.emit("")
@@ -746,18 +733,18 @@ class Bridge(QObject):
     @Slot(result=str)
     def getSliceStatus(self) -> str:
         """返回当前片进度摘要。"""
-        if not self._slice_mode:
-            return ""
-        total = len(self._slices)
-        idx = self._current_slice + 1
-        return f"载文模式: 第 {idx}/{total} 片"
+        session = self._typing_adapter._session_context
+        if session:
+            return session.get_slice_status()
+        return ""
 
     @Slot(result="QVariantMap")
     def getLastSliceStats(self) -> dict:
         """返回最后一片的成绩快照。"""
-        if not self._slice_stats:
-            return {}
-        return self._slice_stats[-1]
+        session = self._typing_adapter._session_context
+        if session:
+            return session.get_last_slice_stats()
+        return {}
 
     @Slot(str)
     def setBaseUrl(self, new_base_url: str) -> None:

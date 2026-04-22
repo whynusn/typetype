@@ -7,6 +7,11 @@ from src.backend.application.session_context import (
 )
 
 
+def _setup_slice(ctx: TypingSessionContext, total: int = 3) -> None:
+    """辅助函数：快速设置分片会话。"""
+    ctx.setup_slice_mode("a" * total, 1, False, "", "", 0.0, False)
+
+
 class TestSessionPhaseTransitions:
     def test_initial_state(self):
         ctx = TypingSessionContext()
@@ -81,7 +86,7 @@ class TestUploadStatusDerivation:
 
     def test_slice_session_na(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_session(total=5)
+        _setup_slice(ctx, total=5)
         assert ctx.upload_status == UploadStatus.NA
 
     def test_shuffle_session_na(self):
@@ -122,7 +127,7 @@ class TestSetTextId:
 
     def test_na_stays_na(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_session(total=3)
+        _setup_slice(ctx, total=3)
         ctx.set_text_id(42)
         assert ctx.upload_status == UploadStatus.NA
 
@@ -140,7 +145,7 @@ class TestCanSubmitScore:
 
     def test_na_cannot_submit(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_session(total=5)
+        _setup_slice(ctx, total=5)
         assert ctx.can_submit_score() is False
 
     def test_ineligible_cannot_submit(self):
@@ -153,7 +158,7 @@ class TestCanSubmitScore:
 class TestEligibilityReason:
     def test_slice_reason(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_session(total=5)
+        _setup_slice(ctx, total=5)
         assert "分片" in ctx.get_eligibility_reason()
 
     def test_shuffle_reason(self):
@@ -180,7 +185,7 @@ class TestEligibilityReason:
 class TestAdvanceSlice:
     def test_advance_updates_index(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_session(total=3)
+        _setup_slice(ctx, total=3)
         assert ctx.slice_index == 1
 
         ctx.start_typing()
@@ -191,7 +196,7 @@ class TestAdvanceSlice:
 
     def test_advance_does_not_exceed_total(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_session(total=2)
+        _setup_slice(ctx, total=2)
         ctx._slice_index = 2
         ctx.advance_slice()
         assert ctx.slice_index == 2  # 不变
@@ -224,7 +229,7 @@ class TestSubscriptions:
         ctx.subscribe_upload_status(lambda s: changes.append(s))
 
         # 初始已是 NA，setup_slice 推导也是 NA，不通知（无变化）
-        ctx.setup_slice_session(total=3)
+        _setup_slice(ctx, total=3)
         assert len(changes) == 0
 
         # 从 NA 变为 CONFIRMED 才通知
@@ -232,3 +237,74 @@ class TestSubscriptions:
         ctx.setup_network_session(text_id=42, source_key="k")
         assert len(changes) == 1
         assert changes[0] == UploadStatus.CONFIRMED
+
+
+class TestSliceMode:
+    def test_setup_slice_mode(self):
+        ctx = TypingSessionContext()
+        total = ctx.setup_slice_mode("hello world", 3, False, "", "", 0.0, False)
+        assert total == 4  # "hel" "lo " "wor" "ld"
+        assert ctx.slice_index == 1
+        assert ctx.slice_total == 4
+        assert ctx.source_mode.name == "SLICE"
+
+    def test_get_current_slice_text(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abcd", 2, False, "", "", 0.0, False)
+        assert ctx.get_current_slice_text() == "ab"
+        ctx.advance_slice()
+        assert ctx.get_current_slice_text() == "cd"
+
+    def test_is_last_slice(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("ab", 1, False, "", "", 0.0, False)
+        assert not ctx.is_last_slice()  # 第1/2片
+        ctx.advance_slice()
+        assert ctx.is_last_slice()  # 第2/2片
+
+    def test_should_retype(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abc", 1, True, "speed", "lt", 60.0, False)
+        ctx.collect_slice_result({"speed": 50, "accuracy": 95})
+        assert ctx.should_retype() is True
+
+    def test_should_not_retype(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abc", 1, True, "speed", "lt", 60.0, False)
+        ctx.collect_slice_result({"speed": 70, "accuracy": 95})
+        assert ctx.should_retype() is False
+
+    def test_get_slice_status(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abc", 1, False, "", "", 0.0, False)
+        assert "第 1/3" in ctx.get_slice_status()
+        ctx.collect_slice_result({"speed": 80, "accuracy": 95.5})
+        assert "80CPM" in ctx.get_slice_status()
+
+    def test_get_aggregate_data(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("ab", 1, False, "", "", 0.0, False)
+        ctx.collect_slice_result({"speed": 80})
+        data = ctx.get_aggregate_data()
+        assert data is not None
+        assert data[1] == 2  # 2片
+
+    def test_get_last_slice_stats(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("ab", 1, False, "", "", 0.0, False)
+        assert ctx.get_last_slice_stats() == {}
+        ctx.collect_slice_result({"speed": 80})
+        assert ctx.get_last_slice_stats()["speed"] == 80
+
+    def test_exit_slice_mode(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abc", 1, False, "", "", 0.0, False)
+        ctx.exit_slice_mode()
+        assert ctx.phase == SessionPhase.IDLE
+        assert ctx.slice_total == 0
+        assert ctx.get_current_slice_text() == ""
+
+    def test_retype_shuffle(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abc", 1, True, "speed", "lt", 60.0, True)
+        assert ctx.retype_shuffle is True
