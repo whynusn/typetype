@@ -40,6 +40,20 @@ Item {
         });
     }
 
+    function syncSliceStatus() {
+        typingPage.sliceStatusText = appBridge ? appBridge.getSliceStatus() : "";
+    }
+
+    function sliceStatusPrimaryText() {
+        var parts = typingPage.sliceStatusText.split("  |  ");
+        return parts.length > 0 ? parts[0] : "";
+    }
+
+    function sliceStatusSecondaryText() {
+        var parts = typingPage.sliceStatusText.split("  |  ");
+        return parts.length > 1 ? parts[1] : "";
+    }
+
     function handleKeyPressEvent(event) {
         // 检测是否按下了 Ctrl 键
         if (event.modifiers & Qt.ControlModifier) {
@@ -132,7 +146,9 @@ Item {
             if (appBridge && appBridge.sliceMode) {
                 // 载文模式：跳过 EndDialog，自动推进
                 appBridge.collectSliceResult();
-                if (appBridge.isLastSlice()) {
+                if (appBridge.shouldRetype()) {
+                    appBridge.handleSliceRetype();
+                } else if (appBridge.isLastSlice()) {
                     // 最后一片：弹出综合成绩
                     var msg = appBridge.buildAggregateScore();
                     endDialog.scoreMessage = msg;
@@ -140,12 +156,7 @@ Item {
                     endDialog.open();
                     appBridge.exitSliceMode();
                 } else {
-                    // 判断重打条件
-                    if (appBridge.shouldRetype()) {
-                        appBridge.handleSliceRetype();
-                    } else {
-                        appBridge.loadNextSlice();
-                    }
+                    appBridge.loadNextSlice();
                 }
             } else {
                 // 正常模式
@@ -172,10 +183,6 @@ Item {
 
         function onRequestShuffle() {
             appBridge.requestShuffle();
-        }
-
-        function onRequestLoadText(sourceKey) {
-            appBridge.requestLoadText(sourceKey);
         }
 
         function onRequestLoadTextFromClipboard() {
@@ -205,6 +212,10 @@ Item {
             typingPage.sliceStatusText = status;
         }
 
+        function onSliceModeChanged() {
+            typingPage.syncSliceStatus();
+        }
+
         function onUploadResult(success, message, textId) {
             if (success && textId > 0) {
                 appBridge.setTextId(textId);
@@ -221,6 +232,7 @@ Item {
             appBridge.setTextTitle(appBridge.defaultTextTitle);
             appBridge.setTextId(0);
         }
+        typingPage.syncSliceStatus();
     }
 
     StackView.onActivated: {
@@ -229,6 +241,7 @@ Item {
                 appBridge.requestLoadText(appBridge.defaultTextSourceKey);
             });
         }
+        typingPage.syncSliceStatus();
     }
 
     ColumnLayout {
@@ -238,8 +251,6 @@ Item {
 
         ToolLine {
             id: toolLine
-            textSourceOptions: appBridge ? appBridge.textSourceOptions : []
-            defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
             Layout.fillWidth: true
             Layout.preferredHeight: 56
             Layout.minimumHeight: 56
@@ -293,36 +304,80 @@ Item {
                         Layout.minimumHeight: fontMetricsText.height > 0 ? fontMetricsText.height * 2 : 80 // 保证最少能显示2行
                     }
 
+                    Rectangle {
+                        id: sliceStatusBar
+                        Layout.fillWidth: true
+                        Layout.topMargin: 8
+                        Layout.bottomMargin: 8
+                        Layout.preferredHeight: 40
+                        Layout.minimumHeight: 40
+                        visible: appBridge && appBridge.sliceMode
+
+                        radius: 8
+                        color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.cardColor
+                            : "#f8f8f8"
+                        border.color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.primaryColor
+                            : "#4b88ff"
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                                radius: 11
+                                color: Theme.currentTheme
+                                    ? Theme.currentTheme.colors.primaryColor + "20"
+                                    : "#4b88ff20"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "片"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    color: Theme.currentTheme
+                                        ? Theme.currentTheme.colors.primaryColor
+                                        : "#4b88ff"
+                                }
+                            }
+
+                            Column {
+                                Layout.fillWidth: true
+                                spacing: 1
+
+                                Text {
+                                    text: typingPage.sliceStatusPrimaryText()
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    color: Theme.currentTheme
+                                        ? Theme.currentTheme.colors.textColor
+                                        : "#222"
+                                }
+
+                                Text {
+                                    text: typingPage.sliceStatusSecondaryText().length > 0
+                                        ? typingPage.sliceStatusSecondaryText()
+                                        : "分片模式下的成绩仅本地记录，不提交排行榜"
+                                    font.pixelSize: 11
+                                    color: Theme.currentTheme
+                                        ? Theme.currentTheme.colors.textSecondaryColor
+                                        : "#666"
+                                }
+                            }
+                        }
+                    }
+
                     HistoryArea {
                         id: historyArea
                         Layout.fillWidth: true
                         Layout.fillHeight: true  // 拿走所有剩余空间
                         Layout.minimumHeight: 72  // 最小高度保证至少能看到一条历史记录
-                    }
-
-                    // 载文模式状态栏
-                    Rectangle {
-                        id: sliceStatusBar
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 24
-                        Layout.minimumHeight: 24
-                        visible: appBridge && appBridge.sliceMode
-
-                        color: Theme.currentTheme
-                            ? Theme.currentTheme.colors.cardColor
-                            : "#f8f8f8"
-                        border.color: Theme.currentTheme
-                            ? Theme.currentTheme.colors.dividerColor
-                            : "#e0e0e0"
-                        border.width: 1
-                        radius: 4
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: typingPage.sliceStatusText
-                            font.pixelSize: 12
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.secondaryColor : "#666"
-                        }
                     }
                 }
             }

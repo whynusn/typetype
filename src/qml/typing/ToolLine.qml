@@ -8,37 +8,11 @@ Pane {
 
     padding: 8
 
-    property var textSourceOptions: []
-    property string defaultTextSourceKey: ""
-    readonly property string currentSourceKey: sourceSelector.currentValue || ""
-
-    signal requestLoadText(string sourceKey)
     signal requestLoadTextFromClipboard // 定义从剪贴板载文信号
     signal requestRetype
     signal requestToggleLeaderboard
     signal requestShuffle
     signal requestOpenSliceConfig // 打开载文设置 Dialog
-
-    // 将 JS 数组转换为 ListModel，使 RinUI ContextMenu 能正确按 textRole 读取
-    ListModel {
-        id: sourceListModel
-    }
-
-    onTextSourceOptionsChanged: {
-        sourceListModel.clear();
-        for (var i = 0; i < textSourceOptions.length; i++) {
-            sourceListModel.append(textSourceOptions[i]);
-        }
-        // 恢复默认选中项
-        if (defaultTextSourceKey) {
-            for (var j = 0; j < sourceListModel.count; j++) {
-                if (sourceListModel.get(j).key === defaultTextSourceKey) {
-                    sourceSelector.currentIndex = j;
-                    break;
-                }
-            }
-        }
-    }
 
     // 自定义 Pane 的背景（跟随 RinUI 主题）
     background: Rectangle {
@@ -60,16 +34,6 @@ Pane {
             height: 36
             anchors.verticalCenter: parent.verticalCenter
             fillMode: Image.PreserveAspectFit   // 保持宽高比，不会变形
-        }
-
-        ComboBox {
-            id: sourceSelector
-            width: 110
-            height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            model: sourceListModel
-            textRole: "label"
-            valueRole: "key"
         }
 
         Button {

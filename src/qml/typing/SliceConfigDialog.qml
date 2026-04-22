@@ -20,7 +20,17 @@ Dialog {
     property var textSourceOptions: []
     property string defaultTextSourceKey: ""
 
-    // 来源列表 Model（从 catalog 加载）
+    readonly property string localGroupKey: "__local__"
+    property var localSourceOptions: []
+    property var catalogSourceOptions: []
+    property string selectedSourceKey: ""
+    property int pendingRemoteTextId: 0
+    property bool syncingContentText: false
+    property string validationMessage: ""
+
+    readonly property int contentLength: contentTextArea.text.trim().length
+
+    // 来源列表 Model（本地分组 + 远程来源）
     ListModel {
         id: sourceListModel
     }
@@ -30,29 +40,265 @@ Dialog {
         id: textListModel
     }
 
-    // 缓存文本列表原始数据（含 id）
-    property var rawTextList: []
-
-    // 同步 catalog 到 sourceListModel（参考 TextLeaderboardPage）
-    function syncSourceOptions(catalog) {
+    function syncSourceOptions(options, catalogOptions) {
+        root.localSourceOptions = [];
         sourceListModel.clear();
+        if (options) {
+            for (var i = 0; i < options.length; i++) {
+                var option = options[i];
+                if (option.isLocal) {
+                    root.localSourceOptions.push(option);
+                }
+            }
+        }
+
+        if (root.localSourceOptions.length > 0) {
+            sourceListModel.append({
+                key: root.localGroupKey,
+                label: "本地文本",
+                isLocalGroup: true
+            });
+        }
+
+        if (catalogOptions) {
+            for (var j = 0; j < catalogOptions.length; j++) {
+                var catalogOption = catalogOptions[j];
+                if (catalogOption.key && catalogOption.key !== root.localGroupKey) {
+                    sourceListModel.append(catalogOption);
+                }
+            }
+        }
+
+        root.restoreDefaultSourceSelection();
+    }
+
+    function refreshSourceOptions() {
+        root.syncSourceOptions(textSourceOptions, root.catalogSourceOptions);
+    }
+
+    function updateCatalogOptions(catalog) {
+        root.catalogSourceOptions = [];
         if (catalog) {
             for (var i = 0; i < catalog.length; i++) {
-                sourceListModel.append(catalog[i]);
+                var item = catalog[i];
+                if (item.key) {
+                    root.catalogSourceOptions.push({
+                        key: item.key,
+                        label: item.label || item.key
+                    });
+                }
             }
-            if (catalog.length > 0) {
-                sourceComboBox.currentIndex = 0;
+        }
+        root.refreshSourceOptions();
+    }
+
+    function restoreDefaultSourceSelection() {
+        var targetIndex = sourceListModel.count > 0 ? 0 : -1;
+        var defaultKey = root.defaultTextSourceKey;
+        if (defaultKey) {
+            if (root.findLocalSourceIndex(defaultKey) >= 0 && root.localSourceOptions.length > 0) {
+                targetIndex = 0;
+            } else {
+                for (var i = 0; i < sourceListModel.count; i++) {
+                    if (sourceListModel.get(i).key === defaultKey) {
+                        targetIndex = i;
+                        break;
+                    }
+                }
             }
+        }
+        var previousIndex = sourceComboBox.currentIndex;
+        sourceComboBox.currentIndex = targetIndex;
+        if (previousIndex === targetIndex) {
+            root.applySourceSelection(targetIndex);
         }
     }
 
-    // Dialog 打开时加载 catalog
+    function findLocalSourceIndex(sourceKey) {
+        for (var i = 0; i < root.localSourceOptions.length; i++) {
+            if (root.localSourceOptions[i].key === sourceKey) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    function resetSelectionState() {
+        root.selectedSourceKey = "";
+        root.pendingRemoteTextId = 0;
+        root.setContentText("");
+        textListModel.clear();
+        textListView.currentIndex = -1;
+    }
+
+    function setContentText(text) {
+        root.syncingContentText = true;
+        contentTextArea.text = text;
+        root.syncingContentText = false;
+        root.refreshValidationMessage();
+    }
+
+    function sliceSizeMin() {
+        return 1;
+    }
+
+    function sliceSizeMax() {
+        return Math.max(1, root.contentLength);
+    }
+
+    function thresholdMin() {
+        if (metricCombo.currentValue === "wrong_char_count") {
+            return 0;
+        }
+        return 1;
+    }
+
+    function thresholdMax() {
+        if (metricCombo.currentValue === "accuracy") {
+            return 100;
+        }
+        if (metricCombo.currentValue === "wrong_char_count") {
+            return Math.max(0, root.contentLength);
+        }
+        return 999;
+    }
+
+    function defaultThresholdText() {
+        if (metricCombo.currentValue === "accuracy") {
+            return "95";
+        }
+        if (metricCombo.currentValue === "wrong_char_count") {
+            return "0";
+        }
+        return "60";
+    }
+
+    function sliceSizeValue() {
+        return parseInt(sliceSizeField.text.trim());
+    }
+
+    function thresholdValue() {
+        return parseInt(thresholdField.text.trim());
+    }
+
+    function ensureThresholdInRange() {
+        var threshold = root.thresholdValue();
+        if (!Number.isInteger(threshold) || threshold < root.thresholdMin() || threshold > root.thresholdMax()) {
+            thresholdField.text = root.defaultThresholdText();
+        }
+    }
+
+    function buildValidationMessage() {
+        if (root.contentLength === 0) {
+            return "";
+        }
+
+        if (!fullTextCheck.checked) {
+            var sliceSize = root.sliceSizeValue();
+            if (!Number.isInteger(sliceSize)) {
+                return "每片字数必须是整数";
+            }
+            if (sliceSize < root.sliceSizeMin() || sliceSize > root.sliceSizeMax()) {
+                return "每片字数必须在 1 到文章字数之间";
+            }
+        }
+
+        if (retypeCheck.checked) {
+            var threshold = root.thresholdValue();
+            if (!Number.isInteger(threshold)) {
+                return "重打阈值必须是整数";
+            }
+            if (threshold < root.thresholdMin() || threshold > root.thresholdMax()) {
+                return root.thresholdHelperText();
+            }
+        }
+
+        return "";
+    }
+
+    function refreshValidationMessage() {
+        root.validationMessage = root.buildValidationMessage();
+    }
+
+    function thresholdHelperText() {
+        if (metricCombo.currentValue === "accuracy") {
+            return "准确率阈值必须在 1 到 100 之间";
+        }
+        if (metricCombo.currentValue === "wrong_char_count") {
+            return "错字数阈值必须在 0 到文章字数之间";
+        }
+        return "速度阈值必须在 1 到 999 之间";
+    }
+
+    function loadLocalSourceList(preferredKey) {
+        root.resetSelectionState();
+        for (var i = 0; i < root.localSourceOptions.length; i++) {
+            var localOption = root.localSourceOptions[i];
+            var localContent = appBridge ? appBridge.getLocalTextContent(localOption.key) : "";
+            textListModel.append({
+                id: 0,
+                title: localOption.label,
+                sourceKey: localOption.key,
+                char_count: localContent.length,
+                isLocal: true
+            });
+        }
+
+        if (textListModel.count === 0) {
+            return;
+        }
+
+        var targetIndex = preferredKey ? root.findLocalSourceIndex(preferredKey) : 0;
+        if (targetIndex < 0) {
+            targetIndex = 0;
+        }
+        root.selectTextEntry(targetIndex);
+    }
+
+    function applySourceSelection(index) {
+        var key = (index >= 0 && index < sourceListModel.count) ? sourceListModel.get(index).key : "";
+        if (!key) {
+            root.resetSelectionState();
+            return;
+        }
+        if (key === root.localGroupKey) {
+            root.loadLocalSourceList(root.defaultTextSourceKey);
+        } else if (appBridge) {
+            root.resetSelectionState();
+            appBridge.loadTextList(key);
+        }
+    }
+
+    function selectTextEntry(index) {
+        if (index < 0 || index >= textListModel.count) {
+            return;
+        }
+
+        textListView.currentIndex = index;
+        var item = textListModel.get(index);
+        if (item.isLocal) {
+            root.pendingRemoteTextId = 0;
+            root.selectedSourceKey = item.sourceKey || "";
+            root.setContentText(appBridge ? appBridge.getLocalTextContent(root.selectedSourceKey) : "");
+            return;
+        }
+
+        root.selectedSourceKey = item.sourceKey || "";
+        root.pendingRemoteTextId = item.id || 0;
+        if (root.pendingRemoteTextId > 0 && appBridge) {
+            appBridge.getTextContentById(root.pendingRemoteTextId);
+        }
+    }
+
     onOpened: {
+        root.setContentText("");
+        root.validationMessage = "";
+        sliceSizeField.text = "30";
+        thresholdField.text = root.defaultThresholdText();
+        root.refreshSourceOptions();
         if (appBridge) {
             appBridge.loadCatalog();
         }
-        contentTextArea.text = "";
-        textListModel.clear();
     }
 
     // 监听 catalog 和 textList 信号
@@ -61,31 +307,40 @@ Dialog {
         enabled: root.visible
 
         function onCatalogLoaded(catalog) {
-            root.syncSourceOptions(catalog);
+            root.updateCatalogOptions(catalog);
+        }
+
+        function onCatalogLoadFailed(message) {
+            root.updateCatalogOptions([]);
         }
 
         function onTextListLoaded(texts) {
+            var currentOption = sourceComboBox.currentIndex >= 0 && sourceComboBox.currentIndex < sourceListModel.count ? sourceListModel.get(sourceComboBox.currentIndex) : null;
+            if (!currentOption || currentOption.key === root.localGroupKey) {
+                return;
+            }
+
             textListModel.clear();
-            root.rawTextList = texts;
             for (var i = 0; i < texts.length; i++) {
                 var t = texts[i];
                 textListModel.append({
                     id: t.id || 0,
                     title: t.title || "",
-                    char_count: t.charCount || 0,
-                    clientTextId: t.clientTextId || 0
+                    char_count: t.charCount !== undefined && t.charCount !== null ? t.charCount : -1,
+                    clientTextId: t.clientTextId || 0,
+                    sourceKey: currentOption.key,
+                    isLocal: false
                 });
             }
-            // 自动选中第一篇并获取内容
-            if (texts.length > 0 && texts[0].id) {
-                textListView.currentIndex = 0;
-                appBridge.getTextContentById(texts[0].id);
+
+            if (texts.length > 0) {
+                root.selectTextEntry(0);
             }
         }
 
-        function onTextContentLoaded(content, title) {
-            if (root.visible) {
-                contentTextArea.text = content;
+        function onTextContentLoaded(textId, content, title) {
+            if (root.visible && textId === root.pendingRemoteTextId) {
+                root.setContentText(content);
             }
         }
     }
@@ -98,9 +353,15 @@ Dialog {
     // 开始载文
     function startSliceTyping() {
         var text = contentTextArea.text.trim();
-        if (!text) return;
+        if (!text)
+            return;
 
-        var sliceSize = parseInt(sliceSizeCombo.currentText);
+        root.refreshValidationMessage();
+        if (root.validationMessage) {
+            return;
+        }
+
+        var sliceSize = root.sliceSizeValue();
         var fullText = fullTextCheck.checked;
 
         if (fullText) {
@@ -116,21 +377,15 @@ Dialog {
         if (retypeEnabled) {
             metric = metricCombo.currentValue;
             operator = operatorCombo.currentValue;
-            threshold = parseFloat(thresholdCombo.currentText);
+            threshold = root.thresholdValue();
             shuffle = shuffleCheck.checked;
         }
 
         if (appBridge) {
-            if (fullText) {
-                var srcIdx = sourceComboBox.currentIndex;
-                var srcKey = (srcIdx >= 0 && srcIdx < sourceListModel.count)
-                    ? sourceListModel.get(srcIdx).key : "";
-                appBridge.loadFullText(text, srcKey);
+            if (fullText && !retypeEnabled) {
+                appBridge.loadFullText(text, root.selectedSourceKey);
             } else {
-                appBridge.setupSliceMode(
-                    text, sliceSize,
-                    retypeEnabled, metric, operator, threshold, shuffle
-                );
+                appBridge.setupSliceMode(text, sliceSize, retypeEnabled, metric, operator, threshold, shuffle);
             }
         }
         root.close();
@@ -176,6 +431,12 @@ Dialog {
                             wrapMode: TextArea.Wrap
                             selectByMouse: true
                             font.pixelSize: 14
+                            onTextChanged: {
+                                if (!root.syncingContentText && activeFocus) {
+                                    root.selectedSourceKey = "";
+                                    root.pendingRemoteTextId = 0;
+                                }
+                            }
                         }
                     }
                 }
@@ -199,6 +460,13 @@ Dialog {
                         color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                     }
 
+                    Text {
+                        text: sourceComboBox.currentValue === root.localGroupKey ? "“本地文本”会列出离线可用的内置文本，未联网时也能直接载文。" : "其余来源来自服务端文本目录，交互与“文本排行”页面保持一致。"
+                        wrapMode: Text.Wrap
+                        font.pixelSize: 11
+                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                    }
+
                     ComboBox {
                         id: sourceComboBox
                         Layout.fillWidth: true
@@ -206,13 +474,7 @@ Dialog {
                         textRole: "label"
                         valueRole: "key"
                         onCurrentIndexChanged: {
-                            // 参考 TextLeaderboardPage：用 model.get() 取 key
-                            var key = (currentIndex >= 0 && currentIndex < sourceListModel.count)
-                                ? sourceListModel.get(currentIndex).key : "";
-                            if (key && appBridge) {
-                                textListModel.clear();
-                                appBridge.loadTextList(key);
-                            }
+                            root.applySourceSelection(currentIndex);
                         }
                     }
 
@@ -241,9 +503,7 @@ Dialog {
                             height: 36
                             radius: 4
                             property bool isSelected: textListView.currentIndex === index
-                            color: isSelected
-                                ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor + "20" : "#3399ff20")
-                                : "transparent"
+                            color: isSelected ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor + "20" : "#3399ff20") : "transparent"
 
                             RowLayout {
                                 anchors.fill: parent
@@ -257,16 +517,11 @@ Dialog {
                                     elide: Text.ElideRight
                                     font.pixelSize: 13
                                     font.weight: isSelected ? Font.DemiBold : Font.Normal
-                                    color: isSelected
-                                        ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#3399ff")
-                                        : (Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333")
+                                    color: isSelected ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#3399ff") : (Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333")
                                 }
 
                                 Text {
-                                    text: {
-                                        var chars = model.char_count !== undefined ? model.char_count : "?";
-                                        return chars + "字";
-                                    }
+                                    text: model.char_count !== undefined && model.char_count >= 0 ? (model.char_count + "字") : ""
                                     font.pixelSize: 11
                                     color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
                                 }
@@ -276,14 +531,7 @@ Dialog {
                                 anchors.fill: parent
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
-                                    textListView.currentIndex = index;
-                                    // 点击文本 → 按 ID 获取完整内容
-                                    if (index >= 0 && index < root.rawTextList.length) {
-                                        var t = root.rawTextList[index];
-                                        if (t.id && appBridge) {
-                                            appBridge.getTextContentById(t.id);
-                                        }
-                                    }
+                                    root.selectTextEntry(index);
                                 }
                             }
                         }
@@ -320,19 +568,35 @@ Dialog {
                             color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                         }
 
-                        ComboBox {
-                            id: sliceSizeCombo
-                            model: ["20", "30", "50", "80", "100", "150", "200"]
-                            currentIndex: 1
+                        TextField {
+                            id: sliceSizeField
+                            Layout.preferredWidth: 88
+                            text: "30"
+                            enabled: !fullTextCheck.checked
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator {
+                                bottom: root.sliceSizeMin()
+                                top: root.sliceSizeMax()
+                            }
+                            onTextChanged: root.refreshValidationMessage()
+                        }
+
+                        Text {
+                            text: fullTextCheck.checked ? "全文载入时固定为文章全文" : "输入 1 到 " + root.sliceSizeMax() + "的正整数"
+                            font.pixelSize: 11
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
                             enabled: !fullTextCheck.checked
                         }
 
                         CheckBox {
                             id: fullTextCheck
                             text: "全文载入（不分片）"
+                            onCheckedChanged: root.refreshValidationMessage()
                         }
 
-                        Item { Layout.fillWidth: true }
+                        Item {
+                            Layout.fillWidth: true
+                        }
                     }
                 }
             }
@@ -355,9 +619,12 @@ Dialog {
                         CheckBox {
                             id: retypeCheck
                             text: "开启重打条件"
+                            onCheckedChanged: root.refreshValidationMessage()
                         }
 
-                        Item { Layout.fillWidth: true }
+                        Item {
+                            Layout.fillWidth: true
+                        }
                     }
 
                     RowLayout {
@@ -374,44 +641,61 @@ Dialog {
                         ComboBox {
                             id: metricCombo
                             model: ListModel {
-                                ListElement { text: "速度(CPM)"; value: "speed" }
-                                ListElement { text: "准确率(%)"; value: "accuracy" }
-                                ListElement { text: "错字数"; value: "wrong_char_count" }
+                                ListElement {
+                                    text: "速度(CPM)"
+                                    value: "speed"
+                                }
+                                ListElement {
+                                    text: "准确率(%)"
+                                    value: "accuracy"
+                                }
+                                ListElement {
+                                    text: "错字数"
+                                    value: "wrong_char_count"
+                                }
                             }
                             textRole: "text"
                             valueRole: "value"
+                            onCurrentIndexChanged: {
+                                root.ensureThresholdInRange();
+                                root.refreshValidationMessage();
+                            }
                         }
 
                         ComboBox {
                             id: operatorCombo
                             model: ListModel {
-                                ListElement { text: "<"; value: "lt" }
-                                ListElement { text: "≤"; value: "le" }
-                                ListElement { text: "≥"; value: "ge" }
-                                ListElement { text: ">"; value: "gt" }
+                                ListElement {
+                                    text: "<"
+                                    value: "lt"
+                                }
+                                ListElement {
+                                    text: "≤"
+                                    value: "le"
+                                }
+                                ListElement {
+                                    text: "≥"
+                                    value: "ge"
+                                }
+                                ListElement {
+                                    text: ">"
+                                    value: "gt"
+                                }
                             }
                             textRole: "text"
                             valueRole: "value"
                         }
 
-                        ComboBox {
-                            id: thresholdCombo
-                            model: {
-                                if (metricCombo.currentIndex === 0) {
-                                    var m = [];
-                                    for (var i = 20; i <= 300; i += 10) m.push(String(i));
-                                    return m;
-                                } else if (metricCombo.currentIndex === 1) {
-                                    var m2 = [];
-                                    for (var j = 50; j <= 100; j += 5) m2.push(String(j));
-                                    return m2;
-                                } else {
-                                    var m3 = [];
-                                    for (var k = 0; k <= 50; k += 1) m3.push(String(k));
-                                    return m3;
-                                }
+                        TextField {
+                            id: thresholdField
+                            Layout.preferredWidth: 88
+                            text: "60"
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator {
+                                bottom: root.thresholdMin()
+                                top: root.thresholdMax()
                             }
-                            currentIndex: metricCombo.currentIndex === 0 ? 4 : (metricCombo.currentIndex === 1 ? 6 : 0)
+                            onTextChanged: root.refreshValidationMessage()
                         }
 
                         Text {
@@ -420,7 +704,16 @@ Dialog {
                             color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                         }
 
-                        Item { Layout.fillWidth: true }
+                        Item {
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    Text {
+                        visible: retypeCheck.checked
+                        text: root.thresholdHelperText()
+                        font.pixelSize: 11
+                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
                     }
 
                     CheckBox {
@@ -431,12 +724,21 @@ Dialog {
                 }
             }
 
+            Text {
+                visible: root.validationMessage !== ""
+                text: root.validationMessage
+                font.pixelSize: 11
+                color: Theme.currentTheme ? Theme.currentTheme.colors.systemCriticalColor : "#d13438"
+                wrapMode: Text.Wrap
+                Layout.fillWidth: true
+            }
+
             // --- 开始按钮 ---
             Button {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
                 text: "开始载文"
-                enabled: contentTextArea.text.trim().length > 0
+                enabled: contentTextArea.text.trim().length > 0 && root.validationMessage === ""
                 onClicked: root.startSliceTyping()
             }
 

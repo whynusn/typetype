@@ -296,6 +296,17 @@ class TestSliceMode:
         ctx.collect_slice_result({"speed": 80})
         assert ctx.get_last_slice_stats()["speed"] == 80
 
+    def test_collect_slice_result_overwrites_same_slice_retry(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("ab", 1, True, "speed", "lt", 60.0, False)
+        ctx.collect_slice_result({"speed": 40, "accuracy": 90})
+        ctx.collect_slice_result({"speed": 75, "accuracy": 98})
+
+        data = ctx.get_aggregate_data()
+        assert data is not None
+        assert len(data[0]) == 1
+        assert data[0][0]["speed"] == 75
+
     def test_exit_slice_mode(self):
         ctx = TypingSessionContext()
         ctx.setup_slice_mode("abc", 1, False, "", "", 0.0, False)

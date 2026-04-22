@@ -18,8 +18,8 @@ class DummyThreadPool:
 
 def _build_adapter() -> tuple[TextAdapter, MagicMock, MagicMock]:
     runtime_config = MagicMock()
-    runtime_config.text_source_config.get_source_options.return_value = []
     runtime_config.text_source_config.default_key = "builtin_demo"
+    runtime_config.text_source_config.sources = {}
     load_text_usecase = MagicMock()
     local_text_loader = MagicMock()
     adapter = TextAdapter(
@@ -43,7 +43,7 @@ def test_request_load_text_local_source_enqueues_worker():
     loading_states: list[bool] = []
 
     adapter.textLoaded.connect(
-        lambda text, text_id: loaded_texts.append((text, text_id))
+        lambda text, text_id, source_label: loaded_texts.append((text, text_id))
     )
     adapter.textLoadingChanged.connect(
         lambda: loading_states.append(adapter.text_loading)
@@ -78,7 +78,7 @@ def test_request_load_text_async_enqueues_worker_from_usecase_plan():
     loading_states: list[bool] = []
 
     adapter.textLoaded.connect(
-        lambda text, text_id: loaded_texts.append((text, text_id))
+        lambda text, text_id, source_label: loaded_texts.append((text, text_id))
     )
     adapter.textLoadingChanged.connect(
         lambda: loading_states.append(adapter.text_loading)
@@ -112,3 +112,60 @@ def test_request_load_text_reports_planning_errors_without_runtime_config_lookup
     assert failures == ["加载文本失败：未知文本来源(missing)"]
     load_text_usecase.load.assert_not_called()
     runtime_config.get_text_source.assert_not_called()
+
+
+def test_get_source_options_include_local_metadata():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.sources = {
+        "builtin_demo": TextSourceEntry(
+            key="builtin_demo",
+            label="本地示例",
+            local_path="resources/texts/builtin_demo.txt",
+        ),
+        "jisubei": TextSourceEntry(
+            key="jisubei",
+            label="极速杯",
+            has_ranking=True,
+        ),
+    }
+
+    assert adapter.get_source_options() == [
+        {
+            "key": "builtin_demo",
+            "label": "本地示例",
+            "isLocal": True,
+            "hasRanking": False,
+        },
+        {
+            "key": "jisubei",
+            "label": "极速杯",
+            "isLocal": False,
+            "hasRanking": True,
+        },
+    ]
+
+
+def test_get_local_text_content_reads_from_local_source():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.get_source.return_value = TextSourceEntry(
+        key="builtin_demo",
+        label="本地示例",
+        local_path="resources/texts/builtin_demo.txt",
+    )
+    adapter._local_text_loader.load_text.return_value = "离线文本"
+
+    assert adapter.get_local_text_content("builtin_demo") == "离线文本"
+    runtime_config.text_source_config.get_source.assert_called_once_with("builtin_demo")
+    adapter._local_text_loader.load_text.assert_called_once_with(
+        "resources/texts/builtin_demo.txt"
+    )
+
+
+def test_get_local_text_content_returns_empty_for_non_local_source():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.get_source.return_value = TextSourceEntry(
+        key="jisubei",
+        label="极速杯",
+    )
+
+    assert adapter.get_local_text_content("jisubei") == ""
