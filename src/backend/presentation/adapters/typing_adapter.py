@@ -85,7 +85,9 @@ class TypingAdapter(QObject):
 
         # 订阅状态机事件
         if self._session_context:
-            self._session_context.subscribe_upload_status(self._on_upload_status_changed)
+            self._session_context.subscribe_upload_status(
+                self._on_upload_status_changed
+            )
             self._session_context.subscribe_eligibility_reason(
                 self.eligibilityReasonChanged.emit
             )
@@ -172,7 +174,11 @@ class TypingAdapter(QObject):
         # 由状态机决定是否提交
         if self._session_context and not self._session_context.can_submit_score():
             return
-        text_id = self._session_context.text_id if self._session_context else self._typing_service.text_id
+        text_id = (
+            self._session_context.text_id
+            if self._session_context
+            else self._typing_service.text_id
+        )
         if text_id is None or text_id <= 0:
             return  # 纯练习模式或未载文，不提交
         worker = ScoreSubmitWorker(
