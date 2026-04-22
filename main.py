@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 
 import darkdetect
@@ -93,8 +94,20 @@ def _update_base_url(
     log_info(f"[main] base_url 已更新为: {runtime_config.base_url}")
 
 
+def _ensure_config_exists() -> None:
+    """确保 config/config.json 存在，若不存在则从 config.example.json 复制。"""
+    config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
+    config_path = os.path.join(config_dir, "config.json")
+    example_path = os.path.join(config_dir, "config.example.json")
+
+    if not os.path.exists(config_path) and os.path.exists(example_path):
+        shutil.copy2(example_path, config_path)
+        log_info("[main] config.json 不存在，已从 config.example.json 复制创建")
+
+
 def main():
     install_qt_message_handler()
+    _ensure_config_exists()
     app = QGuiApplication(sys.argv)
 
     # 注册 UI 字体并设为应用默认字体。
