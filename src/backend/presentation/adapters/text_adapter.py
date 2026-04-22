@@ -161,9 +161,17 @@ class TextAdapter(QObject):
     def text_loading(self) -> bool:
         return self._text_loading
 
-    def get_source_options(self) -> list[dict[str, str]]:
+    def get_source_options(self) -> list[dict[str, str | bool]]:
         """获取 UI 可选的来源列表（全部来源，用于载文下拉框）。"""
-        return self._runtime_config.text_source_config.get_source_options()
+        return [
+            {
+                "key": source.key,
+                "label": source.label,
+                "isLocal": bool(source.local_path),
+                "hasRanking": source.has_ranking,
+            }
+            for source in self._runtime_config.text_source_config.sources.values()
+        ]
 
     def get_ranking_source_options(self) -> list[dict[str, str]]:
         """获取有排行榜的来源列表（用于排行榜页面）。"""
@@ -182,6 +190,17 @@ class TextAdapter(QObject):
         if source:
             return source.label
         return ""
+
+    def get_local_text_content(self, source_key: str) -> str:
+        """读取指定本地来源的完整内容。"""
+        source = self._runtime_config.text_source_config.get_source(source_key)
+        if not source or not source.local_path:
+            return ""
+
+        try:
+            return self._local_text_loader.load_text(source.local_path) or ""
+        except Exception:
+            return ""
 
     def get_upload_source_options(self) -> list[dict[str, str]]:
         """获取可用于云端上传的来源列表（排除仅本地源）。"""
