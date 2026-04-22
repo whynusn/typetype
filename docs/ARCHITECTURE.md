@@ -268,15 +268,31 @@ ToolLine.qml
 ```
 
 **text_id 生成时机：**
-- 本地文本：`_load_from_local()` 只读文件立即返回（text_id=None）；TextAdapter 启动后台 daemon thread 异步调用 `TextSourceGateway.lookup_text_id()` 回查服务端，成功后通过 `localTextIdResolved` 信号 → Bridge.setTextId()
+- 本地文本：`_load_from_local()` 只读文件立即返回（text_id=None）；TextAdapter 启动后台 daemon thread 异步调用 `LoadTextUseCase.lookup_text_id()` → `TextSourceGateway.lookup_text_id()` 回查服务端，成功后通过 `localTextIdResolved` 信号 → Bridge.setTextId()
 - 网络文本：由服务器返回
+
+### 就地变换 / 直接载入路径
+
+以下路径**不经过 Worker**，内容已在内存中，直接 emit `textLoaded` 复用 QML 信号链：
+
+| 路径 | 入口 | 说明 |
+|------|------|------|
+| 乱序 | `Bridge.requestShuffle()` | 乱序当前文本，清空 text_id，emit textLoaded |
+| 全文载入 | `Bridge.loadFullText(text, source_key)` | 载文 Dialog 勾选"全文载入"，异步回查 text_id |
+| 分片载入 | `Bridge._load_current_slice()` | 载文模式每片加载，text_id 传 -1 防止成绩提交 |
+
+共同模式：
+1. `prepare_for_text_load()` — 停计时器、清状态、锁定输入
+2. 清空 `text_id`（分片传 -1，全文/乱序传 -1）
+3. `textLoaded.emit(text, -1, label)` → QML `applyLoadedText` → `handleLoadedText`
+4. 全文载入额外调用 `TextAdapter.lookup_text_id()` 异步回查服务端 text_id
 
 ### 文本加载里各层到底负责什么
 
 | 组件 | 做什么 | 不做什么 |
 |------|--------|----------|
-| `TextAdapter` | Qt 信号、线程协调、**所有加载统一走 Worker**（包括本地来源） | 不做来源路由决策，不在主线程做同步 I/O |
-| `LoadTextUseCase` | 输出执行计划、统一文本加载入口 | 不直接碰 Qt |
+| `TextAdapter` | Qt 信号、线程协调、**标准加载走 Worker**（包括本地来源）、公开 `lookup_text_id()` 供就地载入复用 | 不做来源路由决策，不在主线程做同步 I/O |
+| `LoadTextUseCase` | 输出执行计划、统一文本加载入口、公开 `lookup_text_id()` 委托 Gateway | 不直接碰 Qt |
 | `TextSourceGateway` | 查配置、决定本地还是远程、调用 Port | 不管 UI 状态 |
 | `QtLocalTextLoader` | 读本地文件 | 不含业务路由 |
 | `RemoteTextProvider` | 发 HTTP 请求取文本 | 不含 UI/线程逻辑 |

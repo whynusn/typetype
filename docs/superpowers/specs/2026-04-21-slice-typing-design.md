@@ -156,7 +156,8 @@ _parent_source_key: str = ""        # 原文来源 key（用于日志/显示）
 
 | Slot | 参数 | 说明 |
 |---|---|---|
-| `setupSliceMode` | text, slice_size, retype_enabled, metric, operator, threshold, shuffle | 初始化载文状态，分片并加载第一片 |
+| `setupSliceMode` | text, slice_size, retype_enabled, metric, operator, threshold, shuffle | 初始化载文状态（分片模式），分片并加载第一片 |
+| `loadFullText` | text, source_key="" | 全文载入（不分片），走正常文本加载路径 + 异步回查 text_id |
 | `collectSliceResult` | 无 | 收集当前片的 SessionStat，存入 _slice_stats |
 | `isLastSlice` | 无 → bool | 当前片是否为最后一片 |
 | `loadNextSlice` | 无 | 载入下一片 |
@@ -282,40 +283,70 @@ def buildAggregateScore(self) -> str:
 
 ### 7.1 机制
 
-每片打完时，现有 `_check_typing_complete()` 正常执行：
-1. `_typing_service.get_history_record()` → 返回 dict
-2. `historyRecordUpdated.emit(record)` → QML HistoryArea 插入一行
-3. `typingEnded.emit()` → QML 侧触发自动推进
-4. 剪贴板自动复制成绩（已有逻辑）
+每片打完时，`_check_typing_complete()` 执行流程（**顺序关键**）：
+
+1. `stop` + `flush_char_stats` — 停止服务、写入字符统计
+2. **捕获 score_data 快照** → `_last_slice_stats`（分片模式下，防止后续 clear() 清零）
+3. `_submit_score_async()` — 提交成绩（分片 textId=-1 会跳过）
+4. `_typing_service.get_history_record()` → 在 typingEnded **之前**取 dict
+5. 注入 `slice_index` 到 record dict
+6. `typingEnded.emit()` → QML 侧 `onTypingEnded` 同步触发 `loadNextSlice → prepare_for_text_load → clear()`，清零所有打字数据
+7. `historyRecordUpdated.emit(record)` → 数据已在步骤 4 捕获，不受 clear() 影响
+
+**⚠️ 关键时序**：`historyRecordUpdated` 必须在 `typingEnded` **之后** emit，但 record 必须在 `typingEnded` **之前**构建。因为 QML 的 `onTypingEnded` 回调是同步执行的，会立即触发 `loadNextSlice()` → `prepare_for_text_load()` → `clear()`。
 
 **slice_index 注入方式：** TypingAdapter 新增 `_slice_index: int | None` 属性，Bridge 在加载每片时通过 `set_slice_index(idx)` 设置。`_check_typing_complete()` emit 前检查该属性，有则注入 record dict。
 
 ```python
 # typing_adapter.py
 _slice_index: int | None = None
+_last_slice_stats: dict | None = None
 
 def set_slice_index(self, idx: int | None) -> None:
     self._slice_index = idx
 
 def _check_typing_complete(self) -> bool:
-    # ... 原有判断 ...
+    # ... stop, flush_char_stats ...
+
+    # 第一层防御：捕获 score_data 快照（供 collectSliceResult）
+    if self._slice_index is not None:
+        s = self._typing_service.score_data
+        self._last_slice_stats = {
+            "speed": s.speed, "keyStroke": s.keyStroke,
+            "codeLength": s.codeLength, "accuracy": s.accuracy,
+            "effectiveSpeed": s.effectiveSpeed,
+            "wrong_char_count": s.wrong_char_count,
+            "backspace_count": s.backspace_count,
+            "correction_count": s.correction_count,
+            "char_count": s.char_count, "time": s.time,
+        }
+
+    self._submit_score_async()
+
+    # 第二层防御：history record 在 typingEnded 之前构建
     record = self._typing_service.get_history_record()
     if self._slice_index is not None:
         record["slice_index"] = self._slice_index
-    self.historyRecordUpdated.emit(record)
-    self.typingEnded.emit()
-    # ...
+
+    self.typingEnded.emit()              # ← QML 同步触发 clear()
+    self.historyRecordUpdated.emit(record)  # ← 数据已捕获，安全
+    return True
 ```
 
-Bridge 在 `loadSliceText()` 中设置：
+Bridge 在 `_load_current_slice()` 中设置（**复用全文载文流程**）：
 ```python
-def loadSliceText(self, text: str) -> None:
-    self._typing_adapter.set_slice_index(self._current_slice + 1)
-    self._typing_adapter.prepare_for_text_load()
-    self.textLoaded.emit(text, -1, f"载文 {self._current_slice + 1}/{len(self._slice_stats)}")
+def _load_current_slice(self) -> None:
+    # ... 完全复用全文载文流程 ...
+    self._typing_adapter.set_slice_index(idx)
+    self._typing_adapter.prepare_for_text_load()  # 统一走此方法
+    self._text_id = 0
+    self._typing_adapter.setTextId(None)
+    self.textIdChanged.emit()
+    self.sliceStatusChanged.emit(f"载文模式: 第 {idx}/{total} 片")
+    self.textLoaded.emit(slice_text, -1, label)
 ```
 
-这样 record 只 emit 一次，天然携带 slice_index，无需重复 emit。
+**注意**：`prepare_for_slice_load()` 已被删除，分片和全文统一走 `prepare_for_text_load()`。
 
 ### 7.2 HistoryArea 显示片索引
 
@@ -363,6 +394,8 @@ def copy_score_message(self, score_data, text_title, slice_index=None):
 
 ## 9. 完整数据流
 
+### 9.1 分片载入（slice_size < text.length）
+
 ```
 用户点击"载文" → 打开 SliceConfigDialog
     │
@@ -373,43 +406,72 @@ def copy_score_message(self, score_data, text_title, slice_index=None):
     ├─ 点击列表项 → TextArea 显示内容（可编辑）
     │    └─ 远程源 → Bridge.getTextContentById(id) → textLoaded → TextArea
     │
-    └─ 点击"开始载文" → Bridge.setupSliceMode(text, size, retype_config)
-         │
-         ├─ 分片 text → _slices[]
-         ├─ _current_slice = 0
-         └─ loadSliceText(_slices[0])
-              → textLoaded(plainText, -1, "载文 1/N")
-              → TypingPage: applyLoadedText → 用户打字
-                   │
-                   typingEnded
-                   │
-                   ├─ collectSliceResult()       // 收集 SessionStat，注入 slice_index
-                   │    → historyRecordUpdated(record_with_slice_index)
-                   │    → HistoryArea 插入 "85CPM 98% 30 [1/5]"
-                   │    → 剪贴板复制"第 1 片成绩"
-                   │
-                   ├─ isLastSlice()?
-                   │    ├─ YES → buildAggregateScore()
-                   │    │         → allSlicesCompleted(aggregate_msg)
-                   │    │         → EndDialog 弹出综合成绩
-                   │    │         → exitSliceMode()
-                   │    │
-                   │    └─ NO → shouldRetype(last_stats)?
-                   │              ├─ YES + shuffle → shuffleCurrentSlice()
-                   │              ├─ YES + 普通   → reloadCurrentSlice()
-                   │              └─ NO           → loadNextSlice()
-                   │                                   → textLoaded(plainText, -1, "载文 2/N")
-                   │                                   → 继续打字...
-                   │
-                   └─ sliceStatusChanged → 底部状态栏更新
+    └─ 点击"开始载文"（未勾选"全文载入"）
+         → Bridge.setupSliceMode(text, slice_size, retype_config)
+              │
+              ├─ 分片 text → _slices[]
+              ├─ _slice_mode = True
+              ├─ _current_slice = 0
+              └─ _load_current_slice()
+                   → prepare_for_text_load()
+                   → textLoaded(slice_text, -1, "载文 1/N")
+                   → TypingPage: applyLoadedText → 用户打字
+                        │
+                        typingEnded
+                        │
+                        ├─ collectSliceResult()  // 收集 SessionStat 快照
+                        │    → historyRecordUpdated(record_with_slice_index)
+                        │    → HistoryArea 插入 "85CPM 98% 30 [1/5]"
+                        │    → 剪贴板复制"第 1 片成绩"
+                        │
+                        ├─ isLastSlice()?
+                        │    ├─ YES → buildAggregateScore()
+                        │    │         → EndDialog 弹出综合成绩
+                        │    │         → exitSliceMode()
+                        │    │
+                        │    └─ NO → shouldRetype(last_stats)?
+                        │              ├─ YES + shuffle → shuffleCurrentSlice()
+                        │              ├─ YES + 普通   → reloadCurrentSlice()
+                        │              └─ NO           → loadNextSlice()
+                        │                                   → textLoaded(slice_text, -1, "载文 2/N")
+                        │                                   → 继续打字...
+                        │
+                        └─ sliceStatusChanged → 底部状态栏更新
 ```
+
+### 9.2 全文载入（勾选"全文载入"）
+
+```
+用户点击"载文" → 打开 SliceConfigDialog
+    │
+    └─ 勾选"全文载入（不分片）" → 点击"开始载文"
+         → Bridge.loadFullText(text, source_key)
+              │
+              ├─ _slice_mode = False（不进入分片模式）
+              ├─ prepare_for_text_load()
+              ├─ textLoaded(text, -1, "自定义文本")
+              │    → QML applyLoadedText → handleLoadedText → 用户打字
+              │
+              ├─ TextAdapter.lookup_text_id(source_key, text)  // daemon thread
+              │    → hash 匹配 → localTextIdResolved(id)
+              │    → Bridge.setTextId(id) → textIdChanged
+              │    → LeaderboardPanel.onTextIdChanged → loadLeaderboardByTextId
+              │
+              └─ typingEnded → 正常 EndDialog（非分片路径）
+```
+
+**与 `setupSliceMode` 的区别**：
+- `loadFullText` 不设置 `_slice_mode = True`，排行榜/成绩提交正常工作
+- 异步回查 `text_id` 使排行榜可用（复用 TextAdapter 的 `localTextIdResolved` 信号链）
+- QML 侧 `onTypingEnded` 走正常 EndDialog 路径（非分片自动推进）
 
 ## 10. 需修改的文件清单
 
 | 文件 | 改动 |
 |---|---|
-| `src/backend/presentation/bridge.py` | 新增载文状态、信号、Slot（核心改动） |
+| `src/backend/presentation/bridge.py` | 载文状态、信号、Slot（核心改动）+ `loadFullText` 全文载入 Slot |
 | `src/backend/presentation/adapters/typing_adapter.py` | `_slice_index` 属性 + `_check_typing_complete()` 注入 slice_index |
+| `src/backend/presentation/adapters/text_adapter.py` | 公开 `lookup_text_id()` 方法，供 Bridge.loadFullText 复用异步回查 |
 | `src/backend/application/gateways/score_gateway.py` | `format_aggregate_message()` + `copy_score_message()` 支持 slice_index |
 | `src/qml/typing/ToolLine.qml` | "载文"按钮改为打开 Dialog |
 | `src/qml/pages/TypingPage.qml` | `onTypingEnded` 增加 slice mode 分支 + 底部状态栏 |

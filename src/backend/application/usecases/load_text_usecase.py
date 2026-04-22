@@ -88,3 +88,10 @@ class LoadTextUseCase:
             source_label="剪贴板",
             source_key="",
         )
+
+    def lookup_text_id(self, source_key: str, content: str) -> int | None:
+        """按内容 hash 回查服务端 text_id（供异步回查使用）。
+
+        通过 Gateway 的公开方法访问，不暴露 Gateway 引用。
+        """
+        return self._text_gateway.lookup_text_id(source_key, content)

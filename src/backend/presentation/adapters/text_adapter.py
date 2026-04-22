@@ -76,18 +76,27 @@ class TextAdapter(QObject):
         """后台线程异步回查服务端 text_id。"""
         import threading
 
-        gateway = self._load_text_usecase._text_gateway
+        usecase = self._load_text_usecase
 
         def _do_lookup():
             try:
-                resolved_id = gateway.lookup_text_id(source_key, content)
+                resolved_id = usecase.lookup_text_id(source_key, content)
                 if resolved_id is not None:
                     # 从 daemon thread 直接发射信号，Qt 自动走 QueuedConnection 到主线程的 slot
                     self.localTextIdResolved.emit(resolved_id)
             except Exception:
+                # 回查失败不影响主流程（文本已显示），静默降级
                 pass
 
         threading.Thread(target=_do_lookup, daemon=True).start()
+
+    def lookup_text_id(self, source_key: str, content: str) -> None:
+        """公开方法：后台异步回查服务端 text_id。
+
+        用于 Bridge.loadFullText 等绕过 Worker 流程的直接载文路径，
+        复用已有的 localTextIdResolved 信号链完成 text_id 回填。
+        """
+        self._lookup_text_id_async(source_key, content)
 
     def _on_text_load_failed(self, message: str) -> None:
         self.textLoadFailed.emit(message)

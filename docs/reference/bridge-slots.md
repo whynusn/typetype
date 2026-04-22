@@ -59,6 +59,10 @@
 | `textIdChanged` | 无 | textId 变化 |
 | `backspaceChanged` | 无 | 退格次数变化 |
 | `correctionChanged` | 无 | 回改次数变化 |
+| `sliceModeChanged` | 无 | 进入/退出载文模式 |
+| `sliceStatusChanged` | `(str status)` | 片进度更新（如 "载文模式: 第 3/5 片"） |
+| `allSlicesCompleted` | `(str message)` | 全部片打完，携带聚合成绩消息 |
+| `textContentLoaded` | `(str content, str title)` | 按 ID 获取的文本内容到达 |
 
 ## Slots（QML 可调用的方法）
 
@@ -70,9 +74,10 @@
 | `accumulateBackspace` | 无 | 累积退格次数（QML 退格键按下时调用） |
 | `setLowerPaneFocused` | `(bool focused)` | 设置输入区焦点状态 |
 | `handleCommittedText` | `(str s, int growLength)` | 处理提交的文本 |
-| `handleLoadedText` | `(QQuickTextDocument doc)` | 处理已加载的文本文档 |
+| `handleLoadedText` | `(QQuickTextDocument doc, str text="")` | 处理已加载的文本文档（可选 text 确保内容正确） |
 | `setTextTitle` | `(str title)` | 设置文本标题 |
 | `setTextId` | `(int textId)` | 设置文本 ID |
+| `loadFullText` | `(str text, str source_key="")` | 全文载入（不分片），异步回查 text_id |
 | `requestLoadText` | `(str sourceKey)` | 请求加载文本 |
 | `loadTextFromClipboard` | 无 | 从剪贴板载文 |
 | `uploadText` | `(str title, str content, str sourceKey, bool toLocal, bool toCloud)` | 上传文本 |
@@ -94,4 +99,25 @@
 | `loadCatalog` | 无 | 加载来源目录 |
 | `refreshCatalog` | 无 | 强制刷新来源目录 |
 | `requestShuffle` | 无 | 乱序当前文本 |
+| `requestLoadTextForPreview` | `(str sourceKey)` | 预览模式加载文本（不应用到打字区） |
+| `getTextContentById` | `(int textId)` | 按 ID 异步获取文本内容 |
 | `copyToClipboard` | `(str text)` | 复制文本到剪贴板 |
+| `setupSliceMode` | `(str text, int sliceSize, bool retypeEnabled, str metric, str operator, float threshold, bool shuffle)` | 初始化载文模式（分片），分片并加载第一片 |
+| `collectSliceResult` | 无 | 收集当前片的 SessionStat 快照 |
+| `isLastSlice` | → `bool` | 当前片是否为最后一片 |
+| `loadNextSlice` | 无 | 载入下一片 |
+| `shouldRetype` | → `bool` | 检查当前片成绩是否触发重打条件 |
+| `handleSliceRetype` | 无 | 根据重打配置自动处理重打（内部判断 shuffle） |
+| `shuffleCurrentSlice` | 无 | 乱序当前片并载入 |
+| `buildAggregateScore` | → `str` | 计算聚合成绩，返回格式化消息 |
+| `copyAggregateScore` | 无 | 复制聚合成绩到剪贴板 |
+| `exitSliceMode` | 无 | 退出载文模式，清理状态 |
+| `getSliceStatus` | → `str` | 返回当前片进度摘要 |
+| `getLastSliceStats` | → `dict` | 获取最近一次分片完成时的 score_data 快照 |
+
+## 载文模式 Properties
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `sliceMode` | `bool` | 是否处于载文模式 |
+| `totalSliceCount` | `int` | 总片数 |

@@ -188,7 +188,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 - **GlobalExceptionHandler 集中处理异常语义**（网络异常 → 用户友好消息），类似 Spring Boot 的 `@ControllerAdvice`。
 - **BaseWorker 统一捕获后台任务异常**，调用 GlobalExceptionHandler 转换后发射 `failed` 信号。
 - **UseCases 编排业务流程**（路由 + 业务验证），异常上浮由 BaseWorker 统一处理。
-- 文本加载支持 `network` 与 `local` 两类来源，**所有加载统一走后台 Worker**，避免主线程同步 I/O 阻塞 UI。
+- 文本加载支持 `network` 与 `local` 两类来源，**标准加载走后台 Worker**，避免主线程同步 I/O 阻塞 UI。就地变换（乱序、全文载入、分片载入）直接 emit textLoaded，内容已在内存中无同步 I/O。
 - **FluentPage 不使用 `layer.effect`**（避免 GPU 离屏渲染阻塞页面切换），圆角裁切由 `Flickable.clip` 和 `appLayer` 背景配合实现。
 - UI 框架使用 RinUI（vendored），提供主题、组件和暗色模式支持。
 - UI 字体由 `main.py` 中 `app.setFont()` 全局设置，QML 层不再传递字体属性。
@@ -212,7 +212,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 | | WeakCharsQueryWorker | 弱字符后台查询 |
 | **Presentation** | Bridge | QML 通信适配层：属性代理、信号转发、Slot 入口 |
 | | TypingAdapter | Qt 适配（计时器、文本着色、信号发射） |
-| | TextAdapter | Qt 适配（所有加载走 Worker、信号发射、UI 配置展示） |
+| | TextAdapter | Qt 适配（标准加载走 Worker、信号发射、UI 配置展示）、公开 `lookup_text_id()` 供就地载入复用 |
 | | LeaderboardAdapter | 排行榜 Qt 适配（异步 Worker、信号管理） |
 | | UploadTextAdapter | 文本上传 Qt 适配（本地写入 + 云端上传） |
 
