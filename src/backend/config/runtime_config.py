@@ -112,3 +112,30 @@ class RuntimeConfig:
 
     def update_catalog(self, items: list[TextCatalogItem]) -> None:
         self.catalog_items = items
+
+    def update_base_url(self, new_base_url: str) -> None:
+        """更新 base_url 并持久化到 config.json。
+
+        同时重新计算派生的 API URL。
+        """
+        new_base_url = new_base_url.rstrip("/")
+        self.base_url = new_base_url
+        self.login_api_url = f"{new_base_url}/api/v1/auth/login"
+        self.validate_api_url = f"{new_base_url}/api/v1/users/me"
+        self.refresh_api_url = f"{new_base_url}/api/v1/auth/refresh"
+        self.register_api_url = f"{new_base_url}/api/v1/auth/register"
+        self._save_to_file()
+
+    def _save_to_file(self) -> None:
+        """将当前配置持久化到 config.json。"""
+        config_path = self._find_config_file()
+        if not config_path:
+            return
+        try:
+            with open(config_path, encoding="utf-8") as f:
+                data = json.load(f)
+            data["base_url"] = self.base_url
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except Exception:
+            pass

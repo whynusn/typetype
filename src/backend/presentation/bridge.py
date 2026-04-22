@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
@@ -72,6 +72,7 @@ class Bridge(QObject):
     # 会话状态机信号
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
+    baseUrlChanged = Signal()
 
     def __init__(
         self,
@@ -82,6 +83,7 @@ class Bridge(QObject):
         upload_text_adapter: UploadTextAdapter | None = None,
         leaderboard_adapter: LeaderboardAdapter | None = None,
         key_listener: GlobalKeyListener | None = None,
+        base_url_update_callback: Callable[[str], None] | None = None,
     ):
         super().__init__()
         self._typing_adapter = typing_adapter
@@ -91,6 +93,7 @@ class Bridge(QObject):
         self._upload_text_adapter = upload_text_adapter
         self._leaderboard_adapter = leaderboard_adapter
         self._key_listener = key_listener
+        self._base_url_update_callback = base_url_update_callback
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
@@ -303,6 +306,11 @@ class Bridge(QObject):
         """当前资格原因消息。"""
         return self._typing_adapter.eligibility_reason
 
+    @Property(str, notify=baseUrlChanged)
+    def baseUrl(self) -> str:
+        """当前 API 服务地址。"""
+        return self._text_adapter.get_base_url()
+
     # Slot 入口
 
     @Slot(str)
@@ -353,7 +361,7 @@ class Bridge(QObject):
 
         与 setupSliceMode 的区别：不进入 slice_mode，排行榜/成绩正常工作。
         复用 textLoaded 信号链：QML applyLoadedText → handleLoadedText。
-        ���步回查服务端 text_id 使排行榜可用。
+        异步回查服务端 text_id 使排行榜可用。
         """
         if not text:
             return
@@ -750,3 +758,10 @@ class Bridge(QObject):
         if not self._slice_stats:
             return {}
         return self._slice_stats[-1]
+
+    @Slot(str)
+    def setBaseUrl(self, new_base_url: str) -> None:
+        """更新 API 服务地址，持久化到配置文件，并同步更新所有依赖对象。"""
+        if self._base_url_update_callback:
+            self._base_url_update_callback(new_base_url)
+        self.baseUrlChanged.emit()
