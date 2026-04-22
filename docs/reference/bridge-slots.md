@@ -61,8 +61,9 @@
 | `correctionChanged` | 无 | 回改次数变化 |
 | `sliceModeChanged` | 无 | 进入/退出载文模式 |
 | `sliceStatusChanged` | `(str status)` | 片进度更新（如 "载文模式: 第 3/5 片"） |
-| `allSlicesCompleted` | `(str message)` | 全部片打完，携带聚合成绩消息 |
 | `textContentLoaded` | `(str content, str title)` | 按 ID 获取的文本内容到达 |
+| `uploadStatusChanged` | `(int status)` | 成绩上传资格状态变化（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA） |
+| `eligibilityReasonChanged` | `(str reason)` | 资格原因消息变化 |
 
 ## Slots（QML 可调用的方法）
 
@@ -99,7 +100,6 @@
 | `loadCatalog` | 无 | 加载来源目录 |
 | `refreshCatalog` | 无 | 强制刷新来源目录 |
 | `requestShuffle` | 无 | 乱序当前文本 |
-| `requestLoadTextForPreview` | `(str sourceKey)` | 预览模式加载文本（不应用到打字区） |
 | `getTextContentById` | `(int textId)` | 按 ID 异步获取文本内容 |
 | `copyToClipboard` | `(str text)` | 复制文本到剪贴板 |
 | `setupSliceMode` | `(str text, int sliceSize, bool retypeEnabled, str metric, str operator, float threshold, bool shuffle)` | 初始化载文模式（分片），分片并加载第一片 |
@@ -121,3 +121,5 @@
 |------|------|------|
 | `sliceMode` | `bool` | 是否处于载文模式 |
 | `totalSliceCount` | `int` | 总片数 |
+| `uploadStatus` | `int` | 成绩上传资格状态（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA） |
+| `eligibilityReason` | `str` | 资格原因消息 |

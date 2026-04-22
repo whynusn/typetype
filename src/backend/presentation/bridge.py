@@ -68,8 +68,10 @@ class Bridge(QObject):
     # 载文模式信号
     sliceModeChanged = Signal()
     sliceStatusChanged = Signal(str)
-    allSlicesCompleted = Signal(str)  # 携带聚合成绩 HTML 消息
     textContentLoaded = Signal(str, str)  # (content, title) - 按 ID 获取的文本内容
+    # 会话状态机信号
+    uploadStatusChanged = Signal(int)
+    eligibilityReasonChanged = Signal(str)
 
     def __init__(
         self,
@@ -128,6 +130,11 @@ class Bridge(QObject):
         )
         self._typing_adapter.backspaceChanged.connect(self.backspaceChanged.emit)
         self._typing_adapter.correctionChanged.connect(self.correctionChanged.emit)
+        # 会话状态机信号
+        self._typing_adapter.uploadStatusChanged.connect(self.uploadStatusChanged.emit)
+        self._typing_adapter.eligibilityReasonChanged.connect(
+            self.eligibilityReasonChanged.emit
+        )
 
     def _connect_text_load_signals(self) -> None:
         self._text_adapter.textLoaded.connect(self.textLoaded.emit)
@@ -286,6 +293,16 @@ class Bridge(QObject):
     def textId(self) -> int:
         return self._text_id
 
+    @Property(int, notify=uploadStatusChanged)
+    def uploadStatus(self) -> int:
+        """当前上传资格状态（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA）。"""
+        return self._typing_adapter.upload_status
+
+    @Property(str, notify=eligibilityReasonChanged)
+    def eligibilityReason(self) -> str:
+        """当前资格原因消息。"""
+        return self._typing_adapter.eligibility_reason
+
     # Slot 入口
 
     @Slot(str)
@@ -336,7 +353,7 @@ class Bridge(QObject):
 
         与 setupSliceMode 的区别：不进入 slice_mode，排行榜/成绩正常工作。
         复用 textLoaded 信号链：QML applyLoadedText → handleLoadedText。
-        异步回查服务端 text_id 使排行榜可用。
+        ���步回查服务端 text_id 使排行榜可用。
         """
         if not text:
             return
@@ -347,6 +364,8 @@ class Bridge(QObject):
         self._text_id = 0
         self._typing_adapter.setTextId(None)
         self.textIdChanged.emit()
+        # 设置会话状态机
+        self._typing_adapter.setup_custom_session(source_key or "custom")
         self.textLoaded.emit(text, -1, "自定义文本")
         # 异步回查服务端 text_id（复用 TextAdapter 的 localTextIdResolved 信号链）
         lookup_key = source_key if source_key else "custom"
@@ -363,6 +382,8 @@ class Bridge(QObject):
     def loadTextFromClipboard(self) -> None:
         self._typing_adapter.prepare_for_text_load()
         self._text_adapter.loadTextFromClipboard()
+        # 设置会话状态机
+        self._typing_adapter.setup_clipboard_session()
 
     @Slot(str, str, str, bool, bool)
     def uploadText(
@@ -452,28 +473,14 @@ class Bridge(QObject):
         if self._leaderboard_adapter:
             self._leaderboard_adapter.loadTextList(source_key)
 
-    @Slot(str)
-    def requestLoadTextForPreview(self, source_key: str) -> None:
-        """为载文 Dialog 预览加载文本（不触发打字流程）。
-
-        与 requestLoadText 不同，此方法不调用 prepare_for_text_load，
-        不清状态、不停计时。文本内容通过 textLoaded 信号返回。
-        """
-        self._text_adapter.requestLoadText(source_key)
-
     @Slot(int)
     def getTextContentById(self, text_id: int) -> None:
         """按文本 ID 异步获取完整内容。结果通过 textContentLoaded 信号返回。"""
         if not self._leaderboard_adapter:
             return
-        from ..workers.text_content_worker import TextContentWorker
-
-        gateway = self._leaderboard_adapter._leaderboard_gateway
-        worker = TextContentWorker(leaderboard_gateway=gateway, text_id=text_id)
-        worker.signals.succeeded.connect(self._on_text_content_loaded)
-        from PySide6.QtCore import QThreadPool
-
-        QThreadPool.globalInstance().start(worker)
+        self._leaderboard_adapter.get_text_content_by_id(
+            text_id, self._on_text_content_loaded
+        )
 
     def _on_text_content_loaded(self, data: dict) -> None:
         content = data.get("content", "")
@@ -508,6 +515,8 @@ class Bridge(QObject):
         self._text_id = 0
         self._typing_adapter.setTextId(None)
         self.textIdChanged.emit()
+        # 设置会话状态机
+        self._typing_adapter.setup_shuffle_session()
         # 发射 textLoaded 信号，QML 侧 applyLoadedText + handleLoadedText 重置打字状态
         self.textLoaded.emit(shuffled, -1, title)
 
@@ -574,6 +583,8 @@ class Bridge(QObject):
         self._slice_stats = []
         self._slice_mode = True
         self.sliceModeChanged.emit()
+        # 设置会话状态机
+        self._typing_adapter.setup_slice_session(len(self._slices))
 
         self.sliceStatusChanged.emit(f"载文模式: 第 1/{len(self._slices)} 片")
 
@@ -636,6 +647,7 @@ class Bridge(QObject):
         """载入下一片。"""
         if self._current_slice < len(self._slices) - 1:
             self._current_slice += 1
+            self._typing_adapter.advance_slice()
             self._load_current_slice()
 
     @Slot(result=bool)
@@ -694,18 +706,18 @@ class Bridge(QObject):
     @Slot(result=str)
     def buildAggregateScore(self) -> str:
         """计算所有片的聚合成绩，返回 HTML 消息。"""
-        if not hasattr(self, "_typing_adapter") or not self._typing_adapter:
+        if not self._typing_adapter:
             return ""
-        score_gateway = self._typing_adapter._score_gateway
-        return score_gateway.build_aggregate_message(
+        return self._typing_adapter.build_aggregate_score(
             self._slice_stats, len(self._slices)
         )
 
     @Slot()
     def copyAggregateScore(self) -> None:
         """复制聚合成绩到剪贴板。"""
-        score_gateway = self._typing_adapter._score_gateway
-        text = score_gateway.build_aggregate_plain_text(
+        if not self._typing_adapter:
+            return
+        text = self._typing_adapter.copy_aggregate_score(
             self._slice_stats, len(self._slices)
         )
         if text:
