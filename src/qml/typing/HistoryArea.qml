@@ -106,7 +106,7 @@ Pane {
 
             Text {
                 anchors.centerIn: parent
-                text: model.display
+                text: column === 6 && model.sliceInfo !== undefined ? model.sliceInfo : model.display
                 color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : palette.text
                 font.pixelSize: 13
             }

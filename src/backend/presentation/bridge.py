@@ -356,8 +356,11 @@ class Bridge(QObject):
             return
         # 确保退出之前可能的分片模式
         session = self._typing_adapter._session_context
-        if session and session.source_mode:
-            self.exitSliceMode()
+        if session:
+            from ..application.session_context import SourceMode
+
+            if session.source_mode == SourceMode.SLICE:
+                self.exitSliceMode()
         self._typing_adapter.prepare_for_text_load()
         self._text_id = 0
         self._typing_adapter.setTextId(None)
@@ -372,8 +375,11 @@ class Bridge(QObject):
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
         session = self._typing_adapter._session_context
-        if session and session.source_mode:
-            return
+        if session:
+            from ..application.session_context import SourceMode
+
+            if session.source_mode == SourceMode.SLICE:
+                return
         self._typing_adapter.prepare_for_text_load()
         self._text_adapter.requestLoadText(source_key)
 
@@ -549,7 +555,7 @@ class Bridge(QObject):
             return session.source_mode == SourceMode.SLICE
         return False
 
-    @Property(int, constant=True)
+    @Property(int, notify=sliceModeChanged)
     def totalSliceCount(self) -> int:
         session = self._typing_adapter._session_context
         if session:

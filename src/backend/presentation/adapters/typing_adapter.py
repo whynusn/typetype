@@ -83,6 +83,10 @@ class TypingAdapter(QObject):
         # 分片完成时的 score_data 快照（在 _check_typing_complete 中捕获）
         self._last_slice_stats: dict | None = None
 
+        # 信号发射缓存（避免无变化时重复触发 QML 重新评估）
+        self._last_backspace_count = 0
+        self._last_correction_count = 0
+
         # 订阅状态机事件
         if self._session_context:
             self._session_context.subscribe_upload_status(
@@ -111,13 +115,24 @@ class TypingAdapter(QObject):
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
 
+    def _reset_signal_cache(self) -> None:
+        """同步 backspace/correction 缓存，避免 clear() 后重复发射信号。"""
+        self._last_backspace_count = self._typing_service.score_data.backspace_count
+        self._last_correction_count = self._typing_service.score_data.correction_count
+
     def _emit_typing_signals(self) -> None:
         self.charNumChanged.emit()
         self.codeLengthChanged.emit()
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
-        self.backspaceChanged.emit()
-        self.correctionChanged.emit()
+        backspace_count = self._typing_service.score_data.backspace_count
+        if backspace_count != self._last_backspace_count:
+            self._last_backspace_count = backspace_count
+            self.backspaceChanged.emit()
+        correction_count = self._typing_service.score_data.correction_count
+        if correction_count != self._last_correction_count:
+            self._last_correction_count = correction_count
+            self.correctionChanged.emit()
 
     def _check_typing_complete(self) -> bool:
         if (
@@ -204,6 +219,7 @@ class TypingAdapter(QObject):
         self._second_timer.stop()
         self._typing_service.stop()
         self._typing_service.clear()
+        self._reset_signal_cache()
         self._typing_service.set_text_id(None)
         changed = self._typing_service.set_read_only(True)
         if changed:
@@ -289,6 +305,7 @@ class TypingAdapter(QObject):
         self._typing_service.set_total_chars(len(plain_doc))
         self._typing_service.set_plain_doc(plain_doc)
         self._typing_service.clear()
+        self._reset_signal_cache()
         self._typing_service.state.is_started = False
         self._emit_typing_signals()
         changed = self._typing_service.set_read_only(False)
@@ -309,18 +326,23 @@ class TypingAdapter(QObject):
         if self._typing_service.state.is_started != status:
             if status:
                 self._typing_service.clear()
+                self._reset_signal_cache()
                 self._typing_service.start()
                 self._second_timer.start()
+                if self._session_context:
+                    self._session_context.start_typing()
                 self.backspaceChanged.emit()
                 self.correctionChanged.emit()
             else:
                 self._second_timer.stop()
                 self._typing_service.stop()
                 self._typing_service.clear()
+                self._reset_signal_cache()
                 self.backspaceChanged.emit()
                 self.correctionChanged.emit()
         elif not status:
             self._typing_service.clear()
+            self._reset_signal_cache()
             self.backspaceChanged.emit()
             self.correctionChanged.emit()
         changed = self._typing_service.set_read_only(False)
@@ -423,11 +445,6 @@ class TypingAdapter(QObject):
         """代理：设置剪贴板会话。"""
         if self._session_context:
             self._session_context.setup_clipboard_session()
-
-    def setup_slice_session(self, total: int) -> None:
-        """代理：���置分片会话。"""
-        if self._session_context:
-            self._session_context.setup_slice_session(total)
 
     def setup_shuffle_session(self) -> None:
         """代理：设置乱序会话。"""

@@ -164,7 +164,6 @@ class TypingSessionContext:
         if not self._slices:
             return 0
 
-        self._current_slice = 0
         self._retype_enabled = retype_enabled
         self._retype_metric = metric
         self._retype_operator = operator

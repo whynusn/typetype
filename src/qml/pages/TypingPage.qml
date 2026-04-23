@@ -134,10 +134,10 @@ Item {
         enabled: typingPage.StackView.status === StackView.Active
 
         function onHistoryRecordUpdated(newRecord) {
-            // 载文模式：在字数列追加片索引标记
+            // 载文模式：在字数列追加片索引标记（通过 sliceInfo 传递，避免修改 charNum 类型）
             if (newRecord.slice_index !== undefined && newRecord.slice_index > 0) {
                 var total = appBridge ? appBridge.totalSliceCount : 0;
-                newRecord.charNum = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
+                newRecord.sliceInfo = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
             }
             historyArea.tableModel.insertRow(0, newRecord);
         }

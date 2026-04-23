@@ -61,7 +61,7 @@
 | `correctionChanged` | 无 | 回改次数变化 |
 | `sliceModeChanged` | 无 | 进入/退出载文模式 |
 | `sliceStatusChanged` | `(str status)` | 片进度更新（如 "载文模式: 第 3/5 片"） |
-| `textContentLoaded` | `(str content, str title)` | 按 ID 获取的文本内容到达 |
+| `textContentLoaded` | `(int text_id, str content, str title)` | 按 ID 获取的文本内容到达 |
 | `uploadStatusChanged` | `(int status)` | 成绩上传资格状态变化（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA） |
 | `eligibilityReasonChanged` | `(str reason)` | 资格原因消息变化 |
 
