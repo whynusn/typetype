@@ -16,11 +16,12 @@
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtQuick import QQuickTextDocument
 
 from ...application.gateways.score_gateway import ScoreGateway
+from ...application.session_context import TypingSessionContext, UploadStatus
 from ...domain.services.typing_service import TypingService
 from ...workers.score_submit_worker import ScoreSubmitWorker
 
@@ -42,6 +43,9 @@ class TypingAdapter(QObject):
     historyRecordUpdated = Signal(dict)
     backspaceChanged = Signal()
     correctionChanged = Signal()
+    # 会话状态机信号
+    uploadStatusChanged = Signal(int)
+    eligibilityReasonChanged = Signal(str)
 
     def __init__(
         self,
@@ -49,11 +53,13 @@ class TypingAdapter(QObject):
         score_gateway: ScoreGateway,
         score_submitter: "ScoreSubmitter | None" = None,
         time_interval: float = 0.15,
+        session_context: TypingSessionContext | None = None,
     ):
         super().__init__()
         self._typing_service = typing_service
         self._score_gateway = score_gateway
         self._score_submitter = score_submitter
+        self._session_context = session_context
         self.timeInterval = time_interval
 
         # Qt 相关
@@ -71,6 +77,24 @@ class TypingAdapter(QObject):
 
         # 后台线程池
         self._thread_pool = QThreadPool.globalInstance()
+
+        # 载文模式片索引（None = 非分片模式）
+        self._slice_index: int | None = None
+        # 分片完成时的 score_data 快照（在 _check_typing_complete 中捕获）
+        self._last_slice_stats: dict | None = None
+
+        # 信号发射缓存（避免无变化时重复触发 QML 重新评估）
+        self._last_backspace_count = 0
+        self._last_correction_count = 0
+
+        # 订阅状态机事件
+        if self._session_context:
+            self._session_context.subscribe_upload_status(
+                self._on_upload_status_changed
+            )
+            self._session_context.subscribe_eligibility_reason(
+                self.eligibilityReasonChanged.emit
+            )
 
     def _match_color_format(self) -> None:
         self._no_fmt.setBackground(QColor("transparent"))
@@ -91,11 +115,24 @@ class TypingAdapter(QObject):
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
 
+    def _reset_signal_cache(self) -> None:
+        """同步 backspace/correction 缓存，避免 clear() 后重复发射信号。"""
+        self._last_backspace_count = self._typing_service.score_data.backspace_count
+        self._last_correction_count = self._typing_service.score_data.correction_count
+
     def _emit_typing_signals(self) -> None:
         self.charNumChanged.emit()
         self.codeLengthChanged.emit()
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
+        backspace_count = self._typing_service.score_data.backspace_count
+        if backspace_count != self._last_backspace_count:
+            self._last_backspace_count = backspace_count
+            self.backspaceChanged.emit()
+        correction_count = self._typing_service.score_data.correction_count
+        if correction_count != self._last_correction_count:
+            self._last_correction_count = correction_count
+            self.correctionChanged.emit()
 
     def _check_typing_complete(self) -> bool:
         if (
@@ -111,11 +148,36 @@ class TypingAdapter(QObject):
                 self.readOnlyChanged.emit()
             self._typing_service.flush_char_stats()
 
+            # 分片模式：在任何清理之前捕获 score_data 快照
+            if self._slice_index is not None:
+                s = self._typing_service.score_data
+                self._last_slice_stats = {
+                    "speed": s.speed,
+                    "keyStroke": s.keyStroke,
+                    "codeLength": s.codeLength,
+                    "accuracy": s.accuracy,
+                    "effectiveSpeed": s.effectiveSpeed,
+                    "wrong_char_count": s.wrong_char_count,
+                    "backspace_count": s.backspace_count,
+                    "correction_count": s.correction_count,
+                    "char_count": s.char_count,
+                    "time": s.time,
+                }
+
             # 异步提交成绩到服务器（后台线程，不阻塞 UI）
+            # 通知状态机完成当前会话
+            if self._session_context:
+                self._session_context.complete_typing()
             self._submit_score_async()
 
-            self.typingEnded.emit()
+            # 必须在 typingEnded.emit() 之前构建 history record，
+            # 因为 QML 的 onTypingEnded 回调会同步触发 loadNextSlice →
+            # prepare_for_text_load → clear()，清零 time/key_stroke 等数据
             record = self._typing_service.get_history_record()
+            if self._slice_index is not None:
+                record["slice_index"] = self._slice_index
+
+            self.typingEnded.emit()
             self.historyRecordUpdated.emit(record)
             return True
         return False
@@ -124,7 +186,14 @@ class TypingAdapter(QObject):
         """异步提交成绩到服务器（后台线程，不阻塞 UI）。"""
         if self._score_submitter is None:
             return
-        text_id = self._typing_service.text_id
+        # 由状态机决定是否提交
+        if self._session_context and not self._session_context.can_submit_score():
+            return
+        text_id = (
+            self._session_context.text_id
+            if self._session_context
+            else self._typing_service.text_id
+        )
         if text_id is None or text_id <= 0:
             return  # 纯练习模式或未载文，不提交
         worker = ScoreSubmitWorker(
@@ -142,10 +211,15 @@ class TypingAdapter(QObject):
         log_warning(f"[TypingAdapter] {error_msg}")
 
     def prepare_for_text_load(self) -> None:
-        """为新一轮载文做准备：停止当前输入并锁定输入区。"""
+        """为新一轮载文做准备：停止当前输入并锁定输入区。
+
+        无论是全文载文还是分片载文，都走此方法准备。
+        后续 QML 侧 applyLoadedText → handleLoadedText 会完成完整初始化。
+        """
         self._second_timer.stop()
         self._typing_service.stop()
         self._typing_service.clear()
+        self._reset_signal_cache()
         self._typing_service.set_text_id(None)
         changed = self._typing_service.set_read_only(True)
         if changed:
@@ -216,14 +290,22 @@ class TypingAdapter(QObject):
         if is_completed:
             self._check_typing_complete()
 
-    def handleLoadedText(self, quick_doc: QQuickTextDocument) -> None:
-        if quick_doc:
-            self._rich_doc = quick_doc.textDocument()
-            plain_doc = self._rich_doc.toPlainText()
-            self._cursor = QTextCursor(self._rich_doc)
-            self._typing_service.set_plain_doc(plain_doc)
-            self._typing_service.set_total_chars(len(plain_doc))
+    @Slot(QQuickTextDocument)
+    @Slot(QQuickTextDocument, str)
+    def handleLoadedText(self, quick_doc: QQuickTextDocument, text: str = "") -> None:
+        if not quick_doc:
+            return
+        self._rich_doc = quick_doc.textDocument()
+        if text:
+            self._rich_doc.setPlainText(text)
+        plain_doc = self._rich_doc.toPlainText()
+        self._cursor = QTextCursor(self._rich_doc)
+        # 先 set_total_chars（归零 char_count），再 set_plain_doc（设置文本）
+        # 避免 set_plain_doc 触发 onTextChanged 时 char_count 仍为旧值导致负位置
+        self._typing_service.set_total_chars(len(plain_doc))
+        self._typing_service.set_plain_doc(plain_doc)
         self._typing_service.clear()
+        self._reset_signal_cache()
         self._typing_service.state.is_started = False
         self._emit_typing_signals()
         changed = self._typing_service.set_read_only(False)
@@ -237,19 +319,32 @@ class TypingAdapter(QObject):
     def setTextId(self, text_id: int | None) -> None:
         """设置当前文本ID（用于成绩提交）。"""
         self._typing_service.set_text_id(text_id)
+        if self._session_context:
+            self._session_context.set_text_id(text_id)
 
     def handleStartStatus(self, status: bool) -> None:
         if self._typing_service.state.is_started != status:
             if status:
                 self._typing_service.clear()
+                self._reset_signal_cache()
                 self._typing_service.start()
                 self._second_timer.start()
+                if self._session_context:
+                    self._session_context.start_typing()
+                self.backspaceChanged.emit()
+                self.correctionChanged.emit()
             else:
                 self._second_timer.stop()
                 self._typing_service.stop()
                 self._typing_service.clear()
+                self._reset_signal_cache()
+                self.backspaceChanged.emit()
+                self.correctionChanged.emit()
         elif not status:
             self._typing_service.clear()
+            self._reset_signal_cache()
+            self.backspaceChanged.emit()
+            self.correctionChanged.emit()
         changed = self._typing_service.set_read_only(False)
         if changed:
             self.readOnlyChanged.emit()
@@ -310,3 +405,71 @@ class TypingAdapter(QObject):
 
     def copy_score_message(self) -> None:
         self._score_gateway.copy_score_to_clipboard(self._typing_service.score_data)
+
+    def set_slice_index(self, idx: int | None) -> None:
+        """设置载文模式的片索引（None = 非分片模式）。"""
+        self._slice_index = idx
+
+    def get_last_slice_stats(self) -> dict | None:
+        """获取最近一次分片完成时的 score_data 快照。"""
+        return self._last_slice_stats
+
+    def build_aggregate_score(self, slice_stats: list[dict], slice_count: int) -> str:
+        """计算所有片的聚合成绩，返回 HTML 消息。"""
+        return self._score_gateway.build_aggregate_message(slice_stats, slice_count)
+
+    def copy_aggregate_score(self, slice_stats: list[dict], slice_count: int) -> str:
+        """计算聚合成绩纯文本并返回（用于剪贴板）。"""
+        return self._score_gateway.build_aggregate_plain_text(slice_stats, slice_count)
+
+    # ==========================================
+    # 会话状态机代理方法
+    # ==========================================
+
+    def setup_network_session(self, text_id: int, source_key: str) -> None:
+        """代理：设置网络来源会话。"""
+        if self._session_context:
+            self._session_context.setup_network_session(text_id, source_key)
+
+    def setup_local_session(self, source_key: str, text_id: int | None = None) -> None:
+        """代理：设置本地来源会话。"""
+        if self._session_context:
+            self._session_context.setup_local_session(source_key, text_id)
+
+    def setup_custom_session(self, source_key: str) -> None:
+        """代理：设置自定义文本会话（loadFullText 路径）。"""
+        if self._session_context:
+            self._session_context.setup_custom_session(source_key)
+
+    def setup_clipboard_session(self) -> None:
+        """代理：设置剪贴板会话。"""
+        if self._session_context:
+            self._session_context.setup_clipboard_session()
+
+    def setup_shuffle_session(self) -> None:
+        """代理：设置乱序会话。"""
+        if self._session_context:
+            self._session_context.setup_shuffle_session()
+
+    def advance_slice(self) -> None:
+        """代理：推进到下一片。"""
+        if self._session_context:
+            self._session_context.advance_slice()
+
+    @property
+    def upload_status(self) -> int:
+        """当前上传资格状态（int 供 QML 绑定）。"""
+        if self._session_context:
+            return self._session_context.upload_status.value
+        return UploadStatus.NA.value
+
+    @property
+    def eligibility_reason(self) -> str:
+        """当前资格原因消息。"""
+        if self._session_context:
+            return self._session_context.get_eligibility_reason()
+        return ""
+
+    def _on_upload_status_changed(self, status: UploadStatus) -> None:
+        """状态机 upload_status 变化回调。"""
+        self.uploadStatusChanged.emit(status.value)

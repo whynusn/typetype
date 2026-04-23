@@ -95,7 +95,7 @@ def test_text_adapter_uses_usecase_plan_and_skips_runtime_strategy_lookup():
     loaded_texts: list[tuple[str, int]] = []
     loading_states: list[bool] = []
     adapter.textLoaded.connect(
-        lambda text, text_id: loaded_texts.append((text, text_id))
+        lambda text, text_id, source_label: loaded_texts.append((text, text_id))
     )
     adapter.textLoadingChanged.connect(
         lambda: loading_states.append(adapter.text_loading)
@@ -138,7 +138,7 @@ def test_text_adapter_enqueues_async_worker_from_application_plan():
     adapter._thread_pool = DummyThreadPool()
     loaded_texts: list[tuple[str, int]] = []
     adapter.textLoaded.connect(
-        lambda text, text_id: loaded_texts.append((text, text_id))
+        lambda text, text_id, source_label: loaded_texts.append((text, text_id))
     )
 
     adapter.requestLoadText("remote")

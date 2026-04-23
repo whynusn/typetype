@@ -21,10 +21,11 @@
 | `typing/ToolLine.qml` | 工具栏（载文/剪贴板/重打/排行榜按钮） |
 | `typing/UpperPane.qml` | 文本显示区域 |
 | `typing/ScoreArea.qml` | 实时速度/击键/码长/错误数展示 |
-| `typing/LowerPane.qml` | 输入区域 |
+| `typing/LowerPane.qml` | 输入区域（含 `suppressTextChanged` 防程序化触发统计） |
 | `typing/HistoryArea.qml` | 历史记录展示 |
 | `typing/EndDialog.qml` | 打字结束成绩弹窗 |
-| `typing/LeaderboardPanel.qml` | 右侧排行榜面板（toggle 显示） |
+| `typing/LeaderboardPanel.qml` | 右侧面板（toggle 显示），依赖 `textIdChanged` |
+| `typing/SliceConfigDialog.qml` | 载文设置对话框（来源/文本选择/分片/全文载入） |
 
 ## 其他组件
 
@@ -36,7 +37,9 @@
 
 | QML 页面 | 调用的 Bridge 方法 |
 |----------|-------------------|
-| TypingPage | `requestLoadText(key)`, `loadTextFromClipboard()`, `setTextId(id)`, `setTextTitle(t)`, `handleLoadedText(doc)`, `handleStartStatus(s)`, `getScoreMessage()`, `setTextId(0)` |
+| TypingPage | `requestLoadText(key)`, `loadTextFromClipboard()`, `setTextId(id)`, `setTextTitle(t)`, `handleLoadedText(doc, text)`, `handleStartStatus(s)`, `getScoreMessage()`, `setTextId(0)` |
+| TypingPage (载文模式) | `collectSliceResult()`, `isLastSlice()`, `buildAggregateScore()`, `exitSliceMode()`, `shouldRetype()`, `handleSliceRetype()`, `loadNextSlice()` |
+| SliceConfigDialog | `loadCatalog()`, `loadTextList(key)`, `getTextContentById(id)`, `loadFullText(text, srcKey)`, `setupSliceMode(text, size, ...)` |
 | WeakCharsPage | `loadWeakChars()` |
 | TextLeaderboardPage | `loadCatalog()`, `loadTextList(key)`, `loadLeaderboardByTextId(id)`, `loadLeaderboard(key)` |
 | DailyLeaderboard | `loadLeaderboard("jisubei")`, `copyToClipboard(text)` |

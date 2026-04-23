@@ -9,22 +9,49 @@ Item {
     id: typingPage
     property bool loggedin: false  // Will be injected by NavigationView
     property bool showLeaderboard: false
+    property string sliceStatusText: ""
 
     //=====================================
     // 函数
     //=====================================
 
     function handleRetypeRequest() {
+        lowerPane.suppressTextChanged = true;
         lowerPane.text = "";
+        lowerPane.suppressTextChanged = false;
         if (appBridge)
-            appBridge.handleStartStatus(false);
+            appBridge.handleLoadedText(upperPane.textDocument, upperPane.text);
+        Qt.callLater(function() {
+            lowerPane.lastText = lowerPane.text;
+        });
     }
 
     function applyLoadedText(plainText) {
-        // 先改lowerPaneText，再改upperPaneText (用于正确计算wrongNum)
+        lowerPane.suppressTextChanged = true;
         lowerPane.text = "";
+        lowerPane.suppressTextChanged = false;
         upperPane.text = plainText;
-        appBridge.handleLoadedText(upperPane.textDocument);
+        appBridge.handleLoadedText(upperPane.textDocument, plainText);
+        // handleLoadedText 完成后，延迟到当前事件循环末尾再同步 lastText。
+        // 这样可以捕获所有异步 onTextChanged 事件（如 IME preedit 清除），
+        // 确保 lastText 始终与 lowerPane.text 一致。
+        Qt.callLater(function() {
+            lowerPane.lastText = lowerPane.text;
+        });
+    }
+
+    function syncSliceStatus() {
+        typingPage.sliceStatusText = appBridge ? appBridge.getSliceStatus() : "";
+    }
+
+    function sliceStatusPrimaryText() {
+        var parts = typingPage.sliceStatusText.split("  |  ");
+        return parts.length > 0 ? parts[0] : "";
+    }
+
+    function sliceStatusSecondaryText() {
+        var parts = typingPage.sliceStatusText.split("  |  ");
+        return parts.length > 1 ? parts[1] : "";
     }
 
     function handleKeyPressEvent(event) {
@@ -107,12 +134,36 @@ Item {
         enabled: typingPage.StackView.status === StackView.Active
 
         function onHistoryRecordUpdated(newRecord) {
+            // 载文模式：在字数列追加片索引标记（通过 sliceInfo 传递，避免修改 charNum 类型）
+            if (newRecord.slice_index !== undefined && newRecord.slice_index > 0) {
+                var total = appBridge ? appBridge.totalSliceCount : 0;
+                newRecord.sliceInfo = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
+            }
             historyArea.tableModel.insertRow(0, newRecord);
         }
 
         function onTypingEnded() {
-            endDialog.scoreMessage = appBridge.getScoreMessage();
-            endDialog.open();
+            if (appBridge && appBridge.sliceMode) {
+                // 载文模式：跳过 EndDialog，自动推进
+                appBridge.collectSliceResult();
+                if (appBridge.shouldRetype()) {
+                    appBridge.handleSliceRetype();
+                } else if (appBridge.isLastSlice()) {
+                    // 最后一片：弹出综合成绩
+                    var msg = appBridge.buildAggregateScore();
+                    endDialog.scoreMessage = msg;
+                    endDialog.isSliceAggregate = true;
+                    endDialog.open();
+                    appBridge.exitSliceMode();
+                } else {
+                    appBridge.loadNextSlice();
+                }
+            } else {
+                // 正常模式
+                endDialog.scoreMessage = appBridge.getScoreMessage();
+                endDialog.isSliceAggregate = false;
+                endDialog.open();
+            }
         }
     }
 
@@ -134,10 +185,6 @@ Item {
             appBridge.requestShuffle();
         }
 
-        function onRequestLoadText(sourceKey) {
-            appBridge.requestLoadText(sourceKey);
-        }
-
         function onRequestLoadTextFromClipboard() {
             // 剪贴板载文，不提交成绩（text_id 为 None）
             appBridge.loadTextFromClipboard();
@@ -150,12 +197,25 @@ Item {
         function onRequestToggleLeaderboard() {
             showLeaderboard = !showLeaderboard;
         }
+
+        function onRequestOpenSliceConfig() {
+            sliceConfigDialog.open();
+        }
     }
 
-    // 监听上传结果：云端上传成功时自动设置 text_id
+    // 监听 sliceStatusChanged 更新状态栏 & 上传结果
     Connections {
         target: appBridge
         enabled: appBridge !== null
+
+        function onSliceStatusChanged(status) {
+            typingPage.sliceStatusText = status;
+        }
+
+        function onSliceModeChanged() {
+            typingPage.syncSliceStatus();
+        }
+
         function onUploadResult(success, message, textId) {
             if (success && textId > 0) {
                 appBridge.setTextId(textId);
@@ -168,18 +228,20 @@ Item {
     }
 
     StackView.onActivating: {
-        if (appBridge) {
+        if (appBridge && !appBridge.sliceMode) {
             appBridge.setTextTitle(appBridge.defaultTextTitle);
             appBridge.setTextId(0);
         }
+        typingPage.syncSliceStatus();
     }
 
     StackView.onActivated: {
-        if (appBridge) {
+        if (appBridge && !appBridge.sliceMode) {
             Qt.callLater(function () {
                 appBridge.requestLoadText(appBridge.defaultTextSourceKey);
             });
         }
+        typingPage.syncSliceStatus();
     }
 
     ColumnLayout {
@@ -189,8 +251,6 @@ Item {
 
         ToolLine {
             id: toolLine
-            textSourceOptions: appBridge ? appBridge.textSourceOptions : []
-            defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
             Layout.fillWidth: true
             Layout.preferredHeight: 56
             Layout.minimumHeight: 56
@@ -244,6 +304,75 @@ Item {
                         Layout.minimumHeight: fontMetricsText.height > 0 ? fontMetricsText.height * 2 : 80 // 保证最少能显示2行
                     }
 
+                    Rectangle {
+                        id: sliceStatusBar
+                        Layout.fillWidth: true
+                        Layout.topMargin: 8
+                        Layout.bottomMargin: 8
+                        Layout.preferredHeight: 40
+                        Layout.minimumHeight: 40
+                        visible: appBridge && appBridge.sliceMode
+
+                        radius: 8
+                        color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.cardColor
+                            : "#f8f8f8"
+                        border.color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.primaryColor
+                            : "#4b88ff"
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 22
+                                Layout.preferredHeight: 22
+                                radius: 11
+                                color: Theme.currentTheme
+                                    ? Theme.currentTheme.colors.primaryColor + "20"
+                                    : "#4b88ff20"
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "片"
+                                    font.pixelSize: 11
+                                    font.bold: true
+                                    color: Theme.currentTheme
+                                        ? Theme.currentTheme.colors.primaryColor
+                                        : "#4b88ff"
+                                }
+                            }
+
+                            Column {
+                                Layout.fillWidth: true
+                                spacing: 1
+
+                                Text {
+                                    text: typingPage.sliceStatusPrimaryText()
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    color: Theme.currentTheme
+                                        ? Theme.currentTheme.colors.textColor
+                                        : "#222"
+                                }
+
+                                Text {
+                                    text: typingPage.sliceStatusSecondaryText().length > 0
+                                        ? typingPage.sliceStatusSecondaryText()
+                                        : "分片模式下的成绩仅本地记录，不提交排行榜"
+                                    font.pixelSize: 11
+                                    color: Theme.currentTheme
+                                        ? Theme.currentTheme.colors.textSecondaryColor
+                                        : "#666"
+                                }
+                            }
+                        }
+                    }
+
                     HistoryArea {
                         id: historyArea
                         Layout.fillWidth: true
@@ -277,5 +406,15 @@ Item {
         id: endDialog
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2
+        property bool isSliceAggregate: false
     }
+
+    SliceConfigDialog {
+        id: sliceConfigDialog
+        x: (parent.width - width) / 2
+        y: (parent.height - height) / 2
+        textSourceOptions: appBridge ? appBridge.textSourceOptions : []
+        defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
+    }
+
 }

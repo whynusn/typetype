@@ -11,6 +11,7 @@ from RinUI import RinUIWindow
 from src.backend.application.gateways.score_gateway import ScoreGateway
 from src.backend.application.gateways.text_source_gateway import TextSourceGateway
 from src.backend.application.gateways.leaderboard_gateway import LeaderboardGateway
+from src.backend.application.session_context import TypingSessionContext
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.presentation.bridge import Bridge
 from src.backend.config.runtime_config import RuntimeConfig
@@ -195,10 +196,13 @@ def main():
     )
 
     # Adapters
+    # Session context (状态机)
+    session_context = TypingSessionContext()
     typing_adapter = TypingAdapter(
         typing_service=typing_service,
         score_gateway=score_gateway,
         score_submitter=score_submitter,
+        session_context=session_context,
     )
     text_adapter = TextAdapter(
         runtime_config=runtime_config,

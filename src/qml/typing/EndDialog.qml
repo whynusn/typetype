@@ -5,13 +5,19 @@ import "../components"
 Dialog {
     id: root
     property string scoreMessage: ""
+    property bool isSliceAggregate: false
 
     modal: true
-    title: "打字结束"
+    title: isSliceAggregate ? "打字结束 — 综合成绩" : "打字结束"
     standardButtons: Dialog.Ok | Dialog.Cancel
 
     AppText {
-        text: "<b>本次跟打结束，是否复制成绩？</b><br>" + root.scoreMessage
+        text: {
+            if (isSliceAggregate) {
+                return "<b>分片跟打结束，综合成绩如下（不提交排行榜）</b><br>" + root.scoreMessage;
+            }
+            return "<b>本次跟打结束，是否复制成绩？</b><br>" + root.scoreMessage;
+        }
         color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#2c3e50"
         leftPadding: 20
         rightPadding: 20
@@ -21,7 +27,11 @@ Dialog {
         if (!appBridge) {
             return;
         }
-        appBridge.copyScoreMessage();
+        if (isSliceAggregate) {
+            appBridge.copyAggregateScore();
+        } else {
+            appBridge.copyScoreMessage();
+        }
     }
 
     onAccepted: {

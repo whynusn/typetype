@@ -17,6 +17,7 @@ from src.backend.presentation.adapters.text_adapter import TextAdapter
 from src.backend.presentation.adapters.auth_adapter import AuthAdapter
 from src.backend.presentation.adapters.char_stats_adapter import CharStatsAdapter
 from src.backend.integration.global_key_listener import GlobalKeyListener
+from src.backend.application.session_context import TypingSessionContext
 from unittest.mock import MagicMock
 from typing import cast
 
@@ -199,3 +200,49 @@ class TestBridgeSpecialPlatform:
         bridge.loadTextFromClipboard()
 
         assert typing_adapter.text_read_only is True
+
+    def test_setup_slice_mode_emits_slice_mode_changed(self):
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            key_listener=None,
+        )
+        typing_adapter._session_context = TypingSessionContext()
+        events: list[bool] = []
+
+        bridge.sliceModeChanged.connect(lambda: events.append(bridge.sliceMode))
+
+        bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, False, "", "", 0.0, False)
+
+        assert events == [True]
+        assert bridge.sliceMode is True
+
+    def test_load_next_slice_advances_by_one_slice(self):
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            key_listener=None,
+        )
+        typing_adapter._session_context = TypingSessionContext()
+        labels: list[str] = []
+
+        bridge.textLoaded.connect(
+            lambda text, text_id, source_label: labels.append(source_label)
+        )
+
+        bridge.setupSliceMode("一二三四五六七八九十", 2, False, "", "", 0.0, False)
+        bridge.loadNextSlice()
+        bridge.loadNextSlice()
+
+        assert labels == ["载文 1/5", "载文 2/5", "载文 3/5"]
+        assert bridge._typing_adapter._session_context.slice_index == 3

@@ -8,6 +8,7 @@ from ...config.runtime_config import RuntimeConfig
 from ...application.gateways.leaderboard_gateway import LeaderboardGateway
 from ...models.dto.text_catalog_item import TextCatalogItem
 from ...workers.leaderboard_worker import LeaderboardWorker
+from ...workers.text_content_worker import TextContentWorker
 from ...workers.text_list_worker import TextListWorker
 
 
@@ -192,6 +193,19 @@ class LeaderboardAdapter(QObject):
     @property
     def loading(self) -> bool:
         return self._loading
+
+    def get_text_content_by_id(self, text_id: int, callback) -> None:
+        """按文本 ID 异步获取完整内容。
+
+        Args:
+            text_id: 文本 ID
+            callback: 成功回调，接收 dict 参数 (含 content, title)
+        """
+        worker = TextContentWorker(
+            leaderboard_gateway=self._leaderboard_gateway, text_id=text_id
+        )
+        worker.signals.succeeded.connect(callback)
+        self._thread_pool.start(worker)
 
     @property
     def text_list_loading(self) -> bool:
