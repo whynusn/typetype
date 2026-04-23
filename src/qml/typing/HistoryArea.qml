@@ -106,7 +106,15 @@ Pane {
 
             Text {
                 anchors.centerIn: parent
-                text: column === 6 && model.sliceInfo !== undefined ? model.sliceInfo : model.display
+                text: {
+                    if (column === 6) {
+                        var rowData = tableView.model.rows[row];
+                        if (rowData && rowData.sliceInfo !== undefined) {
+                            return rowData.sliceInfo;
+                        }
+                    }
+                    return model.display;
+                }
                 color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : palette.text
                 font.pixelSize: 13
             }
