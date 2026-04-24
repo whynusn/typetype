@@ -15,6 +15,8 @@
 
 **非 Wayland 退格统计**：通过 QML `Keys.onPressed` + `!isSpecialPlatform` 守卫实现，与码长/击键逻辑一致。在 fcitx5 等 IME 的 preedit 阶段，退格操作只影响 `preeditText` 而不触发 `Keys.onPressed`，因此统计可能不完整。Wayland 下两路互斥（evdev 路径在先，QML 路径由 `isSpecialPlatform` 守卫跳过），不会重复计数。
 
+**Wayland 降级**：`GlobalKeyListener.start()` 若找不到可访问的键盘设备（如用户不在 `input` 组），会抛出异常。`main.py` 捕获后降级为 `key_listener = None`，`isSpecialPlatform` 为 `false`，退格统计自动回退到 QML `Keys.onPressed` 路径，避免指标完全静默失效。
+
 ## 改动链路
 
 ```

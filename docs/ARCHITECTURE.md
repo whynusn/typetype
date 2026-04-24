@@ -247,7 +247,7 @@ _ensure_config_exists()（确保 config.json 存在）
 - `main.py` 是唯一装配根；没有全局 service locator
 - `_ensure_config_exists()` 在 `RuntimeConfig.load_from_file()` 之前执行，确保 `config/config.json` 存在；若不存在则从 `config/config.example.json` 复制创建，使用户配置持久化到 `config.json` 而非直接修改 example 文件
 - `Bridge` 是 QML 能看到的唯一后端门面
-- Wayland 下会额外创建 `GlobalKeyListener`
+- Wayland 下会额外创建 `GlobalKeyListener`；若设备权限不足（如用户不在 `input` 组），则降级为 `key_listener = None`，退格/击键统计回退到 QML 路径
 - 字符统计在应用退出前会 `flush()` 一次
 - `_update_base_url()` 是唯一协调所有 `base_url` 依赖对象更新的函数，通过 `base_url_update_callback` 闭包注入 Bridge，确保分层不越界
 
