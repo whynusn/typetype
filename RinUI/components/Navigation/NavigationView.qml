@@ -15,7 +15,6 @@ RowLayout {
     property alias navigationBar: navigationBar  // 导航栏
     property alias navigationItems: navigationBar.navigationItems  // 导航栏item
     property alias currentPage: navigationBar.currentPage  // 当前页面索引
-    property var lastPages: []  // 保留以兼容 NavigationBar Back 按钮（单实例模式下始终为空）
     property string defaultPage: ""  // 默认索引项
     property var window: parent  // 窗口对象
     
@@ -187,14 +186,6 @@ RowLayout {
         pageChanged()
     }
 
-    function safePop() {
-        // 单实例模式下无历史栈，不执行返回
-    }
-
-    function pop() {
-        safePop()
-    }
-
     function push(page, properties) {
         if (properties === undefined) properties = {}
         showPage(page, properties)
@@ -218,10 +209,5 @@ RowLayout {
         } else {
             return page.toString()
         }
-    }
-
-    function findPageByKey(key) {
-        const item = menuItems.find(i => i.key === key);
-        return item ? item.page : null;
     }
 }

@@ -226,25 +226,6 @@ Item {
         visible: navigationBar.titleBarEnabled
         z: 2
 
-        // 返回按钮
-        ToolButton {
-            flat: true
-            anchors.verticalCenter: parent.verticalCenter
-            icon.name: "ic_fluent_arrow_left_20_regular"
-            onClicked: navigationView.safePop()
-            width: 40
-            height: 40
-            size: 16
-            enabled: navigationView.lastPages.length > 0
-
-            ToolTip {
-                parent: parent
-                delay: 500
-                visible: parent.hovered
-                text: qsTr("Back")
-            }
-        }
-
         //图标
         IconWidget {
             id: iconLabel

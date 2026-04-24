@@ -228,14 +228,15 @@ Item {
         handleKeyPressEvent(event);
     }
 
+    property bool firstActivation: true
+
     onActiveChanged: {
         if (active) {
-            if (appBridge && !appBridge.sliceMode) {
+            typingPage.syncSliceStatus();
+            if (appBridge && !appBridge.sliceMode && firstActivation) {
+                firstActivation = false;
                 appBridge.setTextTitle(appBridge.defaultTextTitle);
                 appBridge.setTextId(0);
-            }
-            typingPage.syncSliceStatus();
-            if (appBridge && !appBridge.sliceMode) {
                 Qt.callLater(function () {
                     appBridge.requestLoadText(appBridge.defaultTextSourceKey);
                 });
