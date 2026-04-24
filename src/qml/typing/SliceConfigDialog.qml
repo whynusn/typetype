@@ -13,7 +13,7 @@ Dialog {
     closePolicy: Popup.NoAutoClose
 
     width: 500
-    height: 620
+    height: 720
 
     // 供外部注入
     property var textSourceOptions: []
@@ -145,46 +145,8 @@ Dialog {
         return Math.max(1, root.contentLength);
     }
 
-    function thresholdMin() {
-        if (metricCombo.currentValue === "wrong_char_count") {
-            return 0;
-        }
-        return 1;
-    }
-
-    function thresholdMax() {
-        if (metricCombo.currentValue === "accuracy") {
-            return 100;
-        }
-        if (metricCombo.currentValue === "wrong_char_count") {
-            return Math.max(0, root.contentLength);
-        }
-        return 999;
-    }
-
-    function defaultThresholdText() {
-        if (metricCombo.currentValue === "accuracy") {
-            return "95";
-        }
-        if (metricCombo.currentValue === "wrong_char_count") {
-            return "0";
-        }
-        return "60";
-    }
-
     function sliceSizeValue() {
         return parseInt(sliceSizeField.text.trim());
-    }
-
-    function thresholdValue() {
-        return parseInt(thresholdField.text.trim());
-    }
-
-    function ensureThresholdInRange() {
-        var threshold = root.thresholdValue();
-        if (!Number.isInteger(threshold) || threshold < root.thresholdMin() || threshold > root.thresholdMax()) {
-            thresholdField.text = root.defaultThresholdText();
-        }
     }
 
     function buildValidationMessage() {
@@ -200,16 +162,36 @@ Dialog {
             if (sliceSize < root.sliceSizeMin() || sliceSize > root.sliceSizeMax()) {
                 return "每片字数必须在 1 到文章字数之间";
             }
+
+            var startSlice = parseInt(startSliceField.text.trim());
+            if (!Number.isInteger(startSlice) || startSlice < 1) {
+                return "开始片段必须是大于等于 1 的整数";
+            }
+
+            var totalSlices = Math.ceil(root.contentLength / sliceSize);
+            if (startSlice > totalSlices) {
+                return "开始片段不能超过总片段数 " + totalSlices;
+            }
         }
 
-        if (retypeCheck.checked) {
-            var threshold = root.thresholdValue();
-            if (!Number.isInteger(threshold)) {
-                return "重打阈值必须是整数";
-            }
-            if (threshold < root.thresholdMin() || threshold > root.thresholdMax()) {
-                return root.thresholdHelperText();
-            }
+        var keyStrokeMin = parseInt(keyStrokeMinField.text.trim());
+        if (!Number.isInteger(keyStrokeMin) || keyStrokeMin < 1 || keyStrokeMin > 999) {
+            return "击键阈值必须在 1 到 999 之间";
+        }
+
+        var speedMin = parseInt(speedMinField.text.trim());
+        if (!Number.isInteger(speedMin) || speedMin < 1 || speedMin > 999) {
+            return "速度阈值必须在 1 到 999 之间";
+        }
+
+        var accuracyMin = parseInt(accuracyMinField.text.trim());
+        if (!Number.isInteger(accuracyMin) || accuracyMin < 0 || accuracyMin > 100) {
+            return "键准阈值必须在 0 到 100 之间";
+        }
+
+        var passCountMin = parseInt(passCountMinField.text.trim());
+        if (!Number.isInteger(passCountMin) || passCountMin < 1 || passCountMin > 9999) {
+            return "达标次数必须在 1 到 9999 之间";
         }
 
         return "";
@@ -217,16 +199,6 @@ Dialog {
 
     function refreshValidationMessage() {
         root.validationMessage = root.buildValidationMessage();
-    }
-
-    function thresholdHelperText() {
-        if (metricCombo.currentValue === "accuracy") {
-            return "准确率阈值必须在 1 到 100 之间";
-        }
-        if (metricCombo.currentValue === "wrong_char_count") {
-            return "错字数阈值必须在 0 到文章字数之间";
-        }
-        return "速度阈值必须在 1 到 999 之间";
     }
 
     function loadLocalSourceList(preferredKey) {
@@ -293,7 +265,11 @@ Dialog {
         root.setContentText("");
         root.validationMessage = "";
         sliceSizeField.text = "30";
-        thresholdField.text = root.defaultThresholdText();
+        startSliceField.text = "1";
+        keyStrokeMinField.text = "200";
+        speedMinField.text = "100";
+        accuracyMinField.text = "95";
+        passCountMinField.text = "1";
         root.refreshSourceOptions();
         if (appBridge) {
             appBridge.loadCatalog();
@@ -362,29 +338,26 @@ Dialog {
 
         var sliceSize = root.sliceSizeValue();
         var fullText = fullTextCheck.checked;
+        var startSlice = parseInt(startSliceField.text.trim());
 
         if (fullText) {
             sliceSize = text.length;
+            startSlice = 1;
         }
 
-        var retypeEnabled = retypeCheck.checked;
-        var metric = "";
-        var operator = "";
-        var threshold = 0;
-        var shuffle = false;
-
-        if (retypeEnabled) {
-            metric = metricCombo.currentValue;
-            operator = operatorCombo.currentValue;
-            threshold = root.thresholdValue();
-            shuffle = shuffleCheck.checked;
-        }
+        var keyStrokeMin = parseInt(keyStrokeMinField.text.trim());
+        var speedMin = parseInt(speedMinField.text.trim());
+        var accuracyMin = parseInt(accuracyMinField.text.trim());
+        var passCountMin = parseInt(passCountMinField.text.trim());
+        var onFailAction = onFailActionCombo.currentValue;
 
         if (appBridge) {
-            if (fullText && !retypeEnabled) {
+            if (fullText) {
                 appBridge.loadFullText(text, root.selectedSourceKey);
             } else {
-                appBridge.setupSliceMode(text, sliceSize, retypeEnabled, metric, operator, threshold, shuffle);
+                appBridge.setupSliceMode(text, sliceSize, startSlice,
+                                         keyStrokeMin, speedMin, accuracyMin, passCountMin,
+                                         onFailAction, false);
             }
         }
         root.close();
@@ -424,11 +397,29 @@ Dialog {
                     anchors.fill: parent
                     spacing: 4
 
-                    Text {
-                        text: "文本内容"
-                        font.bold: true
-                        font.pixelSize: 13
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Text {
+                            text: "文本内容"
+                            font.bold: true
+                            font.pixelSize: 13
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                        }
+                        Item { Layout.fillWidth: true }
+                        Button {
+                            text: "乱序"
+                            onClicked: {
+                                var text = contentTextArea.text;
+                                if (text.length > 0) {
+                                    var arr = text.split('');
+                                    for (var i = arr.length - 1; i > 0; i--) {
+                                        var j = Math.floor(Math.random() * (i + 1));
+                                        var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+                                    }
+                                    root.setContentText(arr.join(''));
+                                }
+                            }
+                        }
                     }
 
                     ScrollView {
@@ -599,6 +590,22 @@ Dialog {
                             enabled: !fullTextCheck.checked
                         }
 
+                        Text {
+                            text: "开始片段:"
+                            font.pixelSize: 13
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                        }
+
+                        TextField {
+                            id: startSliceField
+                            Layout.preferredWidth: 72
+                            text: "1"
+                            enabled: !fullTextCheck.checked
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator { bottom: 1; top: 9999 }
+                            onTextChanged: root.refreshValidationMessage()
+                        }
+
                         CheckBox {
                             id: fullTextCheck
                             text: "全文载入（不分片）"
@@ -612,125 +619,118 @@ Dialog {
                 }
             }
 
-            // --- 重打条件 ---
+            // --- 合格指标 ---
             Frame {
                 Layout.fillWidth: true
-                implicitHeight: retypeColumn.implicitHeight + 24
                 radius: 6
                 hoverable: false
 
                 ColumnLayout {
-                    id: retypeColumn
                     anchors.fill: parent
                     spacing: 8
 
+                    Text {
+                        text: "合格指标（四个条件需同时满足）"
+                        font.bold: true
+                        font.pixelSize: 13
+                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                    }
+
+                    // 击键
                     RowLayout {
                         Layout.fillWidth: true
-
-                        CheckBox {
-                            id: retypeCheck
-                            text: "开启重打条件"
-                            onCheckedChanged: root.refreshValidationMessage()
+                        spacing: 8
+                        Text { text: "击键"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        TextField {
+                            id: keyStrokeMinField
+                            Layout.preferredWidth: 72
+                            text: "200"
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator { bottom: 1; top: 999 }
+                            onTextChanged: root.refreshValidationMessage()
                         }
+                        Text { text: "次/秒"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
+                        Item { Layout.fillWidth: true }
+                    }
 
-                        Item {
-                            Layout.fillWidth: true
+                    // 速度
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text { text: "速度"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        TextField {
+                            id: speedMinField
+                            Layout.preferredWidth: 72
+                            text: "100"
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator { bottom: 1; top: 999 }
+                            onTextChanged: root.refreshValidationMessage()
                         }
+                        Text { text: "CPM"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    // 键准
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text { text: "键准"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        TextField {
+                            id: accuracyMinField
+                            Layout.preferredWidth: 72
+                            text: "95"
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator { bottom: 0; top: 100 }
+                            onTextChanged: root.refreshValidationMessage()
+                        }
+                        Text { text: "%"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    // 达标次数
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: 8
+                        Text { text: "达标次数"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
+                        TextField {
+                            id: passCountMinField
+                            Layout.preferredWidth: 72
+                            text: "1"
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: IntValidator { bottom: 1; top: 9999 }
+                            onTextChanged: root.refreshValidationMessage()
+                        }
+                        Text { text: "片"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    Text {
+                        text: "四个条件需同时满足才算达标，任一不满足即触发下方设定的事件"
+                        font.pixelSize: 11
+                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                        wrapMode: Text.Wrap
+                        Layout.fillWidth: true
                     }
 
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: 8
-                        visible: retypeCheck.checked
-
-                        Text {
-                            text: "当"
-                            font.pixelSize: 13
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                        }
-
+                        Text { text: "未达标或有错字时:"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
                         ComboBox {
-                            id: metricCombo
+                            id: onFailActionCombo
                             model: ListModel {
-                                ListElement {
-                                    text: "速度(CPM)"
-                                    value: "speed"
-                                }
-                                ListElement {
-                                    text: "准确率(%)"
-                                    value: "accuracy"
-                                }
-                                ListElement {
-                                    text: "错字数"
-                                    value: "wrong_char_count"
-                                }
-                            }
-                            textRole: "text"
-                            valueRole: "value"
-                            onCurrentIndexChanged: {
-                                root.ensureThresholdInRange();
-                                root.refreshValidationMessage();
-                            }
-                        }
-
-                        ComboBox {
-                            id: operatorCombo
-                            model: ListModel {
-                                ListElement {
-                                    text: "<"
-                                    value: "lt"
-                                }
-                                ListElement {
-                                    text: "≤"
-                                    value: "le"
-                                }
-                                ListElement {
-                                    text: "≥"
-                                    value: "ge"
-                                }
-                                ListElement {
-                                    text: ">"
-                                    value: "gt"
-                                }
+                                ListElement { text: "乱序(重打)"; value: "shuffle_retype" }
+                                ListElement { text: "重打"; value: "retype" }
+                                ListElement { text: "无"; value: "none" }
                             }
                             textRole: "text"
                             valueRole: "value"
                         }
-
-                        TextField {
-                            id: thresholdField
-                            Layout.preferredWidth: 88
-                            text: "60"
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator {
-                                bottom: root.thresholdMin()
-                                top: root.thresholdMax()
-                            }
-                            onTextChanged: root.refreshValidationMessage()
-                        }
-
-                        Text {
-                            text: "时重打"
-                            font.pixelSize: 13
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                        }
-
-                        Item {
-                            Layout.fillWidth: true
-                        }
-                    }
-
-                    Text {
-                        visible: retypeCheck.checked
-                        text: root.thresholdHelperText()
-                        font.pixelSize: 11
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                    }
-
-                    CheckBox {
-                        id: shuffleCheck
-                        text: "重打时乱序"
-                        visible: retypeCheck.checked
+                        Item { Layout.fillWidth: true }
                     }
                 }
             }
