@@ -175,13 +175,13 @@ Dialog {
         }
 
         var keyStrokeMin = parseInt(keyStrokeMinField.text.trim());
-        if (!Number.isInteger(keyStrokeMin) || keyStrokeMin < 1 || keyStrokeMin > 999) {
-            return "击键阈值必须在 1 到 999 之间";
+        if (!Number.isInteger(keyStrokeMin) || keyStrokeMin < 0 || keyStrokeMin > 999) {
+            return "击键阈值必须在 0 到 999 之间";
         }
 
         var speedMin = parseInt(speedMinField.text.trim());
-        if (!Number.isInteger(speedMin) || speedMin < 1 || speedMin > 999) {
-            return "速度阈值必须在 1 到 999 之间";
+        if (!Number.isInteger(speedMin) || speedMin < 0 || speedMin > 999) {
+            return "速度阈值必须在 0 到 999 之间";
         }
 
         var accuracyMin = parseInt(accuracyMinField.text.trim());
@@ -266,7 +266,7 @@ Dialog {
         root.validationMessage = "";
         sliceSizeField.text = "30";
         startSliceField.text = "1";
-        keyStrokeMinField.text = "200";
+        keyStrokeMinField.text = "6";
         speedMinField.text = "100";
         accuracyMinField.text = "95";
         passCountMinField.text = "1";
@@ -357,7 +357,7 @@ Dialog {
             } else {
                 appBridge.setupSliceMode(text, sliceSize, startSlice,
                                          keyStrokeMin, speedMin, accuracyMin, passCountMin,
-                                         onFailAction, false);
+                                         onFailAction);
             }
         }
         root.close();
@@ -645,9 +645,9 @@ Dialog {
                         TextField {
                             id: keyStrokeMinField
                             Layout.preferredWidth: 72
-                            text: "200"
+                            text: "6"
                             inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 1; top: 999 }
+                            validator: IntValidator { bottom: 0; top: 999 }
                             onTextChanged: root.refreshValidationMessage()
                         }
                         Text { text: "次/秒"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
@@ -665,10 +665,10 @@ Dialog {
                             Layout.preferredWidth: 72
                             text: "100"
                             inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 1; top: 999 }
+                            validator: IntValidator { bottom: 0; top: 999 }
                             onTextChanged: root.refreshValidationMessage()
                         }
-                        Text { text: "CPM"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
+                        Text { text: "字/分"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
                         Item { Layout.fillWidth: true }
                     }
 
@@ -704,7 +704,7 @@ Dialog {
                             validator: IntValidator { bottom: 1; top: 9999 }
                             onTextChanged: root.refreshValidationMessage()
                         }
-                        Text { text: "片"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
+                        Text { text: "次"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
                         Item { Layout.fillWidth: true }
                     }
 
@@ -723,7 +723,7 @@ Dialog {
                         ComboBox {
                             id: onFailActionCombo
                             model: ListModel {
-                                ListElement { text: "乱序(重打)"; value: "shuffle_retype" }
+                                ListElement { text: "乱序(重打)"; value: "shuffle" }
                                 ListElement { text: "重打"; value: "retype" }
                                 ListElement { text: "无"; value: "none" }
                             }

@@ -217,7 +217,7 @@ class TestBridgeSpecialPlatform:
 
         bridge.sliceModeChanged.connect(lambda: events.append(bridge.sliceMode))
 
-        bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, False, "", "", 0.0, False)
+        bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, 1, 0, 0, 0, 1, "retype")
 
         assert events == [True]
         assert bridge.sliceMode is True
@@ -237,7 +237,7 @@ class TestBridgeSpecialPlatform:
         session = TypingSessionContext()
         typing_adapter._session_context = session
 
-        bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, False, "", "", 0.0, False)
+        bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, 1, 0, 0, 0, 1, "retype")
         assert bridge.sliceMode is True
         assert session.source_mode.name == "SLICE"
 
@@ -266,7 +266,7 @@ class TestBridgeSpecialPlatform:
             lambda text, text_id, source_label: labels.append(source_label)
         )
 
-        bridge.setupSliceMode("一二三四五六七八九十", 2, False, "", "", 0.0, False)
+        bridge.setupSliceMode("一二三四五六七八九十", 2, 1, 0, 0, 0, 1, "retype")
         bridge.loadNextSlice()
         bridge.loadNextSlice()
 
@@ -297,7 +297,7 @@ class TestBridgeSpecialPlatform:
         typing_adapter._last_slice_stats = fake_stats
 
         # 设置分片模式（否则 collect_slice_result 中的 session_context 检查不通过）
-        session.setup_slice_mode("天地玄黄", 4, True, "accuracy", "lt", 98.0, False)
+        session.setup_slice_mode("天地玄黄", 4, 1, 0, 0, 98, 1, "retype")
 
         # 关键断言：get_last_slice_stats 必须在 collect_slice_result 之前
         # 返回 _last_slice_stats（快照），而不是 session_context 中空的 _slice_stats

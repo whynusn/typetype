@@ -561,7 +561,7 @@ class Bridge(QObject):
     def totalSliceCount(self) -> int:
         return self._typing_adapter.slice_total
 
-    @Slot(str, int, int, int, int, int, int, str, bool)
+    @Slot(str, int, int, int, int, int, int, str)
     def setupSliceMode(
         self,
         text: str,
@@ -572,7 +572,6 @@ class Bridge(QObject):
         accuracy_min: int,
         pass_count_min: int,
         on_fail_action: str,
-        shuffle: bool,
     ) -> None:
         """初始化载文模式：分片文本并加载第 start_slice 片。"""
         if not text or slice_size <= 0:
@@ -587,7 +586,6 @@ class Bridge(QObject):
             accuracy_min=accuracy_min,
             pass_count_min=pass_count_min,
             on_fail_action=on_fail_action,
-            shuffle=shuffle,
         )
 
         if total <= 0:
@@ -656,7 +654,7 @@ class Bridge(QObject):
     def handleSliceRetype(self) -> None:
         """根据 on_fail_action 自动处理重打（乱序、原样或无）。"""
         action = self._typing_adapter.on_fail_action
-        if action == "shuffle_retype":
+        if action == "shuffle":
             self.shuffleCurrentSlice()
         elif action == "retype":
             self._reload_current_slice()

@@ -509,7 +509,6 @@ class TypingAdapter(QObject):
         accuracy_min: int,
         pass_count_min: int,
         on_fail_action: str,
-        shuffle: bool,
     ) -> int:
         """代理：初始化分片载文模式。返回总片数。"""
         if self._session_context:
@@ -522,7 +521,6 @@ class TypingAdapter(QObject):
                 accuracy_min=accuracy_min,
                 pass_count_min=pass_count_min,
                 on_fail_action=on_fail_action,
-                shuffle=shuffle,
             )
         return 0
 
