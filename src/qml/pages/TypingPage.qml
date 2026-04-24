@@ -7,6 +7,7 @@ import "../components"
 
 Item {
     id: typingPage
+    property bool active: false  // 由 NavigationView 注入
     property bool loggedin: false  // Will be injected by NavigationView
     property bool showLeaderboard: false
     property string sliceStatusText: ""
@@ -109,7 +110,7 @@ Item {
     // textLoaded/textLoadFailed 只在 requestLoadText() 主动调用后才发出，需要守卫防止页面切换后旧请求完成阻塞
     Connections {
         target: appBridge
-        enabled: typingPage.StackView.status === StackView.Active
+        enabled: typingPage.active
 
         function onTextLoaded(text, textId, sourceLabel) {
             applyLoadedText(text);
@@ -131,7 +132,7 @@ Item {
     // typingEnded/historyRecordUpdated 来自后台定时器，需要守卫防止旧实例重复弹窗
     Connections {
         target: appBridge
-        enabled: typingPage.StackView.status === StackView.Active
+        enabled: typingPage.active
 
         function onHistoryRecordUpdated(newRecord) {
             // 载文模式：在字数列追加片索引标记（通过 sliceInfo 传递，避免修改 charNum 类型）
@@ -170,7 +171,7 @@ Item {
     // 同步 LowerPane 焦点状态到 Bridge
     Connections {
         target: lowerPane
-        enabled: typingPage.StackView.status === StackView.Active
+        enabled: typingPage.active
 
         function onLowerPaneFocusChanged(hasFocus) {
             appBridge.setLowerPaneFocused(hasFocus);
@@ -179,7 +180,7 @@ Item {
 
     Connections {
         target: toolLine
-        enabled: typingPage.StackView.status === StackView.Active
+        enabled: typingPage.active
 
         function onRequestShuffle() {
             appBridge.requestShuffle();
@@ -227,21 +228,19 @@ Item {
         handleKeyPressEvent(event);
     }
 
-    StackView.onActivating: {
-        if (appBridge && !appBridge.sliceMode) {
-            appBridge.setTextTitle(appBridge.defaultTextTitle);
-            appBridge.setTextId(0);
+    onActiveChanged: {
+        if (active) {
+            if (appBridge && !appBridge.sliceMode) {
+                appBridge.setTextTitle(appBridge.defaultTextTitle);
+                appBridge.setTextId(0);
+            }
+            typingPage.syncSliceStatus();
+            if (appBridge && !appBridge.sliceMode) {
+                Qt.callLater(function () {
+                    appBridge.requestLoadText(appBridge.defaultTextSourceKey);
+                });
+            }
         }
-        typingPage.syncSliceStatus();
-    }
-
-    StackView.onActivated: {
-        if (appBridge && !appBridge.sliceMode) {
-            Qt.callLater(function () {
-                appBridge.requestLoadText(appBridge.defaultTextSourceKey);
-            });
-        }
-        typingPage.syncSliceStatus();
     }
 
     ColumnLayout {

@@ -5,6 +5,7 @@ import RinUI
 
 FluentPage {
     id: dailyLeaderboardPage
+    property bool active: false  // 由 NavigationView 注入
     title: qsTr("极速杯日榜")
 
     // 当前文本信息
@@ -677,7 +678,7 @@ FluentPage {
     // 信号连接
     Connections {
         target: appBridge
-        enabled: dailyLeaderboardPage.StackView.status === StackView.Active
+        enabled: dailyLeaderboardPage.active
 
         function onLeaderboardLoaded(data) {
             if (data.text_info) {

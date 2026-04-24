@@ -5,6 +5,7 @@ import RinUI
 
 FluentPage {
     id: uploadPage
+    property bool active: false  // 由 NavigationView 注入
     title: qsTr("上传文本")
 
     property bool toLocal: true
@@ -38,15 +39,8 @@ FluentPage {
         }
     }
 
-    Component.onCompleted: {
-        if (appBridge) {
-            appBridge.loadCatalog();
-        }
-    }
-
-    // 每次页面激活重新加载目录
-    StackView.onActivated: {
-        if (appBridge) {
+    onActiveChanged: {
+        if (active && appBridge) {
             appBridge.loadCatalog();
         }
     }

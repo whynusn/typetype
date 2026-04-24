@@ -15,19 +15,17 @@ RowLayout {
     property alias navigationBar: navigationBar  // 导航栏
     property alias navigationItems: navigationBar.navigationItems  // 导航栏item
     property alias currentPage: navigationBar.currentPage  // 当前页面索引
-    property var lastPages: []  // 历史页面栈, 最多保存两个页面
+    property var lastPages: []  // 保留以兼容 NavigationBar Back 按钮（单实例模式下始终为空）
     property string defaultPage: ""  // 默认索引项
-    property int pushEnterFromY: height
     property var window: parent  // 窗口对象
     
     // Global state injection //
     property bool loggedin: false  // 登录状态，从 Main.qml 传递给所有页面
 
-    // 页面组件缓存(Component)
+    // 页面组件缓存(Component)和实例缓存
     property var componentCache: ({})
-    property bool pushInProgress: false
-    property var loadingPages: ({})
-    property var itemsToRestoreAfterReload: []
+    property var pageInstances: ({})
+    property var currentPageInstance: null
 
     signal pageChanged()  // 页面切换信号
 
@@ -58,6 +56,10 @@ RowLayout {
                 navigationBar.collapsedByAutoResize = true
             }
         }
+        if (navigationItems.length > 0) {
+            let initialPage = defaultPage !== "" ? defaultPage : navigationItems[0].page
+            showPage(initialPage)
+        }
     }
 
     NavigationBar {
@@ -70,13 +72,14 @@ RowLayout {
         minimizeButtonVisible: window && window.minimizeVisible !== undefined ? window.minimizeVisible : true
         maximizeButtonVisible: window && window.maximizeVisible !== undefined ? window.maximizeVisible : true
         useNativeMacControls: window && window.useNativeMacFrame !== undefined ? window.useNativeMacFrame : false
-        stackView: stackView
+        stackView: pageContainer  // 指向容器以保持 NavigationItem 兼容性
         z: 999
         Layout.fillHeight: true
     }
 
     // 主体内容区域
     Item {
+        id: pageContainer
         Layout.fillWidth: true
         Layout.fillHeight: true
 
@@ -107,113 +110,85 @@ RowLayout {
             radius: Theme.currentTheme.appearance.windowRadius
         }
 
-        StackView {
-            id: stackView
-            anchors.fill: parent
-            anchors.leftMargin: 1
-            anchors.topMargin: 1
-
-            // 切换动画 / Page Transition //
-            pushEnter : Transition {
-                PropertyAnimation {
-                    property: "opacity"
-                    from: 0
-                    to: 1
-                    duration: Utils.appearanceSpeed
-                    easing.type: Easing.InOutQuad
-                }
-
-                PropertyAnimation {
-                    property: "y"
-                    from: pushEnterFromY
-                    to: 0
-                    duration: Utils.animationSpeedMiddle
-                    easing.type: Easing.OutQuint
-                }
+        // 同步所有页面实例的尺寸
+        onWidthChanged: {
+            let keys = Object.keys(pageInstances)
+            for (let i = 0; i < keys.length; i++) {
+                let instance = pageInstances[keys[i]]
+                if (instance) instance.width = pageContainer.width
             }
-
-            pushExit : Transition {
-                PropertyAnimation {
-                    property: "opacity"
-                    from: 1
-                    to: 0
-                    duration: Utils.animationSpeed
-                    easing.type: Easing.InOutQuad
-                }
-            }
-
-            popExit : Transition {
-                SequentialAnimation {
-                    PauseAnimation {  // 延时 200ms
-                        duration: Utils.animationSpeedFast * 0.6
-                    }
-                    PropertyAnimation {
-                        property: "opacity"
-                        from: 1
-                        to: 0
-                        duration: Utils.appearanceSpeed
-                        easing.type: Easing.InOutQuad
-                    }
-                }
-
-                PropertyAnimation {
-                    property: "y"
-                    from: 0
-                    to: pushEnterFromY
-                    duration: Utils.animationSpeed
-                    easing.type: Easing.InQuint
-                }
-            }
-
-            popEnter : Transition {
-                SequentialAnimation {
-                    PauseAnimation {  // 延时 200ms
-                        duration: Utils.animationSpeed
-                    }
-                    PropertyAnimation {
-                        property: "opacity"
-                        from: 0
-                        to: 1
-                        duration: 100
-                        easing.type: Easing.InOutQuad
-                    }
-                }
-            }
-
-            initialItem: Item {}
-
         }
-
-        Component.onCompleted: {
-            if (navigationItems.length > 0) {
-                if (defaultPage !== "") {
-                    safePush(defaultPage, false, true)
-                } else {
-                    safePush(navigationItems[0].page, false, true)  // 推送默认页面
-                }
+        onHeightChanged: {
+            let keys = Object.keys(pageInstances)
+            for (let i = 0; i < keys.length; i++) {
+                let instance = pageInstances[keys[i]]
+                if (instance) instance.height = pageContainer.height
             }
         }
     }
 
-    function safePop() {
-        if (lastPages.length > 0) {
-            let previousPage = lastPages[lastPages.length - 1]  // 获取最近的页面
-            if (lastPages.length === 1) {
-                lastPages = []
-            } else {
-                lastPages = lastPages.slice(0, -1)  // 移除最后一个元素
-            }
-            if (stackView.depth > 1) {
-                currentPage = previousPage
-                stackView.pop()
-                pageChanged()
-            } else {
-                currentPage = previousPage
-                safePush(previousPage, false, true)  // 重新加载页面
-            }
-        } else {
-            console.log("Can't pop: no pages in history")
+    // 安全设置页面属性（兼容没有该属性的页面如 SettingsPage）
+    function setPropertySafe(obj, prop, value) {
+        if (obj && prop in obj) {
+            obj[prop] = value
         }
+    }
+
+    // 登录状态变化时同步给所有已创建的页面实例
+    onLoggedinChanged: {
+        let keys = Object.keys(pageInstances)
+        for (let i = 0; i < keys.length; i++) {
+            setPropertySafe(pageInstances[keys[i]], "loggedin", loggedin)
+        }
+    }
+
+    function showPage(pageUrl, properties) {
+        let pageKey = normalizeKeyFromPage(pageUrl)
+        if (currentPage === pageKey) return
+
+        if (!componentCache[pageKey]) {
+            let component = Qt.createComponent(pageUrl)
+            if (component.status === Component.Error) {
+                console.error("Failed to load component:", pageUrl, component.errorString())
+                return
+            }
+            componentCache[pageKey] = component
+        }
+
+        let pageInstance = pageInstances[pageKey]
+        if (!pageInstance) {
+            let targetObjectName = pageKey.includes("/") ?
+                pageKey.split("/").pop().replace(".qml", "") : pageKey
+            pageInstance = componentCache[pageKey].createObject(pageContainer, Object.assign({}, properties || {}, {
+                objectName: targetObjectName,
+                visible: false
+            }))
+            if (!pageInstance) {
+                console.error("Failed to create page instance:", pageKey)
+                return
+            }
+            pageInstance.width = pageContainer.width
+            pageInstance.height = pageContainer.height
+            // 安全设置可选属性（部分页面如 SettingsPage 没有这些属性）
+            setPropertySafe(pageInstance, "loggedin", navigationView.loggedin)
+            setPropertySafe(pageInstance, "active", false)
+            pageInstances[pageKey] = pageInstance
+        }
+
+        if (currentPageInstance && currentPageInstance !== pageInstance) {
+            setPropertySafe(currentPageInstance, "active", false)
+            currentPageInstance.visible = false
+        }
+
+        pageInstance.visible = true
+        setPropertySafe(pageInstance, "active", true)
+        currentPageInstance = pageInstance
+        currentPage = pageKey
+        pageChanged()
+    }
+
+    function safePop() {
+        // 单实例模式下无历史栈，不执行返回
     }
 
     function pop() {
@@ -222,267 +197,17 @@ RowLayout {
 
     function push(page, properties) {
         if (properties === undefined) properties = {}
-        safePush(page, false, false, properties)
+        showPage(page, properties)
     }
 
     function safePush(page, reload, fromNavigation, properties) {
-        if (pushInProgress) {
-            Qt.callLater(function() { safePush(page, reload, fromNavigation, properties) })
-            return
-        }
-
-        if (!(typeof page === "object" || typeof page === "string" || page instanceof Component)) {
-            console.error("Invalid page type:", typeof page)
-            return
-        }
-
-        if (reload === undefined) reload = false
-        if (fromNavigation === undefined) fromNavigation = false
         if (properties === undefined) properties = {}
-
         let pageKey = normalizeKeyFromPage(page)
-        if (!fromNavigation) {
-            if (navigationBar.currentPage === pageKey && !reload) return
-            if (loadingPages[pageKey] && !reload) return
+        if (reload && pageInstances[pageKey]) {
+            pageInstances[pageKey].destroy()
+            delete pageInstances[pageKey]
         }
-        setPushInProgress(true)
-
-        if (page instanceof Component) {
-            asyncPush(page, pageKey, reload, fromNavigation, properties)
-        } else if (typeof page === "object" || typeof page === "string") {
-            if (!componentCache[pageKey] || reload) {
-                loadingPages[pageKey] = true
-                let component = Qt.createComponent(page)
-
-                if (component.status === Component.Ready) {
-                    componentCache[pageKey] = component
-                    loadingPages[pageKey] = false
-                    asyncPush(component, pageKey, reload, fromNavigation, properties)
-                } else if (component.status === Component.Error) {
-                    console.error("Failed to load:", page, component.errorString())
-                    cleanupLoading(pageKey, true)
-                    if (currentPage !== "") lastPages.push(currentPage)
-                    currentPage = pageKey
-                    pageChanged()
-                    stackView.push("ErrorPage.qml", {
-                        errorMessage: component.errorString(),
-                        page: page,
-                    })
-                    return
-                } else {
-                    let handler = function() {
-                        component.statusChanged.disconnect(handler)
-                        if (component.status === Component.Ready) {
-                            componentCache[pageKey] = component
-                            loadingPages[pageKey] = false
-                            asyncPush(component, pageKey, reload, fromNavigation, properties)
-                        } else if (component.status === Component.Error) {
-                            console.error("Failed to async load:", page, component.errorString())
-                            cleanupLoading(pageKey, true)
-                            if (currentPage !== "") lastPages.push(currentPage)
-                            currentPage = pageKey
-                            pageChanged()
-                            stackView.push("ErrorPage.qml", {
-                                errorMessage: component.errorString(),
-                                page: page,
-                            })
-                        }
-                    }
-                    try {
-                        component.statusChanged.connect(handler)
-                    } catch (e) {
-                        if (component.status === Component.Ready) {
-                            componentCache[pageKey] = component
-                            loadingPages[pageKey] = false
-                            asyncPush(component, pageKey, reload, fromNavigation, properties)
-                        } else if (component.status === Component.Error) {
-                            cleanupLoading(pageKey, true)
-                        }
-                    }
-                    return
-                }
-            } else {
-                asyncPush(componentCache[pageKey], pageKey, reload, fromNavigation, properties)
-            }
-        }
-    }
-
-    function cleanupPageForReload(pageKey) {
-        if (!pageKey) return false
-        let foundAndCleaned = false
-        let targetIndex = -1
-        let targetObjectName = pageKey.includes("/") ? pageKey.split("/").pop().replace(".qml", "") : pageKey
-        for (let i = stackView.depth - 1; i >= 0; i--) {
-            let item = stackView.get(i)
-            if (item && item.objectName === targetObjectName) {
-                targetIndex = i
-                break
-            }
-        }
-        if (targetIndex >= 0) {
-            foundAndCleaned = true
-            if (targetIndex === stackView.depth - 1) {
-                let poppedItem = stackView.pop(null, StackView.Immediate)
-                if (poppedItem) poppedItem.destroy()
-            } else {
-                let itemsToRestore = []
-                for (let i = stackView.depth - 1; i > targetIndex; i--) {
-                    let item = stackView.get(i)
-                    if (item) {
-                        let pageInfo = {
-                            component: componentCache[item.objectName] || null,
-                            pageKey: item.objectName,
-                            properties: {}
-                        }
-                        itemsToRestore.unshift(pageInfo)
-                    }
-                }
-                while (stackView.depth > targetIndex + 1) stackView.pop(null, StackView.Immediate)
-                let targetItem = stackView.pop(null, StackView.Immediate)
-                if (targetItem) targetItem.destroy()
-                navigationView.itemsToRestoreAfterReload = itemsToRestore
-            }
-        }
-        return foundAndCleaned
-    }
-
-    function asyncPush(component, pageKey, reload, fromNavigation, properties) {
-        if (properties === undefined) properties = {}
-
-        if (reload) {
-            let currentObjectName = normalizeKeyFromPage(pageKey).includes("/") ?
-                normalizeKeyFromPage(pageKey).split("/").pop().replace(".qml", "") :
-                normalizeKeyFromPage(pageKey)
-            if (stackView.currentItem && stackView.currentItem.objectName === currentObjectName) {
-                let pageInstance = component.createObject(stackView, Object.assign({}, properties, {
-                    objectName: currentObjectName,
-                    loggedin: navigationView.loggedin
-                }))
-                if (!pageInstance) {
-                    console.error("Failed to create page instance for reload:", pageKey)
-                    setPushInProgress(false)
-                    return
-                }
-                stackView.replace(stackView.currentItem, pageInstance)
-                Qt.callLater(function() {
-                    if (stackView.busy && stackView.currentItem === pageInstance) {
-                        let animationHandler = function() {
-                            if (stackView.currentItem === pageInstance && !stackView.busy) {
-                                setPushInProgress(false)
-                                stackView.busyChanged.disconnect(animationHandler)
-                            }
-                        }
-                        if (!stackView.busy) setPushInProgress(false)
-                        else stackView.busyChanged.connect(animationHandler)
-                    } else setPushInProgress(false)
-                })
-                return
-            } else {
-                cleanupPageForReload(pageKey)
-            }
-        }
-
-        if (currentPage !== "" && !fromNavigation) {
-            let currentObjectName = stackView.currentItem ? stackView.currentItem.objectName : ""
-            let targetObjectName = normalizeKeyFromPage(pageKey).includes("/") ?
-                normalizeKeyFromPage(pageKey).split("/").pop().replace(".qml", "") :
-                normalizeKeyFromPage(pageKey)
-            if (!reload || (reload && currentObjectName !== targetObjectName)) {
-                if (lastPages.length === 0) lastPages = [currentPage]
-                else if (lastPages.length === 1) lastPages = [lastPages[0], currentPage]
-                else lastPages = [lastPages[1], currentPage]
-            }
-        }
-
-        let targetObjectName = normalizeKeyFromPage(pageKey).includes("/") ?
-            normalizeKeyFromPage(pageKey).split("/").pop().replace(".qml", "") :
-            normalizeKeyFromPage(pageKey)
-
-        if (!reload || (reload && (stackView.currentItem ? stackView.currentItem.objectName : "") !== targetObjectName))
-            currentPage = pageKey
-
-        pageChanged()
-
-        let pageInstance = component.createObject(stackView, Object.assign({}, properties, {
-            objectName: targetObjectName
-        }))
-        
-        
-        if (!pageInstance) {
-            console.error("Failed to create page instance for:", pageKey)
-            setPushInProgress(false)
-            return
-        }
-
-        stackView.push(pageInstance)
-        if (loadingPages[pageKey]) {
-            loadingPages[pageKey] = false
-            delete loadingPages[pageKey]
-        }
-
-        Qt.callLater(function() {
-            if (stackView.busy && stackView.currentItem === pageInstance) {
-                let animationHandler = function() {
-                    if (stackView.currentItem === pageInstance && !stackView.busy) {
-                        setPushInProgress(false)
-                        stackView.busyChanged.disconnect(animationHandler)
-                        restoreItemsAfterReload()
-                    }
-                }
-                if (!stackView.busy) {
-                    setPushInProgress(false)
-                    restoreItemsAfterReload()
-                } else {
-                    stackView.busyChanged.connect(animationHandler)
-                }
-            } else {
-                setPushInProgress(false)
-                restoreItemsAfterReload()
-            }
-        })
-    }
-
-    function restoreItemsAfterReload() {
-        if (itemsToRestoreAfterReload.length > 0) {
-            let itemsToRestore = itemsToRestoreAfterReload
-            itemsToRestoreAfterReload = []
-            for (let i = 0; i < itemsToRestore.length; i++) {
-                let pageInfo = itemsToRestore[i]
-                if (pageInfo.component && pageInfo.pageKey) {
-                    let pageInstance = pageInfo.component.createObject(stackView, {
-                        objectName: normalizeKeyFromPage(pageInfo.pageKey).includes("/") ?
-                            normalizeKeyFromPage(pageInfo.pageKey).split("/").pop().replace(".qml", "") :
-                            normalizeKeyFromPage(pageInfo.pageKey),
-                        loggedin: navigationView.loggedin
-                    })
-                    if (pageInstance) {
-                        stackView.push(pageInstance, {}, StackView.Immediate)
-                        // console.log("Restored page:", pageInfo.pageKey)
-                    } else {
-                        console.error("Failed to restore page instance for:", pageInfo.pageKey)
-                    }
-                }
-            }
-        }
-    }
-
-    function cleanupLoading(pageKey, resetPush) {  // 重置状态
-        if (resetPush === undefined) resetPush = true
-        if (pageKey && loadingPages[pageKey]) {
-            loadingPages[pageKey] = false
-            delete loadingPages[pageKey]
-            // console.log("Cleaned up loadingPages for:", pageKey)
-        }
-        if (resetPush) {
-            setPushInProgress(false)
-        }
-    }
-
-    function setPushInProgress(inProgress) {
-        pushInProgress = inProgress
-        if (!inProgress) {
-            // console.log("Push operation completed, ready for next navigation")
-        }
+        showPage(page, properties)
     }
 
     function normalizeKeyFromPage(page) {

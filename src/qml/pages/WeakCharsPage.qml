@@ -5,6 +5,7 @@ import RinUI
 
 Item {
     id: weakCharsPage
+    property bool active: false  // 由 NavigationView 注入
 
     property string sortBy: "error_rate"
     property var sortWeights: ({ "error_rate": 0.6, "total_count": 0.2, "error_count": 0.2 })
@@ -236,8 +237,8 @@ Item {
         }
     }
 
-    StackView.onActivated: {
-        if (appBridge) {
+    onActiveChanged: {
+        if (active && appBridge) {
             reloadWeakChars();
         }
     }

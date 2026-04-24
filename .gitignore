@@ -74,3 +74,6 @@ pysidedeploy.spec
 data/
 config/config.json
 .omx/
+
+# Local working notes (not for version control)
+memory/

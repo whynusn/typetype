@@ -450,30 +450,32 @@ else:
     self._state.session_stat.char_count += grow_length  # 最后更新
 ```
 
-### ⚠️ StackView 页面切换时必须重置 appBridge 瞬态状态
+### ⚠️ 单实例页面切换时必须重置 appBridge 瞬态状态
 
-**问题**：StackView 每次导航都会 `createObject` 创建新的 TypingPage 实例，但 `appBridge` 是 Python 单例，页面切换后其内部状态（如 `textId`）仍保留上一次的值。
+**问题**：NavigationView 采用单实例页面管理（页面创建后复用，通过 `visible` + `active` 切换），但 `appBridge` 是 Python 单例，页面切换后其内部状态（如 `textId`）仍保留上一次的值。
 
 **场景**：
 1. 用户载文（极速杯 textId=49）→ 打到一半
 2. 切到排行榜页面 → 再切回打字页面
-3. 新 TypingPage 实例创建，文本区为空，ComboBox 显示默认来源
+3. TypingPage 实例复用，文本区为空，ComboBox 显示默认来源
 4. 但 `appBridge.textId` 仍然是 49
 5. 用户直接开始打字 → 完成后提交成绩 → 成绩关联到旧的 textId=49，但打的是新内容
 
-**修复**：在 `StackView.onActivating` 中重置所有瞬态状态：
+**修复**：在 `onActiveChanged` 中重置所有瞬态状态：
 ```qml
-StackView.onActivating: {
-    if (appBridge) {
-        appBridge.setTextTitle(appBridge.defaultTextTitle);
-        appBridge.setTextId(0);  // 重置 textId，强制用户重新载文
+onActiveChanged: {
+    if (active) {
+        if (appBridge) {
+            appBridge.setTextTitle(appBridge.defaultTextTitle);
+            appBridge.setTextId(0);  // 重置 textId，强制用户重新载文
+        }
     }
 }
 ```
 
-**原则**：`StackView.onActivating` 应该重置所有与"当前载文"相关的状态，确保用户每次回到页面都是一致的初始状态。如果某个状态是从外部单例读取的，必须显式重置。
+**原则**：`onActiveChanged` 在页面变为激活时重置所有与"当前载文"相关的状态，确保用户每次回到页面都是一致的初始状态。如果某个状态是从外部单例读取的，必须显式重置。
 
-**历史记录**：此问题在 2026-04-13 的架构重构（source_key / 成绩提交简化）中发现并修复。
+**历史记录**：2026-04-13 在 StackView 模式中发现并修复。2026-04-24 重构为单实例页面管理，守卫从 `StackView.status === StackView.Active` 迁移为 `page.active`。
 
 ### ⚠️ 领域模型不应承载 UI 路由概念
 

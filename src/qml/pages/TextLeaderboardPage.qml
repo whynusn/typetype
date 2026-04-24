@@ -5,6 +5,7 @@ import RinUI
 
 FluentPage {
     id: textLeaderboardPage
+    property bool active: false  // 由 NavigationView 注入
     title: qsTr("文本排行榜")
 
     // 减少 FluentPage 默认的大侧边距，给排行榜表格留足空间
@@ -835,10 +836,10 @@ FluentPage {
     // ========== 主布局 ==========
 
     // ========== 信号连接 ==========
-    // catalogLoaded 信号需要 StackView.status 守卫，防止页面切换期间触发 loadTextList 级联调用
+    // catalogLoaded 信号需要 active 守卫，防止页面切换期间触发 loadTextList 级联调用
     Connections {
         target: appBridge
-        enabled: textLeaderboardPage.StackView.status === StackView.Active
+        enabled: textLeaderboardPage.active
 
         function onCatalogLoaded(catalog) {
             syncSourceOptions(catalog);
@@ -853,7 +854,7 @@ FluentPage {
     // 文本列表和排行榜信号来自异步 Worker，需要守卫防止旧实例处理
     Connections {
         target: appBridge
-        enabled: textLeaderboardPage.StackView.status === StackView.Active
+        enabled: textLeaderboardPage.active
 
         function onTextListLoaded(texts) {
             textListModel.clear();
@@ -898,8 +899,8 @@ FluentPage {
     }
 
     // ========== 页面激活时加载数据 ==========
-    StackView.onActivated: {
-        if (appBridge) {
+    onActiveChanged: {
+        if (active && appBridge) {
             appBridge.refreshCatalog();
         }
     }
