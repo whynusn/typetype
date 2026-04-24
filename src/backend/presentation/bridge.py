@@ -561,38 +561,32 @@ class Bridge(QObject):
     def totalSliceCount(self) -> int:
         return self._typing_adapter.slice_total
 
-    @Slot(str, int, bool, str, str, float, bool)
+    @Slot(str, int, int, int, int, int, int, str, bool)
     def setupSliceMode(
         self,
         text: str,
         slice_size: int,
-        retype_enabled: bool,
-        metric: str,
-        operator: str,
-        threshold: float,
+        start_slice: int,
+        key_stroke_min: int,
+        speed_min: int,
+        accuracy_min: int,
+        pass_count_min: int,
+        on_fail_action: str,
         shuffle: bool,
     ) -> None:
-        """初始化载文模式：分片文本并加载第一片。
-
-        Args:
-            text: 原始文本
-            slice_size: 每片字数
-            retype_enabled: 是否开启重打条件
-            metric: 重打指标 (speed/accuracy/wrong_char_count)
-            operator: 比较符 (lt/le/ge/gt)
-            threshold: 重打阈值
-            shuffle: 重打时是否乱序
-        """
+        """初始化载文模式：分片文本并加载第 start_slice 片。"""
         if not text or slice_size <= 0:
             return
 
         total = self._typing_adapter.setup_slice_mode(
             text=text,
             slice_size=slice_size,
-            retype_enabled=retype_enabled,
-            metric=metric,
-            operator=operator,
-            threshold=threshold,
+            start_slice=start_slice,
+            key_stroke_min=key_stroke_min,
+            speed_min=speed_min,
+            accuracy_min=accuracy_min,
+            pass_count_min=pass_count_min,
+            on_fail_action=on_fail_action,
             shuffle=shuffle,
         )
 
@@ -600,8 +594,6 @@ class Bridge(QObject):
             return
 
         self.sliceModeChanged.emit()
-
-        # 加载第一片
         self._load_current_slice()
 
     def _load_current_slice(self) -> None:
@@ -662,11 +654,20 @@ class Bridge(QObject):
 
     @Slot()
     def handleSliceRetype(self) -> None:
-        """根据重打配置自动处理重打（原样或乱序）。"""
-        if self._typing_adapter.retype_shuffle:
+        """根据 on_fail_action 自动处理重打（乱序、原样或无）。"""
+        action = self._typing_adapter.on_fail_action
+        if action == "shuffle_retype":
             self.shuffleCurrentSlice()
-        else:
+        elif action == "retype":
             self._reload_current_slice()
+        else:
+            # "none" 或其他未知值：不重打
+            pass
+
+    @Slot(result=str)
+    def getOnFailAction(self) -> str:
+        """返回当前未达标处理动作（供 QML 查询）。"""
+        return self._typing_adapter.on_fail_action
 
     def _reload_current_slice(self) -> None:
         """重打当前片（原样重新加载）。"""
