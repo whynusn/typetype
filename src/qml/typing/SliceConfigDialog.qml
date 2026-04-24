@@ -395,16 +395,21 @@ Dialog {
     // ============================
     contentItem: Item {
         id: contentWrapper
-        anchors.fill: parent
 
-        ScrollView {
+        Flickable {
             id: scrollView
             anchors.fill: parent
             clip: true
+            contentWidth: width
+            contentHeight: columnLayout.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
-            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+            ScrollBar.vertical: ScrollBar {
+                policy: ScrollBar.AsNeeded
+            }
 
             ColumnLayout {
+                id: columnLayout
                 width: scrollView.width
                 spacing: 12
 
@@ -429,7 +434,6 @@ Dialog {
                     ScrollView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        boundsBehavior: Flickable.StopAtBounds
 
                         TextArea {
                             id: contentTextArea
@@ -750,6 +754,10 @@ Dialog {
     }
 
     footer: DialogButtonBox {
+        alignment: Qt.AlignRight
+        padding: 24
+        spacing: 8
+
         Button {
             text: "取消"
             DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
