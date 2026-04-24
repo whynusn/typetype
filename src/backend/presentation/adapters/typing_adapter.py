@@ -456,6 +456,105 @@ class TypingAdapter(QObject):
         if self._session_context:
             self._session_context.advance_slice()
 
+    def is_slice_mode(self) -> bool:
+        """代理：当前是否为分片载文模式。"""
+        if self._session_context:
+            from ...application.session_context import SourceMode
+
+            return self._session_context.source_mode == SourceMode.SLICE
+        return False
+
+    @property
+    def slice_total(self) -> int:
+        """代理：总分片数。"""
+        if self._session_context:
+            return self._session_context.slice_total
+        return 0
+
+    @property
+    def slice_index(self) -> int:
+        """代理：当前片索引（从1开始）。"""
+        if self._session_context:
+            return self._session_context.slice_index
+        return 0
+
+    def setup_slice_mode(
+        self,
+        text: str,
+        slice_size: int,
+        retype_enabled: bool,
+        metric: str,
+        operator: str,
+        threshold: float,
+        shuffle: bool,
+    ) -> int:
+        """代理：初始化分片载文模式。返回总片数。"""
+        if self._session_context:
+            return self._session_context.setup_slice_mode(
+                text=text,
+                slice_size=slice_size,
+                retype_enabled=retype_enabled,
+                metric=metric,
+                operator=operator,
+                threshold=threshold,
+                shuffle=shuffle,
+            )
+        return 0
+
+    def get_current_slice_text(self) -> str:
+        """代理：返回当前片文本。"""
+        if self._session_context:
+            return self._session_context.get_current_slice_text()
+        return ""
+
+    def get_shuffled_slice_text(self) -> str:
+        """代理：返回乱序后的当前片文本。"""
+        if self._session_context:
+            return self._session_context.get_shuffled_slice_text()
+        return ""
+
+    def collect_slice_result(self, stats: dict | None) -> None:
+        """代理：收集当前片的 SessionStat 快照。"""
+        if self._session_context:
+            self._session_context.collect_slice_result(stats)
+
+    def is_last_slice(self) -> bool:
+        """代理：当前片是否为最后一片。"""
+        if self._session_context:
+            return self._session_context.is_last_slice()
+        return False
+
+    def should_retype(self) -> bool:
+        """代理：检查当前片成绩是否触发重打条件。"""
+        if self._session_context:
+            return self._session_context.should_retype()
+        return False
+
+    @property
+    def retype_shuffle(self) -> bool:
+        """代理：重打时是否乱序。"""
+        if self._session_context:
+            return self._session_context.retype_shuffle
+        return False
+
+    def get_slice_status(self) -> str:
+        """代理：返回当前片进度摘要。"""
+        if self._session_context:
+            return self._session_context.get_slice_status()
+        return ""
+
+    def get_aggregate_data(self) -> tuple[list[dict], int] | None:
+        """代理：返回聚合成绩所需数据。"""
+        if self._session_context:
+            return self._session_context.get_aggregate_data()
+        return None
+
+    def exit_slice_mode(self) -> None:
+        """代理：退出载文模式并清理状态。"""
+        self.set_slice_index(None)
+        if self._session_context:
+            self._session_context.exit_slice_mode()
+
     @property
     def upload_status(self) -> int:
         """当前上传资格状态（int 供 QML 绑定）。"""

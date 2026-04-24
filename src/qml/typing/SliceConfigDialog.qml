@@ -10,7 +10,6 @@ Dialog {
     modal: false
     dim: false
     title: "载文设置"
-    standardButtons: Dialog.Cancel
     closePolicy: Popup.NoAutoClose
 
     width: 500
@@ -733,20 +732,25 @@ Dialog {
                 Layout.fillWidth: true
             }
 
-            // --- 开始按钮 ---
-            Button {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 36
-                text: "开始载文"
-                enabled: contentTextArea.text.trim().length > 0 && root.validationMessage === ""
-                onClicked: root.startSliceTyping()
-            }
-
-            // 底部间距
+            // 底部间距（原开始按钮已移至 footer）
             Item {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 4
             }
+        }
+    }
+
+    footer: DialogButtonBox {
+        Button {
+            text: "取消"
+            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+            onClicked: root.reject()
+        }
+        Button {
+            text: "开始载文"
+            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+            enabled: contentTextArea.text.trim().length > 0 && root.validationMessage === ""
+            onClicked: root.startSliceTyping()
         }
     }
 }

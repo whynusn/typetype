@@ -222,6 +222,32 @@ class TestBridgeSpecialPlatform:
         assert events == [True]
         assert bridge.sliceMode is True
 
+    def test_request_shuffle_in_slice_mode_preserves_slice_state(self):
+        """分片模式下点击乱序按钮应保持分片状态，不覆盖 source_mode。"""
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            key_listener=None,
+        )
+        session = TypingSessionContext()
+        typing_adapter._session_context = session
+
+        bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, False, "", "", 0.0, False)
+        assert bridge.sliceMode is True
+        assert session.source_mode.name == "SLICE"
+
+        # 模拟分片模式下点击乱序按钮
+        bridge.requestShuffle()
+
+        # 关键断言：source_mode 应保持为 SLICE，而不是被覆盖为 SHUFFLE
+        assert session.source_mode.name == "SLICE"
+        assert bridge.sliceMode is True
+
     def test_load_next_slice_advances_by_one_slice(self):
         typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
             self._create_mock_services()
@@ -246,3 +272,40 @@ class TestBridgeSpecialPlatform:
 
         assert labels == ["载文 1/5", "载文 2/5", "载文 3/5"]
         assert bridge._typing_adapter._session_context.slice_index == 3
+
+    def test_collect_slice_result_populates_session_context(self):
+        """collectSliceResult 必须将 _last_slice_stats 快照存入 session_context。
+
+        回归测试：防止 get_last_slice_stats 被错误代理到 session_context 导致
+        在 collect_slice_result 调用前返回空字典，从而使惩罚条件永远失效。
+        """
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            key_listener=None,
+        )
+        session = TypingSessionContext()
+        typing_adapter._session_context = session
+
+        # 模拟打完一片后的状态：_last_slice_stats 已被 _check_typing_complete 捕获
+        fake_stats = {"speed": 100.0, "accuracy": 95.0, "wrong_char_count": 1}
+        typing_adapter._last_slice_stats = fake_stats
+
+        # 设置分片模式（否则 collect_slice_result 中的 session_context 检查不通过）
+        session.setup_slice_mode("天地玄黄", 4, True, "accuracy", "lt", 98.0, False)
+
+        # 关键断言：get_last_slice_stats 必须在 collect_slice_result 之前
+        # 返回 _last_slice_stats（快照），而不是 session_context 中空的 _slice_stats
+        assert typing_adapter.get_last_slice_stats() == fake_stats
+
+        bridge.collectSliceResult()
+
+        # 验证数据已正确存入 session_context
+        assert len(session._slice_stats) == 1
+        assert session._slice_stats[0]["speed"] == 100.0
+        assert session.should_retype() is True  # accuracy 95 < 98，应触发重打

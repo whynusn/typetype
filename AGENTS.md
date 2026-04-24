@@ -67,13 +67,13 @@ Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disabl
 src/backend/
 ├── application/
 │   ├── exception_handler.py  # 全局异常处理（网络异常 → 用户友好消息）
+│   ├── session_context.py    # 打字会话状态机（SessionPhase/SourceMode/UploadStatus）
 │   ├── gateways/      # Port 适配（TextSourceGateway, ScoreGateway）
 │   │   ├── score_gateway.py
 │   │   ├── text_source_gateway.py
 │   │   └── leaderboard_gateway.py   # 排行榜数据获取网关（Port 适配）
 │   └── usecases/      # 业务编排：LoadTextUseCase（仅此一个有编排价值的）
 │       └── load_text_usecase.py
-├── ports/             # 协议定义（独立顶层）：TextProvider, LocalTextLoader 等
 │   ├── auth_provider.py
 │   ├── char_stats_repository.py
 │   ├── clipboard.py
@@ -159,6 +159,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 ┌─────────────────────────▼───────────────────────────────┐
 │                     Application Layer                   │
 │        UseCases: LoadTextUseCase（路由+业务验证）         │
+│        SessionContext: TypingSessionContext（会话状态机） │
 │        Gateways: TextSourceGateway, ScoreGateway        │
 │        ExceptionHandler: GlobalExceptionHandler        │
 └─────────┬───────────────────────────┬───────────────────┘
@@ -185,6 +186,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 - **Domain Services 是纯业务逻辑**，无 Qt 依赖，易于测试。
 - **Presentation Layer = Bridge + Adapters**，统一封装 QML 与 Qt 交互细节。
 - **Gateways 封装 Port 适配**（不含异常转换）。
+- **TypingSessionContext 集中管理会话级别状态**（阶段、来源模式、成绩提交资格推导）。
 - **GlobalExceptionHandler 集中处理异常语义**（网络异常 → 用户友好消息），类似 Spring Boot 的 `@ControllerAdvice`。
 - **BaseWorker 统一捕获后台任务异常**，调用 GlobalExceptionHandler 转换后发射 `failed` 信号。
 - **UseCases 编排业务流程**（路由 + 业务验证），异常上浮由 BaseWorker 统一处理。
@@ -202,6 +204,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 | | AuthService | 登录认证（login/logout、token 验证与刷新） |
 | | CharStatsService | 字符维度统计（缓存、持久化、薄弱字查询、自定义排序） |
 | **Application** | LoadTextUseCase | 文本加载编排 + 业务验证（异常上浮到 BaseWorker） |
+| | TypingSessionContext | 会话状态机：阶段/来源模式/成绩提交资格推导/分片载文 |
 | | GlobalExceptionHandler | 网络异常 → 用户友好消息集中映射 |
 | **Gateways** | TextSourceGateway | Port 适配 + 配置查询 |
 | | ScoreGateway | DTO 转换 + 剪贴板操作 |
@@ -249,7 +252,9 @@ weighted 模式的 `weights` 参数格式：`{"error_rate": float, "total_count"
 - `GlobalExceptionHandler`：异常类型 → 用户可读消息的集中映射表
 - `BaseWorker`：统一捕获后台任务异常，调用 GlobalExceptionHandler 后发射信号
 - `LoadTextUseCase`：只做路由 + 业务验证，不捕获网络异常
+- `TypingSessionContext`：Application 层状态机，分片业务逻辑由它承载（当前 pragmatic 选择）
 - `TypingService/AuthService/CharStatsService`：纯业务规则，无 Qt 依赖
+- **Bridge 禁止直接访问 `SessionContext`**，所有状态访问必须通过 `TypingAdapter` 代理，以维持 Presentation → Application 的正确依赖方向
 
 **扩展异常**：在 `exception_handler.py` 的 `_EXCEPTION_MESSAGE_MAP` 中添加新映射即可，无需修改 UseCase。
 
