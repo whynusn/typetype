@@ -66,6 +66,14 @@ class ScoreGateway:
             (total_chars - total_wrong) / total_chars * 100 if total_chars > 0 else 0
         )
         effective_speed = avg_speed * accuracy / 100
+        total_key_strokes = total_chars * avg_code_length
+        key_accuracy = (
+            (total_key_strokes - total_backspace - total_correction * avg_code_length)
+            / total_key_strokes
+            * 100
+            if total_key_strokes > 0
+            else 100.0
+        )
 
         items = [
             ("速度", avg_speed, "字/分", ".1f"),
@@ -73,6 +81,7 @@ class ScoreGateway:
             ("码长", avg_code_length, "击/字", ".2f"),
             ("击键", avg_keystroke, "击/秒", ".1f"),
             ("准确率", accuracy, "%", ".1f"),
+            ("键准", key_accuracy, "%", ".1f"),
             ("回改", total_correction, "次", "d"),
             ("退格", total_backspace, "次", "d"),
             ("总字数", total_chars, "字", "d"),
@@ -104,6 +113,14 @@ class ScoreGateway:
             (total_chars - total_wrong) / total_chars * 100 if total_chars > 0 else 0
         )
         effective_speed = avg_speed * accuracy / 100
+        total_key_strokes = total_chars * avg_code_length
+        key_accuracy = (
+            (total_key_strokes - total_backspace - total_correction * avg_code_length)
+            / total_key_strokes
+            * 100
+            if total_key_strokes > 0
+            else 100.0
+        )
 
         lines = [f"综合成绩（{slice_count}片）"]
         lines.append(f"速度: {avg_speed:.1f} 字/分")
@@ -111,6 +128,7 @@ class ScoreGateway:
         lines.append(f"码长: {avg_code_length:.2f} 击/字")
         lines.append(f"击键: {avg_keystroke:.1f} 击/秒")
         lines.append(f"准确率: {accuracy:.1f}%")
+        lines.append(f"键准: {key_accuracy:.1f}%")
         lines.append(f"回改: {total_correction} 次")
         lines.append(f"退格: {total_backspace} 次")
         lines.append(f"总字数: {total_chars} 字")
