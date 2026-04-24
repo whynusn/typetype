@@ -76,5 +76,11 @@ Pane {
             checked: true
             Layout.alignment: Qt.AlignVCenter
         }
+        PillButton {
+            id: keyAccuracy
+            text: "键准: " + (appBridge ? appBridge.keyAccuracy.toFixed(1) : "0.0")
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
+        }
     }
 }
