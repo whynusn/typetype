@@ -72,3 +72,12 @@ class SessionStat:
     @property
     def effectiveSpeed(self) -> float:
         return self.speed * (self.accuracy / 100)
+
+    @property
+    def keyAccuracy(self) -> float:
+        if self.key_stroke_count == 0:
+            return 100.0
+        wrong_keys = self.backspace_count + self.correction_count * self.codeLength
+        return (
+            max(0.0, (self.key_stroke_count - wrong_keys) / self.key_stroke_count) * 100
+        )

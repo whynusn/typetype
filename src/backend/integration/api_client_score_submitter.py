@@ -73,6 +73,7 @@ class ApiClientScoreSubmitter:
             "keyStroke": round(score_data.keyStroke, 2),
             "codeLength": round(score_data.codeLength, 4),
             "accuracyRate": round(score_data.accuracy, 2),
+            "keyAccuracy": round(score_data.keyAccuracy, 2),
             "charCount": score_data.char_count,
             "wrongCharCount": score_data.wrong_char_count,
             "duration": round(score_data.time, 2),

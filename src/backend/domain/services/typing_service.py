@@ -95,6 +95,10 @@ class TypingService:
         return self._state.score_data.correction_count
 
     @property
+    def key_accuracy(self) -> float:
+        return self._state.score_data.keyAccuracy
+
+    @property
     def char_num(self) -> str:
         return f"{self._state.score_data.char_count}/{self._state.total_chars}"
 
@@ -293,6 +297,7 @@ class TypingService:
             "wrongNum": self._state.score_data.wrong_char_count,
             "backspaceCount": self._state.score_data.backspace_count,
             "correctionCount": self._state.score_data.correction_count,
+            "keyAccuracy": round(self._state.score_data.keyAccuracy, 2),
             "charNum": self._state.score_data.char_count,
             "time": round(self._state.score_data.time, 2),
             "date": self._state.score_data.date,

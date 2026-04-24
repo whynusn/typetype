@@ -43,6 +43,7 @@ class TypingAdapter(QObject):
     historyRecordUpdated = Signal(dict)
     backspaceChanged = Signal()
     correctionChanged = Signal()
+    keyAccuracyChanged = Signal()
     # 会话状态机信号
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
@@ -114,6 +115,7 @@ class TypingAdapter(QObject):
         self.totalTimeChanged.emit()
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
+        self.keyAccuracyChanged.emit()
 
     def _reset_signal_cache(self) -> None:
         """同步 backspace/correction 缓存，避免 clear() 后重复发射信号。"""
@@ -125,6 +127,7 @@ class TypingAdapter(QObject):
         self.codeLengthChanged.emit()
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
+        self.keyAccuracyChanged.emit()
         backspace_count = self._typing_service.score_data.backspace_count
         if backspace_count != self._last_backspace_count:
             self._last_backspace_count = backspace_count
@@ -156,6 +159,7 @@ class TypingAdapter(QObject):
                     "keyStroke": s.keyStroke,
                     "codeLength": s.codeLength,
                     "accuracy": s.accuracy,
+                    "keyAccuracy": s.keyAccuracy,
                     "effectiveSpeed": s.effectiveSpeed,
                     "wrong_char_count": s.wrong_char_count,
                     "backspace_count": s.backspace_count,
@@ -252,16 +256,21 @@ class TypingAdapter(QObject):
             self._typing_service.accumulate_key()
             self.keyStrokeChanged.emit()
             self.codeLengthChanged.emit()
+            self.keyAccuracyChanged.emit()
 
     def handleBackspace(self) -> None:
         if self._typing_service.state.is_started:
             self._typing_service.accumulate_backspace()
             self.backspaceChanged.emit()
+            self.keyStrokeChanged.emit()
+            self.keyAccuracyChanged.emit()
 
     def handleCorrection(self) -> None:
         if self._typing_service.state.is_started:
             self._typing_service.accumulate_correction()
             self.correctionChanged.emit()
+            self.keyStrokeChanged.emit()
+            self.keyAccuracyChanged.emit()
 
     def handleCommittedText(self, s: str, grow_length: int) -> None:
         char_updates, is_completed = self._typing_service.handle_committed_text(
@@ -392,6 +401,10 @@ class TypingAdapter(QObject):
     @property
     def correction_count(self) -> int:
         return self._typing_service.correction_count
+
+    @property
+    def key_accuracy(self) -> float:
+        return self._typing_service.key_accuracy
 
     @property
     def char_num(self) -> str:

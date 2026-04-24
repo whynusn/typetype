@@ -56,10 +56,10 @@ class ScoreSummaryDTO:
                     value_format=".1f",
                 ),
                 ScoreSummaryItemDTO(
-                    label="准确率",
-                    value=score_data.accuracy,
-                    unit="%",
-                    value_format=".1f",
+                    label="错字",
+                    value=score_data.wrong_char_count,
+                    unit="字",
+                    value_format="d",
                 ),
                 ScoreSummaryItemDTO(
                     label="回改",
@@ -72,6 +72,12 @@ class ScoreSummaryDTO:
                     value=score_data.backspace_count,
                     unit="次",
                     value_format="d",
+                ),
+                ScoreSummaryItemDTO(
+                    label="键准",
+                    value=score_data.keyAccuracy,
+                    unit="%",
+                    value_format=".1f",
                 ),
             ]
         )
@@ -108,6 +114,7 @@ class HistoryRecordDTO:
     char_num: int
     time: float
     date: str
+    key_accuracy: float
 
     @classmethod
     def from_score_data(cls, score_data: "SessionStat") -> "HistoryRecordDTO":
@@ -122,6 +129,7 @@ class HistoryRecordDTO:
             char_num=score_data.char_count,
             time=round(score_data.time, 2),
             date=score_data.date,
+            key_accuracy=round(score_data.keyAccuracy, 2),
         )
 
     def to_dict(self) -> dict[str, float | int | str]:
@@ -136,4 +144,5 @@ class HistoryRecordDTO:
             "charNum": self.char_num,
             "time": self.time,
             "date": self.date,
+            "keyAccuracy": self.key_accuracy,
         }

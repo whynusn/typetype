@@ -53,6 +53,7 @@ class Bridge(QObject):
     specialPlatformConfirmed = Signal(bool)
     backspaceChanged = Signal()
     correctionChanged = Signal()
+    keyAccuracyChanged = Signal()
     weakestCharsLoaded = Signal(list)
     leaderboardLoaded = Signal(dict)
     leaderboardLoadFailed = Signal(str)
@@ -122,6 +123,7 @@ class Bridge(QObject):
         )
         self._typing_adapter.backspaceChanged.connect(self.backspaceChanged.emit)
         self._typing_adapter.correctionChanged.connect(self.correctionChanged.emit)
+        self._typing_adapter.keyAccuracyChanged.connect(self.keyAccuracyChanged.emit)
         # 会话状态机信号
         self._typing_adapter.uploadStatusChanged.connect(self.uploadStatusChanged.emit)
         self._typing_adapter.eligibilityReasonChanged.connect(
@@ -248,6 +250,10 @@ class Bridge(QObject):
     @Property(int, notify=correctionChanged)
     def correction(self) -> int:
         return self._typing_adapter.correction_count
+
+    @Property(float, notify=keyAccuracyChanged)
+    def keyAccuracy(self) -> float:
+        return self._typing_adapter.key_accuracy
 
     @Property(str, notify=charNumChanged)
     def charNum(self) -> str:
