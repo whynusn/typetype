@@ -64,7 +64,7 @@ class TypingSessionContext:
         self._pass_count_min: int = 1
         self._on_fail_action: str = "retype"
         self._start_slice: int = 1
-        self._consecutive_pass_count: int = 0
+        self._slice_pass_counts: list[int] = []
 
         self._on_upload_status_changed: list[Callable[[UploadStatus], None]] = []
         self._on_eligibility_reason_changed: list[Callable[[str], None]] = []
@@ -155,7 +155,6 @@ class TypingSessionContext:
         accuracy_min: int,
         pass_count_min: int,
         on_fail_action: str,
-        shuffle: bool,
     ) -> int:
         if not text or slice_size <= 0:
             return 0
@@ -173,7 +172,7 @@ class TypingSessionContext:
         self._pass_count_min = pass_count_min
         self._on_fail_action = on_fail_action
         self._start_slice = max(1, min(start_slice, len(self._slices)))
-        self._consecutive_pass_count = 0
+        self._slice_pass_counts = [0] * len(self._slices)
         self._slice_stats = []
         self._source_mode = SourceMode.SLICE
         self._text_id = None
@@ -219,29 +218,42 @@ class TypingSessionContext:
     def should_retype(self) -> bool:
         """检查当前片是否未达标，需要触发事件。
 
-        逻辑：击键≥、速度≥、键准≥ 三项同时满足则 consecutive_pass_count +1，否则归零。
-        最终返回 consecutive_pass_count < pass_count_min。
-        若 on_fail_action 为 'none'，直接返回 False（不重打，直接推进）。
+        两阶段校验逻辑：
+        Phase 1 — 检查击键≥、速度≥、键准≥ 且无错字。
+                   若通过则 pass_count +1（累计，永不减少）。
+        Phase 2 — 综合校验：四项合格指标（包括达标次数）全部满足，
+                   返回 False（达标，可推进）；否则返回 True。
+        若 on_fail_action 为 'none'，直接返回 False。
         """
         if self._on_fail_action == "none":
             return False
 
         if not self._slice_stats:
-            return True  # 还没有打完任何片，需要重打（首次）
+            return True
 
         last = self._slice_stats[-1]
         key_stroke = last.get("keyStroke", 0)
         speed = last.get("speed", 0)
         accuracy = last.get("accuracy", 0)
+        wrong_char_count = last.get("wrong_char_count", 0)
 
-        if (key_stroke >= self._key_stroke_min and
-            speed >= self._speed_min and
-            accuracy >= self._accuracy_min):
-            self._consecutive_pass_count += 1
-        else:
-            self._consecutive_pass_count = 0
+        # Phase 1: 检查三个基础指标 + 无错字
+        base_passed = (
+            key_stroke >= self._key_stroke_min
+            and speed >= self._speed_min
+            and accuracy >= self._accuracy_min
+            and wrong_char_count == 0
+        )
 
-        return self._consecutive_pass_count < self._pass_count_min
+        target_index = self._slice_index - 1
+        if base_passed and 0 <= target_index < len(self._slice_pass_counts):
+            self._slice_pass_counts[target_index] += 1
+
+        # Phase 2: 四项合格指标综合校验（含达标次数）
+        return not (
+            base_passed
+            and self._slice_pass_counts[target_index] >= self._pass_count_min
+        )
 
     @property
     def on_fail_action(self) -> str:
@@ -277,6 +289,7 @@ class TypingSessionContext:
         """退出载文模式，清理分片相关状态。"""
         self._slices = []
         self._slice_stats = []
+        self._slice_pass_counts = []
         self._slice_index = 0
         self._slice_total = 0
         self.reset()

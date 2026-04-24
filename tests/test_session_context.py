@@ -9,7 +9,7 @@ from src.backend.application.session_context import (
 
 def _setup_slice(ctx: TypingSessionContext, total: int = 3) -> None:
     """辅助函数：快速设置分片会话。"""
-    ctx.setup_slice_mode("a" * total, 1, False, "", "", 0.0, False)
+    ctx.setup_slice_mode("a" * total, 1, 1, 0, 0, 0, 1, "retype")
 
 
 class TestSessionPhaseTransitions:
@@ -242,7 +242,7 @@ class TestSubscriptions:
 class TestSliceMode:
     def test_setup_slice_mode(self):
         ctx = TypingSessionContext()
-        total = ctx.setup_slice_mode("hello world", 3, False, "", "", 0.0, False)
+        total = ctx.setup_slice_mode("hello world", 3, 1, 0, 0, 0, 1, "retype")
         assert total == 4  # "hel" "lo " "wor" "ld"
         assert ctx.slice_index == 1
         assert ctx.slice_total == 4
@@ -250,57 +250,87 @@ class TestSliceMode:
 
     def test_get_current_slice_text(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("abcd", 2, False, "", "", 0.0, False)
+        ctx.setup_slice_mode("abcd", 2, 1, 0, 0, 0, 1, "retype")
         assert ctx.get_current_slice_text() == "ab"
         ctx.advance_slice()
         assert ctx.get_current_slice_text() == "cd"
 
     def test_is_last_slice(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("ab", 1, False, "", "", 0.0, False)
+        ctx.setup_slice_mode("ab", 1, 1, 0, 0, 0, 1, "retype")
         assert not ctx.is_last_slice()  # 第1/2片
         ctx.advance_slice()
         assert ctx.is_last_slice()  # 第2/2片
 
     def test_should_retype(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("abc", 1, True, "speed", "lt", 60.0, False)
-        ctx.collect_slice_result({"speed": 50, "accuracy": 95})
+        ctx.setup_slice_mode("abc", 1, 1, 0, 100, 0, 1, "retype")
+        ctx.collect_slice_result(
+            {"speed": 50, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
         assert ctx.should_retype() is True
 
     def test_should_not_retype(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("abc", 1, True, "speed", "lt", 60.0, False)
-        ctx.collect_slice_result({"speed": 70, "accuracy": 95})
+        ctx.setup_slice_mode("abc", 1, 1, 0, 100, 0, 1, "retype")
+        ctx.collect_slice_result(
+            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is False
+
+    def test_should_retype_with_wrong_chars(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abc", 1, 1, 0, 0, 0, 1, "retype")
+        ctx.collect_slice_result(
+            {"speed": 100, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 1}
+        )
+        assert ctx.should_retype() is True
+
+    def test_on_fail_action_none_never_retypes(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("abc", 1, 1, 100, 100, 95, 5, "none")
+        ctx.collect_slice_result(
+            {"speed": 50, "accuracy": 50, "keyStroke": 2, "wrong_char_count": 5}
+        )
         assert ctx.should_retype() is False
 
     def test_get_slice_status(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("abc", 1, False, "", "", 0.0, False)
+        ctx.setup_slice_mode("abc", 1, 1, 0, 0, 0, 1, "retype")
         assert "第 1/3" in ctx.get_slice_status()
-        ctx.collect_slice_result({"speed": 80, "accuracy": 95.5})
+        ctx.collect_slice_result(
+            {"speed": 80, "accuracy": 95.5, "keyStroke": 5, "wrong_char_count": 0}
+        )
         assert "80CPM" in ctx.get_slice_status()
 
     def test_get_aggregate_data(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("ab", 1, False, "", "", 0.0, False)
-        ctx.collect_slice_result({"speed": 80})
+        ctx.setup_slice_mode("ab", 1, 1, 0, 0, 0, 1, "retype")
+        ctx.collect_slice_result(
+            {"speed": 80, "keyStroke": 5, "accuracy": 95, "wrong_char_count": 0}
+        )
         data = ctx.get_aggregate_data()
         assert data is not None
         assert data[1] == 2  # 2片
 
     def test_get_last_slice_stats(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("ab", 1, False, "", "", 0.0, False)
+        ctx.setup_slice_mode("ab", 1, 1, 0, 0, 0, 1, "retype")
         assert ctx.get_last_slice_stats() == {}
-        ctx.collect_slice_result({"speed": 80})
+        ctx.collect_slice_result(
+            {"speed": 80, "keyStroke": 5, "accuracy": 95, "wrong_char_count": 0}
+        )
         assert ctx.get_last_slice_stats()["speed"] == 80
 
     def test_collect_slice_result_overwrites_same_slice_retry(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("ab", 1, True, "speed", "lt", 60.0, False)
-        ctx.collect_slice_result({"speed": 40, "accuracy": 90})
-        ctx.collect_slice_result({"speed": 75, "accuracy": 98})
+        ctx.setup_slice_mode("ab", 1, 1, 0, 0, 0, 1, "retype")
+        ctx.collect_slice_result(
+            {"speed": 40, "accuracy": 90, "keyStroke": 3, "wrong_char_count": 0}
+        )
+        ctx.collect_slice_result(
+            {"speed": 75, "accuracy": 98, "keyStroke": 8, "wrong_char_count": 0}
+        )
 
         data = ctx.get_aggregate_data()
         assert data is not None
@@ -309,13 +339,42 @@ class TestSliceMode:
 
     def test_exit_slice_mode(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("abc", 1, False, "", "", 0.0, False)
+        ctx.setup_slice_mode("abc", 1, 1, 0, 0, 0, 1, "retype")
         ctx.exit_slice_mode()
         assert ctx.phase == SessionPhase.IDLE
         assert ctx.slice_total == 0
         assert ctx.get_current_slice_text() == ""
 
-    def test_retype_shuffle(self):
+    def test_on_fail_action_property(self):
         ctx = TypingSessionContext()
-        ctx.setup_slice_mode("abc", 1, True, "speed", "lt", 60.0, True)
-        assert ctx.retype_shuffle is True
+        ctx.setup_slice_mode("abc", 1, 1, 0, 0, 0, 1, "shuffle")
+        assert ctx.on_fail_action == "shuffle"
+
+    def test_pass_count_per_slice(self):
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("ab", 1, 1, 0, 100, 0, 2, "retype")
+        # 第1片重打累积：达标2次后合格
+        ctx.collect_slice_result(
+            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is True  # pass_count[0]=1 < 2
+        ctx.collect_slice_result(
+            {"speed": 110, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is False  # pass_count[0]=2 >= 2 → 第1片达标
+
+        # 推进到第2片
+        ctx.start_typing()
+        ctx.complete_typing()
+        ctx.advance_slice()
+        assert ctx.slice_index == 2
+
+        # 第2片从0开始累积达标次数
+        ctx.collect_slice_result(
+            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is True  # pass_count[1]=1 < 2（与第1片独立）
+        ctx.collect_slice_result(
+            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is False  # pass_count[1]=2 >= 2
