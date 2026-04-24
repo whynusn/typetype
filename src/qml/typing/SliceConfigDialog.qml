@@ -393,15 +393,20 @@ Dialog {
     // ============================
     // 布局（可滚动）
     // ============================
-    contentItem: ScrollView {
-        id: scrollView
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        ScrollBar.vertical.policy: ScrollBar.AsNeeded
+    contentItem: Item {
+        id: contentWrapper
+        anchors.fill: parent
 
-        ColumnLayout {
-            width: scrollView.width
-            spacing: 12
+        ScrollView {
+            id: scrollView
+            anchors.fill: parent
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+            ColumnLayout {
+                width: scrollView.width
+                spacing: 12
 
             // --- 文本内容输入 ---
             Frame {
@@ -740,6 +745,7 @@ Dialog {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 4
             }
+        }
         }
     }
 
