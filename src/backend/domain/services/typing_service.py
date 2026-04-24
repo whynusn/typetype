@@ -209,6 +209,8 @@ class TypingService:
         char_updates: list[tuple[int, str, bool]] = []
         is_completed = False
         begin_pos = self._state.score_data.char_count + grow_length - len(s)
+        if begin_pos < 0:
+            return char_updates, is_completed
         now_ms = time() * 1000
 
         if grow_length > 0:
