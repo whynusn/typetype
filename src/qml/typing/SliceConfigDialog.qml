@@ -396,6 +396,7 @@ Dialog {
     contentItem: ScrollView {
         id: scrollView
         clip: true
+        boundsBehavior: Flickable.StopAtBounds
         ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
         ColumnLayout {
@@ -423,6 +424,7 @@ Dialog {
                     ScrollView {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        boundsBehavior: Flickable.StopAtBounds
 
                         TextArea {
                             id: contentTextArea
@@ -482,6 +484,7 @@ Dialog {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
+                        boundsBehavior: Flickable.StopAtBounds
                         model: textListModel
                         currentIndex: -1
 

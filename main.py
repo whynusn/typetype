@@ -235,10 +235,13 @@ def main():
     log_info(f"系统: {os_type} 平台: {display_server}")
 
     key_listener = None
-    if os_type == "Linux" and display_server == "Wayland":
-        key_listener = GlobalKeyListener()
-        key_listener.start()
-        log_info("因系统平台特殊性，全局监听器已启动")
+    if os_type == "Linux" and display_server.startswith("Wayland"):
+        try:
+            key_listener = GlobalKeyListener()
+            key_listener.start()
+            log_info("因系统平台特殊性，全局监听器已启动")
+        except Exception as e:
+            log_info(f"全局监听器启动失败，将使用 QML 按键回退: {e}")
 
     # Bridge
     bridge = Bridge(

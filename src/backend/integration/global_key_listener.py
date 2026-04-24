@@ -74,6 +74,11 @@ class GlobalKeyListener(QObject):  # 继承 QObject 而非 QThread
     def start(self):
         """启动所有键盘的监听"""
         self.devices = self._find_all_keyboards()
+        if not self.devices:
+            raise RuntimeError(
+                "未找到可访问的键盘输入设备。请确认当前用户在 input 组中，"
+                "且 /dev/input/event* 有读取权限。"
+            )
 
         for device in self.devices:
             notifier = QSocketNotifier(device.fd, QSocketNotifier.Read)
