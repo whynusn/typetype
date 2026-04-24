@@ -57,12 +57,14 @@ class TypingSessionContext:
 
         # 分片载文状态
         self._slices: list[str] = []
-        self._retype_enabled: bool = False
-        self._retype_metric: str = ""
-        self._retype_operator: str = ""
-        self._retype_threshold: float = 0.0
-        self._retype_shuffle: bool = False
         self._slice_stats: list[dict] = []
+        self._key_stroke_min: int = 0
+        self._speed_min: int = 0
+        self._accuracy_min: int = 0
+        self._pass_count_min: int = 1
+        self._on_fail_action: str = "retype"
+        self._start_slice: int = 1
+        self._consecutive_pass_count: int = 0
 
         self._on_upload_status_changed: list[Callable[[UploadStatus], None]] = []
         self._on_eligibility_reason_changed: list[Callable[[str], None]] = []
@@ -147,13 +149,14 @@ class TypingSessionContext:
         self,
         text: str,
         slice_size: int,
-        retype_enabled: bool,
-        metric: str,
-        operator: str,
-        threshold: float,
+        start_slice: int,
+        key_stroke_min: int,
+        speed_min: int,
+        accuracy_min: int,
+        pass_count_min: int,
+        on_fail_action: str,
         shuffle: bool,
     ) -> int:
-        """初始化分片载文模式。返回总片数（0 表示失败）。"""
         if not text or slice_size <= 0:
             return 0
 
@@ -164,15 +167,17 @@ class TypingSessionContext:
         if not self._slices:
             return 0
 
-        self._retype_enabled = retype_enabled
-        self._retype_metric = metric
-        self._retype_operator = operator
-        self._retype_threshold = threshold
-        self._retype_shuffle = shuffle
+        self._key_stroke_min = key_stroke_min
+        self._speed_min = speed_min
+        self._accuracy_min = accuracy_min
+        self._pass_count_min = pass_count_min
+        self._on_fail_action = on_fail_action
+        self._start_slice = max(1, min(start_slice, len(self._slices)))
+        self._consecutive_pass_count = 0
         self._slice_stats = []
         self._source_mode = SourceMode.SLICE
         self._text_id = None
-        self._slice_index = 1
+        self._slice_index = self._start_slice
         self._slice_total = len(self._slices)
         self._phase = SessionPhase.READY
         self._derive_upload_status()
@@ -212,26 +217,35 @@ class TypingSessionContext:
         return self._slice_index >= self._slice_total
 
     def should_retype(self) -> bool:
-        """检查当前片成绩是否触发重打条件。"""
-        if not self._retype_enabled or not self._slice_stats:
+        """检查当前片是否未达标，需要触发事件。
+
+        逻辑：击键≥、速度≥、键准≥ 三项同时满足则 consecutive_pass_count +1，否则归零。
+        最终返回 consecutive_pass_count < pass_count_min。
+        若 on_fail_action 为 'none'，直接返回 False（不重打，直接推进）。
+        """
+        if self._on_fail_action == "none":
             return False
+
+        if not self._slice_stats:
+            return True  # 还没有打完任何片，需要重打（首次）
+
         last = self._slice_stats[-1]
-        value = last.get(self._retype_metric, 0)
-        ops = {
-            "lt": lambda v, t: v < t,
-            "le": lambda v, t: v <= t,
-            "ge": lambda v, t: v >= t,
-            "gt": lambda v, t: v > t,
-        }
-        op_func = ops.get(self._retype_operator)
-        if not op_func:
-            return False
-        return op_func(value, self._retype_threshold)
+        key_stroke = last.get("keyStroke", 0)
+        speed = last.get("speed", 0)
+        accuracy = last.get("accuracy", 0)
+
+        if (key_stroke >= self._key_stroke_min and
+            speed >= self._speed_min and
+            accuracy >= self._accuracy_min):
+            self._consecutive_pass_count += 1
+        else:
+            self._consecutive_pass_count = 0
+
+        return self._consecutive_pass_count < self._pass_count_min
 
     @property
-    def retype_shuffle(self) -> bool:
-        """重打时是否乱序。"""
-        return self._retype_shuffle
+    def on_fail_action(self) -> str:
+        return self._on_fail_action
 
     def get_slice_status(self) -> str:
         """返回当前片进度摘要。"""
@@ -263,7 +277,6 @@ class TypingSessionContext:
         """退出载文模式，清理分片相关状态。"""
         self._slices = []
         self._slice_stats = []
-        self._retype_enabled = False
         self._slice_index = 0
         self._slice_total = 0
         self.reset()
