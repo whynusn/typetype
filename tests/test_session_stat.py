@@ -150,3 +150,52 @@ class TestSessionStatCalculations:
         # speed = 240, accuracy = 90%
         # effective_speed = 240 * 0.9 = 216
         assert score.effectiveSpeed == pytest.approx(216.0)
+
+    def test_key_accuracy_perfect(self):
+        """测试无错误时的键准"""
+        score = SessionStat(
+            time=60.0,
+            key_stroke_count=300,
+            char_count=240,
+            wrong_char_count=0,
+            date="",
+        )
+        assert score.keyAccuracy == 100.0
+
+    def test_key_accuracy_with_errors(self):
+        """测试有错键时的键准"""
+        score = SessionStat(
+            time=60.0,
+            key_stroke_count=300,
+            char_count=240,
+            wrong_char_count=10,
+            backspace_count=10,
+            correction_count=5,
+            date="",
+        )
+        # codeLength = 300 / 240 = 1.25
+        # wrong_keys = 10 + 5 * 1.25 = 16.25
+        # keyAccuracy = (300 - 16.25) / 300 * 100 = 94.583...
+        assert score.keyAccuracy == pytest.approx(94.583, rel=1e-3)
+
+    def test_key_accuracy_zero_keystrokes(self):
+        """测试按键数为零时的键准"""
+        score = SessionStat(
+            time=0.0, key_stroke_count=0, char_count=0, wrong_char_count=0, date=""
+        )
+        assert score.keyAccuracy == 100.0
+
+    def test_key_accuracy_clamped_to_zero(self):
+        """测试键准下限截断为 0"""
+        score = SessionStat(
+            time=60.0,
+            key_stroke_count=10,
+            char_count=5,
+            wrong_char_count=5,
+            backspace_count=100,
+            correction_count=0,
+            date="",
+        )
+        # wrong_keys = 100 + 0 = 100, keystrokes = 10
+        # raw = (10 - 100) / 10 * 100 = -900%
+        assert score.keyAccuracy == 0.0

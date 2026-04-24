@@ -27,6 +27,7 @@ class TestHistoryRecordDTO:
             "wrongNum": 10,
             "backspaceCount": 0,
             "correctionCount": 0,
+            "keyAccuracy": 100.0,
             "charNum": 240,
             "time": 60.0,
             "date": "2024-01-01 00:00:00",
@@ -48,15 +49,17 @@ class TestScoreSummaryDTO:
 
         dto = ScoreSummaryDTO.from_score_data(score)
 
-        assert len(dto.items) == 7
+        assert len(dto.items) == 8
         assert dto.items[0].label == "速度"
         assert dto.items[0].unit == "字/分"
-        assert dto.items[4].label == "准确率"
-        assert dto.items[4].unit == "%"
+        assert dto.items[4].label == "错字"
+        assert dto.items[4].unit == "字"
         assert dto.items[5].label == "回改"
         assert dto.items[5].unit == "次"
         assert dto.items[6].label == "退格"
         assert dto.items[6].unit == "次"
+        assert dto.items[7].label == "键准"
+        assert dto.items[7].unit == "%"
 
     def test_to_plain_text(self):
         """应输出纯文本格式摘要"""
