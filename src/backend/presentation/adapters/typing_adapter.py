@@ -168,6 +168,7 @@ class TypingAdapter(QObject):
                     "backspace_count": s.backspace_count,
                     "correction_count": s.correction_count,
                     "char_count": s.char_count,
+                    "key_stroke_count": s.key_stroke_count,
                     "time": s.time,
                 }
 
