@@ -293,7 +293,7 @@ class TestBridgeSpecialPlatform:
         typing_adapter._session_context = session
 
         # 模拟打完一片后的状态：_last_slice_stats 已被 _check_typing_complete 捕获
-        fake_stats = {"speed": 100.0, "accuracy": 95.0, "wrong_char_count": 1}
+        fake_stats = {"speed": 100.0, "keyAccuracy": 95.0, "wrong_char_count": 0}
         typing_adapter._last_slice_stats = fake_stats
 
         # 设置分片模式（否则 collect_slice_result 中的 session_context 检查不通过）
@@ -308,4 +308,4 @@ class TestBridgeSpecialPlatform:
         # 验证数据已正确存入 session_context
         assert len(session._slice_stats) == 1
         assert session._slice_stats[0]["speed"] == 100.0
-        assert session.should_retype() is True  # accuracy 95 < 98，应触发重打
+        assert session.should_retype() is True  # keyAccuracy 95 < 98，应触发重打

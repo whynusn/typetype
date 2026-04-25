@@ -234,14 +234,14 @@ class TypingSessionContext:
         last = self._slice_stats[-1]
         key_stroke = last.get("keyStroke", 0)
         speed = last.get("speed", 0)
-        accuracy = last.get("accuracy", 0)
+        key_accuracy = last.get("keyAccuracy", 0)
         wrong_char_count = last.get("wrong_char_count", 0)
 
         # Phase 1: 检查三个基础指标 + 无错字
         base_passed = (
             key_stroke >= self._key_stroke_min
             and speed >= self._speed_min
-            and accuracy >= self._accuracy_min
+            and key_accuracy >= self._accuracy_min
             and wrong_char_count == 0
         )
 
@@ -269,7 +269,7 @@ class TypingSessionContext:
             last = self._slice_stats[-1]
             return (
                 f"载文模式: 第 {idx}/{total} 片"
-                f"  |  上一片: {last['speed']:.0f}CPM {last['accuracy']:.1f}%"
+                f"  |  上一片: {last['speed']:.0f}CPM {last['keyAccuracy']:.1f}%"
             )
         return f"载文模式: 第 {idx}/{total} 片"
 

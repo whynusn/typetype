@@ -266,7 +266,7 @@ class TestSliceMode:
         ctx = TypingSessionContext()
         ctx.setup_slice_mode("abc", 1, 1, 0, 100, 0, 1, "retype")
         ctx.collect_slice_result(
-            {"speed": 50, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+            {"speed": 50, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is True
 
@@ -274,7 +274,7 @@ class TestSliceMode:
         ctx = TypingSessionContext()
         ctx.setup_slice_mode("abc", 1, 1, 0, 100, 0, 1, "retype")
         ctx.collect_slice_result(
-            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+            {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is False
 
@@ -282,7 +282,7 @@ class TestSliceMode:
         ctx = TypingSessionContext()
         ctx.setup_slice_mode("abc", 1, 1, 0, 0, 0, 1, "retype")
         ctx.collect_slice_result(
-            {"speed": 100, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 1}
+            {"speed": 100, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 1}
         )
         assert ctx.should_retype() is True
 
@@ -290,7 +290,7 @@ class TestSliceMode:
         ctx = TypingSessionContext()
         ctx.setup_slice_mode("abc", 1, 1, 100, 100, 95, 5, "none")
         ctx.collect_slice_result(
-            {"speed": 50, "accuracy": 50, "keyStroke": 2, "wrong_char_count": 5}
+            {"speed": 50, "keyAccuracy": 50, "keyStroke": 2, "wrong_char_count": 5}
         )
         assert ctx.should_retype() is False
 
@@ -299,15 +299,16 @@ class TestSliceMode:
         ctx.setup_slice_mode("abc", 1, 1, 0, 0, 0, 1, "retype")
         assert "第 1/3" in ctx.get_slice_status()
         ctx.collect_slice_result(
-            {"speed": 80, "accuracy": 95.5, "keyStroke": 5, "wrong_char_count": 0}
+            {"speed": 80, "keyAccuracy": 95.5, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert "80CPM" in ctx.get_slice_status()
+        assert "95.5%" in ctx.get_slice_status()
 
     def test_get_aggregate_data(self):
         ctx = TypingSessionContext()
         ctx.setup_slice_mode("ab", 1, 1, 0, 0, 0, 1, "retype")
         ctx.collect_slice_result(
-            {"speed": 80, "keyStroke": 5, "accuracy": 95, "wrong_char_count": 0}
+            {"speed": 80, "keyStroke": 5, "keyAccuracy": 95, "wrong_char_count": 0}
         )
         data = ctx.get_aggregate_data()
         assert data is not None
@@ -318,7 +319,7 @@ class TestSliceMode:
         ctx.setup_slice_mode("ab", 1, 1, 0, 0, 0, 1, "retype")
         assert ctx.get_last_slice_stats() == {}
         ctx.collect_slice_result(
-            {"speed": 80, "keyStroke": 5, "accuracy": 95, "wrong_char_count": 0}
+            {"speed": 80, "keyStroke": 5, "keyAccuracy": 95, "wrong_char_count": 0}
         )
         assert ctx.get_last_slice_stats()["speed"] == 80
 
@@ -326,10 +327,10 @@ class TestSliceMode:
         ctx = TypingSessionContext()
         ctx.setup_slice_mode("ab", 1, 1, 0, 0, 0, 1, "retype")
         ctx.collect_slice_result(
-            {"speed": 40, "accuracy": 90, "keyStroke": 3, "wrong_char_count": 0}
+            {"speed": 40, "keyAccuracy": 90, "keyStroke": 3, "wrong_char_count": 0}
         )
         ctx.collect_slice_result(
-            {"speed": 75, "accuracy": 98, "keyStroke": 8, "wrong_char_count": 0}
+            {"speed": 75, "keyAccuracy": 98, "keyStroke": 8, "wrong_char_count": 0}
         )
 
         data = ctx.get_aggregate_data()
@@ -355,11 +356,11 @@ class TestSliceMode:
         ctx.setup_slice_mode("ab", 1, 1, 0, 100, 0, 2, "retype")
         # 第1片重打累积：达标2次后合格
         ctx.collect_slice_result(
-            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+            {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is True  # pass_count[0]=1 < 2
         ctx.collect_slice_result(
-            {"speed": 110, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+            {"speed": 110, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is False  # pass_count[0]=2 >= 2 → 第1片达标
 
@@ -371,10 +372,10 @@ class TestSliceMode:
 
         # 第2片从0开始累积达标次数
         ctx.collect_slice_result(
-            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+            {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is True  # pass_count[1]=1 < 2（与第1片独立）
         ctx.collect_slice_result(
-            {"speed": 120, "accuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+            {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is False  # pass_count[1]=2 >= 2
