@@ -386,7 +386,7 @@ Item {
 
                             Button {
                                 text: "下一段 \u2192"
-                                enabled: appBridge && !appBridge.isLastSlice()
+                                enabled: appBridge && appBridge.sliceIndex < appBridge.totalSliceCount
                                 visible: enabled
                                 onClicked: {
                                     if (appBridge) {
