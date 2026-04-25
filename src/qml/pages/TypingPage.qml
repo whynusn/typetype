@@ -370,6 +370,30 @@ Item {
                                         : "#666"
                                 }
                             }
+
+                            Item { Layout.fillWidth: true }
+
+                            Button {
+                                text: "\u2190 上一段"
+                                enabled: appBridge && appBridge.sliceIndex > 1
+                                visible: enabled
+                                onClicked: {
+                                    if (appBridge) {
+                                        appBridge.loadPrevSlice();
+                                    }
+                                }
+                            }
+
+                            Button {
+                                text: "下一段 \u2192"
+                                enabled: appBridge && !appBridge.isLastSlice()
+                                visible: enabled
+                                onClicked: {
+                                    if (appBridge) {
+                                        appBridge.loadNextSlice();
+                                    }
+                                }
+                            }
                         }
                     }
 

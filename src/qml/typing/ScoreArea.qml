@@ -32,14 +32,7 @@ Pane {
         id: rowLayout
         anchors.fill: parent
         anchors.leftMargin: 20
-        //anchors.rightMargin: 20
 
-        PillButton {
-            id: totalTime
-            text: "时间: " + (appBridge ? appBridge.totalTime.toFixed(1) : "0.0")
-            checked: true
-            Layout.alignment: Qt.AlignVCenter
-        }
         PillButton {
             id: typeSpeed
             text: "速度: " + (appBridge ? appBridge.typeSpeed.toFixed(2) : "0.00")
@@ -59,26 +52,20 @@ Pane {
             Layout.alignment: Qt.AlignVCenter
         }
         PillButton {
+            id: keyAccuracy
+            text: "键准: " + (appBridge ? appBridge.keyAccuracy.toFixed(1) : "0.0")
+            checked: true
+            Layout.alignment: Qt.AlignVCenter
+        }
+        PillButton {
             id: charNum
             text: "字数: " + (appBridge ? appBridge.charNum : 0)
             checked: true
             Layout.alignment: Qt.AlignVCenter
         }
         PillButton {
-            id: correctionCount
-            text: "回改: " + (appBridge ? appBridge.correction : 0)
-            checked: true
-            Layout.alignment: Qt.AlignVCenter
-        }
-        PillButton {
-            id: backspaceCount
-            text: "退格: " + (appBridge ? appBridge.backspace : 0)
-            checked: true
-            Layout.alignment: Qt.AlignVCenter
-        }
-        PillButton {
-            id: keyAccuracy
-            text: "键准: " + (appBridge ? appBridge.keyAccuracy.toFixed(1) : "0.0")
+            id: totalTime
+            text: "用时: " + (appBridge ? appBridge.totalTime.toFixed(1) : "0.0")
             checked: true
             Layout.alignment: Qt.AlignVCenter
         }

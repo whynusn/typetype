@@ -35,7 +35,7 @@ Pane {
         property color borderColor: Theme.currentTheme ? Theme.currentTheme.colors.dividerBorderColor : "#e0e0e0"
         property color textColor: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : palette.windowText
 
-        model: ["速度", "击键", "码长", "错字数", "回改", "退格", "键准", "字数", "时间", "日期"]
+        model: ["速度", "击键", "码长", "错字", "回改", "退格", "键准", "字数", "用时", "日期"]
 
         delegate: Rectangle {
             required property int column
