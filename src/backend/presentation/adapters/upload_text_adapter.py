@@ -9,7 +9,7 @@ from PySide6.QtCore import QObject, Signal, Slot
 from ...utils.logger import log_info, log_warning
 
 if TYPE_CHECKING:
-    from ...integration.text_uploader import TextUploader
+    from ...ports.text_uploader import TextUploader
 
 # 本地文本写入路径与配置文件路径
 LOCAL_TEXTS_DIR = os.path.join(

@@ -20,7 +20,7 @@ from ..utils.logger import log_info
 EVDEV_KEY_BACKSPACE = 14
 
 if TYPE_CHECKING:
-    from ..integration.global_key_listener import GlobalKeyListener
+    from ..ports.key_listener import KeyListener
     from .adapters.auth_adapter import AuthAdapter
     from .adapters.char_stats_adapter import CharStatsAdapter
     from .adapters.leaderboard_adapter import LeaderboardAdapter
@@ -83,7 +83,7 @@ class Bridge(QObject):
         char_stats_adapter: CharStatsAdapter,
         upload_text_adapter: UploadTextAdapter | None = None,
         leaderboard_adapter: LeaderboardAdapter | None = None,
-        key_listener: GlobalKeyListener | None = None,
+        key_listener: KeyListener | None = None,
         base_url_update_callback: Callable[[str], None] | None = None,
     ):
         super().__init__()
@@ -109,6 +109,10 @@ class Bridge(QObject):
 
         self.specialPlatformConfirmed.emit(self._is_special_platform)
         log_info(f"[Bridge] 检测到平台特殊性: {self._is_special_platform}")
+
+    def _clear_text_id(self) -> None:
+        """清空 text_id（分片/乱序/自定义文本不提交成绩）。"""
+        self.setTextId(0)
 
     def _connect_typing_signals(self) -> None:
         self._typing_adapter.typeSpeedChanged.connect(self.typeSpeedChanged.emit)
@@ -364,9 +368,7 @@ class Bridge(QObject):
         if self._typing_adapter.is_slice_mode():
             self.exitSliceMode()
         self._typing_adapter.prepare_for_text_load()
-        self._text_id = 0
-        self._typing_adapter.setTextId(None)
-        self.textIdChanged.emit()
+        self._clear_text_id()
         # 设置会话状态机
         self._typing_adapter.setup_custom_session(source_key or "custom")
         self.textLoaded.emit(text, -1, "自定义文本")
@@ -532,9 +534,7 @@ class Bridge(QObject):
 
         shuffled, title = result
         # 清空 text_id：乱序内容与服务端不匹配，不提交成绩
-        self._text_id = 0
-        self._typing_adapter.setTextId(None)
-        self.textIdChanged.emit()
+        self._clear_text_id()
         # 设置会话状态机
         self._typing_adapter.setup_shuffle_session()
         # 发射 textLoaded 信号，QML 侧 applyLoadedText + handleLoadedText 重置打字状态
@@ -624,9 +624,7 @@ class Bridge(QObject):
         self._typing_adapter.prepare_for_text_load()
 
         # 清空 text_id（分片不提交成绩）
-        self._text_id = 0
-        self._typing_adapter.setTextId(None)
-        self.textIdChanged.emit()
+        self._clear_text_id()
 
         # 发射 textLoaded，QML 侧完成 applyLoadedText + handleLoadedText
         label = f"载文 {idx}/{total}"
@@ -700,9 +698,7 @@ class Bridge(QObject):
         total = self._typing_adapter.slice_total
         self._typing_adapter.set_slice_index(idx)
         self._typing_adapter.prepare_for_text_load()
-        self._text_id = 0
-        self._typing_adapter.setTextId(None)
-        self.textIdChanged.emit()
+        self._clear_text_id()
         self.textLoaded.emit(shuffled, -1, f"载文 {idx}/{total}（乱序）")
 
     @Slot(result=str)
