@@ -20,13 +20,25 @@ class TestHistoryRecordDTO:
         dto = HistoryRecordDTO.from_score_data(score)
         result = dto.to_dict()
 
+        assert list(result.keys()) == [
+            "speed",
+            "keyStroke",
+            "codeLength",
+            "wrongNum",
+            "correctionCount",
+            "backspaceCount",
+            "keyAccuracy",
+            "charNum",
+            "time",
+            "date",
+        ]
         assert result == {
             "speed": 240.0,
             "keyStroke": 5.0,
             "codeLength": 1.25,
             "wrongNum": 10,
-            "backspaceCount": 0,
             "correctionCount": 0,
+            "backspaceCount": 0,
             "keyAccuracy": 100.0,
             "charNum": 240,
             "time": 60.0,
@@ -49,17 +61,50 @@ class TestScoreSummaryDTO:
 
         dto = ScoreSummaryDTO.from_score_data(score)
 
-        assert len(dto.items) == 8
+        assert len(dto.items) == 10
         assert dto.items[0].label == "速度"
         assert dto.items[0].unit == "字/分"
-        assert dto.items[4].label == "错字"
-        assert dto.items[4].unit == "字"
-        assert dto.items[5].label == "回改"
+        assert dto.items[1].label == "击键"
+        assert dto.items[1].unit == "击/秒"
+        assert dto.items[2].label == "码长"
+        assert dto.items[2].unit == "击/字"
+        assert dto.items[3].label == "错字"
+        assert dto.items[3].unit == "字"
+        assert dto.items[4].label == "回改"
+        assert dto.items[4].unit == "次"
+        assert dto.items[5].label == "退格"
         assert dto.items[5].unit == "次"
-        assert dto.items[6].label == "退格"
-        assert dto.items[6].unit == "次"
-        assert dto.items[7].label == "键准"
-        assert dto.items[7].unit == "%"
+        assert dto.items[6].label == "键准"
+        assert dto.items[6].unit == "%"
+        assert dto.items[7].label == "字数"
+        assert dto.items[7].unit == ""
+        assert dto.items[8].label == "用时"
+        assert dto.items[8].unit == "秒"
+        assert dto.items[9].label == "键数"
+        assert dto.items[9].unit == ""
+
+    def test_to_clipboard_text(self):
+        """应输出木易跟打器风格单行纯文本"""
+        score = SessionStat(
+            time=60.0,
+            key_stroke_count=300,
+            char_count=240,
+            wrong_char_count=10,
+            date="2024-01-01 00:00:00",
+        )
+
+        text = ScoreSummaryDTO.from_score_data(score).to_clipboard_text()
+
+        # 不含换行符
+        assert "\n" not in text
+        # 秒和%单位紧跟值后
+        assert "用时60.000秒" in text
+        assert "键准" in text
+        assert "%" in text
+        # 无单位指标不附加单位
+        assert "速度240.00" in text
+        assert "字数240" in text
+        assert "键数300" in text
 
     def test_to_plain_text(self):
         """应输出纯文本格式摘要"""
