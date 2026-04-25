@@ -41,7 +41,7 @@ Pane {
             width: 110
             height: 36
             anchors.verticalCenter: parent.verticalCenter
-            text: "载文"
+            text: "载文[F2]"
             onClicked: {
                 root.requestOpenSliceConfig();
             }
@@ -52,7 +52,7 @@ Pane {
             width: 110
             height: 36
             anchors.verticalCenter: parent.verticalCenter
-            text: "剪贴板载文"
+            text: "剪贴板[C^V]"
             onClicked: {
                 root.requestLoadTextFromClipboard();
             }
@@ -74,7 +74,7 @@ Pane {
             width: 110
             height: 36
             anchors.verticalCenter: parent.verticalCenter
-            text: "乱序[F4]"
+            text: "乱序[C^L]"
             onClicked: {
                 root.requestShuffle();
             }

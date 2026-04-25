@@ -355,9 +355,7 @@ Dialog {
             if (fullText) {
                 appBridge.loadFullText(text, root.selectedSourceKey);
             } else {
-                appBridge.setupSliceMode(text, sliceSize, startSlice,
-                                         keyStrokeMin, speedMin, accuracyMin, passCountMin,
-                                         onFailAction);
+                appBridge.setupSliceMode(text, sliceSize, startSlice, keyStrokeMin, speedMin, accuracyMin, passCountMin, onFailAction);
             }
         }
         root.close();
@@ -386,224 +384,236 @@ Dialog {
                 width: scrollView.width
                 spacing: 12
 
-            // --- 文本内容输入 ---
-            Frame {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 160
-                radius: 6
-                hoverable: false
+                // --- 文本内容输入 ---
+                Frame {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 160
+                    radius: 6
+                    hoverable: false
 
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 4
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 4
 
-                    RowLayout {
-                        Layout.fillWidth: true
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                text: "文本内容"
+                                font.bold: true
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                            }
+                            Button {
+                                text: "乱序"
+                                onClicked: {
+                                    var text = contentTextArea.text;
+                                    if (text.length > 0) {
+                                        var arr = text.split('');
+                                        for (var i = arr.length - 1; i > 0; i--) {
+                                            var j = Math.floor(Math.random() * (i + 1));
+                                            var tmp = arr[i];
+                                            arr[i] = arr[j];
+                                            arr[j] = tmp;
+                                        }
+                                        root.setContentText(arr.join(''));
+                                    }
+                                }
+                            }
+                        }
+
+                        ScrollView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+
+                            TextArea {
+                                id: contentTextArea
+                                placeholderText: "在此输入或粘贴文本，也可从下方文本库选择..."
+                                wrapMode: TextArea.Wrap
+                                selectByMouse: true
+                                font.pixelSize: 14
+                                onTextChanged: {
+                                    if (!root.syncingContentText && activeFocus) {
+                                        root.selectedSourceKey = "";
+                                        root.pendingRemoteTextId = 0;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- 从文本库选择 ---
+                Frame {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 200
+                    radius: 6
+                    hoverable: false
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 4
+
                         Text {
-                            text: "文本内容"
+                            text: "从文本库选择"
                             font.bold: true
                             font.pixelSize: 13
                             color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                         }
-                        Item { Layout.fillWidth: true }
-                        Button {
-                            text: "乱序"
-                            onClicked: {
-                                var text = contentTextArea.text;
-                                if (text.length > 0) {
-                                    var arr = text.split('');
-                                    for (var i = arr.length - 1; i > 0; i--) {
-                                        var j = Math.floor(Math.random() * (i + 1));
-                                        var tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
-                                    }
-                                    root.setContentText(arr.join(''));
-                                }
-                            }
-                        }
-                    }
-
-                    ScrollView {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-
-                        TextArea {
-                            id: contentTextArea
-                            placeholderText: "在此输入或粘贴文本，也可从下方文本库选择..."
-                            wrapMode: TextArea.Wrap
-                            selectByMouse: true
-                            font.pixelSize: 14
-                            onTextChanged: {
-                                if (!root.syncingContentText && activeFocus) {
-                                    root.selectedSourceKey = "";
-                                    root.pendingRemoteTextId = 0;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- 从文本库选择 ---
-            Frame {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 200
-                radius: 6
-                hoverable: false
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 4
-
-                    Text {
-                        text: "从文本库选择"
-                        font.bold: true
-                        font.pixelSize: 13
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                    }
-
-                    Text {
-                        text: sourceComboBox.currentValue === root.localGroupKey ? "“本地文本”会列出离线可用的内置文本，未联网时也能直接载文。" : "其余来源来自服务端文本目录，交互与“文本排行”页面保持一致。"
-                        wrapMode: Text.Wrap
-                        font.pixelSize: 11
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                    }
-
-                    ComboBox {
-                        id: sourceComboBox
-                        Layout.fillWidth: true
-                        model: sourceListModel
-                        textRole: "label"
-                        valueRole: "key"
-                        onCurrentIndexChanged: {
-                            root.applySourceSelection(currentIndex);
-                        }
-                    }
-
-                    ListView {
-                        id: textListView
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        boundsBehavior: Flickable.StopAtBounds
-                        model: textListModel
-                        currentIndex: -1
-
-                        ScrollBar.vertical: ScrollBar {
-                            policy: ScrollBar.AsNeeded
-                        }
 
                         Text {
-                            anchors.centerIn: parent
-                            text: "暂无文本"
-                            font.pixelSize: 12
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#999"
-                            visible: textListModel.count === 0
-                        }
-
-                        delegate: Rectangle {
-                            width: textListView.width
-                            height: 36
-                            radius: 4
-                            property bool isSelected: textListView.currentIndex === index
-                            color: isSelected ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor + "20" : "#3399ff20") : "transparent"
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: 8
-                                anchors.rightMargin: 8
-                                spacing: 4
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.title || ""
-                                    elide: Text.ElideRight
-                                    font.pixelSize: 13
-                                    font.weight: isSelected ? Font.DemiBold : Font.Normal
-                                    color: isSelected ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#3399ff") : (Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333")
-                                }
-
-                                Text {
-                                    text: model.char_count !== undefined && model.char_count >= 0 ? (model.char_count + "字") : ""
-                                    font.pixelSize: 11
-                                    color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    root.selectTextEntry(index);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // --- 分片设置 ---
-            Frame {
-                Layout.fillWidth: true
-                implicitHeight: sliceSettingsColumn.implicitHeight + 24
-                radius: 6
-                hoverable: false
-
-                ColumnLayout {
-                    id: sliceSettingsColumn
-                    anchors.fill: parent
-                    spacing: 8
-
-                    Text {
-                        text: "分片设置"
-                        font.bold: true
-                        font.pixelSize: 13
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 12
-
-                        Text {
-                            text: "每片字数:"
-                            font.pixelSize: 13
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                        }
-
-                        TextField {
-                            id: sliceSizeField
-                            Layout.preferredWidth: 88
-                            text: "30"
-                            enabled: !fullTextCheck.checked
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator {
-                                bottom: root.sliceSizeMin()
-                                top: root.sliceSizeMax()
-                            }
-                            onTextChanged: root.refreshValidationMessage()
-                        }
-
-                        Text {
-                            text: fullTextCheck.checked ? "全文载入时固定为文章全文" : "输入 1 到 " + root.sliceSizeMax() + "的正整数"
+                            text: sourceComboBox.currentValue === root.localGroupKey ? "“本地文本”会列出离线可用的内置文本，未联网时也能直接载文。" : "其余来源来自服务端文本目录，交互与“文本排行”页面保持一致。"
+                            wrapMode: Text.Wrap
                             font.pixelSize: 11
                             color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                            enabled: !fullTextCheck.checked
                         }
 
+                        ComboBox {
+                            id: sourceComboBox
+                            Layout.fillWidth: true
+                            model: sourceListModel
+                            textRole: "label"
+                            valueRole: "key"
+                            onCurrentIndexChanged: {
+                                root.applySourceSelection(currentIndex);
+                            }
+                        }
+
+                        ListView {
+                            id: textListView
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: textListModel
+                            currentIndex: -1
+
+                            ScrollBar.vertical: ScrollBar {
+                                policy: ScrollBar.AsNeeded
+                            }
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "暂无文本"
+                                font.pixelSize: 12
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#999"
+                                visible: textListModel.count === 0
+                            }
+
+                            delegate: Rectangle {
+                                width: textListView.width
+                                height: 36
+                                radius: 4
+                                property bool isSelected: textListView.currentIndex === index
+                                color: isSelected ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor + "20" : "#3399ff20") : "transparent"
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 4
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: model.title || ""
+                                        elide: Text.ElideRight
+                                        font.pixelSize: 13
+                                        font.weight: isSelected ? Font.DemiBold : Font.Normal
+                                        color: isSelected ? (Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#3399ff") : (Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333")
+                                    }
+
+                                    Text {
+                                        text: model.char_count !== undefined && model.char_count >= 0 ? (model.char_count + "字") : ""
+                                        font.pixelSize: 11
+                                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.selectTextEntry(index);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // --- 分片设置 ---
+                Frame {
+                    Layout.fillWidth: true
+                    implicitHeight: sliceSettingsColumn.implicitHeight + 24
+                    radius: 6
+                    hoverable: false
+
+                    ColumnLayout {
+                        id: sliceSettingsColumn
+                        anchors.fill: parent
+                        spacing: 8
+
                         Text {
-                            text: "开始片段:"
+                            text: "分片设置"
+                            font.bold: true
                             font.pixelSize: 13
                             color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                         }
 
-                        TextField {
-                            id: startSliceField
-                            Layout.preferredWidth: 72
-                            text: "1"
-                            enabled: !fullTextCheck.checked
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 1; top: 9999 }
-                            onTextChanged: root.refreshValidationMessage()
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 12
+
+                            Text {
+                                text: "每片字数:"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+
+                            TextField {
+                                id: sliceSizeField
+                                Layout.preferredWidth: 88
+                                text: "30"
+                                enabled: !fullTextCheck.checked
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator {
+                                    bottom: root.sliceSizeMin()
+                                    top: root.sliceSizeMax()
+                                }
+                                onTextChanged: root.refreshValidationMessage()
+                            }
+
+                            Text {
+                                text: fullTextCheck.checked ? "全文载入" : "输入 1 到 " + root.sliceSizeMax() + "的正整数"
+                                font.pixelSize: 11
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                                enabled: !fullTextCheck.checked
+                            }
+
+                            Text {
+                                text: "开始片段:"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+
+                            TextField {
+                                id: startSliceField
+                                Layout.preferredWidth: 72
+                                text: "1"
+                                enabled: !fullTextCheck.checked
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator {
+                                    bottom: 1
+                                    top: 9999
+                                }
+                                onTextChanged: root.refreshValidationMessage()
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
                         }
 
                         CheckBox {
@@ -611,145 +621,223 @@ Dialog {
                             text: "全文载入（不分片）"
                             onCheckedChanged: root.refreshValidationMessage()
                         }
+                    }
+                }
 
-                        Item {
+                // --- 合格指标 ---
+                Frame {
+                    Layout.fillWidth: true
+                    radius: 6
+                    hoverable: false
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 8
+
+                        Text {
+                            text: "合格指标（四个条件需同时满足）"
+                            font.bold: true
+                            font.pixelSize: 13
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                        }
+
+                        // 击键
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Text {
+                                text: "击键"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            Text {
+                                text: "≥"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            TextField {
+                                id: keyStrokeMinField
+                                Layout.preferredWidth: 72
+                                text: "6"
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator {
+                                    bottom: 0
+                                    top: 999
+                                }
+                                onTextChanged: root.refreshValidationMessage()
+                            }
+                            Text {
+                                text: "次/秒"
+                                font.pixelSize: 11
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        // 速度
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Text {
+                                text: "速度"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            Text {
+                                text: "≥"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            TextField {
+                                id: speedMinField
+                                Layout.preferredWidth: 72
+                                text: "100"
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator {
+                                    bottom: 0
+                                    top: 999
+                                }
+                                onTextChanged: root.refreshValidationMessage()
+                            }
+                            Text {
+                                text: "字/分"
+                                font.pixelSize: 11
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        // 键准
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Text {
+                                text: "键准"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            Text {
+                                text: "≥"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            TextField {
+                                id: accuracyMinField
+                                Layout.preferredWidth: 72
+                                text: "95"
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator {
+                                    bottom: 0
+                                    top: 100
+                                }
+                                onTextChanged: root.refreshValidationMessage()
+                            }
+                            Text {
+                                text: "%"
+                                font.pixelSize: 11
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        // 达标次数
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Text {
+                                text: "达标次数"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            Text {
+                                text: "≥"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+                            TextField {
+                                id: passCountMinField
+                                Layout.preferredWidth: 72
+                                text: "1"
+                                inputMethodHints: Qt.ImhDigitsOnly
+                                validator: IntValidator {
+                                    bottom: 1
+                                    top: 9999
+                                }
+                                onTextChanged: root.refreshValidationMessage()
+                            }
+                            Text {
+                                text: "次"
+                                font.pixelSize: 11
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        Text {
+                            text: "四个条件需同时满足才算达标，任一不满足即触发下方设定的事件"
+                            font.pixelSize: 11
+                            color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                            wrapMode: Text.Wrap
                             Layout.fillWidth: true
                         }
-                    }
-                }
-            }
 
-            // --- 合格指标 ---
-            Frame {
-                Layout.fillWidth: true
-                radius: 6
-                hoverable: false
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: 8
-
-                    Text {
-                        text: "合格指标（四个条件需同时满足）"
-                        font.bold: true
-                        font.pixelSize: 13
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                    }
-
-                    // 击键
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Text { text: "击键"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        TextField {
-                            id: keyStrokeMinField
-                            Layout.preferredWidth: 72
-                            text: "6"
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 0; top: 999 }
-                            onTextChanged: root.refreshValidationMessage()
-                        }
-                        Text { text: "次/秒"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    // 速度
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Text { text: "速度"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        TextField {
-                            id: speedMinField
-                            Layout.preferredWidth: 72
-                            text: "100"
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 0; top: 999 }
-                            onTextChanged: root.refreshValidationMessage()
-                        }
-                        Text { text: "字/分"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    // 键准
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Text { text: "键准"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        TextField {
-                            id: accuracyMinField
-                            Layout.preferredWidth: 72
-                            text: "95"
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 0; top: 100 }
-                            onTextChanged: root.refreshValidationMessage()
-                        }
-                        Text { text: "%"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    // 达标次数
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Text { text: "达标次数"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        Text { text: "≥"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        TextField {
-                            id: passCountMinField
-                            Layout.preferredWidth: 72
-                            text: "1"
-                            inputMethodHints: Qt.ImhDigitsOnly
-                            validator: IntValidator { bottom: 1; top: 9999 }
-                            onTextChanged: root.refreshValidationMessage()
-                        }
-                        Text { text: "次"; font.pixelSize: 11; color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666" }
-                        Item { Layout.fillWidth: true }
-                    }
-
-                    Text {
-                        text: "四个条件需同时满足才算达标，任一不满足即触发下方设定的事件"
-                        font.pixelSize: 11
-                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                        wrapMode: Text.Wrap
-                        Layout.fillWidth: true
-                    }
-
-                    RowLayout {
-                        Layout.fillWidth: true
-                        spacing: 8
-                        Text { text: "未达标或有错字时:"; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
-                        ComboBox {
-                            id: onFailActionCombo
-                            model: ListModel {
-                                ListElement { text: "乱序(重打)"; value: "shuffle" }
-                                ListElement { text: "重打"; value: "retype" }
-                                ListElement { text: "无"; value: "none" }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+                            Text {
+                                text: "未达标或有错字时:"
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
                             }
-                            textRole: "text"
-                            valueRole: "value"
+                            ComboBox {
+                                id: onFailActionCombo
+                                model: ListModel {
+                                    ListElement {
+                                        text: "乱序(重打)"
+                                        value: "shuffle"
+                                    }
+                                    ListElement {
+                                        text: "重打"
+                                        value: "retype"
+                                    }
+                                    ListElement {
+                                        text: "无"
+                                        value: "none"
+                                    }
+                                }
+                                textRole: "text"
+                                valueRole: "value"
+                            }
+                            Item {
+                                Layout.fillWidth: true
+                            }
                         }
-                        Item { Layout.fillWidth: true }
                     }
                 }
-            }
 
-            Text {
-                visible: root.validationMessage !== ""
-                text: root.validationMessage
-                font.pixelSize: 11
-                color: Theme.currentTheme ? Theme.currentTheme.colors.systemCriticalColor : "#d13438"
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-            }
+                Text {
+                    visible: root.validationMessage !== ""
+                    text: root.validationMessage
+                    font.pixelSize: 11
+                    color: Theme.currentTheme ? Theme.currentTheme.colors.systemCriticalColor : "#d13438"
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
 
-            // 底部间距（原开始按钮已移至 footer）
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 4
+                // 底部间距（原开始按钮已移至 footer）
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 4
+                }
             }
-        }
         }
     }
 
