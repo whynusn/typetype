@@ -330,10 +330,7 @@ class TypingSessionContext:
             self._phase = SessionPhase.READY
 
     def back_slice(self) -> None:
-        if (
-            self._source_mode == SourceMode.SLICE
-            and self._slice_index > 1
-        ):
+        if self._source_mode == SourceMode.SLICE and self._slice_index > 1:
             self._slice_index -= 1
             self._phase = SessionPhase.READY
 
