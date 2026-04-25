@@ -57,7 +57,7 @@ class TypingSessionContext:
 
         # 分片载文状态
         self._slices: list[str] = []
-        self._slice_stats: list[dict] = []
+        self._slice_stats: list[dict | None] = []
         self._key_stroke_min: int = 0
         self._speed_min: int = 0
         self._accuracy_min: int = 0
@@ -206,10 +206,14 @@ class TypingSessionContext:
             return
 
         target_index = self._slice_index - 1
-        if 0 <= target_index < len(self._slice_stats):
-            self._slice_stats[target_index] = stats
-        elif target_index == len(self._slice_stats):
-            self._slice_stats.append(stats)
+        if target_index < 0:
+            return
+
+        # 用 None 填充中间空位，防止手动跳过某片时出现越界
+        while len(self._slice_stats) <= target_index:
+            self._slice_stats.append(None)
+
+        self._slice_stats[target_index] = stats
 
     def is_last_slice(self) -> bool:
         """当前片是否为最后一片。"""
@@ -219,7 +223,7 @@ class TypingSessionContext:
         """检查当前片是否未达标，需要触发事件。
 
         两阶段校验逻辑：
-        Phase 1 — 检查击键≥、速度≥、键准≥ 且无错字。
+        Phase 1 — 检查击键>=、速度>=、键准>= 且无错字。
                    若通过则 pass_count +1（累计，永不减少）。
         Phase 2 — 综合校验：四项合格指标（包括达标次数）全部满足，
                    返回 False（达标，可推进）；否则返回 True。
@@ -228,14 +232,18 @@ class TypingSessionContext:
         if self._on_fail_action == "none":
             return False
 
-        if not self._slice_stats:
+        target_index = self._slice_index - 1
+        if not (0 <= target_index < len(self._slice_stats)):
             return True
 
-        last = self._slice_stats[-1]
-        key_stroke = last.get("keyStroke", 0)
-        speed = last.get("speed", 0)
-        key_accuracy = last.get("keyAccuracy", 0)
-        wrong_char_count = last.get("wrong_char_count", 0)
+        current = self._slice_stats[target_index]
+        if current is None:
+            return True
+
+        key_stroke = current.get("keyStroke", 0)
+        speed = current.get("speed", 0)
+        key_accuracy = current.get("keyAccuracy", 0)
+        wrong_char_count = current.get("wrong_char_count", 0)
 
         # Phase 1: 检查三个基础指标 + 无错字
         base_passed = (
@@ -245,7 +253,6 @@ class TypingSessionContext:
             and wrong_char_count == 0
         )
 
-        target_index = self._slice_index - 1
         if base_passed and 0 <= target_index < len(self._slice_pass_counts):
             self._slice_pass_counts[target_index] += 1
 
@@ -265,25 +272,32 @@ class TypingSessionContext:
             return ""
         idx = self._slice_index
         total = self._slice_total
-        if self._slice_stats:
-            last = self._slice_stats[-1]
+        target_index = idx - 1
+        if (
+            0 <= target_index < len(self._slice_stats)
+            and self._slice_stats[target_index] is not None
+        ):
+            current = self._slice_stats[target_index]
             return (
                 f"载文模式: 第 {idx}/{total} 片"
-                f"  |  上一片: {last['speed']:.0f}CPM {last['keyAccuracy']:.1f}%"
+                f"  |  上一片: {current['speed']:.0f}CPM {current['keyAccuracy']:.1f}%"
             )
         return f"载文模式: 第 {idx}/{total} 片"
 
     def get_aggregate_data(self) -> tuple[list[dict], int] | None:
         """返回聚合成绩所需数据 (slice_stats, slice_count)。"""
-        if not self._slice_stats:
+        valid_stats = [s for s in self._slice_stats if s is not None]
+        if not valid_stats:
             return None
-        return self._slice_stats, len(self._slices)
+        return valid_stats, len(self._slices)
 
     def get_last_slice_stats(self) -> dict:
-        """返回最后一片的成绩快照。"""
-        if not self._slice_stats:
-            return {}
-        return self._slice_stats[-1]
+        """返回当前片的成绩快照。"""
+        target_index = self._slice_index - 1
+        if 0 <= target_index < len(self._slice_stats):
+            stats = self._slice_stats[target_index]
+            return stats if stats is not None else {}
+        return {}
 
     def exit_slice_mode(self) -> None:
         """退出载文模式，清理分片相关状态。"""
