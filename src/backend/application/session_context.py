@@ -200,6 +200,15 @@ class TypingSessionContext:
         random.shuffle(chars)
         return "".join(chars)
 
+    def _check_base_metrics(self, stats: dict) -> bool:
+        """检查基础指标是否达标（击键、速度、键准、无错字）。"""
+        return (
+            stats.get("keyStroke", 0) >= self._key_stroke_min
+            and stats.get("speed", 0) >= self._speed_min
+            and stats.get("keyAccuracy", 0) >= self._accuracy_min
+            and stats.get("wrong_char_count", 0) == 0
+        )
+
     def collect_slice_result(self, stats: dict | None) -> None:
         """收集当前片的 SessionStat 快照。"""
         if not stats:
@@ -215,6 +224,10 @@ class TypingSessionContext:
 
         self._slice_stats[target_index] = stats
 
+        # 统计达标次数（与 should_retype 共享同一套校验逻辑）
+        if self._check_base_metrics(stats):
+            self._slice_pass_counts[target_index] += 1
+
     def is_last_slice(self) -> bool:
         """当前片是否为最后一片。"""
         return self._slice_index >= self._slice_total
@@ -222,12 +235,13 @@ class TypingSessionContext:
     def should_retype(self) -> bool:
         """检查当前片是否未达标，需要触发事件。
 
-        两阶段校验逻辑：
-        Phase 1 — 检查击键>=、速度>=、键准>= 且无错字。
-                   若通过则 pass_count +1（累计，永不减少）。
-        Phase 2 — 综合校验：四项合格指标（包括达标次数）全部满足，
-                   返回 False（达标，可推进）；否则返回 True。
-        若 on_fail_action 为 'none'，直接返回 False。
+        纯查询方法（无副作用）：达标次数已在 collect_slice_result 中累计。
+
+        校验逻辑：
+        1. 检查击键>=、速度>=、键准>= 且无错字。
+        2. 综合校验：四项合格指标（包括达标次数）全部满足，
+           返回 False（达标，可推进）；否则返回 True。
+        若 on_fail_action 为 'none'，直接返回 False，不再重打。
         """
         if self._on_fail_action == "none":
             return False
@@ -240,56 +254,64 @@ class TypingSessionContext:
         if current is None:
             return True
 
-        key_stroke = current.get("keyStroke", 0)
-        speed = current.get("speed", 0)
-        key_accuracy = current.get("keyAccuracy", 0)
-        wrong_char_count = current.get("wrong_char_count", 0)
+        if not self._check_base_metrics(current):
+            return True
 
-        # Phase 1: 检查三个基础指标 + 无错字
-        base_passed = (
-            key_stroke >= self._key_stroke_min
-            and speed >= self._speed_min
-            and key_accuracy >= self._accuracy_min
-            and wrong_char_count == 0
-        )
-
-        if base_passed and 0 <= target_index < len(self._slice_pass_counts):
-            self._slice_pass_counts[target_index] += 1
-
-        # Phase 2: 四项合格指标综合校验（含达标次数）
-        return not (
-            base_passed
-            and self._slice_pass_counts[target_index] >= self._pass_count_min
-        )
+        return self._slice_pass_counts[target_index] < self._pass_count_min
 
     @property
     def on_fail_action(self) -> str:
         return self._on_fail_action
 
     def get_slice_status(self) -> str:
-        """返回当前片进度摘要。"""
+        """返回当前片进度摘要。
+
+        优先显示当前片的成绩（打字完成后、推进前）；
+        推进到下一片后回退到上一片的成绩。
+        """
         if self._source_mode != SourceMode.SLICE:
             return ""
         idx = self._slice_index
         total = self._slice_total
-        target_index = idx - 1
+
+        # 当前片有成绩时优先显示（打字刚结束时）
+        prev_index = idx - 1
         if (
-            0 <= target_index < len(self._slice_stats)
-            and self._slice_stats[target_index] is not None
+            0 <= prev_index < len(self._slice_stats)
+            and self._slice_stats[prev_index] is not None
         ):
-            current = self._slice_stats[target_index]
+            current = self._slice_stats[prev_index]
             return (
                 f"载文模式: 第 {idx}/{total} 片"
                 f"  |  上一片: {current['speed']:.0f}CPM {current['keyAccuracy']:.1f}%"
             )
+
+        # 推进到下一片后，回退到已完成的上片
+        if idx > 1:
+            prev_index = idx - 2
+            if (
+                0 <= prev_index < len(self._slice_stats)
+                and self._slice_stats[prev_index] is not None
+            ):
+                current = self._slice_stats[prev_index]
+                return (
+                    f"载文模式: 第 {idx}/{total} 片"
+                    f"  |  上一片: {current['speed']:.0f}CPM {current['keyAccuracy']:.1f}%"
+                )
+
         return f"载文模式: 第 {idx}/{total} 片"
 
     def get_aggregate_data(self) -> tuple[list[dict], int] | None:
-        """返回聚合成绩所需数据 (slice_stats, slice_count)。"""
+        """返回聚合成绩所需数据 (slice_stats, slice_count)。
+
+        Returns:
+            (valid_stats, len(valid_stats)) — 只包含有成绩的片，
+            slice_count 为实际完成片数，用于聚合标签的准确显示。
+        """
         valid_stats = [s for s in self._slice_stats if s is not None]
         if not valid_stats:
             return None
-        return valid_stats, len(self._slices)
+        return valid_stats, len(valid_stats)
 
     def get_last_slice_stats(self) -> dict:
         """返回当前片的成绩快照。"""

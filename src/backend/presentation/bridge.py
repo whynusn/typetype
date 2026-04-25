@@ -641,6 +641,7 @@ class Bridge(QObject):
             return
         self._typing_adapter.collect_slice_result(stats)
         self.sliceStatusChanged.emit(self._typing_adapter.get_slice_status())
+        self.sliceModeChanged.emit()  # 更新 slicePassCount 等绑定
 
     @Slot(result=bool)
     def isLastSlice(self) -> bool:

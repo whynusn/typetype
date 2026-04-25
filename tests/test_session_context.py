@@ -312,7 +312,7 @@ class TestSliceMode:
         )
         data = ctx.get_aggregate_data()
         assert data is not None
-        assert data[1] == 2  # 2片
+        assert data[1] == 1  # 只有1片有成绩
 
     def test_get_last_slice_stats(self):
         ctx = TypingSessionContext()
