@@ -35,25 +35,19 @@ class ScoreSummaryDTO:
                     label="速度",
                     value=score_data.speed,
                     unit="字/分",
-                    value_format=".1f",
-                ),
-                ScoreSummaryItemDTO(
-                    label="有效速度",
-                    value=score_data.effectiveSpeed,
-                    unit="字/分",
-                    value_format=".1f",
-                ),
-                ScoreSummaryItemDTO(
-                    label="码长",
-                    value=score_data.codeLength,
-                    unit="击/字",
                     value_format=".2f",
                 ),
                 ScoreSummaryItemDTO(
                     label="击键",
                     value=score_data.keyStroke,
                     unit="击/秒",
-                    value_format=".1f",
+                    value_format=".2f",
+                ),
+                ScoreSummaryItemDTO(
+                    label="码长",
+                    value=score_data.codeLength,
+                    unit="击/字",
+                    value_format=".2f",
                 ),
                 ScoreSummaryItemDTO(
                     label="错字",
@@ -77,10 +71,39 @@ class ScoreSummaryDTO:
                     label="键准",
                     value=score_data.keyAccuracy,
                     unit="%",
-                    value_format=".1f",
+                    value_format=".2f",
+                ),
+                ScoreSummaryItemDTO(
+                    label="字数",
+                    value=score_data.char_count,
+                    unit="",
+                    value_format="d",
+                ),
+                ScoreSummaryItemDTO(
+                    label="用时",
+                    value=score_data.time,
+                    unit="秒",
+                    value_format=".3f",
+                ),
+                ScoreSummaryItemDTO(
+                    label="键数",
+                    value=score_data.key_stroke_count,
+                    unit="",
+                    value_format="d",
                 ),
             ]
         )
+
+    def to_clipboard_text(self) -> str:
+        """渲染为木易跟打器风格单行纯文本（剪贴板用）。"""
+        parts: list[str] = []
+        for item in self.items:
+            value_str = f"{item.value:{item.value_format}}"
+            if item.unit in ("秒", "%"):
+                parts.append(f"{item.label}{value_str}{item.unit}")
+            else:
+                parts.append(f"{item.label}{value_str}")
+        return " ".join(parts)
 
     def to_plain_text(self) -> str:
         """渲染为纯文本格式。"""
@@ -95,8 +118,9 @@ class ScoreSummaryDTO:
         lines: list[str] = []
         for item in self.items:
             value_str = f"{item.value:{item.value_format}}"
+            unit_part = f" {item.unit}" if item.unit else ""
             lines.append(
-                f"{item.label}: {value_prefix}{value_str}{value_suffix} {item.unit}{line_suffix}"
+                f"{item.label}: {value_prefix}{value_str}{value_suffix}{unit_part}{line_suffix}"
             )
         return "".join(lines)
 
@@ -139,10 +163,10 @@ class HistoryRecordDTO:
             "keyStroke": self.key_stroke,
             "codeLength": self.code_length,
             "wrongNum": self.wrong_num,
-            "backspaceCount": self.backspace_count,
             "correctionCount": self.correction_count,
+            "backspaceCount": self.backspace_count,
+            "keyAccuracy": self.key_accuracy,
             "charNum": self.char_num,
             "time": self.time,
             "date": self.date,
-            "keyAccuracy": self.key_accuracy,
         }

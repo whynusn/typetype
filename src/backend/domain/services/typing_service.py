@@ -209,6 +209,8 @@ class TypingService:
         char_updates: list[tuple[int, str, bool]] = []
         is_completed = False
         begin_pos = self._state.score_data.char_count + grow_length - len(s)
+        if begin_pos < 0:
+            return char_updates, is_completed
         now_ms = time() * 1000
 
         if grow_length > 0:
@@ -295,8 +297,8 @@ class TypingService:
             "keyStroke": round(self._state.score_data.keyStroke, 2),
             "codeLength": round(self._state.score_data.codeLength, 2),
             "wrongNum": self._state.score_data.wrong_char_count,
-            "backspaceCount": self._state.score_data.backspace_count,
             "correctionCount": self._state.score_data.correction_count,
+            "backspaceCount": self._state.score_data.backspace_count,
             "keyAccuracy": round(self._state.score_data.keyAccuracy, 2),
             "charNum": self._state.score_data.char_count,
             "time": round(self._state.score_data.time, 2),

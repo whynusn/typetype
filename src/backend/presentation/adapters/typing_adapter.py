@@ -103,12 +103,15 @@ class TypingAdapter(QObject):
         self._error_fmt.setBackground(QColor("red"))
 
     def _color_text(self, begin_pos: int, n: int, fmt: QTextCharFormat) -> None:
-        if self._cursor and self._rich_doc:
-            self._cursor.setPosition(begin_pos)
-            self._cursor.movePosition(
-                QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, n
-            )
-            self._cursor.setCharFormat(fmt)
+        if not self._cursor or not self._rich_doc:
+            return
+        if begin_pos < 0:
+            return
+        self._cursor.setPosition(begin_pos)
+        self._cursor.movePosition(
+            QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, n
+        )
+        self._cursor.setCharFormat(fmt)
 
     def _accumulate_time(self) -> None:
         self._typing_service.accumulate_time(self.timeInterval)
@@ -165,6 +168,7 @@ class TypingAdapter(QObject):
                     "backspace_count": s.backspace_count,
                     "correction_count": s.correction_count,
                     "char_count": s.char_count,
+                    "key_stroke_count": s.key_stroke_count,
                     "time": s.time,
                 }
 
@@ -219,12 +223,17 @@ class TypingAdapter(QObject):
 
         无论是全文载文还是分片载文，都走此方法准备。
         后续 QML 侧 applyLoadedText → handleLoadedText 会完成完整初始化。
+
+        注意：不在此处调用 clear() 归零 char_count/time 等数据。
+        原因：QML 侧 lowerPane.text = "" 触发的 onTextChanged 事件是异步的，
+        可能在 clear() 之后才执行，此时 char_count 已归零，
+        onTextChanged 用旧 growLength 计算出的 begin_pos 会是负数，
+        导致 QTextCursor::setPosition 越界。
+        清零逻辑统一在 handleLoadedText 中执行，此时新文本已就绪，
+        不会有旧 onTextChanged 事件产生负位置。
         """
         self._second_timer.stop()
         self._typing_service.stop()
-        self._typing_service.clear()
-        self._reset_signal_cache()
-        self._typing_service.set_text_id(None)
         changed = self._typing_service.set_read_only(True)
         if changed:
             self.readOnlyChanged.emit()
@@ -469,6 +478,11 @@ class TypingAdapter(QObject):
         if self._session_context:
             self._session_context.advance_slice()
 
+    def back_slice(self) -> None:
+        """代理：回退到上一片。"""
+        if self._session_context:
+            self._session_context.back_slice()
+
     def is_slice_mode(self) -> bool:
         """代理：当前是否为分片载文模式。"""
         if self._session_context:
@@ -495,22 +509,24 @@ class TypingAdapter(QObject):
         self,
         text: str,
         slice_size: int,
-        retype_enabled: bool,
-        metric: str,
-        operator: str,
-        threshold: float,
-        shuffle: bool,
+        start_slice: int,
+        key_stroke_min: int,
+        speed_min: int,
+        accuracy_min: int,
+        pass_count_min: int,
+        on_fail_action: str,
     ) -> int:
         """代理：初始化分片载文模式。返回总片数。"""
         if self._session_context:
             return self._session_context.setup_slice_mode(
                 text=text,
                 slice_size=slice_size,
-                retype_enabled=retype_enabled,
-                metric=metric,
-                operator=operator,
-                threshold=threshold,
-                shuffle=shuffle,
+                start_slice=start_slice,
+                key_stroke_min=key_stroke_min,
+                speed_min=speed_min,
+                accuracy_min=accuracy_min,
+                pass_count_min=pass_count_min,
+                on_fail_action=on_fail_action,
             )
         return 0
 
@@ -544,17 +560,23 @@ class TypingAdapter(QObject):
         return False
 
     @property
-    def retype_shuffle(self) -> bool:
-        """代理：重打时是否乱序。"""
+    def on_fail_action(self) -> str:
+        """代理：未达标时的处理动作。"""
         if self._session_context:
-            return self._session_context.retype_shuffle
-        return False
+            return self._session_context.on_fail_action
+        return "retype"
 
     def get_slice_status(self) -> str:
         """代理：返回当前片进度摘要。"""
         if self._session_context:
             return self._session_context.get_slice_status()
         return ""
+
+    def get_slice_pass_count(self) -> int:
+        """代理：返回当前片累计达标次数。"""
+        if self._session_context:
+            return self._session_context.get_slice_pass_count()
+        return 0
 
     def get_aggregate_data(self) -> tuple[list[dict], int] | None:
         """代理：返回聚合成绩所需数据。"""
