@@ -565,6 +565,10 @@ class Bridge(QObject):
     def sliceIndex(self) -> int:
         return self._typing_adapter.slice_index
 
+    @Property(int, notify=sliceModeChanged)
+    def slicePassCount(self) -> int:
+        return self._typing_adapter.get_slice_pass_count()
+
     @Slot(str, int, int, int, int, int, int, str)
     def setupSliceMode(
         self,

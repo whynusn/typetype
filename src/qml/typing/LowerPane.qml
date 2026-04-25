@@ -62,6 +62,25 @@ Pane {
                 if (event.key === Qt.Key_Backspace && appBridge && !appBridge.isSpecialPlatform) {
                     appBridge.accumulateBackspace();
                 }
+                if (event.modifiers & Qt.ControlModifier) {
+                    if (event.key === Qt.Key_V) {
+                        event.accepted = true;
+                        if (appBridge)
+                            appBridge.loadTextFromClipboard();
+                    } else if (event.key === Qt.Key_L) {
+                        event.accepted = true;
+                        if (appBridge)
+                            appBridge.requestShuffle();
+                    } else if (event.key === Qt.Key_U) {
+                        event.accepted = true;
+                        if (appBridge)
+                            appBridge.loadPrevSlice();
+                    } else if (event.key === Qt.Key_P) {
+                        event.accepted = true;
+                        if (appBridge)
+                            appBridge.loadNextSlice();
+                    }
+                }
             }
 
             onActiveFocusChanged: {

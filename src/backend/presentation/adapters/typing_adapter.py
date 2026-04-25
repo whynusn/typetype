@@ -572,6 +572,12 @@ class TypingAdapter(QObject):
             return self._session_context.get_slice_status()
         return ""
 
+    def get_slice_pass_count(self) -> int:
+        """代理：返回当前片累计达标次数。"""
+        if self._session_context:
+            return self._session_context.get_slice_pass_count()
+        return 0
+
     def get_aggregate_data(self) -> tuple[list[dict], int] | None:
         """代理：返回聚合成绩所需数据。"""
         if self._session_context:

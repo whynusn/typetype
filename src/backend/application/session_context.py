@@ -299,6 +299,13 @@ class TypingSessionContext:
             return stats if stats is not None else {}
         return {}
 
+    def get_slice_pass_count(self) -> int:
+        """返回当前片的累计达标次数。"""
+        target_index = self._slice_index - 1
+        if 0 <= target_index < len(self._slice_pass_counts):
+            return self._slice_pass_counts[target_index]
+        return 0
+
     def exit_slice_mode(self) -> None:
         """退出载文模式，清理分片相关状态。"""
         self._slices = []

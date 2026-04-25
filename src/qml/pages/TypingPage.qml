@@ -69,6 +69,12 @@ Item {
             }
         }
 
+        // --- F2 按键响应（载文设置）---
+        if (event.key === Qt.Key_F2) {
+            sliceConfigDialog.open();
+            event.accepted = true;
+        }
+
         // --- F3 按键响应 ---
         if (event.key === Qt.Key_F3) {
             handleRetypeRequest();
@@ -79,6 +85,34 @@ Item {
         if (event.key === Qt.Key_F4) {
             if (appBridge)
                 appBridge.requestShuffle();
+            event.accepted = true;
+        }
+
+        // --- Ctrl+L 乱序 ---
+        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_L) {
+            if (appBridge)
+                appBridge.requestShuffle();
+            event.accepted = true;
+        }
+
+        // --- Ctrl+U 上一段 ---
+        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_U) {
+            if (appBridge)
+                appBridge.loadPrevSlice();
+            event.accepted = true;
+        }
+
+        // --- Ctrl+P 下一段 ---
+        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_P) {
+            if (appBridge)
+                appBridge.loadNextSlice();
+            event.accepted = true;
+        }
+
+        // --- Ctrl+V 剪贴板载文 ---
+        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_V) {
+            if (appBridge)
+                appBridge.loadTextFromClipboard();
             event.accepted = true;
         }
     }
@@ -369,6 +403,16 @@ Item {
                                         ? Theme.currentTheme.colors.textSecondaryColor
                                         : "#666"
                                 }
+                            }
+
+                            Text {
+                                text: appBridge ? "达标次数: " + appBridge.slicePassCount : ""
+                                font.pixelSize: 12
+                                font.bold: true
+                                color: Theme.currentTheme
+                                    ? Theme.currentTheme.colors.primaryColor
+                                    : "#4b88ff"
+                                visible: appBridge && appBridge.sliceMode
                             }
 
                             Item { Layout.fillWidth: true }
