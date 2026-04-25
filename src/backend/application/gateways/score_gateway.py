@@ -40,7 +40,7 @@ class ScoreGateway:
         """复制分数摘要纯文本到剪贴板。"""
         if not score_data:
             return
-        plain_text = ScoreSummaryDTO.from_score_data(score_data).to_plain_text()
+        plain_text = ScoreSummaryDTO.from_score_data(score_data).to_clipboard_text()
         self._clipboard.setText(plain_text)
 
     def build_aggregate_message(self, slice_stats: list[dict], slice_count: int) -> str:
@@ -62,11 +62,7 @@ class ScoreGateway:
         total_backspace = sum(s["backspace_count"] for s in slice_stats)
         total_correction = sum(s["correction_count"] for s in slice_stats)
         total_time = sum(s["time"] for s in slice_stats)
-        accuracy = (
-            (total_chars - total_wrong) / total_chars * 100 if total_chars > 0 else 0
-        )
-        effective_speed = avg_speed * accuracy / 100
-        total_key_strokes = total_chars * avg_code_length
+        total_key_strokes = sum(s.get("key_stroke_count", 0) for s in slice_stats)
         key_accuracy = (
             (total_key_strokes - total_backspace - total_correction * avg_code_length)
             / total_key_strokes
@@ -75,28 +71,35 @@ class ScoreGateway:
             else 100.0
         )
 
+        # 统一指标顺序：速度 → 击键 → 码长 → 错字 → 回改 → 退格 → 键准 → 字数 → 用时 → 键数
+        # 格式：秒/% 单位紧贴值，其他单位前有空格，无单位无空格
         items = [
-            ("速度", avg_speed, "字/分", ".1f"),
-            ("有效速度", effective_speed, "字/分", ".1f"),
-            ("码长", avg_code_length, "击/字", ".2f"),
-            ("击键", avg_keystroke, "击/秒", ".1f"),
-            ("准确率", accuracy, "%", ".1f"),
-            ("键准", key_accuracy, "%", ".1f"),
-            ("回改", total_correction, "次", "d"),
-            ("退格", total_backspace, "次", "d"),
-            ("总字数", total_chars, "字", "d"),
-            ("总用时", total_time, "秒", ".1f"),
+            ("速度", f"{avg_speed:.2f}", "字/分"),
+            ("击键", f"{avg_keystroke:.2f}", "击/秒"),
+            ("码长", f"{avg_code_length:.2f}", "击/字"),
+            ("错字", f"{total_wrong}", "字"),
+            ("回改", f"{total_correction}", "次"),
+            ("退格", f"{total_backspace}", "次"),
+            ("键准", f"{key_accuracy:.2f}", "%"),
+            ("字数", f"{total_chars}", ""),
+            ("用时", f"{total_time:.3f}", "秒"),
+            ("键数", f"{total_key_strokes}", ""),
         ]
 
         lines = [f"<b>综合成绩（{slice_count}片）</b><br>"]
-        for label, value, unit, fmt in items:
-            lines.append(f"{label}: <b>{value:{fmt}}</b> {unit}<br>")
+        for label, value_str, unit in items:
+            if unit in ("秒", "%"):
+                lines.append(f"{label}: <b>{value_str}</b>{unit}<br>")
+            elif unit:
+                lines.append(f"{label}: <b>{value_str}</b> {unit}<br>")
+            else:
+                lines.append(f"{label}: <b>{value_str}</b><br>")
         return "".join(lines)
 
     def build_aggregate_plain_text(
         self, slice_stats: list[dict], slice_count: int
     ) -> str:
-        """构建分片模式综合成绩纯文本（用于剪贴板）。"""
+        """构建分片模式综合成绩纯文本（木易单行格式，用于剪贴板）。"""
         n = len(slice_stats)
         if n == 0:
             return ""
@@ -109,11 +112,7 @@ class ScoreGateway:
         total_backspace = sum(s["backspace_count"] for s in slice_stats)
         total_correction = sum(s["correction_count"] for s in slice_stats)
         total_time = sum(s["time"] for s in slice_stats)
-        accuracy = (
-            (total_chars - total_wrong) / total_chars * 100 if total_chars > 0 else 0
-        )
-        effective_speed = avg_speed * accuracy / 100
-        total_key_strokes = total_chars * avg_code_length
+        total_key_strokes = sum(s.get("key_stroke_count", 0) for s in slice_stats)
         key_accuracy = (
             (total_key_strokes - total_backspace - total_correction * avg_code_length)
             / total_key_strokes
@@ -122,15 +121,16 @@ class ScoreGateway:
             else 100.0
         )
 
-        lines = [f"综合成绩（{slice_count}片）"]
-        lines.append(f"速度: {avg_speed:.1f} 字/分")
-        lines.append(f"有效速度: {effective_speed:.1f} 字/分")
-        lines.append(f"码长: {avg_code_length:.2f} 击/字")
-        lines.append(f"击键: {avg_keystroke:.1f} 击/秒")
-        lines.append(f"准确率: {accuracy:.1f}%")
-        lines.append(f"键准: {key_accuracy:.1f}%")
-        lines.append(f"回改: {total_correction} 次")
-        lines.append(f"退格: {total_backspace} 次")
-        lines.append(f"总字数: {total_chars} 字")
-        lines.append(f"总用时: {total_time:.1f} 秒")
-        return "\n".join(lines)
+        return (
+            f"综合成绩（{slice_count}片）"
+            f" 速度{avg_speed:.2f}"
+            f" 击键{avg_keystroke:.2f}"
+            f" 码长{avg_code_length:.2f}"
+            f" 字数{total_chars}"
+            f" 错字{total_wrong}"
+            f" 用时{total_time:.3f}秒"
+            f" 键准{key_accuracy:.2f}%"
+            f" 回改{total_correction}"
+            f" 键数{total_key_strokes}"
+            f" 退格{total_backspace}"
+        )
