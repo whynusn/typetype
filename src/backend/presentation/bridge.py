@@ -561,6 +561,10 @@ class Bridge(QObject):
     def totalSliceCount(self) -> int:
         return self._typing_adapter.slice_total
 
+    @Property(int, notify=sliceModeChanged)
+    def sliceIndex(self) -> int:
+        return self._typing_adapter.slice_index
+
     @Slot(str, int, int, int, int, int, int, str)
     def setupSliceMode(
         self,
@@ -643,6 +647,15 @@ class Bridge(QObject):
         """载入下一片。"""
         if not self._typing_adapter.is_last_slice():
             self._typing_adapter.advance_slice()
+            self.sliceModeChanged.emit()
+            self._load_current_slice()
+
+    @Slot()
+    def loadPrevSlice(self) -> None:
+        """载入上一片。"""
+        if self._typing_adapter.slice_index > 1:
+            self._typing_adapter.back_slice()
+            self.sliceModeChanged.emit()
             self._load_current_slice()
 
     @Slot(result=bool)

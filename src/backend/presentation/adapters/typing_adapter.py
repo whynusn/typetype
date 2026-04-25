@@ -478,6 +478,11 @@ class TypingAdapter(QObject):
         if self._session_context:
             self._session_context.advance_slice()
 
+    def back_slice(self) -> None:
+        """代理：回退到上一片。"""
+        if self._session_context:
+            self._session_context.back_slice()
+
     def is_slice_mode(self) -> bool:
         """代理：当前是否为分片载文模式。"""
         if self._session_context:

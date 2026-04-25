@@ -329,6 +329,14 @@ class TypingSessionContext:
             self._slice_index += 1
             self._phase = SessionPhase.READY
 
+    def back_slice(self) -> None:
+        if (
+            self._source_mode == SourceMode.SLICE
+            and self._slice_index > 1
+        ):
+            self._slice_index -= 1
+            self._phase = SessionPhase.READY
+
     # === 订阅 ===
 
     def subscribe_upload_status(self, callback: Callable[[UploadStatus], None]) -> None:
