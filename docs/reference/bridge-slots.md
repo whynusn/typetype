@@ -27,7 +27,9 @@
 | `leaderboardLoading` | `bool` | 排行榜加载中 |
 | `textListLoading` | `bool` | 文本列表加载中 |
 | `rankingSourceOptions` | `list[dict]` | 排行榜来源选项列表 |
-| `isSpecialPlatform` | `bool` | 是否特殊平台（需确认） |
+| `isSpecialPlatform` | `bool` | 是否特殊平台（Wayland 下 evdev 监听可用） |
+| `keyAccuracy` | `float` | 键准（%） |
+| `baseUrl` | `str` | 当前 API 服务地址 |
 
 ## Signals（QML 通过 Connections 监听）
 
@@ -64,6 +66,8 @@
 | `textContentLoaded` | `(int text_id, str content, str title)` | 按 ID 获取的文本内容到达 |
 | `uploadStatusChanged` | `(int status)` | 成绩上传资格状态变化（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA） |
 | `eligibilityReasonChanged` | `(str reason)` | 资格原因消息变化 |
+| `keyAccuracyChanged` | 无 | 键准变化 |
+| `baseUrlChanged` | 无 | API 服务地址变化 |
 
 ## Slots（QML 可调用的方法）
 
@@ -102,7 +106,7 @@
 | `requestShuffle` | 无 | 乱序当前文本 |
 | `getTextContentById` | `(int textId)` | 按 ID 异步获取文本内容 |
 | `copyToClipboard` | `(str text)` | 复制文本到剪贴板 |
-| `setupSliceMode` | `(str text, int sliceSize, bool retypeEnabled, str metric, str operator, float threshold, bool shuffle)` | 初始化载文模式（分片），分片并加载第一片 |
+| `setupSliceMode` | `(str text, int sliceSize, int startSlice, int keyStrokeMin, int speedMin, int accuracyMin, int passCountMin, str onFailAction)` | 初始化载文模式（分片），分片并加载第 startSlice 片 |
 | `collectSliceResult` | 无 | 收集当前片的 SessionStat 快照 |
 | `isLastSlice` | → `bool` | 当前片是否为最后一片 |
 | `loadNextSlice` | 无 | 载入下一片 |
@@ -114,6 +118,11 @@
 | `exitSliceMode` | 无 | 退出载文模式，清理状态 |
 | `getSliceStatus` | → `str` | 返回当前片进度摘要 |
 | `getLastSliceStats` | → `dict` | 获取最近一次分片完成时的 score_data 快照 |
+| `getLocalTextContent` | `(str source_key)` → `str` | 同步读取本地文本内容（供载文 Dialog 离线预览） |
+| `loadPrevSlice` | 无 | 载入上一片 |
+| `getOnFailAction` | → `str` | 返回当前未达标处理动作 |
+| `setBaseUrl` | `(str newBaseUrl)` | 更新 API 服务地址，持久化并同步所有依赖对象 |
+| `initializeLoginState` | 无 | 启动时初始化登录状态（验证/刷新 token） |
 
 ## 载文模式 Properties
 
@@ -121,5 +130,7 @@
 |------|------|------|
 | `sliceMode` | `bool` | 是否处于载文模式 |
 | `totalSliceCount` | `int` | 总片数 |
+| `sliceIndex` | `int` | 当前片索引（1-based） |
+| `slicePassCount` | `int` | 当前片已通过次数 |
 | `uploadStatus` | `int` | 成绩上传资格状态（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA） |
 | `eligibilityReason` | `str` | 资格原因消息 |

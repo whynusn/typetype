@@ -10,12 +10,14 @@
 | `default_text_source_key` | `str` | `builtin_demo` | 默认文本来源 key |
 | `api_timeout` | `float` | `20.0` | API 请求超时（秒） |
 | `text_sources` | `dict[str, TextSourceEntry]` | `{}` | 文本来源配置表 |
+| `ui` | `dict` | 见下 | UI 主题与外观配置 |
 
 ## TextSourceEntry 字段
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `label` | `str` | ❌ | 显示名称（默认取 key 值） |
+| `key` | `str` | ✅ | 来源标识（JSON 对象键名，代码中必填） |
+| `label` | `str` | ✅ | 显示名称（无默认值，代码中必填） |
 | `local_path` | `str` | ❌ | 本地文件路径（有则走本地加载，无则走远程 API） |
 | `has_ranking` | `bool` | ❌ | 是否参与排行榜（默认 false） |
 
@@ -48,3 +50,12 @@
 | `validate_api_url` | `str` | token 校验接口 URL（默认 `/api/v1/users/me`） |
 | `refresh_api_url` | `str` | token 刷新接口 URL |
 | `register_api_url` | `str` | 注册接口 URL |
+
+## UI 子字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `ui.theme.current_theme` | `str` | `"Auto"` | 主题模式（Auto/Light/Dark） |
+| `ui.theme_color` | `str` | `"#605ed2"` | 主题色 |
+| `ui.backdrop_effect` | `str` | `"none"` | 背景特效 |
+| `ui.win10_feat` | `dict` | `{backdrop_light, backdrop_dark}` | Windows 10 背景特效参数 |

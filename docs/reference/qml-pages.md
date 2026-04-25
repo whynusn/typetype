@@ -10,6 +10,8 @@
 | `pages/WeakCharsPage.qml` | 薄弱字 | `weakestCharsLoaded` |
 | `pages/TextLeaderboardPage.qml` | 文本排行 | `catalogLoaded`, `textListLoaded`, `leaderboardLoaded`, `leaderboardLoadFailed` |
 | `pages/DailyLeaderboard.qml` | （保留但导航已移除） | `leaderboardLoaded`, `leaderboardLoadFailed` |
+| `pages/WeeklyLeaderboard.qml` | （保留但导航已移除，建设中） | `leaderboardLoaded`, `leaderboardLoadFailed` |
+| `pages/AllTimeLeaderboard.qml` | （保留但导航已移除，建设中） | `leaderboardLoaded`, `leaderboardLoadFailed` |
 | `pages/UploadTextPage.qml` | 上传文本 | `uploadResult`, `loggedinChanged` |
 | `pages/ProfilePage.qml` | 个人中心 | `loginResult`, `registerResult`, `loggedinChanged`, `userInfoChanged`, `loginStateInitialized` |
 | `pages/SettingsPage.qml` | 设置 | 无 |
