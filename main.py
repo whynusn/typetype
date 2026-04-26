@@ -1,5 +1,4 @@
 import os
-import shutil
 import sys
 
 import darkdetect
@@ -10,22 +9,59 @@ import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
 from src.backend.application.gateways.score_gateway import ScoreGateway
 from src.backend.application.gateways.text_source_gateway import TextSourceGateway
+from src.backend.application.gateways.local_article_gateway import LocalArticleGateway
 from src.backend.application.gateways.leaderboard_gateway import LeaderboardGateway
+from src.backend.application.gateways.trainer_gateway import TrainerGateway
+from src.backend.application.gateways.typing_totals_gateway import (
+    TypingTotalsGateway,
+)
+from src.backend.application.gateways.wenlai_gateway import WenlaiGateway
+from src.backend.application.gateways.ziti_gateway import ZitiGateway
 from src.backend.application.session_context import TypingSessionContext
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
-from src.backend.presentation.bridge import Bridge
+from src.backend.application.usecases.load_local_article_segment_usecase import (
+    LoadLocalArticleSegmentUseCase,
+)
+from src.backend.application.usecases.load_trainer_segment_usecase import (
+    LoadTrainerSegmentUseCase,
+)
+from src.backend.application.usecases.load_wenlai_text_usecase import (
+    LoadWenlaiTextUseCase,
+)
+from src.backend.config.app_paths import (
+    char_stats_db_path,
+    ensure_user_trainer_seeded,
+    ensure_user_texts_seeded,
+    ensure_user_ziti_seeded,
+    typing_totals_path,
+    user_trainer_dir,
+    user_texts_dir,
+    user_ziti_dir,
+)
 from src.backend.config.runtime_config import RuntimeConfig
+from src.backend.presentation.bridge import Bridge
 from src.backend.infrastructure.api_client import ApiClient
 from src.backend.integration.api_client_auth_provider import ApiClientAuthProvider
 from src.backend.integration.api_client_score_submitter import ApiClientScoreSubmitter
+from src.backend.integration.file_local_article_repository import (
+    FileLocalArticleRepository,
+)
+from src.backend.integration.file_trainer_repository import FileTrainerRepository
+from src.backend.integration.file_ziti_repository import FileZitiRepository
 from src.backend.integration.leaderboard_fetcher import LeaderboardFetcher
 from src.backend.ports.leaderboard_provider import LeaderboardProvider
 from src.backend.integration.text_uploader import TextUploader
 from src.backend.domain.services.auth_service import AuthService
 from src.backend.domain.services.char_stats_service import CharStatsService
+from src.backend.domain.services.trainer_service import TrainerService
 from src.backend.domain.services.typing_service import TypingService
 from src.backend.integration.global_key_listener import GlobalKeyListener
+from src.backend.integration.json_typing_totals_store import JsonTypingTotalsStore
+from src.backend.integration.key_listener_factory import create_key_listener
+from src.backend.integration.mac_key_listener import MacKeyListener
 from src.backend.integration.remote_text_provider import RemoteTextProvider
+from src.backend.integration.secure_token_store import SecureTokenStore
+from src.backend.integration.wenlai_provider import WenlaiProvider
 from src.backend.integration.qt_async_executor import QtAsyncExecutor
 from src.backend.integration.qt_local_text_loader import QtLocalTextLoader
 from src.backend.integration.sqlite_char_stats_repository import (
@@ -33,12 +69,15 @@ from src.backend.integration.sqlite_char_stats_repository import (
 )
 from src.backend.integration.system_identifier import SystemIdentifier
 from src.backend.presentation.adapters.text_adapter import TextAdapter
+from src.backend.presentation.adapters.trainer_adapter import TrainerAdapter
 from src.backend.presentation.adapters.typing_adapter import TypingAdapter
 from src.backend.presentation.adapters.auth_adapter import AuthAdapter
 from src.backend.presentation.adapters.char_stats_adapter import CharStatsAdapter
 from src.backend.presentation.adapters.leaderboard_adapter import LeaderboardAdapter
+from src.backend.presentation.adapters.local_article_adapter import LocalArticleAdapter
 from src.backend.presentation.adapters.upload_text_adapter import UploadTextAdapter
-from src.backend.security.secure_storage import SecureStorage
+from src.backend.presentation.adapters.wenlai_adapter import WenlaiAdapter
+from src.backend.presentation.adapters.ziti_adapter import ZitiAdapter
 from src.backend.utils.logger import (
     install_qt_message_handler,
     is_debug_enabled,
@@ -96,14 +135,18 @@ def _update_base_url(
 
 
 def _ensure_config_exists() -> None:
-    """确保 config/config.json 存在，若不存在则从 config.example.json 复制。"""
-    config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
-    config_path = os.path.join(config_dir, "config.json")
-    example_path = os.path.join(config_dir, "config.example.json")
-
-    if not os.path.exists(config_path) and os.path.exists(example_path):
-        shutil.copy2(example_path, config_path)
-        log_info("[main] config.json 不存在，已从 config.example.json 复制创建")
+    """确保用户可写配置文件存在。"""
+    config_path = RuntimeConfig.ensure_user_config_exists()
+    log_info(f"[main] 用户配置文件: {config_path}")
+    copied = ensure_user_texts_seeded()
+    if copied:
+        log_info(f"[main] 已初始化本地文库文本: {copied} 个文件")
+    copied_ziti = ensure_user_ziti_seeded()
+    if copied_ziti:
+        log_info(f"[main] 已初始化字提示方案: {copied_ziti} 个文件")
+    copied_trainer = ensure_user_trainer_seeded()
+    if copied_trainer:
+        log_info(f"[main] 已初始化练单器词库: {copied_trainer} 个文件")
 
 
 def main():
@@ -131,16 +174,31 @@ def main():
 
     # Infrastructure 层
     api_client = ApiClient(timeout=runtime_config.api_timeout)
+    wenlai_api_client = ApiClient(timeout=runtime_config.api_timeout)
     local_text_loader = QtLocalTextLoader()
+    token_store = SecureTokenStore()
+    token_store.get_token("current_user")
+    token_store.get_token(WenlaiGateway.TOKEN_KEY)
+    local_article_repository = FileLocalArticleRepository(user_texts_dir())
+    ziti_repository = FileZitiRepository(user_ziti_dir())
+    trainer_repository = FileTrainerRepository(user_trainer_dir())
 
     # JWT token 提供函数
     def _get_jwt_token() -> str:
-        return SecureStorage.get_jwt("current_user") or ""
+        return token_store.get_token("current_user") or ""
+
+    def _get_wenlai_token() -> str:
+        return token_store.get_token(WenlaiGateway.TOKEN_KEY) or ""
 
     text_provider = RemoteTextProvider(
         base_url=runtime_config.base_url,
         api_client=api_client,
         token_provider=_get_jwt_token,
+    )
+    wenlai_provider = WenlaiProvider(
+        api_client=wenlai_api_client,
+        base_url=runtime_config.wenlai.base_url,
+        token_provider=_get_wenlai_token,
     )
 
     # Gateways
@@ -150,16 +208,33 @@ def main():
         text_provider=text_provider,
         local_text_loader=local_text_loader,
     )
+    wenlai_gateway = WenlaiGateway(
+        runtime_config=runtime_config,
+        provider=wenlai_provider,
+        token_store=token_store,
+    )
+    local_article_gateway = LocalArticleGateway(repository=local_article_repository)
+    ziti_gateway = ZitiGateway(repository=ziti_repository)
+    trainer_gateway = TrainerGateway(repository=trainer_repository)
+    typing_totals_gateway = TypingTotalsGateway(
+        store=JsonTypingTotalsStore(typing_totals_path())
+    )
 
     # UseCases
     load_text_usecase = LoadTextUseCase(
         text_gateway=text_gateway,
         clipboard_reader=clipboard,
     )
+    load_wenlai_text_usecase = LoadWenlaiTextUseCase(gateway=wenlai_gateway)
+    load_local_article_segment_usecase = LoadLocalArticleSegmentUseCase(
+        gateway=local_article_gateway
+    )
+    trainer_service = TrainerService(repository=trainer_repository)
+    load_trainer_segment_usecase = LoadTrainerSegmentUseCase(service=trainer_service)
 
     # Domain Services
     async_executor = QtAsyncExecutor()
-    char_stats_repo = SqliteCharStatsRepository(db_path="data/char_stats.db")
+    char_stats_repo = SqliteCharStatsRepository(db_path=str(char_stats_db_path()))
     char_stats_service = CharStatsService(
         repository=char_stats_repo,
         async_executor=async_executor,
@@ -211,6 +286,19 @@ def main():
     )
     auth_adapter = AuthAdapter(auth_service=auth_service)
     char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
+    wenlai_adapter = WenlaiAdapter(
+        gateway=wenlai_gateway,
+        load_usecase=load_wenlai_text_usecase,
+    )
+    local_article_adapter = LocalArticleAdapter(
+        gateway=local_article_gateway,
+        load_segment_usecase=load_local_article_segment_usecase,
+    )
+    ziti_adapter = ZitiAdapter(gateway=ziti_gateway)
+    trainer_adapter = TrainerAdapter(
+        gateway=trainer_gateway,
+        load_segment_usecase=load_trainer_segment_usecase,
+    )
 
     # Leaderboard
     leaderboard_provider: LeaderboardProvider = LeaderboardFetcher(
@@ -234,14 +322,14 @@ def main():
     os_type, display_server = system_identifier.get_system_info()
     log_info(f"系统: {os_type} 平台: {display_server}")
 
-    key_listener = None
-    if os_type == "Linux" and display_server.startswith("Wayland"):
-        try:
-            key_listener = GlobalKeyListener()
-            key_listener.start()
-            log_info("因系统平台特殊性，全局监听器已启动")
-        except Exception as e:
-            log_info(f"全局监听器启动失败，将使用 QML 按键回退: {e}")
+    key_listener = create_key_listener(
+        os_type=os_type,
+        display_server=display_server,
+        linux_listener_factory=GlobalKeyListener,
+        macos_listener_factory=MacKeyListener,
+    )
+    if key_listener:
+        log_info("因系统平台特殊性，全局监听器已启动")
 
     # Bridge
     bridge = Bridge(
@@ -251,6 +339,11 @@ def main():
         char_stats_adapter=char_stats_adapter,
         upload_text_adapter=upload_text_adapter,
         leaderboard_adapter=leaderboard_adapter,
+        wenlai_adapter=wenlai_adapter,
+        local_article_adapter=local_article_adapter,
+        ziti_adapter=ziti_adapter,
+        trainer_adapter=trainer_adapter,
+        typing_totals_gateway=typing_totals_gateway,
         key_listener=key_listener,
         base_url_update_callback=lambda new_url: _update_base_url(
             runtime_config=runtime_config,

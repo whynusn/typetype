@@ -11,6 +11,10 @@ Pane {
     property alias fontSize: textArea.font.pixelSize  // 暴露字体大小属性
     property alias fontFamily: textArea.font.family
 
+    function setCursorAndScroll(cursorPos, forceScroll) {
+        textArea.setCursorAndScroll(cursorPos, forceScroll);
+    }
+
     // 监听 appBridge 的光标位置变化，同步 UpperPane
     Connections {
         target: appBridge
@@ -64,22 +68,34 @@ Pane {
             // 注意：不在这里调 handleLoadedText，等文本加载完成后再由 applyLoadedText 调用
             // 避免用户在 text_id 尚未设置时就开始打字
 
-            function setCursorAndScroll(cursorPos) {
+            function setCursorAndScroll(cursorPos, forceScroll) {
                 if (cursorPos < 0 || cursorPos > textArea.length) {
                     return;
                 }
-                textArea.cursorPosition = cursorPos;
+                var targetPos = Math.min(cursorPos, Math.max(0, textArea.length - 1));
+                textArea.cursorPosition = targetPos;
 
+                Qt.callLater(function() {
+                    textArea.scrollToPosition(targetPos, forceScroll === true);
+                });
+            }
+
+            function scrollToPosition(cursorPos, forceScroll) {
                 // 获取光标所在行的矩形信息
                 var rect = textArea.positionToRectangle(cursorPos);
                 if (!rect)
                     return;
 
-                // 目标：光标所在行顶部 - 1 行边距，位于视口顶部
-                var targetY = Math.max(rect.y - rect.height, 0);
+                var currentY = scrollView.contentItem.contentY;
+                var centerY = scrollView.height * 0.48;
+                var targetY = Math.max(rect.y + rect.height / 2 - centerY, 0);
+                var maxY = Math.max(0, textArea.contentHeight - scrollView.height);
+                targetY = Math.min(targetY, maxY);
 
-                // 设置滚动位置（通过 ScrollView 的 contentItem）
-                scrollView.contentItem.contentY = targetY;
+                var lineHeight = Math.max(rect.height, textArea.font.pixelSize);
+                if (forceScroll === true || Math.abs(currentY - targetY) > lineHeight * 0.8) {
+                    scrollView.contentItem.contentY = targetY;
+                }
             }
         }
     }

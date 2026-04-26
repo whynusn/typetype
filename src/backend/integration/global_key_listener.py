@@ -1,5 +1,8 @@
+from typing import Any
+
 from PySide6.QtCore import QObject, QSocketNotifier, Signal
 
+from ..ports.key_codes import KeyCodes
 from ..utils.logger import log_error, log_info
 
 
@@ -26,6 +29,7 @@ class GlobalKeyListener(QObject):  # 继承 QObject 而非 QThread
 
         self.devices = []  # 存储所有设备
         self.notifiers = []  # 存储所有 notifier
+        self._pressed_shortcut_modifiers: dict[int, set[int]] = {}
 
     def _is_keyboard(self, device):
         """识别设备是否为键盘"""
@@ -106,9 +110,49 @@ class GlobalKeyListener(QObject):  # 继承 QObject 而非 QThread
         """统一处理所有设备的按键事件"""
         try:
             for event in device.read():
-                if event.type == self.ecodes.EV_KEY and event.value in (1, 2):
-                    # 发送信号时附带设备名，方便区分
-                    self.keyPressed.emit(event.code, device.name)
+                if event.type != self.ecodes.EV_KEY:
+                    continue
+
+                self._update_shortcut_modifier_state(device, event.code, event.value)
+                if event.value not in (1, 2):
+                    continue
+
+                if self._should_ignore_shortcut_key(device, event.code):
+                    continue
+
+                # 发送信号时附带设备名，方便区分
+                self.keyPressed.emit(event.code, device.name)
         except BlockingIOError:
             # 资源暂时不可用是正常现象，直接忽略
             pass
+
+    @staticmethod
+    def _device_id(device: Any) -> int:
+        return getattr(device, "fd", id(device))
+
+    def _update_shortcut_modifier_state(
+        self,
+        device: Any,
+        key_code: int,
+        value: int,
+    ) -> None:
+        if not KeyCodes.is_shortcut_modifier(key_code):
+            return
+
+        device_id = self._device_id(device)
+        pressed_modifiers = self._pressed_shortcut_modifiers.setdefault(
+            device_id,
+            set(),
+        )
+        if value in (1, 2):
+            pressed_modifiers.add(key_code)
+        elif value == 0:
+            pressed_modifiers.discard(key_code)
+            if not pressed_modifiers:
+                self._pressed_shortcut_modifiers.pop(device_id, None)
+
+    def _should_ignore_shortcut_key(self, device: Any, key_code: int) -> bool:
+        if KeyCodes.is_shortcut_modifier(key_code) or KeyCodes.is_backspace(key_code):
+            return False
+
+        return bool(self._pressed_shortcut_modifiers.get(self._device_id(device)))

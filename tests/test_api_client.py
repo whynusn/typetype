@@ -65,6 +65,23 @@ def _build_api_client_with_dummy(dummy: DummyHttpClient) -> ApiClient:
     return client
 
 
+def test_api_client_ignores_environment_proxy(monkeypatch):
+    """ApiClient 默认不继承系统/环境代理，避免晴发文等请求被代理劫持。"""
+    created_clients = []
+
+    class CapturingHttpClient:
+        def __init__(self, **kwargs):
+            created_clients.append(kwargs)
+
+    monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+    monkeypatch.setattr(httpx, "Client", CapturingHttpClient)
+
+    ApiClient(timeout=12.5)
+
+    assert created_clients
+    assert created_clients[0]["trust_env"] is False
+
+
 def test_request_success():
     """request 成功时应返回 JSON 并透传参数。"""
     dummy = DummyHttpClient(payload={"ok": True})

@@ -1,0 +1,17 @@
+from typing import Protocol
+
+from ..models.dto.local_article import LocalArticleCatalogItem
+
+
+class LocalArticleRepository(Protocol):
+    """本地长文库持久化端口。"""
+
+    def list_articles(self) -> list[LocalArticleCatalogItem]: ...
+
+    def get_article(self, article_id: str) -> LocalArticleCatalogItem: ...
+
+    def load_article_content(self, article_id: str) -> str: ...
+
+    def save_current_segment(self, article_id: str, segment_index: int) -> None: ...
+
+    def load_current_segment(self, article_id: str) -> int | None: ...

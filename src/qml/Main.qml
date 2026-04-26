@@ -11,10 +11,16 @@ FluentWindow {
     height: 768
     minimumWidth: 800
     minimumHeight: 520
-    title: "TypeType"
+    title: appBridge ? appBridge.windowTitle : "TypeType"
 
     // Expose loggedin state to NavigationView for page injection
     property bool loggedin: appBridge ? appBridge.loggedin : false
+
+    onActiveChanged: {
+        if (!active && appBridge) {
+            appBridge.pauseTypingFromWindowDeactivate()
+        }
+    }
 
     navigationItems: [
         {
@@ -33,6 +39,18 @@ FluentWindow {
             title: qsTr("文本排行"),
             page: Qt.resolvedUrl("pages/TextLeaderboardPage.qml"),
             icon: "ic_fluent_trophy_20_regular",
+            position: Position.Top
+        },
+        {
+            title: qsTr("本地文库"),
+            page: Qt.resolvedUrl("pages/LocalArticlesPage.qml"),
+            icon: "ic_fluent_library_20_regular",
+            position: Position.Top
+        },
+        {
+            title: qsTr("练单器"),
+            page: Qt.resolvedUrl("pages/TrainerPage.qml"),
+            icon: "ic_fluent_apps_list_detail_20_regular",
             position: Position.Top
         },
         {

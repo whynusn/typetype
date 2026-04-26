@@ -109,7 +109,16 @@ def _format_qt_message(context: Any, message: str) -> str:
     return f"[Qt:{category}] {message}"
 
 
+def _should_suppress_qt_message(context: Any, message: str) -> bool:
+    category = getattr(context, "category", "") or "default"
+    return category == "qt.qpa.keymapper" and message.startswith(
+        "Mismatch between Cocoa "
+    )
+
+
 def _qt_message_handler(msg_type: QtMsgType, context: Any, message: str) -> None:
+    if _should_suppress_qt_message(context, message):
+        return
     _logger.log(_qt_log_level(msg_type), _format_qt_message(context, message))
 
 

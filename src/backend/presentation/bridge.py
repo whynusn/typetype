@@ -14,19 +14,23 @@ from typing import TYPE_CHECKING, Callable
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
 
+from ..ports.key_codes import KeyCodes
 from ..utils.logger import log_info
 
-# evdev 键码常量（Linux input event codes）
-EVDEV_KEY_BACKSPACE = 14
 
 if TYPE_CHECKING:
     from ..ports.key_listener import KeyListener
+    from ..application.gateways.typing_totals_gateway import TypingTotalsGateway
     from .adapters.auth_adapter import AuthAdapter
     from .adapters.char_stats_adapter import CharStatsAdapter
     from .adapters.leaderboard_adapter import LeaderboardAdapter
+    from .adapters.local_article_adapter import LocalArticleAdapter
     from .adapters.text_adapter import TextAdapter
+    from .adapters.trainer_adapter import TrainerAdapter
     from .adapters.typing_adapter import TypingAdapter
     from .adapters.upload_text_adapter import UploadTextAdapter
+    from .adapters.wenlai_adapter import WenlaiAdapter
+    from .adapters.ziti_adapter import ZitiAdapter
 
 
 class Bridge(QObject):
@@ -54,6 +58,7 @@ class Bridge(QObject):
     backspaceChanged = Signal()
     correctionChanged = Signal()
     keyAccuracyChanged = Signal()
+    typingPausedChanged = Signal()
     weakestCharsLoaded = Signal(list)
     leaderboardLoaded = Signal(dict)
     leaderboardLoadFailed = Signal(str)
@@ -74,6 +79,35 @@ class Bridge(QObject):
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
     baseUrlChanged = Signal()
+    windowTitleChanged = Signal()
+    typingTotalsChanged = Signal()
+    # 晴发文信号
+    wenlaiLoadFailed = Signal(str)
+    wenlaiLoadingChanged = Signal()
+    wenlaiLoginResult = Signal(bool, str)
+    wenlaiLoginStateChanged = Signal()
+    wenlaiConfigChanged = Signal()
+    wenlaiSegmentLabelChanged = Signal()
+    wenlaiDifficultiesLoaded = Signal(list)
+    wenlaiCategoriesLoaded = Signal(list)
+    # 本地长文信号
+    localArticlesLoaded = Signal(list)
+    localArticlesLoadFailed = Signal(str)
+    localArticleSegmentLoaded = Signal(dict)
+    localArticleSegmentLoadFailed = Signal(str)
+    localArticleLoadingChanged = Signal()
+    # 字提示信号
+    zitiSchemesLoaded = Signal(list)
+    zitiSchemesLoadFailed = Signal(str)
+    zitiSchemeLoaded = Signal(str, int)
+    zitiSchemeLoadFailed = Signal(str)
+    zitiStateChanged = Signal()
+    # 练单器信号
+    trainersLoaded = Signal(list)
+    trainersLoadFailed = Signal(str)
+    trainerSegmentLoaded = Signal(dict)
+    trainerSegmentLoadFailed = Signal(str)
+    trainerLoadingChanged = Signal()
 
     def __init__(
         self,
@@ -83,6 +117,11 @@ class Bridge(QObject):
         char_stats_adapter: CharStatsAdapter,
         upload_text_adapter: UploadTextAdapter | None = None,
         leaderboard_adapter: LeaderboardAdapter | None = None,
+        wenlai_adapter: WenlaiAdapter | None = None,
+        local_article_adapter: LocalArticleAdapter | None = None,
+        ziti_adapter: ZitiAdapter | None = None,
+        trainer_adapter: TrainerAdapter | None = None,
+        typing_totals_gateway: TypingTotalsGateway | None = None,
         key_listener: KeyListener | None = None,
         base_url_update_callback: Callable[[str], None] | None = None,
     ):
@@ -93,11 +132,20 @@ class Bridge(QObject):
         self._char_stats_adapter = char_stats_adapter
         self._upload_text_adapter = upload_text_adapter
         self._leaderboard_adapter = leaderboard_adapter
+        self._wenlai_adapter = wenlai_adapter
+        self._local_article_adapter = local_article_adapter
+        self._ziti_adapter = ziti_adapter
+        self._trainer_adapter = trainer_adapter
+        self._typing_totals_gateway = typing_totals_gateway
         self._key_listener = key_listener
         self._base_url_update_callback = base_url_update_callback
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
+        self._pending_wenlai_score_text = ""
+        self._pending_history_segment_label = ""
+        self._pending_history_score_text = ""
+        self._pending_standard_source_key = ""
 
         self._connect_typing_signals()
         self._connect_text_load_signals()
@@ -105,6 +153,10 @@ class Bridge(QObject):
         self._connect_char_stats_signals()
         self._connect_upload_signals()
         self._connect_leaderboard_signals()
+        self._connect_wenlai_signals()
+        self._connect_local_article_signals()
+        self._connect_ziti_signals()
+        self._connect_trainer_signals()
         self._connect_key_listener()
 
         self.specialPlatformConfirmed.emit(self._is_special_platform)
@@ -112,37 +164,134 @@ class Bridge(QObject):
 
     def _clear_text_id(self) -> None:
         """清空 text_id（分片/乱序/自定义文本不提交成绩）。"""
+        self._text_adapter.clear_active()
         self.setTextId(0)
+
+    def _clear_wenlai_active(self) -> None:
+        """退出晴发文当前文本状态（切到其他来源时调用）。"""
+        if self._wenlai_adapter:
+            self._wenlai_adapter.clear_active()
+
+    def _clear_local_article_active(self) -> None:
+        """失效本地长文进行中的异步结果（切到其他来源时调用）。"""
+        if self._local_article_adapter:
+            self._local_article_adapter.clear_active()
+
+    def _clear_trainer_active(self) -> None:
+        """失效练单器进行中的异步结果（切到其他来源时调用）。"""
+        if self._trainer_adapter:
+            self._trainer_adapter.clear_active()
+
+    def _reset_session_for_standard_load(self) -> None:
+        """普通载文先清掉特殊来源会话，后续 textId 回填再确认资格。"""
+        self._typing_adapter.reset_session_context()
+        self._text_id = 0
+        self.textIdChanged.emit()
 
     def _connect_typing_signals(self) -> None:
         self._typing_adapter.typeSpeedChanged.connect(self.typeSpeedChanged.emit)
         self._typing_adapter.keyStrokeChanged.connect(self.keyStrokeChanged.emit)
         self._typing_adapter.codeLengthChanged.connect(self.codeLengthChanged.emit)
-        self._typing_adapter.charNumChanged.connect(self.charNumChanged.emit)
+        self._typing_adapter.charNumChanged.connect(self._on_char_num_changed)
         self._typing_adapter.totalTimeChanged.connect(self.totalTimeChanged.emit)
         self._typing_adapter.readOnlyChanged.connect(self.readOnlyChanged.emit)
-        self._typing_adapter.typingEnded.connect(self.typingEnded.emit)
-        self._typing_adapter.historyRecordUpdated.connect(
-            self.historyRecordUpdated.emit
-        )
+        self._typing_adapter.typingEnded.connect(self._on_typing_ended)
+        self._typing_adapter.historyRecordUpdated.connect(self._on_history_record)
         self._typing_adapter.backspaceChanged.connect(self.backspaceChanged.emit)
         self._typing_adapter.correctionChanged.connect(self.correctionChanged.emit)
         self._typing_adapter.keyAccuracyChanged.connect(self.keyAccuracyChanged.emit)
+        self._typing_adapter.pauseChanged.connect(self._on_typing_pause_changed)
         # 会话状态机信号
         self._typing_adapter.uploadStatusChanged.connect(self.uploadStatusChanged.emit)
         self._typing_adapter.eligibilityReasonChanged.connect(
             self.eligibilityReasonChanged.emit
         )
 
+    def _on_char_num_changed(self) -> None:
+        self.charNumChanged.emit()
+        self.windowTitleChanged.emit()
+
+    def _on_history_record(self, record: dict) -> None:
+        if self._pending_history_segment_label or self._pending_history_score_text:
+            record = dict(record)
+            if self._pending_history_segment_label:
+                record["segmentNo"] = self._pending_history_segment_label
+            if self._pending_history_score_text:
+                record["scoreText"] = self._pending_history_score_text
+        self._pending_history_segment_label = ""
+        self._pending_history_score_text = ""
+        if self._typing_totals_gateway:
+            char_count = self._safe_record_char_count(record)
+            self._typing_totals_gateway.record_session(char_count)
+            self.typingTotalsChanged.emit()
+        self.historyRecordUpdated.emit(record)
+
+    def _on_typing_ended(self) -> None:
+        self._pending_history_segment_label = self.wenlaiSegmentLabel
+        self._pending_history_score_text = self._build_current_score_plain_text()
+        self.typingEnded.emit()
+
+    def _on_typing_pause_changed(self) -> None:
+        self.typingPausedChanged.emit()
+        self.windowTitleChanged.emit()
+
+    def _build_current_score_plain_text(self) -> str:
+        """构建当前会话的可复制成绩，晴发文成绩包含真实段号。"""
+        score_text = self._typing_adapter.get_score_plain_text()
+        segment_prefix = self._current_wenlai_score_segment_prefix()
+        if not score_text or not segment_prefix:
+            return score_text
+        if score_text.startswith(f"{segment_prefix} "):
+            return score_text
+        return f"{segment_prefix} {score_text}"
+
+    def _current_wenlai_score_segment_prefix(self) -> str:
+        if not self._wenlai_adapter or not self._wenlai_adapter.is_active:
+            return ""
+        current_text = self._wenlai_adapter.current_text
+        if not current_text:
+            return ""
+        if current_text.mark:
+            return f"段{current_text.mark}"
+        if current_text.sort_num > 0:
+            return f"第{current_text.sort_num}段"
+        progress = current_text.progress_text
+        return f"段{progress}" if progress else ""
+
+    @staticmethod
+    def _safe_record_char_count(record: dict) -> int:
+        try:
+            return max(int(record.get("charNum", 0) or 0), 0)
+        except (TypeError, ValueError):
+            return 0
+
     def _connect_text_load_signals(self) -> None:
-        self._text_adapter.textLoaded.connect(self.textLoaded.emit)
-        self._text_adapter.textLoadFailed.connect(self.textLoadFailed.emit)
+        self._text_adapter.textLoaded.connect(self._on_standard_text_loaded)
+        self._text_adapter.textLoadFailed.connect(self._on_standard_text_load_failed)
         self._text_adapter.textLoadingChanged.connect(self.textLoadingChanged.emit)
         self._text_adapter.localTextIdResolved.connect(self._on_local_text_id_resolved)
 
-    def _on_local_text_id_resolved(self, text_id: int) -> None:
+    def _on_standard_text_loaded(
+        self, text: str, text_id: int, source_label: str
+    ) -> None:
+        source_key = self._pending_standard_source_key
+        if text_id > 0:
+            self._typing_adapter.setup_network_session(text_id, source_key)
+        elif source_key:
+            self._typing_adapter.setup_local_session(source_key, None)
+        self.textLoaded.emit(text, text_id, source_label)
+
+    def _on_standard_text_load_failed(self, message: str) -> None:
+        self.textLoadFailed.emit(message)
+
+    def _on_local_text_id_resolved(self, text_id: int, lookup_generation: int) -> None:
         """本地文本异步回查到 text_id 后自动设置。"""
-        if text_id and text_id > 0:
+        if (
+            text_id
+            and text_id > 0
+            and lookup_generation == self._text_adapter.current_lookup_generation
+            and self._typing_adapter.can_accept_resolved_text_id()
+        ):
             self.setTextId(text_id)
 
     def _connect_auth_signals(self) -> None:
@@ -187,15 +336,146 @@ class Bridge(QObject):
                 self.catalogLoadFailed.emit
             )
 
+    def _connect_wenlai_signals(self) -> None:
+        if not self._wenlai_adapter:
+            return
+        self._wenlai_adapter.textLoaded.connect(self._on_wenlai_text_loaded)
+        self._wenlai_adapter.loadFailed.connect(self._on_wenlai_load_failed)
+        self._wenlai_adapter.loadingChanged.connect(self.wenlaiLoadingChanged.emit)
+        self._wenlai_adapter.loginResult.connect(self.wenlaiLoginResult.emit)
+        self._wenlai_adapter.loginStateChanged.connect(
+            self.wenlaiLoginStateChanged.emit
+        )
+        self._wenlai_adapter.configChanged.connect(self._on_wenlai_config_changed)
+        self._wenlai_adapter.difficultiesLoaded.connect(
+            self.wenlaiDifficultiesLoaded.emit
+        )
+        self._wenlai_adapter.categoriesLoaded.connect(self.wenlaiCategoriesLoaded.emit)
+
+    def _connect_local_article_signals(self) -> None:
+        if not self._local_article_adapter:
+            return
+        self._local_article_adapter.localArticlesLoaded.connect(
+            self.localArticlesLoaded.emit
+        )
+        self._local_article_adapter.localArticlesLoadFailed.connect(
+            self.localArticlesLoadFailed.emit
+        )
+        self._local_article_adapter.localArticleSegmentLoaded.connect(
+            self._on_local_article_segment_loaded
+        )
+        self._local_article_adapter.localArticleSegmentLoadFailed.connect(
+            self.localArticleSegmentLoadFailed.emit
+        )
+        self._local_article_adapter.localArticleLoadingChanged.connect(
+            self.localArticleLoadingChanged.emit
+        )
+
+    def _connect_ziti_signals(self) -> None:
+        if not self._ziti_adapter:
+            return
+        self._ziti_adapter.schemesLoaded.connect(self.zitiSchemesLoaded.emit)
+        self._ziti_adapter.schemesLoadFailed.connect(self.zitiSchemesLoadFailed.emit)
+        self._ziti_adapter.schemeLoaded.connect(self.zitiSchemeLoaded.emit)
+        self._ziti_adapter.schemeLoadFailed.connect(self.zitiSchemeLoadFailed.emit)
+        self._ziti_adapter.zitiStateChanged.connect(self.zitiStateChanged.emit)
+
+    def _connect_trainer_signals(self) -> None:
+        if not self._trainer_adapter:
+            return
+        self._trainer_adapter.trainersLoaded.connect(self.trainersLoaded.emit)
+        self._trainer_adapter.trainersLoadFailed.connect(self.trainersLoadFailed.emit)
+        self._trainer_adapter.trainerSegmentLoaded.connect(
+            self._on_trainer_segment_loaded
+        )
+        self._trainer_adapter.trainerSegmentLoadFailed.connect(
+            self.trainerSegmentLoadFailed.emit
+        )
+        self._trainer_adapter.trainerLoadingChanged.connect(
+            self.trainerLoadingChanged.emit
+        )
+
+    def _on_trainer_segment_loaded(self, payload: dict) -> None:
+        title = str(payload.get("title", "") or "")
+        index = int(payload.get("index", 0) or 0)
+        total = int(payload.get("total", 0) or 0)
+        title_label = title
+        if index > 0 and total > 0:
+            title_label = f"{title} {index}/{total}" if title else f"{index}/{total}"
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        content = str(payload.get("content", "") or "")
+        self.trainerSegmentLoaded.emit(payload)
+        self.textLoaded.emit(content, -1, title_label)
+
+    def _on_local_article_segment_loaded(self, payload: dict) -> None:
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._clear_wenlai_active()
+        self._clear_trainer_active()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+        self._typing_adapter.setup_local_article_session()
+        title = str(payload.get("title", "") or "")
+        index = int(payload.get("index", 0) or 0)
+        total = int(payload.get("total", 0) or 0)
+        title_label = title
+        if index > 0 and total > 0:
+            title_label = f"{title} {index}/{total}" if title else f"{index}/{total}"
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        content = str(payload.get("content", "") or "")
+        self.localArticleSegmentLoaded.emit(payload)
+        self.textLoaded.emit(content, -1, title_label)
+
+    def _on_wenlai_config_changed(self) -> None:
+        self.wenlaiConfigChanged.emit()
+        self.wenlaiSegmentLabelChanged.emit()
+        self.windowTitleChanged.emit()
+
+    def _on_wenlai_load_failed(self, message: str) -> None:
+        self._pending_wenlai_score_text = ""
+        self.wenlaiLoadFailed.emit(message)
+
+    def _on_wenlai_text_loaded(self, text: str, title: str) -> None:
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+        self._typing_adapter.setup_wenlai_session()
+        self._typing_adapter.setTextTitle(title)
+        self.windowTitleChanged.emit()
+        pending_score_text = self._pending_wenlai_score_text
+        self._pending_wenlai_score_text = ""
+        sender_content = ""
+        if self._wenlai_adapter and self._wenlai_adapter.current_text:
+            sender_content = self._wenlai_adapter.current_text.sender_content
+        if sender_content:
+            clipboard_text = sender_content
+            if pending_score_text:
+                clipboard_text = f"{pending_score_text}\n{sender_content}"
+            self._copy_text_to_clipboard(clipboard_text)
+        self.wenlaiSegmentLabelChanged.emit()
+        self.textLoaded.emit(text, -1, title)
+
     def _connect_key_listener(self) -> None:
         if self._key_listener:
             self._key_listener.keyPressed.connect(self.on_key_received)
 
     def on_key_received(self, keyCode: int, deviceName: str) -> None:
-        if self._lower_pane_focused:
-            if keyCode == EVDEV_KEY_BACKSPACE:
-                self._typing_adapter.handleBackspace()
-            self._typing_adapter.handlePressed()
+        if not self._lower_pane_focused or KeyCodes.is_modifier(keyCode):
+            return
+
+        if (
+            not self._typing_adapter.is_started
+            and not self._typing_adapter.text_read_only
+            and not KeyCodes.is_backspace(keyCode)
+        ):
+            self._typing_adapter.handleStartStatus(True)
+
+        if KeyCodes.is_backspace(keyCode):
+            self._typing_adapter.handleBackspace()
+        self._typing_adapter.handlePressed()
 
     # 属性代理
 
@@ -263,6 +543,10 @@ class Bridge(QObject):
     def charNum(self) -> str:
         return self._typing_adapter.char_num
 
+    @Property(bool, notify=typingPausedChanged)
+    def typingPaused(self) -> bool:
+        return self._typing_adapter.is_paused
+
     @Property(bool, notify=loggedinChanged)
     def loggedin(self) -> bool:
         return self._auth_adapter.loggedin
@@ -310,6 +594,125 @@ class Bridge(QObject):
         """当前 API 服务地址。"""
         return self._text_adapter.get_base_url()
 
+    @Property(str, notify=windowTitleChanged)
+    def windowTitle(self) -> str:
+        return self._build_window_title()
+
+    @Property(int, notify=typingTotalsChanged)
+    def todayTypedChars(self) -> int:
+        if self._typing_totals_gateway:
+            return self._typing_totals_gateway.today_chars
+        return 0
+
+    @Property(int, notify=typingTotalsChanged)
+    def totalTypedChars(self) -> int:
+        if self._typing_totals_gateway:
+            return self._typing_totals_gateway.total_chars
+        return 0
+
+    def _build_window_title(self) -> str:
+        char_num = self._typing_adapter.char_num
+        current_text = (
+            self._wenlai_adapter.current_text if self._wenlai_adapter else None
+        )
+        if self._wenlai_adapter and self._wenlai_adapter.is_active and current_text:
+            parts = ["TypeType"]
+            if self._typing_adapter.is_paused:
+                parts.append("暂停")
+            if current_text.difficulty_text:
+                parts.append(current_text.difficulty_text)
+            parts.append(char_num)
+            if current_text.title:
+                parts.append(current_text.title)
+            return " ".join(parts)
+
+        text_title = self._typing_adapter.text_title
+        parts = ["TypeType"]
+        if self._typing_adapter.is_paused:
+            parts.append("暂停")
+        if char_num != "0/0":
+            parts.append(char_num)
+        if text_title:
+            parts.append(text_title)
+        return " ".join(parts)
+
+    @Property(bool, notify=wenlaiLoadingChanged)
+    def wenlaiLoading(self) -> bool:
+        return self._wenlai_adapter.text_loading if self._wenlai_adapter else False
+
+    @Property(bool, notify=wenlaiLoginStateChanged)
+    def wenlaiLoggedIn(self) -> bool:
+        return self._wenlai_adapter.logged_in if self._wenlai_adapter else False
+
+    @Property(str, notify=wenlaiLoginStateChanged)
+    def wenlaiCurrentUser(self) -> str:
+        return self._wenlai_adapter.current_user if self._wenlai_adapter else ""
+
+    @Property(bool, notify=wenlaiConfigChanged)
+    def isWenlaiActive(self) -> bool:
+        return self._wenlai_adapter.is_active if self._wenlai_adapter else False
+
+    @Property(str, notify=wenlaiConfigChanged)
+    def wenlaiSegmentMode(self) -> str:
+        return self._wenlai_adapter.segment_mode if self._wenlai_adapter else "manual"
+
+    @Property(str, notify=wenlaiSegmentLabelChanged)
+    def wenlaiSegmentLabel(self) -> str:
+        current_text = (
+            self._wenlai_adapter.current_text if self._wenlai_adapter else None
+        )
+        if (
+            not self._wenlai_adapter
+            or not self._wenlai_adapter.is_active
+            or not current_text
+        ):
+            return ""
+        return current_text.progress_text
+
+    @Property(str, notify=wenlaiConfigChanged)
+    def wenlaiBaseUrl(self) -> str:
+        return self._wenlai_adapter.base_url if self._wenlai_adapter else ""
+
+    @Property(int, notify=wenlaiConfigChanged)
+    def wenlaiLength(self) -> int:
+        return self._wenlai_adapter.length if self._wenlai_adapter else 0
+
+    @Property(int, notify=wenlaiConfigChanged)
+    def wenlaiDifficultyLevel(self) -> int:
+        return self._wenlai_adapter.difficulty_level if self._wenlai_adapter else 0
+
+    @Property(str, notify=wenlaiConfigChanged)
+    def wenlaiCategory(self) -> str:
+        return self._wenlai_adapter.category if self._wenlai_adapter else ""
+
+    @Property(bool, notify=wenlaiConfigChanged)
+    def wenlaiStrictLength(self) -> bool:
+        return self._wenlai_adapter.strict_length if self._wenlai_adapter else False
+
+    @Property(bool, notify=localArticleLoadingChanged)
+    def localArticleLoading(self) -> bool:
+        if self._local_article_adapter:
+            return self._local_article_adapter.local_article_loading
+        return False
+
+    @Property(bool, notify=trainerLoadingChanged)
+    def trainerLoading(self) -> bool:
+        if self._trainer_adapter:
+            return self._trainer_adapter.trainer_loading
+        return False
+
+    @Property(bool, notify=zitiStateChanged)
+    def zitiEnabled(self) -> bool:
+        return self._ziti_adapter.enabled if self._ziti_adapter else False
+
+    @Property(str, notify=zitiStateChanged)
+    def zitiCurrentScheme(self) -> str:
+        return self._ziti_adapter.current_scheme if self._ziti_adapter else ""
+
+    @Property(int, notify=zitiStateChanged)
+    def zitiLoadedCount(self) -> int:
+        return self._ziti_adapter.loaded_count if self._ziti_adapter else 0
+
     # Slot 入口
 
     @Slot(str)
@@ -319,6 +722,14 @@ class Bridge(QObject):
     @Slot()
     def handlePressed(self) -> None:
         self._typing_adapter.handlePressed()
+
+    @Slot(result=bool)
+    def toggleTypingPause(self) -> bool:
+        return self._typing_adapter.toggleTypingPause()
+
+    @Slot(result=bool)
+    def pauseTypingFromWindowDeactivate(self) -> bool:
+        return self._typing_adapter.pauseTyping()
 
     @Slot()
     def accumulateCorrection(self) -> None:
@@ -345,6 +756,7 @@ class Bridge(QObject):
     def setTextTitle(self, title: str) -> None:
         """设置当前文本标题（用于上传）。"""
         self._typing_adapter.setTextTitle(title)
+        self.windowTitleChanged.emit()
 
     @Slot(int)
     def setTextId(self, text_id: int) -> None:
@@ -367,6 +779,8 @@ class Bridge(QObject):
         # 确保退出之前可能的分片模式
         if self._typing_adapter.is_slice_mode():
             self.exitSliceMode()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
         self._typing_adapter.prepare_for_text_load()
         self._clear_text_id()
         # 设置会话状态机
@@ -380,7 +794,12 @@ class Bridge(QObject):
     def requestLoadText(self, source_key: str) -> None:
         if self._typing_adapter.is_slice_mode():
             return
+        self._clear_wenlai_active()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
         self._typing_adapter.prepare_for_text_load()
+        self._reset_session_for_standard_load()
+        self._pending_standard_source_key = source_key
         self._text_adapter.requestLoadText(source_key)
 
     @Slot()
@@ -388,7 +807,11 @@ class Bridge(QObject):
         # 确保退出之前可能的分片模式
         if self._typing_adapter.is_slice_mode():
             self.exitSliceMode()
+        self._clear_wenlai_active()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
         self._typing_adapter.prepare_for_text_load()
+        self._pending_standard_source_key = ""
         self._text_adapter.loadTextFromClipboard()
         # 设置会话状态机
         self._typing_adapter.setup_clipboard_session()
@@ -428,9 +851,13 @@ class Bridge(QObject):
     def getScoreMessage(self) -> str:
         return self._typing_adapter.get_score_message()
 
+    @Slot(result=str)
+    def getScorePlainText(self) -> str:
+        return self._build_current_score_plain_text()
+
     @Slot()
     def copyScoreMessage(self) -> None:
-        self._typing_adapter.copy_score_message()
+        self._copy_text_to_clipboard(self._build_current_score_plain_text())
 
     @Slot(str, str)
     def login(self, username: str, password: str) -> None:
@@ -516,6 +943,119 @@ class Bridge(QObject):
             self._leaderboard_adapter.refreshCatalog()
 
     @Slot()
+    def loadLocalArticles(self) -> None:
+        """加载本地长文目录。"""
+        if self._local_article_adapter:
+            self._local_article_adapter.loadLocalArticles()
+
+    @Slot(str, int, int)
+    def loadLocalArticleSegment(
+        self,
+        articleId: str,
+        segmentIndex: int,
+        segmentSize: int,
+    ) -> None:
+        """加载本地长文片段。"""
+        if self._local_article_adapter:
+            if self._typing_adapter.is_slice_mode():
+                self.exitSliceMode()
+            self._clear_wenlai_active()
+            self._clear_trainer_active()
+            self._typing_adapter.prepare_for_text_load()
+            self._clear_text_id()
+            self._typing_adapter.setup_local_article_session()
+            self._local_article_adapter.loadLocalArticleSegment(
+                articleId,
+                segmentIndex,
+                segmentSize,
+            )
+
+    @Slot()
+    def loadTrainers(self) -> None:
+        """加载练单器词库目录。"""
+        if self._trainer_adapter:
+            self._trainer_adapter.loadTrainers()
+
+    @Slot(str, int, int)
+    def loadTrainerSegment(
+        self,
+        trainerId: str,
+        segmentIndex: int,
+        groupSize: int,
+    ) -> None:
+        """加载练单器指定分组。"""
+        if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
+            return
+        self._prepare_for_trainer_load()
+        self._trainer_adapter.loadTrainerSegment(
+            trainerId,
+            segmentIndex,
+            groupSize,
+        )
+
+    @Slot()
+    def loadCurrentTrainerSegment(self) -> None:
+        if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
+            return
+        self._prepare_for_trainer_load()
+        self._trainer_adapter.loadCurrentTrainerSegment()
+
+    @Slot()
+    def loadNextTrainerSegment(self) -> None:
+        if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
+            return
+        self._prepare_for_trainer_load()
+        self._trainer_adapter.loadNextTrainerSegment()
+
+    @Slot()
+    def loadPreviousTrainerSegment(self) -> None:
+        if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
+            return
+        self._prepare_for_trainer_load()
+        self._trainer_adapter.loadPreviousTrainerSegment()
+
+    @Slot()
+    def shuffleCurrentTrainerGroup(self) -> None:
+        if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
+            return
+        self._prepare_for_trainer_load()
+        self._trainer_adapter.shuffleCurrentTrainerGroup()
+
+    def _prepare_for_trainer_load(self) -> None:
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._clear_wenlai_active()
+        if (
+            self._local_article_adapter
+            and self._local_article_adapter.local_article_loading
+        ):
+            self._clear_local_article_active()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+        self._typing_adapter.setup_trainer_session()
+
+    @Slot()
+    def loadZitiSchemes(self) -> None:
+        if self._ziti_adapter:
+            self._ziti_adapter.loadSchemes()
+
+    @Slot(str)
+    def loadZitiScheme(self, name: str) -> None:
+        if self._ziti_adapter:
+            self._ziti_adapter.loadScheme(name)
+
+    @Slot(bool)
+    def setZitiEnabled(self, enabled: bool) -> None:
+        if self._ziti_adapter:
+            self._ziti_adapter.setEnabled(enabled)
+
+    @Slot(str, result=str)
+    def getZitiHint(self, char: str) -> str:
+        if not self._ziti_adapter:
+            return ""
+        return self._ziti_adapter.get_hint(char)
+
+    @Slot()
     def requestShuffle(self) -> None:
         """乱序当前文本。
 
@@ -533,6 +1073,9 @@ class Bridge(QObject):
             return
 
         shuffled, title = result
+        self._clear_wenlai_active()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
         # 清空 text_id：乱序内容与服务端不匹配，不提交成绩
         self._clear_text_id()
         # 设置会话状态机
@@ -543,8 +1086,15 @@ class Bridge(QObject):
     @Slot(str)
     def copyToClipboard(self, text: str) -> None:
         """复制文本到剪贴板。"""
+        self._copy_text_to_clipboard(text)
+
+    def _copy_text_to_clipboard(self, text: str) -> None:
+        if not text:
+            return
         from PySide6.QtGui import QGuiApplication
 
+        if QGuiApplication.instance() is None:
+            return
         clipboard = QGuiApplication.clipboard()
         if clipboard:
             clipboard.setText(text)
@@ -599,6 +1149,9 @@ class Bridge(QObject):
         if total <= 0:
             return
 
+        self._clear_wenlai_active()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
         self.sliceModeChanged.emit()
         self._load_current_slice()
 
@@ -744,3 +1297,80 @@ class Bridge(QObject):
         if self._base_url_update_callback:
             self._base_url_update_callback(new_base_url)
         self.baseUrlChanged.emit()
+
+    @Slot(str, str)
+    def loginWenlai(self, username: str, password: str) -> None:
+        if self._wenlai_adapter:
+            self._wenlai_adapter.login(username, password)
+
+    @Slot()
+    def logoutWenlai(self) -> None:
+        if self._wenlai_adapter:
+            self._wenlai_adapter.logout()
+
+    @Slot()
+    def loadRandomWenlaiText(self) -> None:
+        if not self._wenlai_adapter or self._wenlai_adapter.text_loading:
+            return
+        self._prepare_for_wenlai_load()
+        self._wenlai_adapter.loadRandomText()
+
+    @Slot()
+    def loadNextWenlaiSegment(self) -> None:
+        if not self._wenlai_adapter or self._wenlai_adapter.text_loading:
+            return
+        self._prepare_for_wenlai_load()
+        self._wenlai_adapter.loadNextSegment()
+
+    @Slot()
+    def loadNextWenlaiSegmentWithScore(self) -> None:
+        if not self._wenlai_adapter or self._wenlai_adapter.text_loading:
+            return
+        self._pending_wenlai_score_text = self._build_current_score_plain_text()
+        self._copy_text_to_clipboard(self._pending_wenlai_score_text)
+        self.loadNextWenlaiSegment()
+
+    @Slot()
+    def loadPrevWenlaiSegment(self) -> None:
+        if not self._wenlai_adapter or self._wenlai_adapter.text_loading:
+            return
+        self._prepare_for_wenlai_load()
+        self._wenlai_adapter.loadPrevSegment()
+
+    def _prepare_for_wenlai_load(self) -> None:
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+
+    @Slot()
+    def refreshWenlaiDifficulties(self) -> None:
+        if self._wenlai_adapter:
+            self._wenlai_adapter.refreshDifficulties()
+
+    @Slot()
+    def refreshWenlaiCategories(self) -> None:
+        if self._wenlai_adapter:
+            self._wenlai_adapter.refreshCategories()
+
+    @Slot(str, int, int, str, str, bool)
+    def updateWenlaiConfig(
+        self,
+        base_url: str,
+        length: int,
+        difficulty_level: int,
+        category: str,
+        segment_mode: str,
+        strict_length: bool,
+    ) -> None:
+        if self._wenlai_adapter:
+            self._wenlai_adapter.updateConfig(
+                base_url,
+                length,
+                difficulty_level,
+                category,
+                segment_mode,
+                strict_length,
+            )

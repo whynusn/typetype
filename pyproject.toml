@@ -12,9 +12,17 @@ dependencies = [
     "httpx>=0.28.1",
     "keyring>=25.7.0",
     "pycryptodome>=3.23.0",
+    "pyobjc-framework-cocoa>=11.0; platform_system == 'Darwin'",
+    "pyobjc-framework-quartz>=11.0; platform_system == 'Darwin'",
     "pyside6>=6.10.2",
     "pywin32>=310; platform_system == 'Windows'",
     "qasync>=0.28.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.12",
 ]
 
 [tool.pyside6-project]
@@ -40,6 +48,7 @@ files = [
     "src/backend/application/gateways/text_source_gateway.py",
     "src/backend/application/usecases/load_text_usecase.py",
     "src/backend/config/__init__.py",
+    "src/backend/config/app_paths.py",
     "src/backend/config/runtime_config.py",
     "src/backend/config/text_source_config.py",
     "src/backend/domain/services/auth_service.py",
@@ -49,6 +58,8 @@ files = [
     "src/backend/infrastructure/network_errors.py",
     "src/backend/integration/api_client_auth_provider.py",
     "src/backend/integration/global_key_listener.py",
+    "src/backend/integration/key_listener_factory.py",
+    "src/backend/integration/mac_key_listener.py",
     "src/backend/integration/qt_async_executor.py",
     "src/backend/integration/qt_local_text_loader.py",
     "src/backend/integration/remote_text_provider.py",
@@ -63,6 +74,7 @@ files = [
     "src/backend/ports/auth_provider.py",
     "src/backend/ports/char_stats_repository.py",
     "src/backend/ports/clipboard.py",
+    "src/backend/ports/key_codes.py",
     "src/backend/ports/local_text_loader.py",
     "src/backend/ports/text_provider.py",
     "src/backend/presentation/bridge.py",

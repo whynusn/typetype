@@ -21,7 +21,11 @@ from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtQuick import QQuickTextDocument
 
 from ...application.gateways.score_gateway import ScoreGateway
-from ...application.session_context import TypingSessionContext, UploadStatus
+from ...application.session_context import (
+    SourceMode,
+    TypingSessionContext,
+    UploadStatus,
+)
 from ...domain.services.typing_service import TypingService
 from ...workers.score_submit_worker import ScoreSubmitWorker
 
@@ -44,6 +48,7 @@ class TypingAdapter(QObject):
     backspaceChanged = Signal()
     correctionChanged = Signal()
     keyAccuracyChanged = Signal()
+    pauseChanged = Signal()
     # 会话状态机信号
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
@@ -83,6 +88,7 @@ class TypingAdapter(QObject):
         self._slice_index: int | None = None
         # 分片完成时的 score_data 快照（在 _check_typing_complete 中捕获）
         self._last_slice_stats: dict | None = None
+        self._is_paused = False
 
         # 信号发射缓存（避免无变化时重复触发 QML 重新评估）
         self._last_backspace_count = 0
@@ -140,6 +146,11 @@ class TypingAdapter(QObject):
             self._last_correction_count = correction_count
             self.correctionChanged.emit()
 
+    def _set_paused(self, paused: bool) -> None:
+        if self._is_paused != paused:
+            self._is_paused = paused
+            self.pauseChanged.emit()
+
     def _check_typing_complete(self) -> bool:
         if (
             self._typing_service.state.total_chars > 0
@@ -149,6 +160,7 @@ class TypingAdapter(QObject):
         ):
             self._typing_service.stop()
             self._second_timer.stop()
+            self._set_paused(False)
             changed = self._typing_service.set_read_only(True)
             if changed:
                 self.readOnlyChanged.emit()
@@ -234,6 +246,7 @@ class TypingAdapter(QObject):
         """
         self._second_timer.stop()
         self._typing_service.stop()
+        self._set_paused(False)
         changed = self._typing_service.set_read_only(True)
         if changed:
             self.readOnlyChanged.emit()
@@ -325,6 +338,7 @@ class TypingAdapter(QObject):
         self._typing_service.clear()
         self._reset_signal_cache()
         self._typing_service.state.is_started = False
+        self._set_paused(False)
         self._emit_typing_signals()
         changed = self._typing_service.set_read_only(False)
         if changed:
@@ -343,6 +357,7 @@ class TypingAdapter(QObject):
     def handleStartStatus(self, status: bool) -> None:
         if self._typing_service.state.is_started != status:
             if status:
+                self._set_paused(False)
                 self._typing_service.clear()
                 self._reset_signal_cache()
                 self._typing_service.start()
@@ -354,11 +369,13 @@ class TypingAdapter(QObject):
             else:
                 self._second_timer.stop()
                 self._typing_service.stop()
+                self._set_paused(False)
                 self._typing_service.clear()
                 self._reset_signal_cache()
                 self.backspaceChanged.emit()
                 self.correctionChanged.emit()
         elif not status:
+            self._set_paused(False)
             self._typing_service.clear()
             self._reset_signal_cache()
             self.backspaceChanged.emit()
@@ -382,6 +399,10 @@ class TypingAdapter(QObject):
     @property
     def is_started(self) -> bool:
         return self._typing_service.state.is_started
+
+    @property
+    def is_paused(self) -> bool:
+        return self._is_paused
 
     @property
     def total_time(self) -> float:
@@ -419,11 +440,62 @@ class TypingAdapter(QObject):
     def char_num(self) -> str:
         return self._typing_service.char_num
 
+    @property
+    def text_title(self) -> str:
+        return self._typing_service.text_title
+
+    def pauseTyping(self) -> bool:
+        """暂停当前跟打：保留成绩，只停止计时并锁定输入。"""
+        if self._is_paused:
+            return False
+        if not self._typing_service.state.is_started:
+            return False
+        total_chars = self._typing_service.state.total_chars
+        char_count = self._typing_service.score_data.char_count
+        if total_chars <= 0 or char_count >= total_chars:
+            return False
+
+        self._second_timer.stop()
+        self._typing_service.stop()
+        changed = self._typing_service.set_read_only(True)
+        if changed:
+            self.readOnlyChanged.emit()
+        self._set_paused(True)
+        return True
+
+    def resumeTyping(self) -> bool:
+        """恢复暂停的跟打。"""
+        if not self._is_paused:
+            return False
+        total_chars = self._typing_service.state.total_chars
+        char_count = self._typing_service.score_data.char_count
+        if total_chars <= 0 or char_count >= total_chars:
+            self._set_paused(False)
+            return False
+
+        self._typing_service.start()
+        self._second_timer.start()
+        changed = self._typing_service.set_read_only(False)
+        if changed:
+            self.readOnlyChanged.emit()
+        self._set_paused(False)
+        return True
+
+    def toggleTypingPause(self) -> bool:
+        if self._is_paused:
+            return self.resumeTyping()
+        return self.pauseTyping()
+
     def setCursorPosition(self, new_pos: int):
         self._typing_service.set_cursor_position(new_pos)
 
     def get_score_message(self) -> str:
         return self._score_gateway.build_score_message(self._typing_service.score_data)
+
+    def get_score_plain_text(self) -> str:
+        return self._score_gateway.build_score_plain_text(
+            self._typing_service.score_data
+        )
 
     def copy_score_message(self) -> None:
         self._score_gateway.copy_score_to_clipboard(self._typing_service.score_data)
@@ -473,6 +545,38 @@ class TypingAdapter(QObject):
         if self._session_context:
             self._session_context.setup_shuffle_session()
 
+    def setup_wenlai_session(self) -> None:
+        """代理：设置晴发文文本会话。"""
+        if self._session_context:
+            self._session_context.setup_wenlai_session()
+
+    def setup_local_article_session(self) -> None:
+        """代理：设置本地长文会话。"""
+        if self._session_context:
+            self._session_context.setup_local_article_session()
+
+    def setup_trainer_session(self) -> None:
+        """代理：设置练单器会话。"""
+        if self._session_context:
+            self._session_context.setup_trainer_session()
+
+    def reset_session_context(self) -> None:
+        """代理：清理当前会话来源状态。"""
+        if self._session_context:
+            self._session_context.reset()
+
+    def can_accept_resolved_text_id(self) -> bool:
+        """异步 text_id 回填只允许落到仍在等待解析的普通文本会话。"""
+        if not self._session_context:
+            return True
+        source_mode = self._session_context.source_mode
+        if source_mode is None:
+            return False
+        return (
+            source_mode in (SourceMode.LOCAL, SourceMode.CUSTOM)
+            and self._session_context.upload_status == UploadStatus.PENDING
+        )
+
     def advance_slice(self) -> None:
         """代理：推进到下一片。"""
         if self._session_context:
@@ -486,8 +590,6 @@ class TypingAdapter(QObject):
     def is_slice_mode(self) -> bool:
         """代理：当前是否为分片载文模式。"""
         if self._session_context:
-            from ...application.session_context import SourceMode
-
             return self._session_context.source_mode == SourceMode.SLICE
         return False
 

@@ -1,4 +1,5 @@
 from typing import Any
+import time
 
 import httpx
 
@@ -19,7 +20,7 @@ class ApiClient:
         timeout_config = httpx.Timeout(
             timeout=self._timeout, connect=min(self._timeout, 3.0)
         )
-        self._client = httpx.Client(timeout=timeout_config)
+        self._client = httpx.Client(timeout=timeout_config, trust_env=False)
         self._last_error: NetworkError | None = None
 
     def request(
@@ -46,6 +47,7 @@ class ApiClient:
         返回:
             解析后的 JSON 字典；失败时返回 None
         """
+        started_at = time.perf_counter()
         try:
             response = self._client.request(
                 method=method,
@@ -67,7 +69,12 @@ class ApiClient:
         except Exception as e:
             self._last_error = NetworkError(str(e))
 
-        log_warning(f"请求发生错误: {self._last_error}")
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        log_warning(
+            "请求发生错误: "
+            f"{method.upper()} {url} params={params or {}} "
+            f"elapsed={elapsed_ms}ms error={self._last_error}"
+        )
         return None
 
     @property

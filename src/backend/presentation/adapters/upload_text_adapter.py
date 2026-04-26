@@ -2,34 +2,20 @@
 
 import json
 import os
+import re
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, Signal, Slot
 
+from ...config.app_paths import user_config_path, user_texts_dir
 from ...utils.logger import log_info, log_warning
 
 if TYPE_CHECKING:
     from ...ports.text_uploader import TextUploader
 
 # 本地文本写入路径与配置文件路径
-LOCAL_TEXTS_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "..",
-    "..",
-    "resources",
-    "texts",
-)
-CONFIG_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "..",
-    "..",
-    "..",
-    "..",
-    "config",
-    "config.json",
-)
+LOCAL_TEXTS_DIR = str(user_texts_dir())
+CONFIG_PATH = str(user_config_path())
 
 
 class UploadTextAdapter(QObject):
@@ -88,15 +74,24 @@ class UploadTextAdapter(QObject):
     def _do_upload_local(self, title: str, content: str, source_key: str) -> None:
         """写文件到本地并更新 config.json 的 text_sources 配置。"""
         os.makedirs(self._texts_dir, exist_ok=True)
-        safe_title = title.replace("/", "_").replace("\\", "_")
-        filename = f"{source_key}_{safe_title}.txt"
+        safe_source_key = self._safe_filename_part(source_key, "custom")
+        safe_title = self._safe_filename_part(title, "untitled")
+        filename = f"{safe_source_key}_{safe_title}.txt"
         file_path = os.path.join(self._texts_dir, filename)
 
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        self._update_config(source_key, title, filename)
+        self._update_config(safe_source_key, title, file_path)
         log_info(f"[UploadTextAdapter] 本地保存成功: {file_path}")
+
+    @staticmethod
+    def _safe_filename_part(value: str, fallback: str) -> str:
+        cleaned = value.strip().replace("/", "_").replace("\\", "_")
+        cleaned = cleaned.replace("..", "_")
+        cleaned = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff._-]+", "_", cleaned)
+        cleaned = re.sub(r"_+", "_", cleaned).strip("._-")
+        return cleaned or fallback
 
     def _do_upload_cloud(self, title: str, content: str, source_key: str) -> int | None:
         """调用 TextUploader 上传到云端，返回服务端文本 ID。"""
@@ -116,14 +111,14 @@ class UploadTextAdapter(QObject):
         """兼容旧接口。"""
         self.upload(title, content, source_key, False, True)
 
-    def _update_config(self, source_key: str, title: str, filename: str) -> None:
+    def _update_config(self, source_key: str, title: str, file_path: str) -> None:
         """更新 config.json 的 text_sources 配置。"""
         config_data = self._load_config_data()
 
         text_sources = config_data.get("text_sources", {})
         text_sources[source_key] = {
             "label": title,
-            "local_path": f"resources/texts/{filename}",
+            "local_path": file_path,
         }
         config_data["text_sources"] = text_sources
 

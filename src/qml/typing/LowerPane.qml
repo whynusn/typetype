@@ -59,10 +59,17 @@ Pane {
             }
 
             Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    event.accepted = true;
+                    if (appBridge)
+                        appBridge.toggleTypingPause();
+                    return;
+                }
                 if (event.key === Qt.Key_Backspace && appBridge && !appBridge.isSpecialPlatform) {
                     appBridge.accumulateBackspace();
                 }
-                if (event.modifiers & Qt.ControlModifier) {
+                var shortcutPressed = (event.modifiers & Qt.ControlModifier) || (event.modifiers & Qt.MetaModifier);
+                if (shortcutPressed) {
                     if (event.key === Qt.Key_V) {
                         event.accepted = true;
                         if (appBridge)
@@ -71,14 +78,26 @@ Pane {
                         event.accepted = true;
                         if (appBridge)
                             appBridge.requestShuffle();
-                    } else if (event.key === Qt.Key_U) {
+                    } else if (event.key === Qt.Key_R) {
                         event.accepted = true;
                         if (appBridge)
-                            appBridge.loadPrevSlice();
+                            appBridge.loadRandomWenlaiText();
+                    } else if (event.key === Qt.Key_O || event.key === Qt.Key_U) {
+                        event.accepted = true;
+                        if (appBridge) {
+                            if (appBridge.isWenlaiActive && !appBridge.sliceMode)
+                                appBridge.loadPrevWenlaiSegment();
+                            else
+                                appBridge.loadPrevSlice();
+                        }
                     } else if (event.key === Qt.Key_P) {
                         event.accepted = true;
-                        if (appBridge)
-                            appBridge.loadNextSlice();
+                        if (appBridge) {
+                            if (appBridge.isWenlaiActive && !appBridge.sliceMode)
+                                appBridge.loadNextWenlaiSegment();
+                            else
+                                appBridge.loadNextSlice();
+                        }
                     }
                 }
             }

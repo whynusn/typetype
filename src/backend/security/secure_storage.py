@@ -18,6 +18,10 @@ class SecureStorage:
         return keyring.get_password(SecureStorage.SERVICE_NAME, f"jwt_{user_id}")
 
     @staticmethod
+    def delete_jwt(user_id: str) -> None:
+        keyring.delete_password(SecureStorage.SERVICE_NAME, f"jwt_{user_id}")
+
+    @staticmethod
     def save_encrypted_data(data: dict, file_path: Path, password: str):
         """加密存储业务敏感数据"""
         import base64

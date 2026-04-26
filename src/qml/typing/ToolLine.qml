@@ -5,10 +5,12 @@ import RinUI
 
 Pane {
     id: root
+    property bool wenlaiLoading: false
 
     padding: 8
 
     signal requestLoadTextFromClipboard // 定义从剪贴板载文信号
+    signal requestLoadWenlai
     signal requestRetype
     signal requestToggleLeaderboard
     signal requestShuffle
@@ -56,6 +58,26 @@ Pane {
             onClicked: {
                 root.requestLoadTextFromClipboard();
             }
+        }
+
+        Button {
+            id: wenlaiLoadText
+            width: 110
+            height: 36
+            anchors.verticalCenter: parent.verticalCenter
+            enabled: !root.wenlaiLoading
+            text: "晴发文[C^R]"
+            onClicked: {
+                root.requestLoadWenlai();
+            }
+        }
+
+        BusyIndicator {
+            width: 24
+            height: 24
+            anchors.verticalCenter: parent.verticalCenter
+            running: root.wenlaiLoading
+            visible: root.wenlaiLoading
         }
 
         Button {
