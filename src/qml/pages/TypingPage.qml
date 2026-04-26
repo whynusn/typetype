@@ -21,7 +21,7 @@ Item {
         lowerPane.text = "";
         lowerPane.suppressTextChanged = false;
         if (appBridge)
-            appBridge.handleLoadedText(upperPane.textDocument, upperPane.text);
+            appBridge.handleLoadedText(upperPane.textDocument);
         Qt.callLater(function() {
             lowerPane.lastText = lowerPane.text;
         });
@@ -32,7 +32,7 @@ Item {
         lowerPane.text = "";
         lowerPane.suppressTextChanged = false;
         upperPane.text = plainText;
-        appBridge.handleLoadedText(upperPane.textDocument, plainText);
+        appBridge.handleLoadedText(upperPane.textDocument);
         // handleLoadedText 完成后，延迟到当前事件循环末尾再同步 lastText。
         // 这样可以捕获所有异步 onTextChanged 事件（如 IME preedit 清除），
         // 确保 lastText 始终与 lowerPane.text 一致。

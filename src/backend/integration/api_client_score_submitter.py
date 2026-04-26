@@ -65,18 +65,19 @@ class ApiClientScoreSubmitter:
         score_data: SessionStat,
         text_id: int,
     ) -> dict[str, Any]:
-        """构建请求体。"""
+        """构建请求体（V2 纯原始字段合约）。
+
+        只发送原始字段，所有派生指标由服务端统一计算。
+        这样确保客户端和服务端指标计算公式完全一致。
+        """
         return {
             "textId": text_id,
-            "speed": round(score_data.speed, 2),
-            "effectiveSpeed": round(score_data.effectiveSpeed, 2),
-            "keyStroke": round(score_data.keyStroke, 2),
-            "codeLength": round(score_data.codeLength, 4),
-            "accuracyRate": round(score_data.accuracy, 2),
-            "keyAccuracy": round(score_data.keyAccuracy, 2),
             "charCount": score_data.char_count,
             "wrongCharCount": score_data.wrong_char_count,
-            "duration": round(score_data.time, 2),
+            "backspaceCount": score_data.backspace_count,
+            "correctionCount": score_data.correction_count,
+            "keyStrokeCount": score_data.key_stroke_count,
+            "time": round(score_data.time, 2),
         }
 
     def _parse_response(

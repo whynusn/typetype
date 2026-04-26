@@ -74,3 +74,61 @@
 
 - 当总按键数为 0 时，键准定义为 100%。
 - 计算结果小于 0 时截断为 0%。
+
+## 对外 API 字段命名（与服务端契约）
+
+### 提交契约（客户端 → 服务端）
+
+以下字段为必传的原始字段（服务端持久化存储）：
+
+| API 字段名 | 类型 | 来源 | 说明 |
+|-----------|------|------|------|
+| textId | Long | SessionStat.text_id | 服务端文本ID（主键） |
+| speed | Decimal | SessionStat.speed | 速度（字/分） |
+| keyStroke | Decimal | SessionStat.keyStroke | 击键速度（击/秒） |
+| codeLength | Decimal | SessionStat.codeLength | 码长（击/字） |
+| charCount | Integer | SessionStat.char_count | 字符数 |
+| wrongCharCount | Integer | SessionStat.wrong_char_count | 错误字符数 |
+| backspaceCount | Integer | SessionStat.backspace_count | 退格键按下次数 |
+| correctionCount | Integer | SessionStat.correction_count | 回改字数 |
+| keyAccuracy | Decimal | SessionStat.keyAccuracy | 键准（%） |
+| time | Decimal | SessionStat.time | 用时（秒） |
+
+### 返回契约（服务端 → 客户端）
+
+服务端返回字段包含以下三类：
+
+#### 原始字段（直接从数据库读取）
+
+| API 字段名 | 类型 |
+|-----------|------|
+| speed | Decimal |
+| keyStroke | Decimal |
+| codeLength | Decimal |
+| charCount | Integer |
+| wrongCharCount | Integer |
+| backspaceCount | Integer |
+| correctionCount | Integer |
+| keyAccuracy | Decimal |
+| time | Decimal |
+| createdAt | LocalDateTime |
+
+#### 派生字段（服务端实时计算返回）
+
+| API 字段名 | 计算公式 |
+|-----------|----------|
+| accuracyRate | `(charCount - wrongCharCount) / charCount * 100` |
+| effectiveSpeed | `speed * accuracyRate / 100` |
+
+#### 兼容字段（已废弃，保留用于过渡期）
+
+| API 字段名 | 替代方案 |
+|-----------|----------|
+| duration | 已统一为 `time` |
+| accuracy | 已统一为 `accuracyRate` |
+
+### 契约版本
+
+- **当前版本**: V2
+- **发布日期**: 2026-04-26
+- **主要变更**: 新增 `backspaceCount`、`correctionCount`、`keyAccuracy`；`duration` 统一为 `time`

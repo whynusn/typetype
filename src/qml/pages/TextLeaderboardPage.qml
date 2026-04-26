@@ -326,16 +326,16 @@ FluentPage {
                                 }
                                 Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Theme.currentTheme.colors.cardBorderColor }
 
-                                // 准确率
+                                // 键准
                                 Rectangle {
-                                    Layout.preferredWidth: 65
+                                    Layout.preferredWidth: 60
                                     Layout.fillHeight: true
                                     color: "transparent"
                                     Text {
                                         anchors.centerIn: parent
                                         typography: Typography.Caption
                                         font.weight: Font.DemiBold
-                                        text: qsTr("准确率")
+                                        text: qsTr("键准")
                                     }
                                 }
                                 Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Theme.currentTheme.colors.cardBorderColor }
@@ -662,21 +662,21 @@ FluentPage {
                 }
                 Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Theme.currentTheme.colors.cardBorderColor }
 
-                // 准确率
+                // 键准
                 Rectangle {
-                    Layout.preferredWidth: 65
+                    Layout.preferredWidth: 60
                     Layout.fillHeight: true
                     color: "transparent"
                     Text {
                         anchors.centerIn: parent
                         typography: Typography.Caption
                         color: {
-                            var acc = modelData.accuracyRate
-                            if (acc >= 98) return Theme.currentTheme.colors.systemSuccessColor
-                            if (acc >= 95) return Theme.currentTheme.colors.systemAttentionColor
+                            var ka = modelData.keyAccuracy
+                            if (ka >= 98) return Theme.currentTheme.colors.systemSuccessColor
+                            if (ka >= 95) return Theme.currentTheme.colors.systemAttentionColor
                             return Theme.currentTheme.colors.textColor
                         }
-                        text: modelData.accuracyRate ? Number(modelData.accuracyRate).toFixed(1) + "%" : "-"
+                        text: modelData.keyAccuracy ? Number(modelData.keyAccuracy).toFixed(1) + "%" : "-"
                     }
                 }
                 Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Theme.currentTheme.colors.cardBorderColor }
@@ -709,7 +709,11 @@ FluentPage {
                         anchors.centerIn: parent
                         typography: Typography.Caption
                         color: Theme.currentTheme.colors.textSecondaryColor
-                        text: modelData.duration ? formatDuration(modelData.duration) : "-"
+                        // 兼容读取：优先读取新字段 time，否则回退到 duration
+                        text: {
+                            var secs = modelData.time !== undefined ? modelData.time : modelData.duration
+                            return secs ? formatDuration(secs) : "-"
+                        }
                     }
                 }
                 Rectangle { Layout.preferredWidth: 1; Layout.fillHeight: true; color: Theme.currentTheme.colors.cardBorderColor }
