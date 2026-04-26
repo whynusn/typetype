@@ -1,3 +1,4 @@
+import threading
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
@@ -46,6 +47,11 @@ class TextAdapter(QObject):
         self._local_text_loader = local_text_loader
         self._text_loading = False
         self._thread_pool = QThreadPool.globalInstance()
+        # text_id 回查调度：latest-only + 单线程串行，避免频繁创建 daemon thread
+        self._lookup_lock = threading.Lock()
+        self._lookup_inflight = False
+        self._lookup_pending: tuple[str, str] | None = None
+        self._lookup_latest_requested: tuple[str, str] | None = None
 
     def _set_text_loading(self, loading: bool) -> None:
         if self._text_loading != loading:
@@ -73,22 +79,49 @@ class TextAdapter(QObject):
             self._lookup_text_id_async(source_key, text)
 
     def _lookup_text_id_async(self, source_key: str, content: str) -> None:
-        """后台线程异步回查服务端 text_id。"""
-        import threading
+        """后台线程异步回查服务端 text_id。
 
+        调度策略：
+        - latest-only：高频触发时只保留最新请求
+        - single-flight：同一时刻仅 1 个回查线程在跑
+        """
+        request = (source_key, content)
+        should_start_worker = False
+        with self._lookup_lock:
+            self._lookup_latest_requested = request
+            self._lookup_pending = request
+            if not self._lookup_inflight:
+                self._lookup_inflight = True
+                should_start_worker = True
+
+        if should_start_worker:
+            threading.Thread(target=self._lookup_worker_loop, daemon=True).start()
+
+    def _lookup_worker_loop(self) -> None:
+        """串行消费 text_id 回查请求。"""
         usecase = self._load_text_usecase
+        while True:
+            with self._lookup_lock:
+                request = self._lookup_pending
+                self._lookup_pending = None
 
-        def _do_lookup():
+            if request is None:
+                with self._lookup_lock:
+                    self._lookup_inflight = False
+                return
+
+            source_key, content = request
             try:
                 resolved_id = usecase.lookup_text_id(source_key, content)
-                if resolved_id is not None:
+                should_emit = False
+                with self._lookup_lock:
+                    should_emit = request == self._lookup_latest_requested
+                if resolved_id is not None and should_emit:
                     # 从 daemon thread 直接发射信号，Qt 自动走 QueuedConnection 到主线程的 slot
                     self.localTextIdResolved.emit(resolved_id)
             except Exception:
                 # 回查失败不影响主流程（文本已显示），静默降级
                 pass
-
-        threading.Thread(target=_do_lookup, daemon=True).start()
 
     def lookup_text_id(self, source_key: str, content: str) -> None:
         """公开方法：后台异步回查服务端 text_id。

@@ -169,3 +169,41 @@ def test_get_local_text_content_returns_empty_for_non_local_source():
     )
 
     assert adapter.get_local_text_content("jisubei") == ""
+
+
+def test_lookup_text_id_async_latest_only_emits_latest_result():
+    import threading
+    from PySide6.QtCore import QCoreApplication
+
+    adapter, _, load_text_usecase = _build_adapter()
+    app = QCoreApplication.instance() or QCoreApplication([])
+    emitted: list[int] = []
+    adapter.localTextIdResolved.connect(emitted.append)
+
+    gate_first = threading.Event()
+    gate_second = threading.Event()
+
+    def lookup_side_effect(source_key: str, content: str):
+        if content == "A":
+            gate_first.wait(timeout=1)
+            return 111
+        gate_second.wait(timeout=1)
+        return 222
+
+    load_text_usecase.lookup_text_id.side_effect = lookup_side_effect
+
+    adapter.lookup_text_id("k", "A")
+    adapter.lookup_text_id("k", "B")
+
+    gate_second.set()
+    gate_first.set()
+
+    # 轮询等待后台线程结束
+    import time
+
+    deadline = time.time() + 1.0
+    while time.time() < deadline and not emitted:
+        app.processEvents()
+        time.sleep(0.01)
+
+    assert emitted == [222]

@@ -294,24 +294,33 @@ class TypingAdapter(QObject):
             s, grow_length
         )
 
-        if grow_length > 0:
-            # 新增字符：着色
-            for pos, char, is_error in char_updates:
-                if char:
-                    self._color_text(
-                        pos, 1, self._correct_fmt if not is_error else self._error_fmt
-                    )
-            self._emit_typing_signals()
-        else:
-            # 删除/替换：着色
-            for pos, char, is_error in char_updates:
-                if char:
-                    self._color_text(
-                        pos, 1, self._correct_fmt if not is_error else self._error_fmt
-                    )
+        if self._cursor and char_updates:
+            self._cursor.beginEditBlock()
+            try:
+                if grow_length > 0:
+                    # 新增字符：着色
+                    for pos, char, is_error in char_updates:
+                        if char:
+                            self._color_text(
+                                pos,
+                                1,
+                                self._correct_fmt if not is_error else self._error_fmt,
+                            )
                 else:
-                    self._color_text(pos, 1, self._no_fmt)
-            self._emit_typing_signals()
+                    # 删除/替换：着色
+                    for pos, char, is_error in char_updates:
+                        if char:
+                            self._color_text(
+                                pos,
+                                1,
+                                self._correct_fmt if not is_error else self._error_fmt,
+                            )
+                        else:
+                            self._color_text(pos, 1, self._no_fmt)
+            finally:
+                self._cursor.endEditBlock()
+
+        self._emit_typing_signals()
 
         if is_completed:
             self._check_typing_complete()

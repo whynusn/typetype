@@ -226,6 +226,7 @@ Item {
 
     Connections {
         target: appBridge
+        enabled: weakCharsPage.active
         function onWeakestCharsLoaded(data) {
             weakCharsModel.clear()
             for (var i = 0; i < data.length; i++) {
