@@ -28,6 +28,7 @@ class LocalArticleAdapter(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._local_article_loading = False
         self._request_generation = 0
+        self._active_worker = None
 
     def _set_loading(self, loading: bool) -> None:
         if self._local_article_loading != loading:
@@ -41,6 +42,7 @@ class LocalArticleAdapter(QObject):
     def clear_active(self) -> None:
         """失效当前仍在后台运行的本地长文请求。"""
         self._next_request_generation()
+        self._active_worker = None
         self._set_loading(False)
 
     @staticmethod
@@ -106,6 +108,7 @@ class LocalArticleAdapter(QObject):
     def _on_worker_finished(self, request_generation: int) -> None:
         if request_generation != self._request_generation:
             return
+        self._active_worker = None
         self._set_loading(False)
 
     @Slot()
@@ -131,6 +134,7 @@ class LocalArticleAdapter(QObject):
         worker.signals.finished.connect(
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
+        self._active_worker = worker
         self._thread_pool.start(worker)
 
     @Slot(str, int, int)
@@ -161,6 +165,7 @@ class LocalArticleAdapter(QObject):
         worker.signals.finished.connect(
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
+        self._active_worker = worker
         self._thread_pool.start(worker)
 
     @property

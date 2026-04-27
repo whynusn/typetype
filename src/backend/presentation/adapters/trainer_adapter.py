@@ -30,6 +30,7 @@ class TrainerAdapter(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._trainer_loading = False
         self._request_generation = 0
+        self._active_worker = None
 
     @property
     def trainer_loading(self) -> bool:
@@ -38,6 +39,7 @@ class TrainerAdapter(QObject):
     def clear_active(self) -> None:
         """失效当前仍在后台运行的练单器请求。"""
         self._next_request_generation()
+        self._active_worker = None
         self._set_loading(False)
 
     def _set_loading(self, loading: bool) -> None:
@@ -114,6 +116,7 @@ class TrainerAdapter(QObject):
         worker.signals.finished.connect(
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
+        self._active_worker = worker
         self._thread_pool.start(worker)
 
     def _run_segment_worker(
@@ -141,6 +144,7 @@ class TrainerAdapter(QObject):
         worker.signals.finished.connect(
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
+        self._active_worker = worker
         self._thread_pool.start(worker)
 
     def _on_trainers_loaded(
@@ -170,6 +174,7 @@ class TrainerAdapter(QObject):
     def _on_worker_finished(self, request_generation: int) -> None:
         if request_generation != self._request_generation:
             return
+        self._active_worker = None
         self._set_loading(False)
 
     @Slot()
