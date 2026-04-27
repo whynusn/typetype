@@ -414,3 +414,35 @@ class TestSliceMode:
             {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is False  # pass_count[1]=2 >= 2
+
+    def test_pass_count_resets_on_revisit(self):
+        """离开片段后再回来，达标次数应归零，需重新达标。"""
+        ctx = TypingSessionContext()
+        ctx.setup_slice_mode("ab", 1, 1, 0, 100, 0, 1, "retype")
+        # 第1片达标
+        ctx.collect_slice_result(
+            {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is False  # pass_count[0]=1 >= 1
+
+        # 推进到第2片
+        ctx.start_typing()
+        ctx.complete_typing()
+        ctx.advance_slice()
+        assert ctx.slice_index == 2
+
+        # 第2片达标
+        ctx.collect_slice_result(
+            {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is False  # pass_count[1]=1 >= 1
+
+        # 回到第1片（模拟 loadPrevSlice / 循环回绕）
+        ctx.reset_slice_pass_count(1)
+        ctx.set_slice_index(1)
+        # 第1片达标次数已归零，需重新达标
+        assert ctx.get_slice_pass_count() == 0
+        ctx.collect_slice_result(
+            {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
+        )
+        assert ctx.should_retype() is False  # pass_count[0]=1 >= 1（重新达标）

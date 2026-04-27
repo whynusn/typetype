@@ -14,11 +14,13 @@ class LoadTrainerSegmentUseCase:
         *,
         segment_index: int,
         group_size: int,
+        full_shuffle: bool = False,
     ) -> TrainerSegment:
         return self._service.load_trainer(
             trainer_id,
             group_size=group_size,
             segment_index=segment_index,
+            full_shuffle=full_shuffle,
         )
 
     def current_segment(self) -> TrainerSegment:

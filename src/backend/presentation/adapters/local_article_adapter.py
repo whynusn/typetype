@@ -70,6 +70,10 @@ class LocalArticleAdapter(QObject):
             self._catalog_item_to_dict(item) for item in self._gateway.list_articles()
         ]
 
+    def get_full_article_content(self, article_id: str) -> str:
+        """返回指定文章的完整文本内容。"""
+        return self._gateway.load_content(article_id)
+
     def _load_segment(
         self,
         article_id: str,

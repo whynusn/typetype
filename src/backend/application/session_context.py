@@ -70,6 +70,7 @@ class TypingSessionContext:
         self._on_fail_action: str = "retype"
         self._start_slice: int = 1
         self._slice_pass_counts: list[int] = []
+        self._current_slice_content: str = ""  # 当前段文本缓存（所有分片模式统一）
 
         self._on_upload_status_changed: list[Callable[[UploadStatus], None]] = []
         self._on_eligibility_reason_changed: list[Callable[[str], None]] = []
@@ -177,6 +178,41 @@ class TypingSessionContext:
 
     # === 分片载文 ===
 
+    def setup_sourced_slice_mode(
+        self,
+        slice_index: int,
+        slice_total: int,
+        on_fail_action: str = "none",
+        key_stroke_min: int = 0,
+        speed_min: int = 0,
+        accuracy_min: int = 0,
+        pass_count_min: int = 1,
+        reset_counts: bool = True,
+    ) -> None:
+        """设置基于外部来源的分片模式（不分片文本，由适配器提供分段）。
+
+        用于练单器和本地长文：段落后自动推进下一段。
+        合格性校验参数与原分片载文模式完全一致。
+        reset_counts=False 时保留现有达标次数（自动推进/重打场景）。
+        """
+        self._source_mode = SourceMode.SLICE
+        self._slice_index = slice_index
+        self._slice_total = slice_total
+        self._key_stroke_min = key_stroke_min
+        self._speed_min = speed_min
+        self._accuracy_min = accuracy_min
+        self._pass_count_min = pass_count_min
+        self._on_fail_action = on_fail_action
+        if reset_counts or len(self._slice_pass_counts) != slice_total:
+            self._slice_pass_counts = [0] * slice_total
+            self._slice_stats = []
+        self._slice_text = ""
+        self._slice_size = 0
+        self._text_id = None
+        self._text_id_resolved = True
+        self._phase = SessionPhase.READY
+        self._derive_upload_status()
+
     def setup_slice_mode(
         self,
         text: str,
@@ -231,11 +267,20 @@ class TypingSessionContext:
             return ""
         return self._slice_text[start:end]
 
+    @property
+    def current_slice_content(self) -> str:
+        """当前段文本内容（所有分片模式统一缓存）。"""
+        return self._current_slice_content
+
+    @current_slice_content.setter
+    def current_slice_content(self, value: str) -> None:
+        self._current_slice_content = value
+
     def get_shuffled_slice_text(self) -> str:
-        """返回乱序后的当前片文本。"""
+        """基于 _current_slice_content 乱序，不依赖 _slice_size。"""
         import random
 
-        text = self.get_current_slice_text()
+        text = self._current_slice_content
         if not text:
             return ""
         chars = list(text)
@@ -324,8 +369,8 @@ class TypingSessionContext:
         ):
             current = self._slice_stats[prev_index]
             return (
-                f"载文模式: 第 {idx}/{total} 片"
-                f"  |  上一片: {current['speed']:.0f}CPM {current['keyAccuracy']:.1f}%"
+                f"载文模式: 第 {idx}/{total} 段"
+                f"  |  上一段: {current['speed']:.0f}CPM {current['keyAccuracy']:.1f}%"
             )
 
         # 推进到下一片后，回退到已完成的上片
@@ -337,11 +382,11 @@ class TypingSessionContext:
             ):
                 current = self._slice_stats[prev_index]
                 return (
-                    f"载文模式: 第 {idx}/{total} 片"
-                    f"  |  上一片: {current['speed']:.0f}CPM {current['keyAccuracy']:.1f}%"
+                    f"载文模式: 第 {idx}/{total} 段"
+                    f"  |  上一段: {current['speed']:.0f}CPM {current['keyAccuracy']:.1f}%"
                 )
 
-        return f"载文模式: 第 {idx}/{total} 片"
+        return f"载文模式: 第 {idx}/{total} 段"
 
     def get_aggregate_data(self) -> tuple[list[dict], int] | None:
         """返回聚合成绩所需数据 (slice_stats, slice_count)。
@@ -407,6 +452,17 @@ class TypingSessionContext:
         self._text_id = text_id
         self._text_id_resolved = True
         self._derive_upload_status()
+
+    def set_slice_index(self, idx: int) -> None:
+        """直接设置当前片索引（用于无尽循环模式）。"""
+        self._slice_index = idx
+        self._phase = SessionPhase.READY
+
+    def reset_slice_pass_count(self, idx: int) -> None:
+        """重置指定段的达标次数（无尽模式循环回绕时使用）。"""
+        target = idx - 1
+        if 0 <= target < len(self._slice_pass_counts):
+            self._slice_pass_counts[target] = 0
 
     def advance_slice(self) -> None:
         if (

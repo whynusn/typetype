@@ -30,12 +30,20 @@ class TrainerService:
         *,
         group_size: int,
         segment_index: int | None = None,
+        full_shuffle: bool = False,
     ) -> TrainerSegment:
         if group_size <= 0:
             raise ValueError("group_size must be greater than 0")
 
         lexicon = self._repository.load_lexicon(trainer_id, group_size)
         groups = [list(group) for group in lexicon.groups]
+        if full_shuffle and groups:
+            all_entries = [e for group in groups for e in group]
+            self._randomizer.shuffle(all_entries)
+            groups = [
+                all_entries[i : i + group_size]
+                for i in range(0, len(all_entries), group_size)
+            ]
         desired_index = segment_index
         if desired_index is None:
             desired_index = self._repository.load_current_segment(trainer_id)

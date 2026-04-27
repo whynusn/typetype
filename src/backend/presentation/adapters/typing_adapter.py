@@ -113,6 +113,18 @@ class TypingAdapter(QObject):
             return
         if begin_pos < 0:
             return
+        # 从 cursor 自身的 document 获取长度，避免 _rich_doc 被 QML 替换后长度不同步
+        try:
+            cursor_doc = self._cursor.document()
+            if cursor_doc is None:
+                return
+            doc_len = cursor_doc.characterCount()
+        except RuntimeError:
+            return
+        # characterCount 包含末尾隐含段落分隔符（+1），setPosition 允许 [0, characterCount]
+        # 还需确保 begin_pos + n 不超出文档范围，避免 movePosition 越界
+        if begin_pos + n > doc_len or begin_pos >= doc_len:
+            return
         self._cursor.setPosition(begin_pos)
         self._cursor.movePosition(
             QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.KeepAnchor, n
@@ -204,6 +216,11 @@ class TypingAdapter(QObject):
             record = self._typing_service.get_history_record()
             if self._slice_index is not None:
                 record["slice_index"] = self._slice_index
+
+            # 分片完成后到下一段加载前存在异步窗口，upperPane 可能被先清空。
+            # 若此时残留 onTextChanged 进入 handleCommittedText，旧位置会命中空文档导致
+            # QTextCursor::setPosition 越界。先置空 cursor，待 handleLoadedText 恢复。
+            self._cursor = None
 
             self.typingEnded.emit()
             self.historyRecordUpdated.emit(record)
@@ -303,6 +320,11 @@ class TypingAdapter(QObject):
             self.keyAccuracyChanged.emit()
 
     def handleCommittedText(self, s: str, grow_length: int) -> None:
+        # 评分完成后的异步窗口内 UpperPane 可能已被清空，此时残留的 IME
+        # 回流或 onTextChanged 会产生越界 setPosition。read_only 已在
+        # _check_typing_complete 中优先设置，直接拒绝即可。
+        if self._typing_service.state.is_read_only:
+            return
         char_updates, is_completed = self._typing_service.handle_committed_text(
             s, grow_length
         )
@@ -519,7 +541,14 @@ class TypingAdapter(QObject):
 
     def set_slice_index(self, idx: int | None) -> None:
         """设置载文模式的片索引（None = 非分片模式）。"""
-        self._slice_index = idx
+        self._slice_index = idx  # 适配器自有字段，用于模式检测和历史记录
+        if self._session_context and idx is not None:
+            self._session_context.set_slice_index(idx)
+
+    def reset_slice_pass_count(self, idx: int) -> None:
+        """代理：重置指定段的达标次数（无尽模式循环回绕时使用）。"""
+        if self._session_context:
+            self._session_context.reset_slice_pass_count(idx)
 
     def get_last_slice_stats(self) -> dict | None:
         """获取最近一次分片完成时的 score_data 快照。"""
@@ -624,6 +653,33 @@ class TypingAdapter(QObject):
             return self._session_context.slice_index
         return 0
 
+    def setup_sourced_slice_mode(
+        self,
+        slice_index: int,
+        slice_total: int,
+        on_fail_action: str = "none",
+        key_stroke_min: int = 0,
+        speed_min: int = 0,
+        accuracy_min: int = 0,
+        pass_count_min: int = 1,
+        reset_counts: bool = True,
+    ) -> None:
+        """代理：设置基于外部来源的分片模式。"""
+        self._slice_index = (
+            slice_index  # 同步适配器自有字段，用于 _check_typing_complete
+        )
+        if self._session_context:
+            self._session_context.setup_sourced_slice_mode(
+                slice_index=slice_index,
+                slice_total=slice_total,
+                on_fail_action=on_fail_action,
+                key_stroke_min=key_stroke_min,
+                speed_min=speed_min,
+                accuracy_min=accuracy_min,
+                pass_count_min=pass_count_min,
+                reset_counts=reset_counts,
+            )
+
     def setup_slice_mode(
         self,
         text: str,
@@ -637,7 +693,7 @@ class TypingAdapter(QObject):
     ) -> int:
         """代理：初始化分片载文模式。返回总片数。"""
         if self._session_context:
-            return self._session_context.setup_slice_mode(
+            total = self._session_context.setup_slice_mode(
                 text=text,
                 slice_size=slice_size,
                 start_slice=start_slice,
@@ -647,6 +703,8 @@ class TypingAdapter(QObject):
                 pass_count_min=pass_count_min,
                 on_fail_action=on_fail_action,
             )
+            self._slice_index = self._session_context.slice_index  # 同步适配器字段
+            return total
         return 0
 
     def get_current_slice_text(self) -> str:
@@ -660,6 +718,11 @@ class TypingAdapter(QObject):
         if self._session_context:
             return self._session_context.get_shuffled_slice_text()
         return ""
+
+    def set_current_slice_content(self, content: str) -> None:
+        """缓存当前段文本内容（所有分片模式统一入口）。"""
+        if self._session_context:
+            self._session_context.current_slice_content = content
 
     def collect_slice_result(self, stats: dict | None) -> None:
         """代理：收集当前片的 SessionStat 快照。"""
