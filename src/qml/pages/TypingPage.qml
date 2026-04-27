@@ -305,6 +305,10 @@ Item {
                 var total = appBridge ? appBridge.totalSliceCount : 0;
                 newRecord.sliceInfo = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
             }
+            // 确保 segmentNo 键始终存在，避免 TableModel role 警告
+            if (newRecord.segmentNo === undefined) {
+                newRecord.segmentNo = "";
+            }
             historyArea.tableModel.insertRow(0, newRecord);
             while (historyArea.tableModel.rows.length > typingPage.historyMaxRows) {
                 historyArea.tableModel.removeRow(historyArea.tableModel.rows.length - 1);

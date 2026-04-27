@@ -213,7 +213,6 @@ class Bridge(QObject):
 
     def _on_history_record(self, record: dict) -> None:
         record = dict(record)
-        record.setdefault("segmentNo", "")
         if self._pending_history_segment_label or self._pending_history_score_text:
             if self._pending_history_segment_label:
                 record["segmentNo"] = self._pending_history_segment_label

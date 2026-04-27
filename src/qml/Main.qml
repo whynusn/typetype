@@ -19,6 +19,8 @@ FluentWindow {
     onActiveChanged: {
         if (!active && appBridge) {
             appBridge.pauseTypingFromWindowDeactivate()
+        } else if (active && appBridge && appBridge.typingPaused) {
+            appBridge.toggleTypingPause()
         }
     }
 
