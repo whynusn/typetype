@@ -82,6 +82,29 @@ class MacKeyListener(QObject):
         self._event_tap = None
         log_info("macOS 全局键盘监听器已停止")
 
+    # === Protocol stubs（macOS 无设备枚举概念，不会调用） ===
+
+    def get_all_devices(self) -> list[dict[str, Any]]:
+        return []
+
+    def get_selected_device_paths(self) -> list[str]:
+        return []
+
+    def set_selected_device_paths(self, paths: list[str]) -> None:
+        pass
+
+    def has_selected_devices(self) -> bool:
+        return False
+
+    def get_active_device_paths(self) -> list[str]:
+        return []
+
+    def restart_with_selection(self, paths: list[str]) -> None:
+        pass
+
+    def restart_auto_detect(self) -> None:
+        pass
+
     @staticmethod
     def _load_quartz() -> Any:
         try:

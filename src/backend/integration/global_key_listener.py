@@ -1,113 +1,311 @@
+"""全局键盘监听器（evdev 实现）。
+
+职责：
+- 自动发现键盘输入设备（严格/宽松两阶段扫描）
+- 支持手动设备选择（QSettings 持久化）
+- 将 evdev 按键事件转为 Qt 信号
+"""
+
+from __future__ import annotations
+
 from typing import Any
 
-from PySide6.QtCore import QObject, QSocketNotifier, Signal
+from PySide6.QtCore import QObject, QSettings, QSocketNotifier, Signal
 
 from ..ports.key_codes import KeyCodes
-from ..utils.logger import log_error, log_info
+from ..utils.logger import log_debug, log_error, log_info
 
 
-class GlobalKeyListener(QObject):  # 继承 QObject 而非 QThread
-    keyPressed = Signal(int, str)  # 发送 (按键码, 设备名)
+class GlobalKeyListener(QObject):
+    keyPressed = Signal(int, str)  # (按键码, 设备名)
+
+    SETTINGS_KEY = "key_listener/device_paths"
+    STRICT_SCAN = "strict"
+    PERMISSIVE_SCAN = "permissive"
 
     def __init__(self):
         super().__init__()
-
-        # 只有当这个类被实例化时，才会执行这里的 import
         try:
             from evdev import InputDevice, ecodes, list_devices
 
-            # 将导入的对象绑定到 self 上，这样其他方法就可以通过 self 访问了
             self.InputDevice = InputDevice
             self.ecodes = ecodes
             self.list_devices = list_devices
         except ImportError:
-            # 如果在 Linux 下但没装库，或者意外在 Windows 下被实例化了，给出提示
             log_error(
                 "Error: evdev library not found. This module only works on Linux."
             )
             raise
 
-        self.devices = []  # 存储所有设备
-        self.notifiers = []  # 存储所有 notifier
+        self.devices: list[Any] = []
+        self.notifiers: list[QSocketNotifier] = []
         self._pressed_shortcut_modifiers: dict[int, set[int]] = {}
 
-    def _is_keyboard(self, device):
-        """识别设备是否为键盘"""
+    # ==========================================
+    # 设备识别
+    # ==========================================
+
+    def _is_keyboard_strict(self, device) -> bool:
+        """严格模式：标准键盘识别。
+
+        排除条件（可能误杀蓝牙键盘）：
+        - EV_REL (鼠标) → 排除
+        - EV_ABS (触摸板/手柄/带触摸条的键盘) → 排除
+        """
         caps = device.capabilities()
 
-        # 1. 必须支持按键
         if self.ecodes.EV_KEY not in caps:
             return False
-
-        # 2. 排除鼠标：如果有相对位移 (REL_X, REL_Y)，通常是鼠标
         if self.ecodes.EV_REL in caps:
             return False
-
-        # 3. 排除触摸板/手柄：如果有绝对坐标 (ABS_X, ABS_Y)，通常不是纯键盘
-        # 注意：极少数带触摸条的键盘可能会触发这个，视情况而定可注释掉这行
         if self.ecodes.EV_ABS in caps:
             return False
 
-        # 4. (进阶) 确认它有真正的键盘按键，而不是只有几个怪按钮
-        # 我们检查它是否包含标准键盘区的按键 (例如 KEY_A 到 KEY_Z, 或者 ESC)
-        # 键盘的标准键码通常小于 256 (0x100)
         keys = caps[self.ecodes.EV_KEY]
-        # 只要有一个典型的键盘键，我们就认为它是键盘
-        # 比如 KEY_ESC (1), KEY_1 (2), KEY_Q (16) 等
-        # 这里简单判断：如果有小于 256 的键码，且不是单纯只有鼠标键
+        return any(k < 256 for k in keys)
+
+    def _is_keyboard_permissive(self, device) -> bool:
+        """宽松模式：放宽条件以适应蓝牙键盘、带触摸条的键盘等。
+
+        仅排除：
+        - EV_REL (鼠标) — 有鼠标功能的设备不可能是纯键盘
+        - 没有任何标准键盘键码的设备
+        """
+        caps = device.capabilities()
+
+        if self.ecodes.EV_KEY not in caps:
+            return False
+        # 排除鼠标：有相对位移的设备
+        if self.ecodes.EV_REL in caps:
+            return False
+
+        keys = caps[self.ecodes.EV_KEY]
+        return any(k < 256 for k in keys)
+
+    def _classify_device(self, device) -> str:
+        """分类设备类型（用于诊断日志和 UI 展示）。"""
+        caps = device.capabilities()
+
+        if self.ecodes.EV_KEY not in caps:
+            return "non-keyboard"
+
+        has_rel = self.ecodes.EV_REL in caps
+        has_abs = self.ecodes.EV_ABS in caps
+        keys = caps.get(self.ecodes.EV_KEY, [])
         has_keyboard_keys = any(k < 256 for k in keys)
 
-        return has_keyboard_keys
+        if has_rel and has_keyboard_keys:
+            # 部分键盘带鼠标功能（罕见）
+            return "keyboard" if not has_abs else "ambiguous"
+        if has_rel:
+            return "mouse"
+        if has_abs and not has_keyboard_keys:
+            return "touchpad/gamepad"
+        if has_abs and has_keyboard_keys:
+            # 带触摸条的键盘（如某些蓝牙键盘）
+            return "keyboard"
+        if has_keyboard_keys:
+            return "keyboard"
+        return "unknown"
 
-    def _find_all_keyboards(self):
-        """添加所有键盘设备"""
-        keyboards = []
-        paths = self.list_devices()
+    def get_all_devices(self) -> list[dict[str, Any]]:
+        """获取所有可用输入设备（用于 UI 展示）。
+
+        Returns:
+            [{"path": str, "name": str, "type": str, "is_keyboard": bool}, ...]
+        """
+        devices = []
+        for path in self.list_devices():
+            try:
+                device = self.InputDevice(path)
+                device_type = self._classify_device(device)
+                devices.append({
+                    "path": path,
+                    "name": device.name,
+                    "type": device_type,
+                    "is_keyboard": device_type == "keyboard",
+                })
+                device.close()
+            except Exception as exc:
+                log_debug(f"无法读取设备 {path}: {exc}")
+        return devices
+
+    # ==========================================
+    # 自动发现
+    # ==========================================
+
+    def _find_all_keyboards(self) -> list[Any]:
+        """自动发现键盘设备（两阶段扫描）。
+
+        1. 严格模式：标准键盘（排除 EV_ABS）
+        2. 宽松模式：放宽条件（蓝牙键盘、带触摸条的键盘）
+        """
+        # 阶段一：严格扫描
+        strict_keyboards = self._scan_with(self._is_keyboard_strict)
+        if strict_keyboards:
+            log_info(
+                f"严格模式发现 {len(strict_keyboards)} 个键盘"
+            )
+            return strict_keyboards
+
+        # 阶段二：宽松扫描（严格模式未找到时回退）
+        log_info("严格模式未发现键盘，切换到宽松模式...")
+        permissive_keyboards = self._scan_with(self._is_keyboard_permissive)
+        if permissive_keyboards:
+            log_info(
+                f"宽松模式发现 {len(permissive_keyboards)} 个键盘"
+            )
+            return permissive_keyboards
+
+        return []
+
+    def _scan_with(self, predicate) -> list[Any]:
+        """用指定谓词扫描所有输入设备。"""
+        found = []
+        for path in self.list_devices():
+            try:
+                device = self.InputDevice(path)
+                if predicate(device):
+                    found.append(device)
+                    log_info(f"发现键盘: {device.name} ({path})")
+                else:
+                    device.close()
+            except Exception as exc:
+                log_debug(f"扫描设备 {path} 时出错: {exc}")
+        return found
+
+    # ==========================================
+    # 手动设备选择
+    # ==========================================
+
+    def get_selected_device_paths(self) -> list[str]:
+        """从 QSettings 读取手动选择的设备路径。"""
+        settings = QSettings()
+        count = settings.beginReadArray(self.SETTINGS_KEY)
+        paths = []
+        for i in range(count):
+            settings.setArrayIndex(i)
+            path = settings.value("path", "")
+            if path:
+                paths.append(path)
+        settings.endArray()
+        return paths
+
+    def set_selected_device_paths(self, paths: list[str]) -> None:
+        """保存手动选择的设备路径到 QSettings。"""
+        settings = QSettings()
+        settings.beginWriteArray(self.SETTINGS_KEY)
+        for i, path in enumerate(paths):
+            settings.setArrayIndex(i)
+            settings.setValue("path", path)
+        settings.endArray()
+        settings.sync()
+
+    def clear_selected_device_paths(self) -> None:
+        """清除手动设备选择（恢复到自动发现）。"""
+        settings = QSettings()
+        settings.beginWriteArray(self.SETTINGS_KEY)
+        settings.remove("")  # 清空整个数组
+        settings.endArray()
+
+    def has_selected_devices(self) -> bool:
+        """是否已配置手动设备选择。"""
+        return bool(self.get_selected_device_paths())
+
+    def get_active_device_paths(self) -> list[str]:
+        """返回当前正在监听的设备路径。"""
+        return [
+            d.path for d in self.devices
+            if hasattr(d, "path") and d.path
+        ]
+
+    def _open_selected_devices(self, paths: list[str]) -> list[Any]:
+        """打开指定路径的 evdev 设备。"""
+        devices = []
         for path in paths:
-            device = self.InputDevice(path)
-            # 判断是否为键盘
-            if self._is_keyboard(device):
-                keyboards.append(device)
-                log_info(f"发现键盘: {device.name} ({path})")
-        return keyboards
+            try:
+                device = self.InputDevice(path)
+                devices.append(device)
+                log_info(f"手动选择设备: {device.name} ({path})")
+            except Exception as exc:
+                log_error(f"无法打开设备 {path}: {exc}")
+        return devices
 
-    def make_handler(self, dev):
-        """这个槽函数用来即时返回对应device的事件处理函数, 专门用来抵抗lambda函数的惰性"""
-        return lambda: self._handle_events(dev)
+    # ==========================================
+    # 生命周期
+    # ==========================================
 
-    def start(self):
-        """启动所有键盘的监听"""
-        self.devices = self._find_all_keyboards()
+    def start(self) -> None:
+        """启动监听。优先使用手动选择的设备，否则自动发现。"""
+        # 1. 尝试手动选择
+        selected_paths = self.get_selected_device_paths()
+        if selected_paths:
+            log_info("检测到手动设备配置，尝试打开...")
+            self.devices = self._open_selected_devices(selected_paths)
+
+        # 2. 手动设备打开失败或未配置 → 自动发现
         if not self.devices:
+            log_info("自动发现键盘设备...")
+            self.devices = self._find_all_keyboards()
+
+        # 3. 仍未找到 → 诊断信息并报错
+        if not self.devices:
+            all_devices = self.get_all_devices()
+            log_info("系统输入设备列表:")
+            for d in all_devices:
+                log_info(f"  {d['path']}: {d['name']} ({d['type']})")
             raise RuntimeError(
-                "未找到可访问的键盘输入设备。请确认当前用户在 input 组中，"
-                "且 /dev/input/event* 有读取权限。"
+                "未找到可访问的键盘输入设备。\n"
+                "可能的原因：\n"
+                "1. 当前用户不在 input 组，无法读取 /dev/input/event* — "
+                "尝试: sudo usermod -a -G input $USER && 重新登录\n"
+                "2. 蓝牙键盘未配对或未连接\n"
+                "3. 在设置页中手动选择设备"
             )
 
+        # 4. 注册 socket notifier
         for device in self.devices:
             notifier = QSocketNotifier(device.fd, QSocketNotifier.Read)
-            notifier.activated.connect(
-                self.make_handler(device)
-            )  # 不直接把lambda作为槽函数是因为lambda函数是惰性的，并不能立即得到对应的device的函数引用, 在调用时总是指向同一个device对象（也就是最后一个）
+            notifier.activated.connect(self.make_handler(device))
             self.notifiers.append(notifier)
 
-    def stop(self):
-        """立即停止，无需等待"""
+    def make_handler(self, dev):
+        return lambda: self._handle_events(dev)
+
+    def stop(self) -> None:
+        """停止监听。"""
         log_info("正在停止监听器...")
         for notifier in self.notifiers:
             if notifier:
-                notifier.setEnabled(False)  # 禁用通知
-                notifier.deleteLater()  # 延迟删除
-                notifier = None
+                notifier.setEnabled(False)
+                notifier.deleteLater()
 
         for device in self.devices:
             if device:
                 device.close()
-                device = None
+
+        self.notifiers.clear()
+        self.devices.clear()
+        self._pressed_shortcut_modifiers.clear()
         log_info("监听器已停止")
 
+    def restart_with_selection(self, paths: list[str]) -> None:
+        """停止当前监听并使用指定设备重新启动。"""
+        self.stop()
+        self.set_selected_device_paths(paths)
+        self.start()
+
+    def restart_auto_detect(self) -> None:
+        """停止当前监听并恢复自动发现。"""
+        self.stop()
+        self.clear_selected_device_paths()
+        self.start()
+
+    # ==========================================
+    # 事件处理
+    # ==========================================
+
     def _handle_events(self, device):
-        """统一处理所有设备的按键事件"""
         try:
             for event in device.read():
                 if event.type != self.ecodes.EV_KEY:
@@ -120,10 +318,8 @@ class GlobalKeyListener(QObject):  # 继承 QObject 而非 QThread
                 if self._should_ignore_shortcut_key(device, event.code):
                     continue
 
-                # 发送信号时附带设备名，方便区分
                 self.keyPressed.emit(event.code, device.name)
         except BlockingIOError:
-            # 资源暂时不可用是正常现象，直接忽略
             pass
 
     @staticmethod

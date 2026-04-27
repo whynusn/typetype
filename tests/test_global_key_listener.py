@@ -47,30 +47,55 @@ class TestGlobalKeyListenerLogic:
         listener._pressed_shortcut_modifiers = {}
         return listener
 
-    def test_is_keyboard_true(self):
+    def test_is_keyboard_strict_true(self):
         listener = self._listener_with_ecodes()
         dev = FakeDevice({1: [1, 30, 48]})
-        assert listener._is_keyboard(dev) is True
+        assert listener._is_keyboard_strict(dev) is True
+        assert listener._is_keyboard_permissive(dev) is True
 
     def test_is_keyboard_missing_ev_key(self):
         listener = self._listener_with_ecodes()
         dev = FakeDevice({2: [0, 1]})
-        assert listener._is_keyboard(dev) is False
+        assert listener._is_keyboard_strict(dev) is False
+        assert listener._is_keyboard_permissive(dev) is False
 
     def test_is_keyboard_false_when_has_ev_rel(self):
         listener = self._listener_with_ecodes()
         dev = FakeDevice({1: [1, 30], 2: [0, 1]})
-        assert listener._is_keyboard(dev) is False
+        assert listener._is_keyboard_strict(dev) is False
+        assert listener._is_keyboard_permissive(dev) is False
 
-    def test_is_keyboard_false_when_has_ev_abs(self):
+    def test_is_keyboard_strict_excludes_ev_abs(self):
         listener = self._listener_with_ecodes()
         dev = FakeDevice({1: [1, 30], 3: [0, 1]})
-        assert listener._is_keyboard(dev) is False
+        assert listener._is_keyboard_strict(dev) is False
+        assert listener._is_keyboard_permissive(dev) is True
 
     def test_is_keyboard_false_when_only_high_keycodes(self):
         listener = self._listener_with_ecodes()
         dev = FakeDevice({1: [300, 400]})
-        assert listener._is_keyboard(dev) is False
+        assert listener._is_keyboard_strict(dev) is False
+        assert listener._is_keyboard_permissive(dev) is False
+
+    def test_classify_device_keyboard(self):
+        listener = self._listener_with_ecodes()
+        dev = FakeDevice({1: [1, 30, 48]})
+        assert listener._classify_device(dev) == "keyboard"
+
+    def test_classify_device_mouse(self):
+        listener = self._listener_with_ecodes()
+        dev = FakeDevice({1: [272], 2: [0, 1]})
+        assert listener._classify_device(dev) == "mouse"
+
+    def test_classify_device_touchpad(self):
+        listener = self._listener_with_ecodes()
+        dev = FakeDevice({3: [0, 1]})
+        assert listener._classify_device(dev) == "non-keyboard"
+
+    def test_classify_device_non_keyboard(self):
+        listener = self._listener_with_ecodes()
+        dev = FakeDevice({2: [0, 1]})
+        assert listener._classify_device(dev) == "non-keyboard"
 
     def test_control_shortcut_letter_is_not_emitted(self):
         listener = self._listener_with_signal()
