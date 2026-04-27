@@ -174,22 +174,22 @@ Dialog {
             }
         }
 
-        var keyStrokeMin = parseInt(keyStrokeMinField.text.trim());
+        var keyStrokeMin = parseInt(keyStrokeMinSpin.value);
         if (!Number.isInteger(keyStrokeMin) || keyStrokeMin < 0 || keyStrokeMin > 999) {
             return "击键阈值必须在 0 到 999 之间";
         }
 
-        var speedMin = parseInt(speedMinField.text.trim());
+        var speedMin = parseInt(speedMinSpin.value);
         if (!Number.isInteger(speedMin) || speedMin < 0 || speedMin > 999) {
             return "速度阈值必须在 0 到 999 之间";
         }
 
-        var accuracyMin = parseInt(accuracyMinField.text.trim());
+        var accuracyMin = parseInt(accuracyMinSpin.value);
         if (!Number.isInteger(accuracyMin) || accuracyMin < 0 || accuracyMin > 100) {
             return "键准阈值必须在 0 到 100 之间";
         }
 
-        var passCountMin = parseInt(passCountMinField.text.trim());
+        var passCountMin = parseInt(passCountMinSpin.value);
         if (!Number.isInteger(passCountMin) || passCountMin < 1 || passCountMin > 9999) {
             return "达标次数必须在 1 到 9999 之间";
         }
@@ -266,10 +266,11 @@ Dialog {
         root.validationMessage = "";
         sliceSizeField.text = "10";
         startSliceField.text = "1";
-        keyStrokeMinField.text = "6";
-        speedMinField.text = "100";
-        accuracyMinField.text = "95";
-        passCountMinField.text = "1";
+        keyStrokeMinSpin.value = 6;
+        speedMinSpin.value = 100;
+        accuracyMinSpin.value = 95;
+        passCountMinSpin.value = 1;
+        onFailActionCombo.currentIndex = 1; // 默认“重打”，避免默认乱序
         root.refreshSourceOptions();
         if (appBridge) {
             appBridge.loadCatalog();
@@ -346,19 +347,24 @@ Dialog {
             startSlice = 1;
         }
 
-        var keyStrokeMin = parseInt(keyStrokeMinField.text.trim());
-        var speedMin = parseInt(speedMinField.text.trim());
-        var accuracyMin = parseInt(accuracyMinField.text.trim());
-        var passCountMin = parseInt(passCountMinField.text.trim());
+        var keyStrokeMin = parseInt(keyStrokeMinSpin.value);
+        var speedMin = parseInt(speedMinSpin.value);
+        var accuracyMin = parseInt(accuracyMinSpin.value);
+        var passCountMin = parseInt(passCountMinSpin.value);
         var onFailAction = onFailActionCombo.currentValue;
 
         if (appBridge) {
+            // 先设置全部参数（含推进模式/全文乱序）
+            appBridge.setSliceCriteria(
+                keyStrokeMin, speedMin, accuracyMin, passCountMin,
+                openCondition ? onFailAction : "none",
+                advanceModeCombo.currentValue,
+                fullShuffleCheck.checked
+            );
             if (fullText) {
                 appBridge.loadFullText(text, root.selectedSourceKey);
-            } else if (!openCondition) {
-                appBridge.setupSliceMode(text, sliceSize, startSlice, keyStrokeMin, speedMin, accuracyMin, passCountMin, "none");
             } else {
-                appBridge.setupSliceMode(text, sliceSize, startSlice, keyStrokeMin, speedMin, accuracyMin, passCountMin, onFailAction);
+                appBridge.setupSliceMode(text, sliceSize, startSlice, keyStrokeMin, speedMin, accuracyMin, passCountMin, openCondition ? onFailAction : "none");
             }
         }
         root.close();
@@ -636,11 +642,12 @@ Dialog {
                     }
                 }
 
-                // --- 合格指标 ---
+                // --- 自动推进 ---
                 Frame {
                     Layout.fillWidth: true
                     radius: 6
                     hoverable: false
+                    padding: 8
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -650,10 +657,8 @@ Dialog {
                             Layout.fillWidth: true
 
                             Text {
-                                text: "合格指标（四个条件需同时满足）"
-                                font.bold: true
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                                typography: Typography.BodyStrong
+                                text: qsTr("自动推进")
                             }
 
                             Item {
@@ -663,149 +668,168 @@ Dialog {
                             CheckBox {
                                 id: conditionCheck
                                 enabled: sliceModeCheck.checked
-                                Layout.alignment: Qt.AlignRight
-                                text: "开启"
-                                onCheckedChanged: root.refreshValidationMessage()
+                                text: qsTr("开启")
                             }
                         }
-                        // 击键
+
+                        Text {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
+                            Layout.fillWidth: true
+                            typography: Typography.Caption
+                            text: qsTr("每段达标后自动跳转下一段，达标条件与未达标行为如下：")
+                            wrapMode: Text.Wrap
+                        }
+
+                        // 推进模式
                         RowLayout {
                             visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 8
+
                             Text {
-                                text: "击键"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                                typography: Typography.Body
+                                text: qsTr("推进模式")
                             }
-                            Text {
-                                text: "≥"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                            }
-                            TextField {
-                                id: keyStrokeMinField
-                                Layout.preferredWidth: 72
-                                text: "6"
-                                inputMethodHints: Qt.ImhDigitsOnly
-                                validator: IntValidator {
-                                    bottom: 0
-                                    top: 999
+
+                            ComboBox {
+                                id: advanceModeCombo
+                                model: ListModel {
+                                    ListElement {
+                                        text: qsTr("顺序下一段")
+                                        value: "sequential"
+                                    }
+                                    ListElement {
+                                        text: qsTr("随机下一段")
+                                        value: "random"
+                                    }
                                 }
-                                onTextChanged: root.refreshValidationMessage()
+                                textRole: "text"
+                                valueRole: "value"
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            CheckBox {
+                                id: fullShuffleCheck
+                                text: qsTr("分片前打乱全文")
+                            }
+                        }
+
+                        // 达标条件
+                        Text {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
+                            typography: Typography.Body
+                            text: qsTr("达标条件")
+                        }
+
+                        RowLayout {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
+                            Layout.fillWidth: true
+                            spacing: 6
+
+                            Text {
+                                typography: Typography.Body
+                                text: qsTr("击键 ≥")
+                            }
+                            SpinBox {
+                                id: keyStrokeMinSpin
+                                Layout.preferredWidth: 128
+                                Layout.preferredHeight: 34
+                                from: 0
+                                to: 99
+                                value: 6
+                                stepSize: 1
+                                editable: true
                             }
                             Text {
-                                text: "次/秒"
-                                font.pixelSize: 11
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                                typography: Typography.Caption
+                                text: qsTr("次/秒")
                             }
                             Item {
                                 Layout.fillWidth: true
                             }
                         }
 
-                        // 速度
                         RowLayout {
                             visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 6
+
                             Text {
-                                text: "速度"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                                typography: Typography.Body
+                                text: qsTr("速度 ≥")
+                            }
+                            SpinBox {
+                                id: speedMinSpin
+                                Layout.preferredWidth: 128
+                                Layout.preferredHeight: 34
+                                from: 0
+                                to: 999
+                                value: 100
+                                stepSize: 10
+                                editable: true
                             }
                             Text {
-                                text: "≥"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                            }
-                            TextField {
-                                id: speedMinField
-                                Layout.preferredWidth: 72
-                                text: "100"
-                                inputMethodHints: Qt.ImhDigitsOnly
-                                validator: IntValidator {
-                                    bottom: 0
-                                    top: 999
-                                }
-                                onTextChanged: root.refreshValidationMessage()
-                            }
-                            Text {
-                                text: "字/分"
-                                font.pixelSize: 11
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                                typography: Typography.Caption
+                                text: qsTr("字/分")
                             }
                             Item {
                                 Layout.fillWidth: true
                             }
                         }
 
-                        // 键准
                         RowLayout {
                             visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 6
+
                             Text {
-                                text: "键准"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                                typography: Typography.Body
+                                text: qsTr("键准 ≥")
+                            }
+                            SpinBox {
+                                id: accuracyMinSpin
+                                Layout.preferredWidth: 128
+                                Layout.preferredHeight: 34
+                                from: 0
+                                to: 100
+                                value: 95
+                                stepSize: 5
+                                editable: true
                             }
                             Text {
-                                text: "≥"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                            }
-                            TextField {
-                                id: accuracyMinField
-                                Layout.preferredWidth: 72
-                                text: "95"
-                                inputMethodHints: Qt.ImhDigitsOnly
-                                validator: IntValidator {
-                                    bottom: 0
-                                    top: 100
-                                }
-                                onTextChanged: root.refreshValidationMessage()
-                            }
-                            Text {
+                                typography: Typography.Caption
                                 text: "%"
-                                font.pixelSize: 11
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
                             }
                             Item {
                                 Layout.fillWidth: true
                             }
                         }
 
-                        // 达标次数
                         RowLayout {
                             visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
-                            spacing: 8
+                            spacing: 6
+
                             Text {
-                                text: "达标次数"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                                typography: Typography.Body
+                                text: qsTr("连达标 ≥")
+                            }
+                            SpinBox {
+                                id: passCountMinSpin
+                                Layout.preferredWidth: 128
+                                Layout.preferredHeight: 34
+                                from: 1
+                                to: 99
+                                value: 1
+                                stepSize: 1
+                                editable: true
                             }
                             Text {
-                                text: "≥"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                            }
-                            TextField {
-                                id: passCountMinField
-                                Layout.preferredWidth: 72
-                                text: "1"
-                                inputMethodHints: Qt.ImhDigitsOnly
-                                validator: IntValidator {
-                                    bottom: 1
-                                    top: 9999
-                                }
-                                onTextChanged: root.refreshValidationMessage()
-                            }
-                            Text {
-                                text: "次"
-                                font.pixelSize: 11
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                                typography: Typography.Caption
+                                text: qsTr("次")
                             }
                             Item {
                                 Layout.fillWidth: true
@@ -814,41 +838,42 @@ Dialog {
 
                         Text {
                             visible: conditionCheck.checked && sliceModeCheck.checked
-                            text: "四个条件需同时满足才算达标，任一不满足即触发下方设定的事件"
-                            font.pixelSize: 11
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                            wrapMode: Text.Wrap
                             Layout.fillWidth: true
+                            typography: Typography.Caption
+                            text: qsTr("击键、速度、键准均达标且无错字算一次合格")
+                            wrapMode: Text.Wrap
                         }
 
                         RowLayout {
                             visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 8
+
                             Text {
-                                text: "未达标或有错字时:"
-                                font.pixelSize: 13
-                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                                typography: Typography.Body
+                                text: qsTr("未达标/有错字")
                             }
+
                             ComboBox {
                                 id: onFailActionCombo
                                 model: ListModel {
                                     ListElement {
-                                        text: "乱序(重打)"
+                                        text: qsTr("乱序重打")
                                         value: "shuffle"
                                     }
                                     ListElement {
-                                        text: "重打"
+                                        text: qsTr("重打")
                                         value: "retype"
                                     }
                                     ListElement {
-                                        text: "无"
+                                        text: qsTr("无动作")
                                         value: "none"
                                     }
                                 }
                                 textRole: "text"
                                 valueRole: "value"
                             }
+
                             Item {
                                 Layout.fillWidth: true
                             }

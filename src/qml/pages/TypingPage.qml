@@ -300,11 +300,6 @@ Item {
         enabled: typingPage.active
 
         function onHistoryRecordUpdated(newRecord) {
-            // 载文模式：在字数列追加片索引标记（通过 sliceInfo 传递，避免修改 charNum 类型）
-            if (newRecord.slice_index !== undefined && newRecord.slice_index > 0) {
-                var total = appBridge ? appBridge.totalSliceCount : 0;
-                newRecord.sliceInfo = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
-            }
             // 确保 segmentNo 键始终存在，避免 TableModel role 警告
             if (newRecord.segmentNo === undefined) {
                 newRecord.segmentNo = "";
@@ -317,16 +312,32 @@ Item {
 
         function onTypingEnded() {
             if (appBridge && appBridge.sliceMode) {
-                // 载文模式：跳过 EndDialog，自动推进
                 appBridge.collectSliceResult();
                 if (appBridge.shouldRetype()) {
+                    // 重打（乱序或原样）：清空后由 handleSliceRetype 重新加载
+                    lowerPane.suppressTextChanged = true;
+                    lowerPane.text = "";
+                    lowerPane.suppressTextChanged = false;
+                    upperPane.setCursorAndScroll(0, false);
+                    upperPane.text = "";
                     appBridge.handleSliceRetype();
-                } else if (appBridge.isLastSlice()) {
-                    // 最后一片：复制综合成绩，不弹结束窗
-                    appBridge.copyAggregateScore();
-                    appBridge.exitSliceMode();
-                } else {
+                } else if (appBridge.getOnFailAction() !== "none") {
+                    // 达标且开启自动推进 → 载入下一段
+                    lowerPane.suppressTextChanged = true;
+                    lowerPane.text = "";
+                    lowerPane.suppressTextChanged = false;
+                    upperPane.setCursorAndScroll(0, false);
+                    upperPane.text = "";
                     appBridge.loadNextSlice();
+                } else {
+                    // 无自动推进：重置打字状态，保留当前文本
+                    lowerPane.suppressTextChanged = true;
+                    lowerPane.text = "";
+                    lowerPane.suppressTextChanged = false;
+                    appBridge.handleLoadedText(upperPane.textDocument, upperPane.text);
+                    Qt.callLater(function() {
+                        lowerPane.lastText = lowerPane.text;
+                    });
                 }
             } else if (appBridge && appBridge.isWenlaiActive && appBridge.wenlaiSegmentMode === "auto") {
                 appBridge.loadNextWenlaiSegmentWithScore();
@@ -556,7 +567,7 @@ Item {
 
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "片"
+                                    text: qsTr("段")
                                     font.pixelSize: 11
                                     font.bold: true
                                     color: Theme.currentTheme
@@ -581,7 +592,7 @@ Item {
                                 Text {
                                     text: typingPage.sliceStatusSecondaryText().length > 0
                                         ? typingPage.sliceStatusSecondaryText()
-                                        : "分片模式下的成绩仅本地记录，不提交排行榜"
+                                        : "分段模式下的成绩仅本地记录，不提交排行榜"
                                     font.pixelSize: 11
                                     color: Theme.currentTheme
                                         ? Theme.currentTheme.colors.textSecondaryColor
@@ -602,7 +613,7 @@ Item {
                             Item { Layout.fillWidth: true }
 
                             Button {
-                                text: "\u2190 上一段"
+                                text: "\u2190 " + qsTr("上一段")
                                 enabled: appBridge && appBridge.sliceIndex > 1
                                 visible: enabled
                                 onClicked: {
@@ -613,7 +624,17 @@ Item {
                             }
 
                             Button {
-                                text: "下一段 \u2192"
+                                text: qsTr("随机段")
+                                enabled: appBridge && appBridge.sliceMode
+                                onClicked: {
+                                    if (appBridge) {
+                                        appBridge.loadRandomSlice();
+                                    }
+                                }
+                            }
+
+                            Button {
+                                text: qsTr("下一段") + " \u2192"
                                 enabled: appBridge && appBridge.sliceIndex < appBridge.totalSliceCount
                                 visible: enabled
                                 onClicked: {
