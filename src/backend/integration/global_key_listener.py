@@ -119,12 +119,14 @@ class GlobalKeyListener(QObject):
             try:
                 device = self.InputDevice(path)
                 device_type = self._classify_device(device)
-                devices.append({
-                    "path": path,
-                    "name": device.name,
-                    "type": device_type,
-                    "is_keyboard": device_type == "keyboard",
-                })
+                devices.append(
+                    {
+                        "path": path,
+                        "name": device.name,
+                        "type": device_type,
+                        "is_keyboard": device_type == "keyboard",
+                    }
+                )
                 device.close()
             except Exception as exc:
                 log_debug(f"无法读取设备 {path}: {exc}")
@@ -143,18 +145,14 @@ class GlobalKeyListener(QObject):
         # 阶段一：严格扫描
         strict_keyboards = self._scan_with(self._is_keyboard_strict)
         if strict_keyboards:
-            log_info(
-                f"严格模式发现 {len(strict_keyboards)} 个键盘"
-            )
+            log_info(f"严格模式发现 {len(strict_keyboards)} 个键盘")
             return strict_keyboards
 
         # 阶段二：宽松扫描（严格模式未找到时回退）
         log_info("严格模式未发现键盘，切换到宽松模式...")
         permissive_keyboards = self._scan_with(self._is_keyboard_permissive)
         if permissive_keyboards:
-            log_info(
-                f"宽松模式发现 {len(permissive_keyboards)} 个键盘"
-            )
+            log_info(f"宽松模式发现 {len(permissive_keyboards)} 个键盘")
             return permissive_keyboards
 
         return []
@@ -214,10 +212,7 @@ class GlobalKeyListener(QObject):
 
     def get_active_device_paths(self) -> list[str]:
         """返回当前正在监听的设备路径。"""
-        return [
-            d.path for d in self.devices
-            if hasattr(d, "path") and d.path
-        ]
+        return [d.path for d in self.devices if hasattr(d, "path") and d.path]
 
     def _open_selected_devices(self, paths: list[str]) -> list[Any]:
         """打开指定路径的 evdev 设备。"""

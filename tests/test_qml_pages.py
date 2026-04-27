@@ -35,11 +35,11 @@ def test_trainer_page_uses_expected_bridge_contract():
     assert "onTrainersLoadFailed" in source
     assert "onTrainerSegmentLoaded" in source
     assert "onTrainerSegmentLoadFailed" in source
-    assert "currentIndex: 1 // 默认“重打”" in source
+    assert "currentIndex: 1" in source
     assert (
         'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
     )
-    assert "Qt.callLater(function() {" in source
+    assert "Qt.callLater(function () {" in source
 
 
 def test_local_articles_page_uses_expected_bridge_contract():
@@ -56,11 +56,11 @@ def test_local_articles_page_uses_expected_bridge_contract():
     assert "onLocalArticleSegmentLoaded" in source
     assert "onLocalArticleSegmentLoadFailed" in source
     assert "onLocalArticleLoadingChanged" in source
-    assert "currentIndex: 1 // 默认“重打”" in source
+    assert "currentIndex: 1" in source
     assert (
         'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
     )
-    assert "Qt.callLater(function() {" in source
+    assert "Qt.callLater(function () {" in source
 
 
 def test_local_articles_page_accepts_modified_timestamp_alias():
