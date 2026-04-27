@@ -12,6 +12,7 @@ FluentPage {
     property string lastWenlaiSegmentMode: appBridge ? appBridge.wenlaiSegmentMode : "manual"
     property bool syncingWenlaiControls: false
     property bool syncingZitiControls: false
+    property bool _populatingDeviceList: false
 
     ListModel {
         id: wenlaiDifficultyModel
@@ -128,6 +129,82 @@ FluentPage {
         syncingZitiControls = false
     }
 
+    function _deviceTypeLabel(type) {
+        var labels = {
+            "keyboard": qsTr("键盘"),
+            "mouse": qsTr("鼠标"),
+            "touchpad/gamepad": qsTr("触摸板/手柄"),
+            "non-keyboard": qsTr("非键盘"),
+            "ambiguous": qsTr("类型不明"),
+            "unknown": qsTr("未知"),
+        }
+        return labels[type] || type
+    }
+
+    function _refreshDeviceList() {
+        _populatingDeviceList = true
+        deviceListModel.clear()
+        if (!appBridge) {
+            _populatingDeviceList = false
+            return
+        }
+        var devices = appBridge.listAvailableInputDevices()
+        if (!devices || devices.length === 0) {
+            deviceStatusText.text = qsTr("未发现输入设备")
+            deviceStatusText.visible = true
+            _populatingDeviceList = false
+            return
+        }
+        // 排序：活动设备 → 键盘 → 其他
+        devices.sort(function(a, b) {
+            if (a.active !== b.active) return a.active ? -1 : 1
+            if (a.is_keyboard !== b.is_keyboard) return a.is_keyboard ? -1 : 1
+            return 0
+        })
+        for (var i = 0; i < devices.length; i++) {
+            deviceListModel.append({
+                path: devices[i].path,
+                name: devices[i].name,
+                type: devices[i].type,
+                is_keyboard: devices[i].is_keyboard,
+                selected: devices[i].selected || false,
+                active: devices[i].active || false,
+            })
+        }
+        deviceStatusText.visible = false
+        _populatingDeviceList = false
+    }
+
+    function _applyDeviceSelection() {
+        var paths = []
+        for (var i = 0; i < deviceListModel.count; i++) {
+            if (deviceListModel.get(i).selected) {
+                paths.push(deviceListModel.get(i).path)
+            }
+        }
+        if (!appBridge)
+            return
+        if (paths.length > 0) {
+            appBridge.setKeyboardDevices(paths)
+        } else {
+            appBridge.resetKeyboardAutoDetect()
+        }
+        deviceStatusText.text = qsTr("已应用")
+        deviceStatusText.visible = true
+        _showTemporaryStatus()
+    }
+
+    function _showTemporaryStatus() {
+        var timer = Qt.createQmlObject(
+            "import QtQuick 2.15; Timer { interval: 3000; running: true; }",
+            this
+        )
+        timer.triggered.connect(function() {
+            deviceStatusText.visible = false
+            timer.destroy()
+        })
+    }
+
     Component.onCompleted: {
         syncWenlaiDifficultyModel([])
         syncWenlaiCategoryModel([])
@@ -137,6 +214,8 @@ FluentPage {
         }
         if (appBridge)
             appBridge.loadZitiSchemes()
+        // 延迟加载键盘设备列表，避免 evdev 扫描阻塞首次页面渲染
+        Qt.callLater(_refreshDeviceList)
     }
 
     Text {
@@ -385,6 +464,136 @@ FluentPage {
         }
     }
 
+    Text {
+        typography: Typography.Subtitle
+        text: qsTr("键盘设备")
+        Layout.topMargin: 16
+        Layout.bottomMargin: 8
+    }
+
+    SettingCard {
+        id: keyboardDeviceCard
+        Layout.fillWidth: true
+        title: appBridge && appBridge.hasManualKeyboardDevices
+            ? qsTr("键盘设备（手动选择）")
+            : qsTr("键盘设备（自动发现）")
+        icon.name: "ic_fluent_keyboard_20_regular"
+        description: qsTr("勾选要监听的输入设备")
+
+        RowLayout {
+            spacing: 6
+
+            Button {
+                text: qsTr("刷新")
+                onClicked: {
+                    if (appBridge)
+                        appBridge.refreshInputDevices()
+                }
+            }
+
+            Button {
+                text: qsTr("恢复自动发现")
+                enabled: appBridge && appBridge.hasManualKeyboardDevices
+                onClicked: {
+                    if (appBridge)
+                        appBridge.resetKeyboardAutoDetect()
+                }
+            }
+
+            Text {
+                id: deviceStatusText
+                typography: Typography.Caption
+                visible: false
+            }
+        }
+    }
+
+    Frame {
+        Layout.fillWidth: true
+        leftPadding: 15
+        rightPadding: 15
+        topPadding: 8
+        bottomPadding: 8
+        visible: deviceListModel.count > 0
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 4
+
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(deviceListModel.count * 32 + 4, 160)
+                clip: true
+
+                ColumnLayout {
+                    spacing: 1
+                    width: parent.width
+
+                    Repeater {
+                        id: deviceRepeater
+                        model: ListModel { id: deviceListModel }
+
+                        delegate: Rectangle {
+                            id: deviceRow
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 30
+                            color: model.active
+                                ? Theme.currentTheme.colors.cardColor
+                                : "transparent"
+                            radius: 4
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 2
+                                anchors.rightMargin: 4
+                                spacing: 6
+
+                                CheckBox {
+                                    id: deviceCheck
+                                    checked: model.selected
+                                    implicitHeight: 20
+                                    implicitWidth: 20
+                                    padding: 0
+                                    onCheckedChanged: {
+                                        if (_populatingDeviceList)
+                                            return
+                                        deviceListModel.setProperty(index, "selected", checked)
+                                        _applyDeviceSelection()
+                                    }
+                                }
+
+                                Rectangle {
+                                    id: activeDot
+                                    width: 6
+                                    height: 6
+                                    radius: 3
+                                    visible: model.active
+                                    color: Theme.currentTheme.colors.systemSuccessColor
+                                }
+
+                                Text {
+                                    text: model.name
+                                    typography: Typography.Body
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                    opacity: model.active ? 1.0 : 0.6
+                                }
+
+                                Text {
+                                    text: model.active
+                                        ? qsTr("活动中")
+                                        : _deviceTypeLabel(model.type)
+                                    typography: Typography.Caption
+                                    opacity: model.active ? 1.0 : 0.5
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Dialog {
         id: wenlaiManualModeDialog
         title: qsTr("晴发文换段模式")
@@ -504,6 +713,10 @@ FluentPage {
             syncingZitiControls = true
             zitiEnabledSwitch.checked = appBridge.zitiEnabled
             syncingZitiControls = false
+        }
+
+        function onKeyboardDevicesChanged() {
+            _refreshDeviceList()
         }
     }
 }
