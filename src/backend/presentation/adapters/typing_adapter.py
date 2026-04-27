@@ -119,6 +119,14 @@ class TypingAdapter(QObject):
         )
         self._cursor.setCharFormat(fmt)
 
+    def _clear_formatting(self) -> None:
+        """清除 QTextDocument 上的所有字符格式（着色），不改文本内容。"""
+        if not self._rich_doc:
+            return
+        cursor = QTextCursor(self._rich_doc)
+        cursor.select(QTextCursor.SelectionType.Document)
+        cursor.setCharFormat(QTextCharFormat())
+
     def _accumulate_time(self) -> None:
         self._typing_service.accumulate_time(self.timeInterval)
         self.totalTimeChanged.emit()
@@ -299,24 +307,33 @@ class TypingAdapter(QObject):
             s, grow_length
         )
 
-        if grow_length > 0:
-            # 新增字符：着色
-            for pos, char, is_error in char_updates:
-                if char:
-                    self._color_text(
-                        pos, 1, self._correct_fmt if not is_error else self._error_fmt
-                    )
-            self._emit_typing_signals()
-        else:
-            # 删除/替换：着色
-            for pos, char, is_error in char_updates:
-                if char:
-                    self._color_text(
-                        pos, 1, self._correct_fmt if not is_error else self._error_fmt
-                    )
+        if self._cursor and char_updates:
+            self._cursor.beginEditBlock()
+            try:
+                if grow_length > 0:
+                    # 新增字符：着色
+                    for pos, char, is_error in char_updates:
+                        if char:
+                            self._color_text(
+                                pos,
+                                1,
+                                self._correct_fmt if not is_error else self._error_fmt,
+                            )
                 else:
-                    self._color_text(pos, 1, self._no_fmt)
-            self._emit_typing_signals()
+                    # 删除/替换：着色
+                    for pos, char, is_error in char_updates:
+                        if char:
+                            self._color_text(
+                                pos,
+                                1,
+                                self._correct_fmt if not is_error else self._error_fmt,
+                            )
+                        else:
+                            self._color_text(pos, 1, self._no_fmt)
+            finally:
+                self._cursor.endEditBlock()
+
+        self._emit_typing_signals()
 
         if is_completed:
             self._check_typing_complete()
@@ -327,8 +344,8 @@ class TypingAdapter(QObject):
         if not quick_doc:
             return
         self._rich_doc = quick_doc.textDocument()
-        if text:
-            self._rich_doc.setPlainText(text)
+        # 清除上一轮打字留下的着色格式，不改文本内容
+        self._clear_formatting()
         plain_doc = self._rich_doc.toPlainText()
         self._cursor = QTextCursor(self._rich_doc)
         # 先 set_total_chars（归零 char_count），再 set_plain_doc（设置文本）

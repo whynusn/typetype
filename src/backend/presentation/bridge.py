@@ -212,8 +212,9 @@ class Bridge(QObject):
         self.windowTitleChanged.emit()
 
     def _on_history_record(self, record: dict) -> None:
+        record = dict(record)
+        record.setdefault("segmentNo", "")
         if self._pending_history_segment_label or self._pending_history_score_text:
-            record = dict(record)
             if self._pending_history_segment_label:
                 record["segmentNo"] = self._pending_history_segment_label
             if self._pending_history_score_text:

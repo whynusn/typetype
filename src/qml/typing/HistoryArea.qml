@@ -106,13 +106,34 @@ Pane {
             Text {
                 anchors.centerIn: parent
                 text: {
+                    var rowData = tableView.model.rows[row];
+                    if (!rowData) {
+                        return "";
+                    }
                     if (column === 8) {
-                        var rowData = tableView.model.rows[row];
-                        if (rowData && rowData.sliceInfo !== undefined) {
+                        if (rowData.sliceInfo !== undefined && rowData.sliceInfo !== null) {
                             return rowData.sliceInfo;
                         }
                     }
-                    return model.display;
+                    var roleKeyByColumn = [
+                        "segmentNo",
+                        "speed",
+                        "keyStroke",
+                        "codeLength",
+                        "wrongNum",
+                        "correctionCount",
+                        "backspaceCount",
+                        "keyAccuracy",
+                        "charNum",
+                        "time",
+                        "date"
+                    ];
+                    var roleKey = roleKeyByColumn[column];
+                    if (!roleKey) {
+                        return "";
+                    }
+                    var value = rowData[roleKey];
+                    return value === undefined || value === null ? "" : value;
                 }
                 color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : palette.text
                 font.pixelSize: 13

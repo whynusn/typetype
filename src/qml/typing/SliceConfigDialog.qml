@@ -154,7 +154,7 @@ Dialog {
             return "";
         }
 
-        if (!fullTextCheck.checked) {
+        if (sliceModeCheck.checked) {
             var sliceSize = root.sliceSizeValue();
             if (!Number.isInteger(sliceSize)) {
                 return "每片字数必须是整数";
@@ -264,7 +264,7 @@ Dialog {
     onOpened: {
         root.setContentText("");
         root.validationMessage = "";
-        sliceSizeField.text = "30";
+        sliceSizeField.text = "10";
         startSliceField.text = "1";
         keyStrokeMinField.text = "6";
         speedMinField.text = "100";
@@ -337,7 +337,8 @@ Dialog {
         }
 
         var sliceSize = root.sliceSizeValue();
-        var fullText = fullTextCheck.checked;
+        var fullText = !sliceModeCheck.checked;
+        var openCondition = conditionCheck.checked && sliceModeCheck.checked;
         var startSlice = parseInt(startSliceField.text.trim());
 
         if (fullText) {
@@ -354,6 +355,8 @@ Dialog {
         if (appBridge) {
             if (fullText) {
                 appBridge.loadFullText(text, root.selectedSourceKey);
+            } else if (!openCondition) {
+                appBridge.setupSliceMode(text, sliceSize, startSlice, keyStrokeMin, speedMin, accuracyMin, passCountMin, "none");
             } else {
                 appBridge.setupSliceMode(text, sliceSize, startSlice, keyStrokeMin, speedMin, accuracyMin, passCountMin, onFailAction);
             }
@@ -555,14 +558,29 @@ Dialog {
                         anchors.fill: parent
                         spacing: 8
 
-                        Text {
-                            text: "分片设置"
-                            font.bold: true
-                            font.pixelSize: 13
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                        RowLayout {
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: "分片设置"
+                                font.bold: true
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            CheckBox {
+                                id: sliceModeCheck
+                                text: "开启"
+                                onCheckedChanged: root.refreshValidationMessage()
+                            }
                         }
 
                         RowLayout {
+                            visible: sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 12
 
@@ -575,8 +593,8 @@ Dialog {
                             TextField {
                                 id: sliceSizeField
                                 Layout.preferredWidth: 88
-                                text: "30"
-                                enabled: !fullTextCheck.checked
+                                text: "10"
+                                enabled: sliceModeCheck.checked
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator {
                                     bottom: root.sliceSizeMin()
@@ -586,10 +604,10 @@ Dialog {
                             }
 
                             Text {
-                                text: fullTextCheck.checked ? "全文载入" : "输入 1 到 " + root.sliceSizeMax() + "的正整数"
+                                text: !sliceModeCheck.checked ? "全文载入" : "输入 1 到 " + root.sliceSizeMax() + "的正整数"
                                 font.pixelSize: 11
                                 color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                                enabled: !fullTextCheck.checked
+                                enabled: sliceModeCheck.checked
                             }
 
                             Text {
@@ -602,7 +620,7 @@ Dialog {
                                 id: startSliceField
                                 Layout.preferredWidth: 72
                                 text: "1"
-                                enabled: !fullTextCheck.checked
+                                enabled: sliceModeCheck.checked
                                 inputMethodHints: Qt.ImhDigitsOnly
                                 validator: IntValidator {
                                     bottom: 1
@@ -614,12 +632,6 @@ Dialog {
                             Item {
                                 Layout.fillWidth: true
                             }
-                        }
-
-                        CheckBox {
-                            id: fullTextCheck
-                            text: "全文载入（不分片）"
-                            onCheckedChanged: root.refreshValidationMessage()
                         }
                     }
                 }
@@ -634,15 +646,31 @@ Dialog {
                         anchors.fill: parent
                         spacing: 8
 
-                        Text {
-                            text: "合格指标（四个条件需同时满足）"
-                            font.bold: true
-                            font.pixelSize: 13
-                            color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                        }
+                        RowLayout {
+                            Layout.fillWidth: true
 
+                            Text {
+                                text: "合格指标（四个条件需同时满足）"
+                                font.bold: true
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            CheckBox {
+                                id: conditionCheck
+                                enabled: sliceModeCheck.checked
+                                Layout.alignment: Qt.AlignRight
+                                text: "开启"
+                                onCheckedChanged: root.refreshValidationMessage()
+                            }
+                        }
                         // 击键
                         RowLayout {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 8
                             Text {
@@ -678,6 +706,7 @@ Dialog {
 
                         // 速度
                         RowLayout {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 8
                             Text {
@@ -713,6 +742,7 @@ Dialog {
 
                         // 键准
                         RowLayout {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 8
                             Text {
@@ -748,6 +778,7 @@ Dialog {
 
                         // 达标次数
                         RowLayout {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 8
                             Text {
@@ -782,6 +813,7 @@ Dialog {
                         }
 
                         Text {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
                             text: "四个条件需同时满足才算达标，任一不满足即触发下方设定的事件"
                             font.pixelSize: 11
                             color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
@@ -790,6 +822,7 @@ Dialog {
                         }
 
                         RowLayout {
+                            visible: conditionCheck.checked && sliceModeCheck.checked
                             Layout.fillWidth: true
                             spacing: 8
                             Text {
@@ -822,40 +855,45 @@ Dialog {
                         }
                     }
                 }
-
-                Text {
-                    visible: root.validationMessage !== ""
-                    text: root.validationMessage
-                    font.pixelSize: 11
-                    color: Theme.currentTheme ? Theme.currentTheme.colors.systemCriticalColor : "#d13438"
-                    wrapMode: Text.Wrap
-                    Layout.fillWidth: true
-                }
-
-                // 底部间距（原开始按钮已移至 footer）
-                Item {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 4
-                }
             }
         }
     }
 
-    footer: DialogButtonBox {
-        alignment: Qt.AlignRight
-        padding: 24
-        spacing: 8
+    footer: ColumnLayout {
+        spacing: 0
+        width: parent.width
 
-        Button {
-            text: "取消"
-            DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-            onClicked: root.reject()
+        // 验证提示区域
+        Text {
+            visible: root.validationMessage !== ""
+            text: root.validationMessage
+            font.pixelSize: 11
+            color: Theme.currentTheme ? Theme.currentTheme.colors.systemCriticalColor : "#d13438"
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+            Layout.leftMargin: 24
+            Layout.rightMargin: 24
+            Layout.topMargin: 8
+            Layout.bottomMargin: 8
         }
-        Button {
-            text: "开始载文"
-            DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-            enabled: contentTextArea.text.trim().length > 0 && root.validationMessage === ""
-            onClicked: root.startSliceTyping()
+
+        DialogButtonBox {
+            Layout.fillWidth: true
+            alignment: Qt.AlignRight
+            padding: 24
+            spacing: 8
+
+            Button {
+                text: "取消"
+                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                onClicked: root.reject()
+            }
+            Button {
+                text: "开始载文"
+                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                enabled: contentTextArea.text.trim().length > 0 && root.validationMessage === ""
+                onClicked: root.startSliceTyping()
+            }
         }
     }
 }

@@ -57,6 +57,8 @@ class TypingSessionContext:
         self._text_id_resolved: bool = True
         self._slice_index: int = 0
         self._slice_total: int = 0
+        self._slice_size: int = 0
+        self._slice_text: str = ""
 
         # 分片载文状态
         self._slices: list[str] = []
@@ -189,11 +191,13 @@ class TypingSessionContext:
         if not text or slice_size <= 0:
             return 0
 
+        self._slice_text = text
+        self._slice_size = slice_size
+        self._slice_total = (len(text) + slice_size - 1) // slice_size
+        # 兼容字段保留（不再提前复制所有分片）
         self._slices = []
-        for i in range(0, len(text), slice_size):
-            self._slices.append(text[i : i + slice_size])
 
-        if not self._slices:
+        if self._slice_total <= 0:
             return 0
 
         self._key_stroke_min = key_stroke_min
@@ -201,13 +205,12 @@ class TypingSessionContext:
         self._accuracy_min = accuracy_min
         self._pass_count_min = pass_count_min
         self._on_fail_action = on_fail_action
-        self._start_slice = max(1, min(start_slice, len(self._slices)))
-        self._slice_pass_counts = [0] * len(self._slices)
+        self._start_slice = max(1, min(start_slice, self._slice_total))
+        self._slice_pass_counts = [0] * self._slice_total
         self._slice_stats = []
         self._source_mode = SourceMode.SLICE
         self._text_id = None
         self._slice_index = self._start_slice
-        self._slice_total = len(self._slices)
         self._phase = SessionPhase.READY
         self._derive_upload_status()
         return self._slice_total
@@ -215,9 +218,18 @@ class TypingSessionContext:
     def get_current_slice_text(self) -> str:
         """返回当前片文本。"""
         idx = self._slice_index - 1
-        if 0 <= idx < len(self._slices):
-            return self._slices[idx]
-        return ""
+        if (
+            idx < 0
+            or self._slice_size <= 0
+            or not self._slice_text
+            or self._slice_total <= 0
+        ):
+            return ""
+        start = idx * self._slice_size
+        end = start + self._slice_size
+        if start >= len(self._slice_text):
+            return ""
+        return self._slice_text[start:end]
 
     def get_shuffled_slice_text(self) -> str:
         """返回乱序后的当前片文本。"""
@@ -361,6 +373,8 @@ class TypingSessionContext:
     def exit_slice_mode(self) -> None:
         """退出载文模式，清理分片相关状态。"""
         self._slices = []
+        self._slice_text = ""
+        self._slice_size = 0
         self._slice_stats = []
         self._slice_pass_counts = []
         self._slice_index = 0

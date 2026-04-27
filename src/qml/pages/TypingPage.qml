@@ -12,6 +12,7 @@ Item {
     property bool showLeaderboard: false
     property string sliceStatusText: ""
     property string currentZitiHint: ""
+    readonly property int historyMaxRows: 200
 
     //=====================================
     // 函数
@@ -305,6 +306,9 @@ Item {
                 newRecord.sliceInfo = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
             }
             historyArea.tableModel.insertRow(0, newRecord);
+            while (historyArea.tableModel.rows.length > typingPage.historyMaxRows) {
+                historyArea.tableModel.removeRow(historyArea.tableModel.rows.length - 1);
+            }
         }
 
         function onTypingEnded() {

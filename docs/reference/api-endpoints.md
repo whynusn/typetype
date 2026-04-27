@@ -47,6 +47,32 @@
 |------|------|-----------|------|
 | GET | `/api/v1/texts/{textId}/leaderboard` | ✅ `LeaderboardFetcher` | ❌ |
 
+## 成绩提交契约（V2）
+
+### POST /api/v1/scores
+
+**请求体字段（必传）：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| textId | Long | 服务端文本ID（主键） |
+| speed | Decimal | 速度（字/分） |
+| keyStroke | Decimal | 击键速度（击/秒） |
+| codeLength | Decimal | 码长（击/字） |
+| charCount | Integer | 字符数 |
+| wrongCharCount | Integer | 错误字符数 |
+| backspaceCount | Integer | 退格键按下次数 |
+| correctionCount | Integer | 回改字数 |
+| keyAccuracy | Decimal | 键准（%） |
+| time | Decimal | 用时（秒） |
+
+**服务端返回派生字段（兼容）：**
+
+| 字段 | 计算公式 |
+|------|----------|
+| accuracyRate | `(charCount - wrongCharCount) / charCount * 100` |
+| effectiveSpeed | `speed * accuracyRate / 100` |
+
 ## 认证方式
 
 所有 `Auth=✅` 的端点需要 HTTP Header：

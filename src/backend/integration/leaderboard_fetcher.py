@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..infrastructure.api_client import ApiClient
-from ..utils.logger import log_warning
+from ..utils.logger import is_debug_enabled, log_debug, log_warning
 
 
 class LeaderboardFetcher:
@@ -176,23 +176,23 @@ class LeaderboardFetcher:
         if not isinstance(records, list):
             # 这是正常情况，在 loadCatalog 等调用中不会有 records
             return
-        from ..utils.logger import log_info
-
-        log_info(
-            f"[LeaderboardFetcher] Processing {len(records)} records, first record keys: {list(records[0].keys()) if records else 'none'}"
-        )
+        debug_enabled = is_debug_enabled()
+        if debug_enabled:
+            log_debug(
+                f"[LeaderboardFetcher] Processing {len(records)} records, first record keys: {list(records[0].keys()) if records else 'none'}"
+            )
         for record in records:
             # 防御：服务端可能返回 created_at（snake_case）
             if "created_at" in record and "createdAt" not in record:
-                log_info(
-                    f"[LeaderboardFetcher] Renaming created_at -> createdAt for record: {record}"
-                )
+                if debug_enabled:
+                    log_debug("[LeaderboardFetcher] Renaming created_at -> createdAt")
                 record["createdAt"] = record.pop("created_at")
 
             created_at = record.get("createdAt")
-            log_info(
-                f"[LeaderboardFetcher] Processing createdAt: type={type(created_at)}, value={created_at}"
-            )
+            if debug_enabled:
+                log_debug(
+                    f"[LeaderboardFetcher] Processing createdAt: type={type(created_at)}"
+                )
             if isinstance(created_at, list) and len(created_at) >= 5:
                 # [yyyy, MM, dd, HH, mm] or [yyyy, MM, dd, HH, mm, ss]
                 parts = [str(int(x)).zfill(2) for x in created_at[:6]]
