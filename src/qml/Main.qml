@@ -32,6 +32,24 @@ FluentWindow {
             position: Position.Top
         },
         {
+            title: qsTr("本地文库"),
+            page: Qt.resolvedUrl("pages/LocalArticlesPage.qml"),
+            icon: "ic_fluent_library_20_regular",
+            position: Position.None
+        },
+        {
+            title: qsTr("练单器"),
+            page: Qt.resolvedUrl("pages/TrainerPage.qml"),
+            icon: "ic_fluent_apps_list_detail_20_regular",
+            position: Position.None
+        },
+        {
+            title: qsTr("上传文本"),
+            page: Qt.resolvedUrl("pages/UploadTextPage.qml"),
+            icon: "ic_fluent_document_add_20_regular",
+            position: Position.None
+        },
+        {
             title: qsTr("薄弱字"),
             page: Qt.resolvedUrl("pages/WeakCharsPage.qml"),
             icon: "ic_fluent_text_quote_20_regular",
@@ -41,24 +59,6 @@ FluentWindow {
             title: qsTr("文本排行"),
             page: Qt.resolvedUrl("pages/TextLeaderboardPage.qml"),
             icon: "ic_fluent_trophy_20_regular",
-            position: Position.Top
-        },
-        {
-            title: qsTr("本地文库"),
-            page: Qt.resolvedUrl("pages/LocalArticlesPage.qml"),
-            icon: "ic_fluent_library_20_regular",
-            position: Position.Top
-        },
-        {
-            title: qsTr("练单器"),
-            page: Qt.resolvedUrl("pages/TrainerPage.qml"),
-            icon: "ic_fluent_apps_list_detail_20_regular",
-            position: Position.Top
-        },
-        {
-            title: qsTr("上传文本"),
-            page: Qt.resolvedUrl("pages/UploadTextPage.qml"),
-            icon: "ic_fluent_document_add_20_regular",
             position: Position.None
         },
         {

@@ -110,11 +110,6 @@ Pane {
                     if (!rowData) {
                         return "";
                     }
-                    if (column === 8) {
-                        if (rowData.sliceInfo !== undefined && rowData.sliceInfo !== null) {
-                            return rowData.sliceInfo;
-                        }
-                    }
                     var roleKeyByColumn = [
                         "segmentNo",
                         "speed",
