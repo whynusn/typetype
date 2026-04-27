@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 
 from ...config.text_source_config import TextSourceEntry
 from ...ports.clipboard import ClipboardReader
@@ -33,6 +34,9 @@ class LoadTextUseCase:
     - 配置查询与路由决策（由 TextSourceGateway 负责）
     - Qt 信号、UI 状态
     """
+
+    _SEGMENT_MARK_PATTERN = re.compile(r"-----第\S*段")
+    _INVISIBLE_CHAR_PATTERN = re.compile(r"[\u200b-\u200f\ufeff\u2060\u00ad]")
 
     def __init__(
         self,
@@ -70,12 +74,23 @@ class LoadTextUseCase:
             text=fetched.content,
             text_id=fetched.text_id,
             source_label=result_title,
-            source_key=plan.source_entry.key,
+            source_key=self._lookup_source_key(plan.source_entry, fetched),
         )
+
+    @staticmethod
+    def _lookup_source_key(source_entry: TextSourceEntry, fetched) -> str:
+        """仅本地排行榜文本需要异步回查服务端 text_id。"""
+        if fetched.text_id is not None:
+            return ""
+        if not source_entry.local_path:
+            return ""
+        if not source_entry.has_ranking:
+            return ""
+        return source_entry.key
 
     def load_from_clipboard(self) -> LoadTextResult:
         """从剪贴板加载文本。"""
-        text = self._clipboard_reader.text()
+        text = self._extract_clipboard_text(self._clipboard_reader.text())
         if not text:
             return LoadTextResult(
                 success=False, text="", error_message="当前剪贴板无文本内容"
@@ -95,3 +110,48 @@ class LoadTextUseCase:
         通过 Gateway 的公开方法访问，不暴露 Gateway 引用。
         """
         return self._text_gateway.lookup_text_id(source_key, content)
+
+    @classmethod
+    def _extract_clipboard_text(cls, raw_text: str) -> str:
+        if raw_text == "":
+            return ""
+
+        lines = re.split(r"[\n\r]", raw_text)
+        lines = [line for line in lines if line]
+        marker_index = cls._find_segment_marker_index(lines)
+
+        if marker_index >= 0:
+            text = cls._extract_sender_body(lines, marker_index)
+        else:
+            text = raw_text.replace("\n", "").replace("\r", "").replace("\t", "")
+
+        return cls._INVISIBLE_CHAR_PATTERN.sub("", text)
+
+    @classmethod
+    def _find_segment_marker_index(cls, lines: list[str]) -> int:
+        for index, line in enumerate(lines):
+            if cls._SEGMENT_MARK_PATTERN.search(line):
+                return index
+        return -1
+
+    @classmethod
+    def _extract_sender_body(cls, lines: list[str], marker_index: int) -> str:
+        if marker_index < 2:
+            return ""
+
+        head = lines[0]
+        text = "".join(lines[1:marker_index])
+        if head.startswith("皇叔 "):
+            return cls._unicode_bias(text)
+        return text
+
+    @staticmethod
+    def _unicode_bias(text: str) -> str:
+        chars = []
+        for char in text:
+            code_point = ord(char)
+            if code_point <= 0:
+                chars.append(char)
+                continue
+            chars.append(chr(code_point - 1))
+        return "".join(chars)

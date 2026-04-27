@@ -36,11 +36,17 @@ class ScoreGateway:
             return "获取分数失败"
         return ScoreSummaryDTO.from_score_data(score_data).to_html()
 
+    def build_score_plain_text(self, score_data: SessionStat | None) -> str:
+        """构建分数摘要纯文本。"""
+        if not score_data:
+            return ""
+        return ScoreSummaryDTO.from_score_data(score_data).to_clipboard_text()
+
     def copy_score_to_clipboard(self, score_data: SessionStat | None) -> None:
         """复制分数摘要纯文本到剪贴板。"""
-        if not score_data:
+        plain_text = self.build_score_plain_text(score_data)
+        if not plain_text:
             return
-        plain_text = ScoreSummaryDTO.from_score_data(score_data).to_clipboard_text()
         self._clipboard.setText(plain_text)
 
     def build_aggregate_message(self, slice_stats: list[dict], slice_count: int) -> str:

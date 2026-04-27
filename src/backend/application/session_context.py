@@ -33,6 +33,9 @@ class SourceMode(Enum):
     CLIPBOARD = auto()
     SLICE = auto()
     SHUFFLE = auto()
+    WENLAI = auto()
+    LOCAL_ARTICLE = auto()
+    TRAINER = auto()
 
 
 class UploadStatus(Enum):
@@ -105,6 +108,12 @@ class TypingSessionContext:
             return "分片/乱序模式，成绩不提交排行榜"
         if self._source_mode == SourceMode.CLIPBOARD:
             return "剪贴板文本，成绩不提交排行榜"
+        if self._source_mode == SourceMode.WENLAI:
+            return "晴发文文本，成绩不提交排行榜"
+        if self._source_mode == SourceMode.LOCAL_ARTICLE:
+            return "本地长文，成绩不提交排行榜"
+        if self._source_mode == SourceMode.TRAINER:
+            return "练单器，成绩不提交排行榜"
         if self._upload_status == UploadStatus.CONFIRMED:
             return "成绩将提交排行榜"
         if self._upload_status == UploadStatus.PENDING:
@@ -142,6 +151,27 @@ class TypingSessionContext:
     def setup_shuffle_session(self) -> None:
         self._source_mode = SourceMode.SHUFFLE
         self._text_id = None
+        self._phase = SessionPhase.READY
+        self._derive_upload_status()
+
+    def setup_wenlai_session(self) -> None:
+        self._source_mode = SourceMode.WENLAI
+        self._text_id = None
+        self._text_id_resolved = True
+        self._phase = SessionPhase.READY
+        self._derive_upload_status()
+
+    def setup_local_article_session(self) -> None:
+        self._source_mode = SourceMode.LOCAL_ARTICLE
+        self._text_id = None
+        self._text_id_resolved = True
+        self._phase = SessionPhase.READY
+        self._derive_upload_status()
+
+    def setup_trainer_session(self) -> None:
+        self._source_mode = SourceMode.TRAINER
+        self._text_id = None
+        self._text_id_resolved = True
         self._phase = SessionPhase.READY
         self._derive_upload_status()
 
@@ -413,6 +443,9 @@ class TypingSessionContext:
             SourceMode.SLICE,
             SourceMode.SHUFFLE,
             SourceMode.CLIPBOARD,
+            SourceMode.WENLAI,
+            SourceMode.LOCAL_ARTICLE,
+            SourceMode.TRAINER,
         ):
             return UploadStatus.NA
 

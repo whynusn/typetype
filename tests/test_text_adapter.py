@@ -114,6 +114,99 @@ def test_request_load_text_reports_planning_errors_without_runtime_config_lookup
     runtime_config.get_text_source.assert_not_called()
 
 
+def test_stale_local_text_id_lookup_result_is_not_emitted(monkeypatch):
+    adapter, _, load_text_usecase = _build_adapter()
+    targets = []
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            targets.append(self._target)
+
+    monkeypatch.setattr("threading.Thread", FakeThread)
+    load_text_usecase.lookup_text_id.side_effect = lambda source_key, content: {
+        "old text": 111,
+        "new text": 222,
+    }[content]
+    resolved: list[int] = []
+    adapter.localTextIdResolved.connect(
+        lambda text_id, generation: resolved.append(text_id)
+    )
+
+    adapter.lookup_text_id("local", "old text")
+    adapter.lookup_text_id("local", "new text")
+    # latest-only + single-flight: second request replaces pending payload,
+    # so only one worker thread should run and only latest result emitted.
+    assert len(targets) == 1
+    targets[0]()
+
+    assert resolved == [222]
+
+
+def test_invalidated_local_text_id_lookup_does_not_call_server(monkeypatch):
+    adapter, _, load_text_usecase = _build_adapter()
+    targets = []
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            targets.append(self._target)
+
+    monkeypatch.setattr("threading.Thread", FakeThread)
+
+    adapter.lookup_text_id("local", "old text")
+    adapter.invalidate_pending_text_id_lookup()
+    targets[0]()
+
+    load_text_usecase.lookup_text_id.assert_not_called()
+
+
+def test_stale_text_load_worker_success_is_ignored_after_clear_active():
+    adapter, _, load_text_usecase = _build_adapter()
+    source_entry = TextSourceEntry(key="local", label="Local", local_path="local.txt")
+    load_text_usecase.plan_load.return_value = TextLoadPlan(source_entry=source_entry)
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+    loaded: list[tuple[str, int, str]] = []
+    adapter.textLoaded.connect(
+        lambda text, text_id, label: loaded.append((text, text_id, label))
+    )
+
+    adapter.requestLoadText("local")
+    stale_worker = thread_pool.started_workers[0]
+    adapter.clear_active()
+    stale_worker.signals.succeeded.emit(
+        LoadTextResult(success=True, text="旧文本", text_id=123, source_label="旧")
+    )
+
+    assert loaded == []
+    assert adapter.text_loading is False
+
+
+def test_stale_text_load_worker_failure_is_ignored_after_clear_active():
+    adapter, _, load_text_usecase = _build_adapter()
+    source_entry = TextSourceEntry(key="local", label="Local", local_path="local.txt")
+    load_text_usecase.plan_load.return_value = TextLoadPlan(source_entry=source_entry)
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+    failures: list[str] = []
+    adapter.textLoadFailed.connect(failures.append)
+
+    adapter.requestLoadText("local")
+    stale_worker = thread_pool.started_workers[0]
+    adapter.clear_active()
+    stale_worker.signals.failed.emit("旧请求失败")
+
+    assert failures == []
+    assert adapter.text_loading is False
+
+
 def test_get_source_options_include_local_metadata():
     adapter, runtime_config, _ = _build_adapter()
     runtime_config.text_source_config.sources = {
@@ -178,7 +271,9 @@ def test_lookup_text_id_async_latest_only_emits_latest_result():
     adapter, _, load_text_usecase = _build_adapter()
     app = QCoreApplication.instance() or QCoreApplication([])
     emitted: list[int] = []
-    adapter.localTextIdResolved.connect(emitted.append)
+    adapter.localTextIdResolved.connect(
+        lambda text_id, generation: emitted.append(text_id)
+    )
 
     gate_first = threading.Event()
     gate_second = threading.Event()

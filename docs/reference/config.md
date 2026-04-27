@@ -1,6 +1,6 @@
 # RuntimeConfig 配置速查
 
-> 配置文件查找顺序：`~/.config/typetype/config.json` → `config/config.json` → `config/config.example.json`
+> 配置文件查找顺序：用户配置目录中的 `config.json` → `config/config.json` → `config/config.example.json`。macOS 用户配置目录为 `~/Library/Application Support/TypeType/`，Linux 为 `~/.config/typetype/`。
 
 ## 顶层字段
 
@@ -10,6 +10,7 @@
 | `default_text_source_key` | `str` | `builtin_demo` | 默认文本来源 key |
 | `api_timeout` | `float` | `20.0` | API 请求超时（秒） |
 | `text_sources` | `dict[str, TextSourceEntry]` | `{}` | 文本来源配置表 |
+| `wenlai` | `dict` | 见下 | 晴发文服务配置 |
 | `ui` | `dict` | 见下 | UI 主题与外观配置 |
 
 ## TextSourceEntry 字段
@@ -50,6 +51,22 @@
 | `validate_api_url` | `str` | token 校验接口 URL（默认 `/api/v1/users/me`） |
 | `refresh_api_url` | `str` | token 刷新接口 URL |
 | `register_api_url` | `str` | 注册接口 URL |
+
+## Wenlai 子字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `wenlai.base_url` | `str` | `https://qingfawen.fcxxz.com` | 晴发文服务地址 |
+| `wenlai.length` | `int` | `500` | 载文字数 |
+| `wenlai.difficulty_level` | `int` | `0` | 难度等级，0 表示随机 |
+| `wenlai.category` | `str` | `""` | 分类，空字符串表示全部 |
+| `wenlai.segment_mode` | `str` | `manual` | 换段模式：manual/auto |
+| `wenlai.strict_length` | `bool` | `false` | 是否精确字数 |
+| `wenlai.username` | `str` | `""` | 晴发文用户名（非敏感信息） |
+| `wenlai.display_name` | `str` | `""` | 晴发文显示名 |
+| `wenlai.user_id` | `int` | `0` | 晴发文用户 ID |
+
+晴发文 token 不写入 JSON 配置，走系统密钥环中的 `wenlai_user` token key。
 
 ## UI 子字段
 

@@ -2,6 +2,7 @@
 
 from src.backend.application.session_context import (
     SessionPhase,
+    SourceMode,
     UploadStatus,
     TypingSessionContext,
 )
@@ -94,6 +95,25 @@ class TestUploadStatusDerivation:
         ctx.setup_shuffle_session()
         assert ctx.upload_status == UploadStatus.NA
 
+    def test_wenlai_session_na(self):
+        ctx = TypingSessionContext()
+        ctx.setup_wenlai_session()
+        assert ctx.upload_status == UploadStatus.NA
+
+    def test_local_article_session_na(self):
+        ctx = TypingSessionContext()
+        ctx.setup_local_article_session()
+        assert ctx.source_mode == SourceMode.LOCAL_ARTICLE
+        assert ctx.upload_status == UploadStatus.NA
+        assert ctx.can_submit_score() is False
+
+    def test_trainer_session_na(self):
+        ctx = TypingSessionContext()
+        ctx.setup_trainer_session()
+        assert ctx.source_mode == SourceMode.TRAINER
+        assert ctx.upload_status == UploadStatus.NA
+        assert ctx.can_submit_score() is False
+
 
 class TestSetTextId:
     def test_pending_to_confirmed(self):
@@ -180,6 +200,21 @@ class TestEligibilityReason:
         ctx = TypingSessionContext()
         ctx.setup_local_session(source_key="local")
         assert "确认" in ctx.get_eligibility_reason()
+
+    def test_wenlai_reason(self):
+        ctx = TypingSessionContext()
+        ctx.setup_wenlai_session()
+        assert ctx.get_eligibility_reason() == "晴发文文本，成绩不提交排行榜"
+
+    def test_local_article_reason(self):
+        ctx = TypingSessionContext()
+        ctx.setup_local_article_session()
+        assert ctx.get_eligibility_reason() == "本地长文，成绩不提交排行榜"
+
+    def test_trainer_reason(self):
+        ctx = TypingSessionContext()
+        ctx.setup_trainer_session()
+        assert ctx.get_eligibility_reason() == "练单器，成绩不提交排行榜"
 
 
 class TestAdvanceSlice:

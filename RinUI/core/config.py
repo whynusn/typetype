@@ -1,4 +1,5 @@
 import json
+import os
 import platform
 import sys
 from enum import Enum
@@ -38,8 +39,27 @@ def resource_path(relative_path):
 
 rinui_core_path = Path(__file__).resolve().parent  # RinUI/core 目录
 
-BASE_DIR = Path.cwd().resolve()
-APP_CONFIG_PATH = BASE_DIR / "config"
+
+def _app_config_file() -> Path:
+    system = platform.system()
+    if system == "Darwin":
+        return (
+            Path.home()
+            / "Library"
+            / "Application Support"
+            / "TypeType"
+            / "config.json"
+        )
+    if system == "Windows":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "TypeType" / "config.json"
+        return Path.home() / "AppData" / "Roaming" / "TypeType" / "config.json"
+    return Path.home() / ".config" / "typetype" / "config.json"
+
+
+APP_CONFIG_FILE = _app_config_file()
+APP_CONFIG_PATH = APP_CONFIG_FILE.parent
 RINUI_PATH = resource_path(
     rinui_core_path.parent.parent
 )  # 使用 resource_path 处理路径，等同 ../../
@@ -71,10 +91,9 @@ class BackdropEffect(Enum):
 
 
 class AppUIConfigManager:
-    """应用层 UI 配置管理器，读写 config/config.json 的 ui 字段。
+    """应用层 UI 配置管理器，读写用户 config.json 的 ui 字段。
 
-    所有运行时修改（主题切换等）都写入 config/config.json 的 ui 字段，
-    不修改 RinUI 文件夹内容。
+    所有运行时修改（主题切换等）都写入用户可写配置文件的 ui 字段。
     """
 
     def __init__(self, config_path: Path, defaults: dict):
@@ -85,7 +104,7 @@ class AppUIConfigManager:
         self.load()
 
     def load(self) -> None:
-        """加载配置：优先从 config/config.json 的 ui 字段读取，回退到默认值。"""
+        """加载配置：优先从用户配置的 ui 字段读取，回退到默认值。"""
         if self._config_path.exists():
             try:
                 with self._config_path.open(encoding="utf-8") as f:
@@ -116,7 +135,7 @@ class AppUIConfigManager:
                 base[key] = value
 
     def save_config(self) -> None:
-        """将 UI 配置写回 config/config.json 的 ui 字段。"""
+        """将 UI 配置写回用户配置的 ui 字段。"""
         try:
             # 先读取完整的应用配置文件
             if self._config_path.exists():
@@ -147,8 +166,8 @@ class AppUIConfigManager:
         return json.dumps(self.config, ensure_ascii=False, indent=4)
 
 
-# 应用层 UI 配置（读写 config/config.json 的 ui 字段）
+# 应用层 UI 配置（读写用户 config.json 的 ui 字段）
 AppUIConfig = AppUIConfigManager(
-    config_path=APP_CONFIG_PATH / "config.json",
+    config_path=APP_CONFIG_FILE,
     defaults=DEFAULT_CONFIG,
 )

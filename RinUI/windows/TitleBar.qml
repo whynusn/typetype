@@ -84,7 +84,7 @@ Item {
         color: "transparent"
 
         MouseArea {
-            enabled: !root.useNativeMacControls
+            enabled: root.window !== null
             anchors.fill: parent
             anchors.leftMargin: root.isMacOS
                 ? root.macLeadingInset + root.macLeadingInteractiveWidth
@@ -93,18 +93,33 @@ Item {
             propagateComposedEvents: true
             acceptedButtons: Qt.LeftButton
             property point clickPos: "0,0"
+            property bool systemMoveStarted: false
 
             onPressed: {
                 clickPos = Qt.point(mouseX, mouseY)
+                systemMoveStarted = false
+
+                if (!root.window) {
+                    return
+                }
+
+                if (Qt.platform.os !== "windows" && root.window.startSystemMove()) {
+                    systemMoveStarted = true
+                    return
+                }
 
                 if (Qt.platform.os !== "windows" || !WindowManager._isWinMgrInitialized()) {
                     return
                 }
-                WindowManager.sendDragWindowEvent(window)
+                WindowManager.sendDragWindowEvent(root.window)
             }
             onDoubleClicked: toggleMaximized()
             onPositionChanged: (mouse) => {
-                if (window.isMaximized || window.isFullScreen || window.visibility === Window.Maximized) {
+                if (!root.window || systemMoveStarted) {
+                    return
+                }
+
+                if (root.window.isMaximized || root.window.isFullScreen || root.window.visibility === Window.Maximized) {
                     return
                 }
 
@@ -116,8 +131,8 @@ Item {
                 //鼠标偏移量
                 let delta = Qt.point(mouse.x-clickPos.x, mouse.y-clickPos.y)
 
-                window.setX(window.x+delta.x)
-                window.setY(window.y+delta.y)
+                root.window.setX(root.window.x+delta.x)
+                root.window.setY(root.window.y+delta.y)
             }
         }
     }

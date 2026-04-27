@@ -11,6 +11,7 @@ Item {
     property bool loggedin: false  // Will be injected by NavigationView
     property bool showLeaderboard: false
     property string sliceStatusText: ""
+    property string currentZitiHint: ""
     readonly property int historyMaxRows: 200
 
     //=====================================
@@ -22,7 +23,7 @@ Item {
         lowerPane.text = "";
         lowerPane.suppressTextChanged = false;
         if (appBridge)
-            appBridge.handleLoadedText(upperPane.textDocument);
+            appBridge.handleLoadedText(upperPane.textDocument, upperPane.text);
         Qt.callLater(function() {
             lowerPane.lastText = lowerPane.text;
         });
@@ -33,7 +34,8 @@ Item {
         lowerPane.text = "";
         lowerPane.suppressTextChanged = false;
         upperPane.text = plainText;
-        appBridge.handleLoadedText(upperPane.textDocument);
+        appBridge.handleLoadedText(upperPane.textDocument, plainText);
+        upperPane.setCursorAndScroll(0, true);
         // handleLoadedText 完成后，延迟到当前事件循环末尾再同步 lastText。
         // 这样可以捕获所有异步 onTextChanged 事件（如 IME preedit 清除），
         // 确保 lastText 始终与 lowerPane.text 一致。
@@ -46,6 +48,16 @@ Item {
         typingPage.sliceStatusText = appBridge ? appBridge.getSliceStatus() : "";
     }
 
+    function refreshZitiHint() {
+        if (!appBridge || !appBridge.zitiEnabled) {
+            typingPage.currentZitiHint = "";
+            return;
+        }
+        var pos = appBridge.getCursorPos();
+        var ch = pos >= 0 && pos < upperPane.text.length ? upperPane.text.charAt(pos) : "";
+        typingPage.currentZitiHint = ch ? appBridge.getZitiHint(ch) : "";
+    }
+
     function sliceStatusPrimaryText() {
         var parts = typingPage.sliceStatusText.split("  |  ");
         return parts.length > 0 ? parts[0] : "";
@@ -56,9 +68,50 @@ Item {
         return parts.length > 1 ? parts[1] : "";
     }
 
+    function triggerRandomWenlaiText() {
+        if (appBridge && appBridge.wenlaiLoading)
+            return;
+        if (appBridge)
+            appBridge.loadRandomWenlaiText();
+    }
+
+    function triggerPrevSegment() {
+        if (appBridge && appBridge.wenlaiLoading)
+            return;
+        if (appBridge) {
+            if (appBridge.isWenlaiActive && !appBridge.sliceMode) {
+                appBridge.loadPrevWenlaiSegment();
+            } else {
+                appBridge.loadPrevSlice();
+            }
+        }
+    }
+
+    function triggerNextSegment() {
+        if (appBridge && appBridge.wenlaiLoading)
+            return;
+        if (appBridge) {
+            if (appBridge.isWenlaiActive && !appBridge.sliceMode) {
+                appBridge.loadNextWenlaiSegment();
+            } else {
+                appBridge.loadNextSlice();
+            }
+        }
+    }
+
     function handleKeyPressEvent(event) {
-        // 检测是否按下了 Ctrl 键
-        if (event.modifiers & Qt.ControlModifier) {
+        var shortcutPressed = (event.modifiers & Qt.ControlModifier) || (event.modifiers & Qt.MetaModifier);
+
+        // --- Enter 暂停 / 继续 ---
+        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (appBridge)
+                appBridge.toggleTypingPause();
+            event.accepted = true;
+            return;
+        }
+
+        // 检测是否按下了平台快捷键修饰键（Windows/Linux: Ctrl, macOS: Command）
+        if (shortcutPressed) {
             if (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal) {
                 // 放大
                 fontMetricsText.sharedFontSize = Math.min(72, fontMetricsText.sharedFontSize + 2);
@@ -90,28 +143,32 @@ Item {
         }
 
         // --- Ctrl+L 乱序 ---
-        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_L) {
+        if (shortcutPressed && event.key === Qt.Key_L) {
             if (appBridge)
                 appBridge.requestShuffle();
             event.accepted = true;
         }
 
-        // --- Ctrl+U 上一段 ---
-        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_U) {
-            if (appBridge)
-                appBridge.loadPrevSlice();
+        // --- Ctrl+R 晴发文 ---
+        if (shortcutPressed && event.key === Qt.Key_R) {
+            triggerRandomWenlaiText();
+            event.accepted = true;
+        }
+
+        // --- Ctrl+O 上一段（Ctrl+U 保留为兼容别名）---
+        if (shortcutPressed && (event.key === Qt.Key_O || event.key === Qt.Key_U)) {
+            triggerPrevSegment();
             event.accepted = true;
         }
 
         // --- Ctrl+P 下一段 ---
-        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_P) {
-            if (appBridge)
-                appBridge.loadNextSlice();
+        if (shortcutPressed && event.key === Qt.Key_P) {
+            triggerNextSegment();
             event.accepted = true;
         }
 
         // --- Ctrl+V 剪贴板载文 ---
-        if (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_V) {
+        if (shortcutPressed && event.key === Qt.Key_V) {
             if (appBridge)
                 appBridge.loadTextFromClipboard();
             event.accepted = true;
@@ -122,6 +179,62 @@ Item {
 
     // 监听键盘按键
     focus: true
+
+    Shortcut {
+        sequence: "Ctrl+R"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerRandomWenlaiText()
+    }
+
+    Shortcut {
+        sequence: "Meta+R"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerRandomWenlaiText()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+O"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerPrevSegment()
+    }
+
+    Shortcut {
+        sequence: "Meta+O"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerPrevSegment()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+U"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerPrevSegment()
+    }
+
+    Shortcut {
+        sequence: "Meta+U"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerPrevSegment()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+P"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerNextSegment()
+    }
+
+    Shortcut {
+        sequence: "Meta+P"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: typingPage.triggerNextSegment()
+    }
 
     // ==========================================
     // 字体加载与配置（阅读/跟打专用）
@@ -149,6 +262,7 @@ Item {
 
         function onTextLoaded(text, textId, sourceLabel) {
             applyLoadedText(text);
+            typingPage.refreshZitiHint();
             if (appBridge && textId > 0) {
                 appBridge.setTextId(textId);
             }
@@ -161,6 +275,22 @@ Item {
             // 加载失败时只更新显示文本，不调用 handleLoadedText（不禁用 readOnly）
             // 用户无法在加载失败的文本上打字
             upperPane.text = message;
+        }
+
+        function onWenlaiLoadFailed(message) {
+            upperPane.text = message;
+        }
+
+        function onLocalArticleSegmentLoadFailed(message) {
+            upperPane.text = message;
+        }
+
+        function onCursorPosChanged(newPos) {
+            typingPage.refreshZitiHint();
+        }
+
+        function onZitiStateChanged() {
+            typingPage.refreshZitiHint();
         }
     }
 
@@ -175,6 +305,10 @@ Item {
                 var total = appBridge ? appBridge.totalSliceCount : 0;
                 newRecord.sliceInfo = String(newRecord.charNum) + " [" + newRecord.slice_index + "/" + total + "]";
             }
+            // 确保 segmentNo 键始终存在，避免 TableModel role 警告
+            if (newRecord.segmentNo === undefined) {
+                newRecord.segmentNo = "";
+            }
             historyArea.tableModel.insertRow(0, newRecord);
             while (historyArea.tableModel.rows.length > typingPage.historyMaxRows) {
                 historyArea.tableModel.removeRow(historyArea.tableModel.rows.length - 1);
@@ -188,20 +322,17 @@ Item {
                 if (appBridge.shouldRetype()) {
                     appBridge.handleSliceRetype();
                 } else if (appBridge.isLastSlice()) {
-                    // 最后一片：弹出综合成绩
-                    var msg = appBridge.buildAggregateScore();
-                    endDialog.scoreMessage = msg;
-                    endDialog.isSliceAggregate = true;
-                    endDialog.open();
+                    // 最后一片：复制综合成绩，不弹结束窗
+                    appBridge.copyAggregateScore();
                     appBridge.exitSliceMode();
                 } else {
                     appBridge.loadNextSlice();
                 }
+            } else if (appBridge && appBridge.isWenlaiActive && appBridge.wenlaiSegmentMode === "auto") {
+                appBridge.loadNextWenlaiSegmentWithScore();
             } else {
-                // 正常模式
-                endDialog.scoreMessage = appBridge.getScoreMessage();
-                endDialog.isSliceAggregate = false;
-                endDialog.open();
+                // 正常模式：复制成绩，不弹结束窗
+                appBridge.copyScoreMessage();
             }
         }
     }
@@ -227,6 +358,10 @@ Item {
         function onRequestLoadTextFromClipboard() {
             // 剪贴板载文，不提交成绩（text_id 为 None）
             appBridge.loadTextFromClipboard();
+        }
+
+        function onRequestLoadWenlai() {
+            typingPage.triggerRandomWenlaiText();
         }
 
         function onRequestRetype() {
@@ -293,6 +428,7 @@ Item {
             Layout.preferredHeight: 56
             Layout.minimumHeight: 56
             Layout.maximumHeight: 56
+            wenlaiLoading: appBridge ? appBridge.wenlaiLoading : false
         }
 
         RowLayout {
@@ -330,6 +466,50 @@ Item {
                         Layout.preferredHeight: 36
                         Layout.minimumHeight: 36
                         Layout.maximumHeight: 36
+                    }
+
+                    Rectangle {
+                        id: zitiHintBar
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 30
+                        Layout.minimumHeight: 30
+                        Layout.maximumHeight: 30
+                        visible: appBridge && appBridge.zitiEnabled && zitiHintText.text.length > 0
+                        radius: 4
+                        color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.cardColor
+                            : "#f8f8f8"
+                        border.color: Theme.currentTheme
+                            ? Theme.currentTheme.colors.dividerBorderColor
+                            : "#d8d8d8"
+                        border.width: 1
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            spacing: 8
+
+                            Text {
+                                text: appBridge ? appBridge.zitiCurrentScheme : ""
+                                font.pixelSize: 11
+                                color: Theme.currentTheme
+                                    ? Theme.currentTheme.colors.textSecondaryColor
+                                    : "#666"
+                            }
+
+                            Text {
+                                id: zitiHintText
+                                Layout.fillWidth: true
+                                text: typingPage.currentZitiHint
+                                elide: Text.ElideRight
+                                font.pixelSize: 13
+                                font.bold: true
+                                color: Theme.currentTheme
+                                    ? Theme.currentTheme.colors.textColor
+                                    : "#222"
+                            }
+                        }
                     }
 
                     LowerPane {
@@ -469,6 +649,49 @@ Item {
                         duration: 200
                         easing.type: Easing.OutQuad
                     }
+                }
+            }
+        }
+
+        Rectangle {
+            id: typingTotalsBar
+            Layout.fillWidth: true
+            Layout.preferredHeight: 30
+            Layout.minimumHeight: 30
+            Layout.maximumHeight: 30
+            color: Theme.currentTheme
+                ? Theme.currentTheme.colors.cardColor
+                : "#f8f8f8"
+            border.color: Theme.currentTheme
+                ? Theme.currentTheme.colors.dividerBorderColor
+                : "#e0e0e0"
+            border.width: 1
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 12
+
+                Text {
+                    Layout.fillWidth: true
+                    text: appBridge ? appBridge.windowTitle : "TypeType"
+                    elide: Text.ElideRight
+                    font.pixelSize: 12
+                    color: Theme.currentTheme
+                        ? Theme.currentTheme.colors.textSecondaryColor
+                        : "#666"
+                }
+
+                Text {
+                    text: appBridge
+                        ? qsTr("今日字数: ") + appBridge.todayTypedChars + qsTr("  总字数: ") + appBridge.totalTypedChars
+                        : ""
+                    font.pixelSize: 12
+                    font.bold: true
+                    color: Theme.currentTheme
+                        ? Theme.currentTheme.colors.textColor
+                        : "#222"
                 }
             }
         }

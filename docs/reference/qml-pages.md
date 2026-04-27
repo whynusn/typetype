@@ -6,7 +6,7 @@
 
 | 文件 | 导航标题 | 依赖信号 |
 |------|---------|---------|
-| `pages/TypingPage.qml` | 跟打 | `textLoaded`, `textLoadFailed`, `uploadResult`, `loggedinChanged` |
+| `pages/TypingPage.qml` | 跟打 | `textLoaded`, `textLoadFailed`, `wenlaiLoadFailed`, `uploadResult`, `loggedinChanged` |
 | `pages/WeakCharsPage.qml` | 薄弱字 | `weakestCharsLoaded` |
 | `pages/TextLeaderboardPage.qml` | 文本排行 | `catalogLoaded`, `textListLoaded`, `leaderboardLoaded`, `leaderboardLoadFailed` |
 | `pages/DailyLeaderboard.qml` | （保留但导航已移除） | `leaderboardLoaded`, `leaderboardLoadFailed` |
@@ -14,13 +14,13 @@
 | `pages/AllTimeLeaderboard.qml` | （保留但导航已移除，建设中） | `leaderboardLoaded`, `leaderboardLoadFailed` |
 | `pages/UploadTextPage.qml` | 上传文本 | `uploadResult`, `loggedinChanged` |
 | `pages/ProfilePage.qml` | 个人中心 | `loginResult`, `registerResult`, `loggedinChanged`, `userInfoChanged`, `loginStateInitialized` |
-| `pages/SettingsPage.qml` | 设置 | 无 |
+| `pages/SettingsPage.qml` | 设置 | `wenlaiLoginResult`, `wenlaiConfigChanged`, `wenlaiDifficultiesLoaded`, `wenlaiCategoriesLoaded` |
 
 ## TypingPage 子组件
 
 | 文件 | 职责 |
 |------|------|
-| `typing/ToolLine.qml` | 工具栏（载文/剪贴板/重打/排行榜按钮） |
+| `typing/ToolLine.qml` | 工具栏（载文/剪贴板/晴发文/重打/排行榜按钮） |
 | `typing/UpperPane.qml` | 文本显示区域 |
 | `typing/ScoreArea.qml` | 实时速度/击键/码长/错误数展示 |
 | `typing/LowerPane.qml` | 输入区域（含 `suppressTextChanged` 防程序化触发统计） |
@@ -39,7 +39,7 @@
 
 | QML 页面 | 调用的 Bridge 方法 |
 |----------|-------------------|
-| TypingPage | `requestLoadText(key)`, `loadTextFromClipboard()`, `setTextId(id)`, `setTextTitle(t)`, `handleLoadedText(doc, text)`, `handleStartStatus(s)`, `getScoreMessage()`, `setTextId(0)` |
+| TypingPage | `requestLoadText(key)`, `loadTextFromClipboard()`, `loadRandomWenlaiText()`, `loadNextWenlaiSegment()`, `loadPrevWenlaiSegment()`, `loadNextWenlaiSegmentWithScore()`, `setTextId(id)`, `setTextTitle(t)`, `handleLoadedText(doc, text)`, `handleStartStatus(s)`, `getScoreMessage()`, `setTextId(0)` |
 | TypingPage (载文模式) | `collectSliceResult()`, `isLastSlice()`, `buildAggregateScore()`, `exitSliceMode()`, `shouldRetype()`, `handleSliceRetype()`, `loadNextSlice()` |
 | SliceConfigDialog | `loadCatalog()`, `loadTextList(key)`, `getTextContentById(id)`, `loadFullText(text, srcKey)`, `setupSliceMode(text, size, ...)` |
 | WeakCharsPage | `loadWeakChars()` |
@@ -47,4 +47,5 @@
 | DailyLeaderboard | `loadLeaderboard("jisubei")`, `copyToClipboard(text)` |
 | UploadTextPage | `uploadText(title, content, sourceKey, toLocal, toCloud)` |
 | ProfilePage | `login(u, p)`, `register(u, p, n)`, `logout()`, `checkTokenStatus()` |
+| SettingsPage | `loginWenlai(u, p)`, `logoutWenlai()`, `refreshWenlaiDifficulties()`, `refreshWenlaiCategories()`, `updateWenlaiConfig(...)`, `setBaseUrl(url)` |
 | LeaderboardPanel | `loadLeaderboardByTextId(id)`, `copyToClipboard(text)` |

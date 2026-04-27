@@ -3,7 +3,7 @@ import logging
 import logging.handlers
 
 import src.backend.utils.logger as logger_module
-from PySide6.QtCore import qDebug, qInstallMessageHandler, qWarning
+from PySide6.QtCore import QtMsgType, qDebug, qInstallMessageHandler, qWarning
 
 
 def test_logger_import_survives_file_handler_creation_failure(
@@ -61,3 +61,26 @@ def test_install_qt_message_handler_routes_qt_logs_to_python_logger(
 
     assert (logging.DEBUG, "[Qt:default] qml debug message") in messages
     assert (logging.WARNING, "[Qt:default] qml warning message") in messages
+
+
+def test_qt_message_handler_suppresses_macos_keymapper_mismatch_noise(
+    monkeypatch,
+) -> None:
+    messages: list[tuple[int, str]] = []
+
+    class DummyLogger:
+        def log(self, level: int, message: str) -> None:
+            messages.append((level, message))
+
+    class Context:
+        category = "qt.qpa.keymapper"
+
+    monkeypatch.setattr(logger_module, "_logger", DummyLogger())
+
+    logger_module._qt_message_handler(
+        QtMsgType.QtWarningMsg,
+        Context(),
+        "Mismatch between Cocoa 'r' and Carbon '\\x0' for virtual key 15",
+    )
+
+    assert messages == []

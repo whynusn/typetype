@@ -33,7 +33,7 @@ class TextAdapter(QObject):
     textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
-    localTextIdResolved = Signal(int)  # 本地文本异步回查到的 text_id
+    localTextIdResolved = Signal(int, int)  # (text_id, lookup_generation)
 
     def __init__(
         self,
@@ -47,7 +47,9 @@ class TextAdapter(QObject):
         self._local_text_loader = local_text_loader
         self._text_loading = False
         self._thread_pool = QThreadPool.globalInstance()
-        # text_id 回查调度：latest-only + 单线程串行，避免频繁创建 daemon thread
+        self._load_generation = 0
+        self._lookup_generation = 0
+        # text_id 回查调度：latest-only + single-flight
         self._lookup_lock = threading.Lock()
         self._lookup_inflight = False
         self._lookup_pending: tuple[str, str] | None = None
@@ -57,6 +59,28 @@ class TextAdapter(QObject):
         if self._text_loading != loading:
             self._text_loading = loading
             self.textLoadingChanged.emit()
+
+    def clear_active(self) -> None:
+        """失效当前普通载文 worker 和 text_id 回查。"""
+        self._load_generation += 1
+        self.invalidate_pending_text_id_lookup()
+        self._set_text_loading(False)
+
+    def invalidate_pending_text_id_lookup(self) -> None:
+        """失效仍在后台运行的 text_id 回查。"""
+        self._lookup_generation += 1
+
+    def _next_lookup_generation(self) -> int:
+        self.invalidate_pending_text_id_lookup()
+        return self._lookup_generation
+
+    @property
+    def current_lookup_generation(self) -> int:
+        return self._lookup_generation
+
+    def _next_load_generation(self) -> int:
+        self._load_generation += 1
+        return self._load_generation
 
     def _on_text_loaded(self, result: LoadTextResult) -> None:
         """处理文本加载成功。
@@ -85,7 +109,8 @@ class TextAdapter(QObject):
         - latest-only：高频触发时只保留最新请求
         - single-flight：同一时刻仅 1 个回查线程在跑
         """
-        request = (source_key, content)
+        lookup_generation = self._next_lookup_generation()
+        request = (source_key, content, lookup_generation)
         should_start_worker = False
         with self._lookup_lock:
             self._lookup_latest_requested = request
@@ -110,15 +135,21 @@ class TextAdapter(QObject):
                     self._lookup_inflight = False
                 return
 
-            source_key, content = request
+            source_key, content, lookup_generation = request
             try:
+                if lookup_generation != self._lookup_generation:
+                    continue
                 resolved_id = usecase.lookup_text_id(source_key, content)
                 should_emit = False
                 with self._lookup_lock:
                     should_emit = request == self._lookup_latest_requested
-                if resolved_id is not None and should_emit:
+                if (
+                    resolved_id is not None
+                    and lookup_generation == self._lookup_generation
+                    and should_emit
+                ):
                     # 从 daemon thread 直接发射信号，Qt 自动走 QueuedConnection 到主线程的 slot
-                    self.localTextIdResolved.emit(resolved_id)
+                    self.localTextIdResolved.emit(resolved_id, lookup_generation)
             except Exception:
                 # 回查失败不影响主流程（文本已显示），静默降级
                 pass
@@ -147,6 +178,7 @@ class TextAdapter(QObject):
         """
         if self._text_loading:
             return
+        self.invalidate_pending_text_id_lookup()
 
         try:
             plan = self._load_text_usecase.plan_load(source_key)
@@ -161,20 +193,51 @@ class TextAdapter(QObject):
     def _load_async(self, plan: TextLoadPlan) -> None:
         """异步执行文本加载（后台 Worker）。"""
         self._set_text_loading(True)
+        load_generation = self._next_load_generation()
         worker = TextLoadWorker(
             load_text_usecase=self._load_text_usecase,
             plan=plan,
         )
-        worker.signals.succeeded.connect(self._on_text_loaded)
-        worker.signals.failed.connect(self._on_text_load_failed)
-        worker.signals.finished.connect(self._on_text_load_finished)
+        worker.signals.succeeded.connect(
+            lambda result, gen=load_generation: self._on_text_loaded_for_request(
+                gen, result
+            )
+        )
+        worker.signals.failed.connect(
+            lambda message, gen=load_generation: self._on_text_load_failed_for_request(
+                gen, message
+            )
+        )
+        worker.signals.finished.connect(
+            lambda gen=load_generation: self._on_text_load_finished_for_request(gen)
+        )
         self._thread_pool.start(worker)
+
+    def _on_text_loaded_for_request(
+        self, load_generation: int, result: LoadTextResult
+    ) -> None:
+        if load_generation != self._load_generation:
+            return
+        self._on_text_loaded(result)
+
+    def _on_text_load_failed_for_request(
+        self, load_generation: int, message: str
+    ) -> None:
+        if load_generation != self._load_generation:
+            return
+        self._on_text_load_failed(message)
+
+    def _on_text_load_finished_for_request(self, load_generation: int) -> None:
+        if load_generation != self._load_generation:
+            return
+        self._on_text_load_finished()
 
     @Slot()
     def loadTextFromClipboard(self) -> None:
         """从剪贴板加载文本。"""
         if self._text_loading:
             return
+        self.invalidate_pending_text_id_lookup()
 
         self._set_text_loading(True)
         try:

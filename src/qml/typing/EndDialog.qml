@@ -9,14 +9,14 @@ Dialog {
 
     modal: true
     title: isSliceAggregate ? "打字结束 — 综合成绩" : "打字结束"
-    standardButtons: Dialog.Ok | Dialog.Cancel
+    standardButtons: Dialog.Ok
 
     AppText {
         text: {
             if (isSliceAggregate) {
-                return "<b>分片跟打结束，综合成绩如下（不提交排行榜）</b><br>" + root.scoreMessage;
+                return "<b>分片跟打结束，综合成绩已复制</b><br>" + root.scoreMessage;
             }
-            return "<b>本次跟打结束，是否复制成绩？</b><br>" + root.scoreMessage;
+            return "<b>本次跟打结束，成绩已复制</b><br>" + root.scoreMessage;
         }
         color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#2c3e50"
         leftPadding: 20

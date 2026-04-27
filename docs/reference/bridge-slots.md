@@ -30,6 +30,16 @@
 | `isSpecialPlatform` | `bool` | 是否特殊平台（Wayland 下 evdev 监听可用） |
 | `keyAccuracy` | `float` | 键准（%） |
 | `baseUrl` | `str` | 当前 API 服务地址 |
+| `wenlaiLoading` | `bool` | 晴发文加载中 |
+| `wenlaiLoggedIn` | `bool` | 晴发文登录状态 |
+| `wenlaiCurrentUser` | `str` | 晴发文当前用户显示名 |
+| `isWenlaiActive` | `bool` | 当前文本是否来自晴发文 |
+| `wenlaiSegmentMode` | `str` | 晴发文换段模式（manual/auto） |
+| `wenlaiBaseUrl` | `str` | 晴发文服务地址 |
+| `wenlaiLength` | `int` | 晴发文字数设置 |
+| `wenlaiDifficultyLevel` | `int` | 晴发文难度等级（0=随机） |
+| `wenlaiCategory` | `str` | 晴发文分类 |
+| `wenlaiStrictLength` | `bool` | 晴发文是否精确字数 |
 
 ## Signals（QML 通过 Connections 监听）
 
@@ -68,6 +78,13 @@
 | `eligibilityReasonChanged` | `(str reason)` | 资格原因消息变化 |
 | `keyAccuracyChanged` | 无 | 键准变化 |
 | `baseUrlChanged` | 无 | API 服务地址变化 |
+| `wenlaiLoadFailed` | `(str message)` | 晴发文载文失败 |
+| `wenlaiLoadingChanged` | 无 | 晴发文加载状态变化 |
+| `wenlaiLoginResult` | `(bool success, str message)` | 晴发文登录结果 |
+| `wenlaiLoginStateChanged` | 无 | 晴发文登录状态变化 |
+| `wenlaiConfigChanged` | 无 | 晴发文配置或 active 状态变化 |
+| `wenlaiDifficultiesLoaded` | `(list items)` | 晴发文难度列表加载完成 |
+| `wenlaiCategoriesLoaded` | `(list items)` | 晴发文分类列表加载完成 |
 
 ## Slots（QML 可调用的方法）
 
@@ -123,6 +140,15 @@
 | `getOnFailAction` | → `str` | 返回当前未达标处理动作 |
 | `setBaseUrl` | `(str newBaseUrl)` | 更新 API 服务地址，持久化并同步所有依赖对象 |
 | `initializeLoginState` | 无 | 启动时初始化登录状态（验证/刷新 token） |
+| `loginWenlai` | `(str username, str password)` | 登录晴发文 |
+| `logoutWenlai` | 无 | 退出晴发文 |
+| `loadRandomWenlaiText` | 无 | 加载晴发文随机文本 |
+| `loadNextWenlaiSegment` | 无 | 加载晴发文下一段 |
+| `loadNextWenlaiSegmentWithScore` | 无 | 复制当前成绩，加载下一段，成功后复制“成绩 + 下一段发文内容” |
+| `loadPrevWenlaiSegment` | 无 | 加载晴发文上一段 |
+| `refreshWenlaiDifficulties` | 无 | 刷新晴发文难度列表 |
+| `refreshWenlaiCategories` | 无 | 刷新晴发文分类列表 |
+| `updateWenlaiConfig` | `(str baseUrl, int length, int difficultyLevel, str category, str segmentMode, bool strictLength)` | 更新并持久化晴发文配置 |
 
 ## 载文模式 Properties
 
