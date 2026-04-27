@@ -208,6 +208,7 @@ jobs:
             --quiet \
             --noinclude-qt-translations \
             --standalone \
+            --mode=app \
             --noinclude-dlls=libQt6WebEngine* \
             --include-data-dir=src/qml=src/qml \
             --include-data-dir=resources/texts=resources/texts \
