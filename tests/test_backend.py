@@ -233,6 +233,7 @@ class DummyTrainerAdapter(QObject):
         trainer_id: str,
         segment_index: int,
         group_size: int,
+        full_shuffle: bool = False,
     ) -> None:
         self.segment_requests.append((trainer_id, segment_index, group_size))
 
@@ -960,10 +961,10 @@ class TestBridgeSpecialPlatform:
         }
         local_article_adapter.localArticleSegmentLoaded.emit(payload)
 
-        assert bridge.sliceMode is False
-        assert wenlai_adapter.clear_count == clear_count_before_segment + 1
+        assert bridge.sliceMode is True
+        assert wenlai_adapter.clear_count == clear_count_before_segment
         assert bridge.textId == 0
-        assert session.source_mode.name == "LOCAL_ARTICLE"
+        assert session.source_mode.name == "SLICE"
         assert session.upload_status.name == "NA"
         assert session.can_submit_score() is False
         assert loaded_segments == [payload]
@@ -1279,16 +1280,83 @@ class TestBridgeSpecialPlatform:
         }
         trainer_adapter.trainerSegmentLoaded.emit(payload)
 
-        assert bridge.sliceMode is False
+        assert bridge.sliceMode is True
         assert trainer_adapter.segment_requests == [("t1", 2, 20)]
         assert local_article_adapter.clear_count == 1
         assert bridge.textId == 0
-        assert session.source_mode.name == "TRAINER"
+        assert session.source_mode.name == "SLICE"
         assert session.upload_status.name == "NA"
         assert session.can_submit_score() is False
+        assert session.on_fail_action == "retype"
         assert loaded_segments == [payload]
         assert loaded_texts[-1] == ("天地玄黄", -1, "前500 2/25")
         assert typing_adapter.text_title == "前500 2/25"
+
+    def test_setup_slice_mode_clears_sourced_backend_flags(self):
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        trainer_adapter = DummyTrainerAdapter()
+        local_article_adapter = DummyLocalArticleAdapter()
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            trainer_adapter=trainer_adapter,
+            local_article_adapter=local_article_adapter,
+            key_listener=None,
+        )
+
+        # 模拟之前处于 trainer sourced 分片上下文
+        bridge._source_slice_backend = "trainer"
+        bridge._source_slice_trainer_id = "t1"
+        bridge._source_slice_group_size = 20
+
+        # 切到 TypingPage 文本型分片
+        bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, 1, 0, 0, 0, 1, "retype")
+
+        # 失败重打应走文本型 reload，不应回调 trainer adapter
+        bridge.handleSliceRetype()
+
+        assert bridge._source_slice_backend is None
+        assert bridge._source_slice_trainer_id == ""
+        assert trainer_adapter.segment_requests == []
+
+    def test_typing_completed_clears_cursor_before_typing_ended(self):
+        typing_adapter, _, _, _ = self._create_mock_services()
+        session = TypingSessionContext()
+        typing_adapter._session_context = session
+
+        typing_adapter._typing_service.set_total_chars(1)
+        typing_adapter._typing_service.set_plain_doc("中")
+        typing_adapter._typing_service.state.is_started = True
+
+        # 模拟已存在 cursor 但本次输入不触发着色路径（避免依赖 QTextCursor）
+        typing_adapter._cursor = object()
+
+        cursor_is_none_during_emit: list[bool] = []
+
+        def _on_typing_ended() -> None:
+            cursor_is_none_during_emit.append(typing_adapter._cursor is None)
+
+        typing_adapter.typingEnded.connect(_on_typing_ended)
+
+        original_handle = typing_adapter._typing_service.handle_committed_text
+
+        def _complete_without_updates(
+            s: str, grow_length: int
+        ) -> tuple[list[tuple[int, str, bool]], bool]:
+            updates, _ = original_handle(s, grow_length)
+            return [], True
+
+        typing_adapter._typing_service.handle_committed_text = _complete_without_updates
+        try:
+            typing_adapter.handleCommittedText("中", 1)
+        finally:
+            typing_adapter._typing_service.handle_committed_text = original_handle
+
+        assert cursor_is_none_during_emit == [True]
 
     def test_bridge_forwards_trainer_navigation_slots(self):
         typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
@@ -1313,3 +1381,71 @@ class TestBridgeSpecialPlatform:
         assert trainer_adapter.next_count == 1
         assert trainer_adapter.previous_count == 1
         assert trainer_adapter.shuffle_count == 1
+
+    def test_trainer_retype_uses_current_segment_not_reload(self):
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        session = TypingSessionContext()
+        typing_adapter._session_context = session
+        trainer_adapter = DummyTrainerAdapter()
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            trainer_adapter=trainer_adapter,
+            key_listener=None,
+        )
+
+        bridge._source_slice_backend = "trainer"
+        bridge._source_slice_trainer_id = "t1"
+        bridge._source_slice_group_size = 20
+        typing_adapter.setup_sourced_slice_mode(
+            slice_index=2,
+            slice_total=10,
+            on_fail_action="retype",
+            key_stroke_min=0,
+            speed_min=0,
+            accuracy_min=0,
+            pass_count_min=1,
+        )
+
+        bridge.handleSliceRetype()
+
+        assert trainer_adapter.current_count == 1
+        assert trainer_adapter.segment_requests == []
+
+    def test_trainer_shuffle_retype_uses_shuffle_current_group(self):
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        session = TypingSessionContext()
+        typing_adapter._session_context = session
+        trainer_adapter = DummyTrainerAdapter()
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            trainer_adapter=trainer_adapter,
+            key_listener=None,
+        )
+
+        bridge._source_slice_backend = "trainer"
+        bridge._source_slice_trainer_id = "t1"
+        bridge._source_slice_group_size = 20
+        typing_adapter.setup_sourced_slice_mode(
+            slice_index=2,
+            slice_total=10,
+            on_fail_action="shuffle",
+            key_stroke_min=0,
+            speed_min=0,
+            accuracy_min=0,
+            pass_count_min=1,
+        )
+
+        bridge.handleSliceRetype()
+
+        assert trainer_adapter.shuffle_count == 1
+        assert trainer_adapter.segment_requests == []

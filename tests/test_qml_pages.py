@@ -31,13 +31,11 @@ def test_trainer_page_uses_expected_bridge_contract():
     assert "appBridge.trainerLoading" in source
     assert "appBridge.loadTrainers()" in source
     assert "appBridge.loadTrainerSegment(" in source
-    assert "appBridge.loadPreviousTrainerSegment()" in source
-    assert "appBridge.loadNextTrainerSegment()" in source
-    assert "appBridge.shuffleCurrentTrainerGroup()" in source
     assert "onTrainersLoaded" in source
     assert "onTrainersLoadFailed" in source
     assert "onTrainerSegmentLoaded" in source
     assert "onTrainerSegmentLoadFailed" in source
+    assert "currentIndex: 1 // 默认“重打”" in source
     assert (
         'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
     )
@@ -58,6 +56,7 @@ def test_local_articles_page_uses_expected_bridge_contract():
     assert "onLocalArticleSegmentLoaded" in source
     assert "onLocalArticleSegmentLoadFailed" in source
     assert "onLocalArticleLoadingChanged" in source
+    assert "currentIndex: 1 // 默认“重打”" in source
     assert (
         'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
     )
@@ -79,6 +78,14 @@ def test_typing_page_handles_local_article_segment_load_failure():
 
     assert "onLocalArticleSegmentLoadFailed" in source
     assert "upperPane.text = message" in source
+
+
+def test_slice_config_dialog_defaults_on_fail_action_to_retype():
+    dialog_qml = PROJECT_ROOT / "src/qml/typing/SliceConfigDialog.qml"
+
+    source = dialog_qml.read_text(encoding="utf-8")
+
+    assert "onFailActionCombo.currentIndex = 1; // 默认“重打”，避免默认乱序" in source
 
 
 def test_typing_page_renders_ziti_hint_from_bridge():

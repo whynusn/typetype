@@ -587,3 +587,56 @@ onCurrentIndexChanged: {
 ```
 
 **历史记录**：2026-04-19，薄弱字排序功能和文本排行页面修复。
+
+### ⚠️ 清空 UpperPane 文本前必须先重置光标位置
+
+**问题**：分片载文模式下，打完一个片段后 `onTypingEnded` 直接设置 `upperPane.text = ""` 清空显示区，触发 `QTextCursor::setPosition: Position 'X' out of range` 警告。
+
+**原因**：清空 `upperPane.text` 时，Qt 内部的 QTextCursor 仍停留在旧位置（如片段末尾的位置 9）。文档被清空后（characterCount 变为 1），Qt 尝试将光标定位到旧位置，导致越界。该警告在每次打完片段后稳定复现。
+
+**正确做法**：在清空文本前先将光标重置到起始位置：
+```qml
+// ✅ 正确：先重置光标，再清空文本
+upperPane.setCursorAndScroll(0, false);
+upperPane.text = "";
+```
+
+```qml
+// ❌ 错误：直接清空文本，Qt 内部光标仍在旧位置
+upperPane.text = "";
+```
+
+**补充防护**：`_color_text` 方法中增加了 `begin_pos + n > doc_len` 的边界检查，防止 `movePosition` 越界。即使有残留 IME 事件穿过 `is_read_only` 守卫，也不会触发 setPosition 警告。
+
+**原则**：在 QML 中程序化替换/清空 TextEdit 的文本时，若光标不在位置 0，应先重置光标位置再修改文本内容，避免 Qt 内部光标定位越界。
+
+**历史记录**：2026-04-27，分片载文模式修复。此问题在每次打完片段后稳定复现，但因不影响功能只产生警告日志，长期未被发现。
+
+### ⚠️ 分片达标次数在片段切换时必须归零
+
+**问题**：分片载文模式下，离开片段后再回来时，达标次数仍然是之前累计的值。导致用户第二次打到同一片段时，仅一次达标就触发自动推进（因为达标次数已满足 `pass_count_min`）。
+
+**原因**：`TypingSessionContext._slice_pass_counts` 是按片段索引存储的累计值。原代码仅在无尽循环回绕（`next_idx <= current`）时重置达标次数，其他片段切换场景（前进、后退、随机）均未重置。正确语义是：**同一片段内连续重打达标次数累加，离开片段后再次回来时达标次数归零**。
+
+**正确做法**：片段切换时重置目标片段的达标次数：
+```python
+# ✅ 正确：loadNextSlice / loadPrevSlice / loadRandomSlice 中
+self._typing_adapter.reset_slice_pass_count(next_idx)
+self._typing_adapter.set_slice_index(next_idx)
+```
+
+**不应重置的场景**：同一片段重打（`handleSliceRetype`）时保留达标次数：
+```python
+# ✅ 正确：handleSliceRetype 不重置，用户仍在同一片段上
+# 重打只是换文本内容，达标次数应继续累加
+```
+
+**数据源型后端（trainer/local_article）**：通过 `index != prev_index` 判断是否切换片段，切换时重置：
+```python
+if not is_initial and index != prev_index:
+    self._typing_adapter.reset_slice_pass_count(index)
+```
+
+**原则**：达标次数的生命周期是"一次片段访问"。进入片段时从 0 开始，片段内重打累加，离开片段时归零。不要把"同一片段的多次访问"和"同一片段的多次重打"混淆。
+
+**历史记录**：2026-04-27，分片载文模式修复。此问题在打完一轮全文后第二轮打到同一片段时复现，因达标次数累计导致一次达标即自动推进。

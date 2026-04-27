@@ -144,5 +144,7 @@ def test_typing_end_copies_score_without_opening_end_dialog():
     source = typing_page.read_text(encoding="utf-8")
 
     assert "copyScoreMessage()" in source
-    assert "copyAggregateScore()" in source
     assert "endDialog.open()" not in source
+    assert (
+        "copyAggregateScore()" not in source
+    )  # 聚合成绩复制在 EndDialog 中，TypingPage 不再直接调用
