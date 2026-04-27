@@ -306,7 +306,9 @@ FluentPage {
                 id: wenlaiSegmentModeCombo
                 implicitWidth: 90
                 model: [qsTr("手动"), qsTr("自动")]
-                currentIndex: appBridge && appBridge.wenlaiSegmentMode === "auto" ? 1 : 0
+                Component.onCompleted: {
+                    currentIndex = appBridge && appBridge.wenlaiSegmentMode === "auto" ? 1 : 0
+                }
                 onCurrentIndexChanged: {
                     var nextMode = currentIndex === 1 ? "auto" : "manual"
                     if (!syncingWenlaiControls && nextMode === "manual" && lastWenlaiSegmentMode !== "manual") {
