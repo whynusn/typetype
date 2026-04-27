@@ -27,13 +27,10 @@ Item {
     implicitWidth: size
     implicitHeight: size
 
-    // 主题切换动画
-    Behavior on color {
-        ColorAnimation {
-            duration: 250
-            easing.type: Easing.OutQuart
-        }
-    }
+    // 主题切换动画已移除：
+    // Qt QQuickText 的 color 属性只允许一个动画拦截器，
+    // 与 RinUI Text.qml 相同的限制（参见 Text.qml 第15-21行 TODO）。
+    // 详见 docs/history/fix-icon-behavior-on-color.md
 
     Text {
         id: text

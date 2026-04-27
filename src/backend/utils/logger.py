@@ -111,9 +111,16 @@ def _format_qt_message(context: Any, message: str) -> str:
 
 def _should_suppress_qt_message(context: Any, message: str) -> bool:
     category = getattr(context, "category", "") or "default"
-    return category == "qt.qpa.keymapper" and message.startswith(
+    if category == "qt.qpa.keymapper" and message.startswith(
         "Mismatch between Cocoa "
-    )
+    ):
+        return True
+    # Qt QQuickText.color 只允许一个动画拦截器，
+    # RinUI Icon.qml 的 Behavior on color 触发此警告，
+    # 详见 docs/history/fix-icon-behavior-on-color.md
+    if "Attempting to set another interceptor on" in message:
+        return True
+    return False
 
 
 def _qt_message_handler(msg_type: QtMsgType, context: Any, message: str) -> None:
