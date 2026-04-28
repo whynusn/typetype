@@ -111,7 +111,7 @@ uv run ruff format .
 ## 当前技术栈
 
 | 层 | 技术 |
-|------|------|
+|:--- |:---|
 | 桌面 UI | PySide6 + QML + RinUI |
 | 后端语言 | Python 3.12+ |
 | 架构 | Clean Architecture + Ports & Adapters |
@@ -223,12 +223,45 @@ Windows 建议追加：
 
 ## 开发者文档
 
-从 [ARCHITECTURE.md](./docs/ARCHITECTURE.md) 开始 — 快速开始、架构、数据流、陷阱全在里面。
+### 📍 核心文档导航
 
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 唯一事实来源（"宪法"）
-- [docs/reference/](./docs/reference/) — 配置/QML/API 速查表
-- [docs/history/](./docs/history/) — 历史设计文档归档
-- [AGENTS.md](./AGENTS.md) — AI Agent 开发约束
+| 文档 | 面向 | 职责 | 何时读 |
+|:--- |:--- |:--- |:---|
+| **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | 所有人 | **唯一事实来源**：架构设计、代码分层、数据流、陷阱集锦 | 第一次了解项目 |
+| **[AGENTS.md](./AGENTS.md)** | AI 开发者 | **开发约束与陷阱**：编码规范、已知坑位、验证要求 | 修改代码前 |
+| **[docs/reference/](./docs/reference/)** | 开发者/AI | **速查表**：配置字段、QML 页面、Bridge API、端点清单 | 需要快速查找 |
+| **[docs/history/](./docs/history/)** | 参考 | **历史归档**：完成的设计文档、bug 记录、演进记录 | 理解过去决策 |
+| **[docs/meta/README.md](./docs/meta/README.md)** | AI/维护者 | **文档规范**：文档职责定义、权威优先级、同步规则 | 维护文档或不确定信息来源 |
+
+### 🎯 推荐阅读顺序（按场景）
+
+#### 🚀 快速上手
+```
+README.md （快速入门）
+  → ARCHITECTURE.md § 快速开始
+  → ARCHITECTURE.md § 一句话先理解项目
+```
+
+#### 🔧 修改代码
+```
+ARCHITECTURE.md § 分层架构（理解分层）
+  → AGENTS.md § 当前架构（快速索引）
+  → AGENTS.md § 已知陷阱（查阅相关坑位）
+  → 对应源文件位置
+```
+
+#### 🐛 遇到问题
+```
+AGENTS.md § 已知陷阱（关键词搜索）
+  → 对应 ARCHITECTURE.md 相关部分
+  → docs/history/ （查历史 bug 记录）
+```
+
+#### ⚙️ 查配置/API/页面
+```
+docs/reference/README.md （速查入口）
+  → 对应文件（config.md / qml-pages.md / bridge-slots.md / api-endpoints.md）
+```
 
 ---
 

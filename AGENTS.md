@@ -1,5 +1,80 @@
 # typetype 项目开发指南
 
+## 📍 文档导航卡（你在这里）
+
+本文档面向 **AI 开发者**，记录编码规范和已知陷阱。若不确定信息来源，参见 [docs/meta/README.md](./docs/meta/README.md)（全局文档规范）。
+
+| 当前文档 | 其他核心文档 | 快速链接 |
+| :--- | :--- | :--- |
+| **本文** — 开发约束、编码规范、已知陷阱 | [README.md](./README.md) — 快速入门<br>[ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 架构权威 | [当前架构](#2-当前架构)<br>[已知陷阱](#8-已知陷阱) |
+
+---
+
+## 📚 文档维护指南（AI Agent 必读）
+
+### 文档职责速查
+
+| 文档 | 我的角色 | 什么时候更新我 |
+| :--- | :--- | :--- |
+| `ARCHITECTURE.md` | 唯一事实来源（"宪法"） | 新增/删除文件、架构变更、发现新陷阱 |
+| **本文档** | AI 开发约束与陷阱集 | 发现新坑位、编码规范变化、验证要求更新 |
+| `docs/reference/*` | 速查表（配置/QML/API） | 新增配置字段、修改 Bridge Slot、新增 API 端点 |
+| `docs/history/*` | 历史设计文档归档 | 完成重大功能、修复复杂 bug、记录设计决策 |
+| `docs/meta/README.md` | 文档规范与同步规则 | 文档结构变化、权威优先级调整 |
+
+### 修改代码后的文档更新流程
+
+```
+1. 改完代码
+   ↓
+2. 判断变更类型（见下表）
+   ↓
+3. 更新对应文档（保持同步）
+   ↓
+4. 验证：运行 docs/meta/README.md § 验证清单
+```
+
+| 我改了什么 | 需要更新哪里 | 检查要点 |
+| :--- | :--- | :--- |
+| 新增/删除/重命名源码文件 | `ARCHITECTURE.md` § 目录结构 | 路径、文件名、注释是否一致 |
+| 新增/修改配置字段 | `docs/reference/config.md` | 类型、默认值、说明是否完整 |
+| 新增/删除 QML 页面 | `docs/reference/qml-pages.md` | 页面名称、信号、依赖是否准确 |
+| 新增/修改 Bridge Slot/Signal | `docs/reference/bridge-slots.md` | 参数类型、返回值、使用场景 |
+| 新增/修改 API 端点 | `docs/reference/api-endpoints.md` | URL、方法、请求/响应格式 |
+| 发现新的陷阱/坑位 | `ARCHITECTURE.md` § 已知陷阱 或 **本文档** | 问题、原因、解决方案、相关修改链接 |
+| 架构分层变更 | `ARCHITECTURE.md` § 分层架构 + 依赖规则 | 层职责、依赖方向、绑定规则 |
+| 完成重大功能/修复 | 考虑写入 `docs/history/` | 背景、决策、实现、验证结果 |
+
+### 权威优先级（出现冲突时）
+
+见 [docs/meta/README.md § 权威优先级](./docs/meta/README.md#权威优先级)
+
+简版：
+1. **当前源码**（最终真理）
+2. `ARCHITECTURE.md`
+3. `docs/reference/*`
+4. **本文档** (`AGENTS.md`)
+5. `skills/*`
+6. `docs/history/*`
+
+### 提交前验证清单
+
+- [ ] `ARCHITECTURE.md` 目录结构与 `src/backend/` 实际文件一致
+- [ ] `docs/reference/` 中的表格与代码一致
+- [ ] `ARCHITECTURE.md` 中的陷阱是否覆盖最新发现
+- [ ] 所有内部链接无断链（相对路径正确）
+- [ ] 本文档的陷阱描述是否准确、完整
+- [ ] 代码改动与文档更新在同一 PR/提交中
+
+### 文档编写规范
+
+- **事实文档**（`ARCHITECTURE.md`）：先给结论，再给解释。代码块标注语言。
+- **Agent 规则**（本文档）：简洁直接。陷阱必须包含：问题、原因、正确做法、历史记录。
+- **速查表**（`docs/reference/*`）：纯表格，H1 标题 + `>` 摘要行 + 表格主体。不写段落。每个文件 ≤ 200 行。
+- **历史归档**（`docs/history/*`）：完整记录背景、决策、实现、验证。不修改、不删除。
+
+---
+
 ## 1. 开发环境与命令
 
 ### 开发环境
@@ -53,7 +128,7 @@ Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disabl
 项目使用了裁剪后的字体文件以减小打包体积和运行时内存占用：
 
 | 字体 | 原始大小 | 裁剪后大小 | 减少比例 |
-|------|----------|------------|----------|
+|:--- |:--- |:--- |:---|
 | HarmonyOS Sans SC Regular | 8.2 MB | 504 KB | ~94% |
 | LXGW WenKai Regular | 25.4 MB | 880 KB | ~97% |
 
@@ -199,7 +274,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 ### 各层职责
 
 | 层 | 组件 | 职责 |
-|------|------|------|
+|:--- |:--- |:---|
 | **Domain Services** | TypingService | 打字统计纯逻辑（SessionStat 状态、键数累积） |
 | | AuthService | 登录认证（login/logout、token 验证与刷新） |
 | | CharStatsService | 字符维度统计（缓存、持久化、薄弱字查询、自定义排序） |
@@ -228,7 +303,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 **排序模式**（`CharStatsRepository.get_chars_by_sort`）：
 
 | sort_mode | 说明 |
-|-----------|------|
+|:--- |:---|
 | `error_rate` | 按错误率排序（默认） |
 | `error_count` | 按错误次数排序 |
 | `weighted` | 加权排序，权重由 `weights` 参数指定 |
@@ -452,30 +527,21 @@ else:
 
 ### ⚠️ 单实例页面切换时必须重置 appBridge 瞬态状态
 
-**问题**：NavigationView 采用单实例页面管理（页面创建后复用，通过 `visible` + `active` 切换），但 `appBridge` 是 Python 单例，页面切换后其内部状态（如 `textId`）仍保留上一次的值。
-
-**场景**：
-1. 用户载文（极速杯 textId=49）→ 打到一半
-2. 切到排行榜页面 → 再切回打字页面
-3. TypingPage 实例复用，文本区为空，ComboBox 显示默认来源
-4. 但 `appBridge.textId` 仍然是 49
-5. 用户直接开始打字 → 完成后提交成绩 → 成绩关联到旧的 textId=49，但打的是新内容
+**问题**：NavigationView 单实例模式下，页面切换后 `appBridge` 的瞬态状态（如 `textId`）仍保留上一次的值，导致成绩提交到错误文本。
 
 **修复**：在 `onActiveChanged` 中重置所有瞬态状态：
 ```qml
 onActiveChanged: {
-    if (active) {
-        if (appBridge) {
-            appBridge.setTextTitle(appBridge.defaultTextTitle);
-            appBridge.setTextId(0);  // 重置 textId，强制用户重新载文
-        }
+    if (active && appBridge) {
+        appBridge.setTextTitle(appBridge.defaultTextTitle);
+        appBridge.setTextId(0);  // 重置 textId，强制重新载文
     }
 }
 ```
 
-**原则**：`onActiveChanged` 在页面变为激活时重置所有与"当前载文"相关的状态，确保用户每次回到页面都是一致的初始状态。如果某个状态是从外部单例读取的，必须显式重置。
+**原则**：`onActiveChanged` 重置所有与"当前载文"相关的状态。
 
-**历史记录**：2026-04-13 在 StackView 模式中发现并修复。2026-04-24 重构为单实例页面管理，守卫从 `StackView.status === StackView.Active` 迁移为 `page.active`。
+**详细修改**：`RinUI/LOCAL_MODIFICATIONS.md` § **修改 3**（NavigationView 单实例重构）
 
 ### ⚠️ 领域模型不应承载 UI 路由概念
 
@@ -530,63 +596,39 @@ def requestLoadText(self, source_key: str) -> None:
 
 **问题**：RinUI 的 `ContextMenu`（ComboBox 的 popup）首次打开时会"展开一点又缩回去"。
 
-**原因**：`enter` transition 中的 `NumberAnimation` 将 `height` 从 46 动画到 `contextMenu.implicitHeight`。但首次打开时，ListView 的 model 只在 `popup.visible` 变为 true 后才设置（`model: control.popup.visible ? control.delegateModel : null`），delegate 尚未实例化，`contentHeight` 为 0，导致 `implicitHeight` ≈ 6。动画目标值错误，popup 从 46 缩到 ~6。更致命的是，transition 动画会破坏 `height` 的属性绑定，后续 `contentHeight` 更新无法传递到 `height`，导致 popup 永久卡在错误高度。
+**原因**：`enter` transition 中对 `height` 做动画，但首次打开时 ListView 尚未完成布局，`implicitHeight` 为 0，导致动画到 ~6px 后缩回。更致命的是 transition 会破坏 `height` 的属性绑定。
 
-**错误做法**：在 `enter` transition 中对 `height` 做动画：
-```qml
-// ❌ 错误：enter transition 动画 height
-enter: Transition {
-    SequentialAnimation {
-        PauseAnimation { duration: 16 }
-        NumberAnimation {
-            target: contextMenu
-            property: "height"
-            from: 46
-            to: contextMenu.implicitHeight  // 首次打开时 ≈ 6，导致缩回
-        }
-    }
-}
-```
-
-**正确做法**：移除 `enter` transition 中的 `height` 动画，改用 `Behavior on height` 驱动展开。`Behavior` 不破坏属性绑定，当 `implicitHeight` 因 `contentHeight` 变化而更新时，`height` 自然跟随，`Behavior` 提供平滑过渡：
+**正确做法**：移除 `enter` transition 中的 `height` 动画，改用 `Behavior on height`：
 ```qml
 // ✅ 正确：Behavior on height 驱动展开
 height: implicitHeight
 Behavior on height {
-    NumberAnimation {
-        duration: Utils.animationSpeedMiddle
-        easing.type: Easing.OutQuint
-    }
+    NumberAnimation { duration: Utils.animationSpeedMiddle; easing.type: Easing.OutQuint }
 }
-enter: Transition {
-    // 只动画 opacity，不动画 height
-}
+enter: Transition { /* 只动画 opacity，不动画 height */ }
 ```
 
-**原则**：当属性值依赖异步计算结果（如 `ListView.contentHeight`）时，不要在 `enter` transition 中对该属性做动画——transition 的 `to` 值在启动时就被求值，此时异步数据可能尚未就绪。应使用 `Behavior` 让属性绑定自然驱动动画。
+**原则**：当属性值依赖异步计算结果时，不要用 `enter` transition 动画该属性。
 
-**历史记录**：2026-04-16 发现并修复。
+**详细修改**：`RinUI/LOCAL_MODIFICATIONS.md` § **修改 1.1**（位置修复）+ § **修改 1.2**（PauseAnimation 修复）
 
 ### ⚠️ RinUI ComboBox 的 `onActivated` 信号不触发
 
-**问题**：在 RinUI 框架下，ComboBox 使用 `textRole`/`valueRole` 绑定 ListModel 时，`onActivated` 信号处理函数不被执行。用户点击下拉选项后，回调不触发。
+**问题**：ComboBox 使用 `textRole`/`valueRole` 时，`onActivated` 信号不触发。
 
-**原因**：RinUI 没有自己的 ComboBox 组件，使用 Qt Quick Controls 2 的原生 ComboBox。但 RinUI 的某些内部机制可能干扰了 `onActivated` 信号的转发。SettingsPage 已使用 `onCurrentIndexChanged` 而非 `onActivated`。
+**原因**：RinUI 使用 Qt Quick Controls 2 的原生 ComboBox，内部机制可能干扰信号转发。
 
-**正确做法**：改用 `onCurrentIndexChanged`。排序等需要去重的场景加守卫：
+**正确做法**：改用 `onCurrentIndexChanged`，需要去重时加守卫：
 ```qml
 onCurrentIndexChanged: {
     if (currentIndex >= 0 && currentIndex < model.count) {
         var val = model.get(currentIndex).value;
-        if (val !== currentVal) {
-            currentVal = val;
-            doSomething();
-        }
+        if (val !== currentVal) { currentVal = val; doSomething(); }
     }
 }
 ```
 
-**历史记录**：2026-04-19，薄弱字排序功能和文本排行页面修复。
+**详细修改**：`RinUI/LOCAL_MODIFICATIONS.md` § **修改 1.1**（ContextMenu 位置修复，同文件）
 
 ### ⚠️ 清空 UpperPane 文本前必须先重置光标位置
 
@@ -614,9 +656,7 @@ upperPane.text = "";
 
 ### ⚠️ 分片达标次数在片段切换时必须归零
 
-**问题**：分片载文模式下，离开片段后再回来时，达标次数仍然是之前累计的值。导致用户第二次打到同一片段时，仅一次达标就触发自动推进（因为达标次数已满足 `pass_count_min`）。
-
-**原因**：`TypingSessionContext._slice_pass_counts` 是按片段索引存储的累计值。原代码仅在无尽循环回绕（`next_idx <= current`）时重置达标次数，其他片段切换场景（前进、后退、随机）均未重置。正确语义是：**同一片段内连续重打达标次数累加，离开片段后再次回来时达标次数归零**。
+**问题**：分片载文模式下，离开片段后再回来时，达标次数仍然是之前累计的值，导致一次达标就触发自动推进。
 
 **正确做法**：片段切换时重置目标片段的达标次数：
 ```python
@@ -625,18 +665,8 @@ self._typing_adapter.reset_slice_pass_count(next_idx)
 self._typing_adapter.set_slice_index(next_idx)
 ```
 
-**不应重置的场景**：同一片段重打（`handleSliceRetype`）时保留达标次数：
-```python
-# ✅ 正确：handleSliceRetype 不重置，用户仍在同一片段上
-# 重打只是换文本内容，达标次数应继续累加
-```
+**不应重置的场景**：同一片段重打（`handleSliceRetype`）时保留达标次数。
 
-**数据源型后端（trainer/local_article）**：通过 `index != prev_index` 判断是否切换片段，切换时重置：
-```python
-if not is_initial and index != prev_index:
-    self._typing_adapter.reset_slice_pass_count(index)
-```
+**原则**：达标次数的生命周期是"一次片段访问"。进入时从 0 开始，片段内重打累加，离开时归零。
 
-**原则**：达标次数的生命周期是"一次片段访问"。进入片段时从 0 开始，片段内重打累加，离开片段时归零。不要把"同一片段的多次访问"和"同一片段的多次重打"混淆。
-
-**历史记录**：2026-04-27，分片载文模式修复。此问题在打完一轮全文后第二轮打到同一片段时复现，因达标次数累计导致一次达标即自动推进。
+**详细修改**：`RinUI/LOCAL_MODIFICATIONS.md` § **修改 3**（NavigationView 单实例，含片段管理）
