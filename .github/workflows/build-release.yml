@@ -217,7 +217,7 @@ jobs:
 
       - name: 创建压缩包
         run: |
-          DIST_DIR="build-src/deployment/main.dist"
+          DIST_DIR="build-src/deployment/main.app"
           if [ -d "$DIST_DIR" ]; then
             ditto -c -k --sequesterRsrc --keepParent "$DIST_DIR" typetype-macos.zip
           else
