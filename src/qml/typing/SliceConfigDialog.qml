@@ -639,6 +639,28 @@ Dialog {
                                 Layout.fillWidth: true
                             }
                         }
+
+                        // 全文乱序
+                        RowLayout {
+                            visible: sliceModeCheck.checked
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Text {
+                                text: qsTr("全文乱序")
+                                font.pixelSize: 13
+                                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                            }
+
+                            Item {
+                                Layout.fillWidth: true
+                            }
+
+                            CheckBox {
+                                id: fullShuffleCheck
+                                text: qsTr("分片前打乱全文")
+                            }
+                        }
                     }
                 }
 
@@ -705,15 +727,6 @@ Dialog {
                                 }
                                 textRole: "text"
                                 valueRole: "value"
-                            }
-
-                            Item {
-                                Layout.fillWidth: true
-                            }
-
-                            CheckBox {
-                                id: fullShuffleCheck
-                                text: qsTr("分片前打乱全文")
                             }
                         }
 

@@ -1240,6 +1240,14 @@ class Bridge(QObject):
         if not text or slice_size <= 0:
             return
 
+        # 全文乱序：先打乱全文字符，再进入分片
+        if self._pending_slice_params.get("full_shuffle"):
+            import random
+
+            chars = list(text)
+            random.shuffle(chars)
+            text = "".join(chars)
+
         total = self._typing_adapter.setup_slice_mode(
             text=text,
             slice_size=slice_size,
