@@ -631,6 +631,15 @@ FluentPage {
             }
 
             Text {
+                Layout.fillWidth: true
+                horizontalAlignment: Qt.AlignCenter
+                font.pixelSize: 12
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#666"
+                text: qsTr("没有账号？请先在<a href='https://github.com/a810439322/TypeSunny'>「晴跟打」</a>注册")
+                onLinkActivated: function(link) { Qt.openUrlExternally(link) }
+            }
+
+            Text {
                 id: wenlaiLoginErrorText
                 visible: false
                 color: Theme.currentTheme.colors.systemCriticalColor
