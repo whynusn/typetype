@@ -8,7 +8,7 @@ FluentWindow {
     id: root
     visible: true
     width: 1024
-    height: 768
+    height: 780
     minimumWidth: 800
     minimumHeight: 520
     title: appBridge ? appBridge.windowTitle : "TypeType"
@@ -18,9 +18,9 @@ FluentWindow {
 
     onActiveChanged: {
         if (!active && appBridge) {
-            appBridge.pauseTypingFromWindowDeactivate()
+            appBridge.pauseTypingFromWindowDeactivate();
         } else if (active && appBridge && appBridge.typingPaused) {
-            appBridge.toggleTypingPause()
+            appBridge.toggleTypingPause();
         }
     }
 
