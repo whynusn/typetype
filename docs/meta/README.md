@@ -8,7 +8,7 @@
 
 | 当前文档 | 其他核心文档 | 快速链接 |
 | :--- | :--- | :--- |
-| **本文** — 文档规范、权威优先级、同步规则 | [README.md](../README.md) — 快速入门<br>[ARCHITECTURE.md](../docs/ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../AGENTS.md) — 开发规范 | [文档结构](#文档结构)<br>[权威优先级](#权威优先级)<br>[同步规则](#同步规则) |
+| **本文** — 文档规范、权威优先级、同步规则 | [README.md](../README.md) — 快速入门<br>[ARCHITECTURE.md](../ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../AGENTS.md) — 开发规范 | [文档结构](#文档结构)<br>[权威优先级](#权威优先级)<br>[同步规则](#同步规则) |
 
 ---
 
@@ -16,10 +16,11 @@
 
 ```text
 typetype/
-├── ARCHITECTURE.md              ← 唯一事实来源（"宪法"）
+├── README.md                    ← 项目入口（快速入门、功能概览）
 ├── AGENTS.md                    ← AI Agent 规则和已知陷阱
 ├── docs/
-│   ├── reference/               ← 速查表（配置/QML/API）
+│   ├── ARCHITECTURE.md          ← 唯一事实来源（"宪法"）
+│   ├── reference/               ← 速查表（配置/QML/API/指标）
 │   ├── history/                 ← 历史归档（AI 一般不读）
 │   └── meta/                    ← 本文件（文档规范）
 └── skills/                      ← AI 操作手册

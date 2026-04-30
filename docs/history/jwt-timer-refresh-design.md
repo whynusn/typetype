@@ -49,7 +49,7 @@ EXPIRED → tokenExpired 信号 → UI 提示重新登录
 ### 3.3 断网容错
 
 | 场景 | 行为 |
-|------|------|
+|:--- |:---|
 | 刷新成功 | 重置定时器，回到 ACTIVE |
 | 网络断开 | 不弹登录，60s 后重试，最多 10 次 |
 | HTTP 401 | 重试 1 次刷新，仍失败则 EXPIRED |
@@ -60,7 +60,7 @@ EXPIRED → tokenExpired 信号 → UI 提示重新登录
 ## 四、修改文件清单
 
 | 文件 | 改动 |
-|------|------|
+|:--- |:---|
 | `src/backend/models/dto/auth_dto.py` | AuthResult 新增 `expires_in: int = 0` |
 | `src/backend/integration/api_client_auth_provider.py` | `_parse_auth_response` 解析 `expiresIn` |
 | `src/backend/domain/services/auth_service.py` | 保存 expires_in；新增 `token_remaining_seconds`、`refresh_interval_seconds` |
@@ -78,7 +78,7 @@ EXPIRED → tokenExpired 信号 → UI 提示重新登录
 ## 六、关键常量
 
 | 常量 | 值 | 说明 |
-|------|-----|------|
+|:--- |:--- |:---|
 | REFRESH_AHEAD_SECONDS | 120 | 提前 2 分钟刷新 |
 | RETRY_INTERVAL_MS | 60000 | 重试间隔 60 秒 |
 | MAX_RETRY | 10 | 最大重试次数 |

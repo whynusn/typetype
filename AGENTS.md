@@ -118,7 +118,9 @@ uv run python -m nuitka main.py \
   --include-data-dir=resources/texts=resources/texts \
   --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
   --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
-  --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf
+  --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf \
+  --include-data-dir=resources/trainer=resources/trainer \
+  --include-data-dir=resources/ziti=resources/ziti
 ```
 
 Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disable --include-windows-runtime-dlls=yes --noinclude-dlls=Qt6WebEngine*`。
@@ -138,81 +140,7 @@ Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disabl
 
 > 完整的架构文档请见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，本文档是补充速查和陷阱案例。
 
-```
-src/backend/
-├── application/
-│   ├── exception_handler.py  # 全局异常处理（网络异常 → 用户友好消息）
-│   ├── session_context.py    # 打字会话状态机（SessionPhase/SourceMode/UploadStatus）
-│   ├── gateways/      # Port 适配（TextSourceGateway, ScoreGateway）
-│   │   ├── score_gateway.py
-│   │   ├── text_source_gateway.py
-│   │   └── leaderboard_gateway.py   # 排行榜数据获取网关（Port 适配）
-│   └── usecases/      # 业务编排：LoadTextUseCase（仅此一个有编排价值的）
-│       └── load_text_usecase.py
-│   ├── auth_provider.py
-│   ├── char_stats_repository.py
-│   ├── clipboard.py
-│   ├── local_text_loader.py
-│   ├── score_submitter.py
-│   ├── text_provider.py
-│   ├── text_uploader.py
-│   ├── async_executor.py
-│   └── leaderboard_provider.py
-├── config/            # 运行时 JSON 配置文件
-│   ├── runtime_config.py
-│   └── text_source_config.py
-├── domain/
-│   └── services/      # 纯业务逻辑（TypingService, AuthService, CharStatsService）
-│       ├── auth_service.py
-│       ├── char_stats_service.py
-│       └── typing_service.py
-├── infrastructure/    # ApiClient 与网络异常模型
-│   ├── api_client.py
-│   └── network_errors.py
-├── integration/       # 内外集成（RemoteTextProvider, SqliteCharStatsRepository）
-│   ├── api_client_auth_provider.py
-│   ├── api_client_score_submitter.py
-│   ├── global_key_listener.py
-│   ├── noop_char_stats_repository.py
-│   ├── qt_async_executor.py
-│   ├── qt_local_text_loader.py
-│   ├── remote_text_provider.py
-│   ├── sqlite_char_stats_repository.py
-│   ├── system_identifier.py
-│   ├── text_uploader.py
-│   └── leaderboard_fetcher.py    # LeaderboardProvider 实现
-├── models/
-│   ├── dto/
-│   │   ├── auth_dto.py
-│   │   ├── fetched_text.py
-│   │   ├── score_dto.py
-│   │   └── text_catalog_item.py
-│   └── entity/        # 领域模型（SessionStat, CharStat）
-│       ├── char_stat.py
-│       └── session_stat.py
-├── presentation/
-│   ├── adapters/      # Qt 适配层（TypingAdapter, TextAdapter）
-│   │   ├── typing_adapter.py
-│   │   ├── text_adapter.py
-│   │   ├── auth_adapter.py
-│   │   ├── char_stats_adapter.py
-│   │   ├── leaderboard_adapter.py
-│   │   └── upload_text_adapter.py
-│   └── bridge.py      # Bridge（appBridge）
-├── security/          # 加密与安全存储
-│   ├── crypt.py
-│   └── secure_storage.py
-├── utils/             # 工具类（Logger, text_id）
-│   ├── logger.py
-│   └── text_id.py
-└── workers/           # 后台任务（BaseWorker, TextLoadWorker 等）
-    ├── base_worker.py
-    ├── catalog_worker.py
-    ├── leaderboard_worker.py
-    ├── text_load_worker.py
-    ├── text_list_worker.py
-    └── weak_chars_query_worker.py
-```
+完整的文件树见 [docs/ARCHITECTURE.md § 目录结构](./docs/ARCHITECTURE.md#目录结构)，此处不重复维护。
 
 RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要修改，见 docs/ARCHITECTURE.md）
 
@@ -228,7 +156,10 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 │                  Presentation Layer                     │
 │                 (Bridge + Adapters)                    │
 │  Bridge: appBridge，属性代理/信号转发/Slot 入口          │
-│  Adapters: TypingAdapter, TextAdapter                   │
+│  Adapters: TypingAdapter, TextAdapter, AuthAdapter,     │
+│            CharStatsAdapter, LeaderboardAdapter,         │
+│            UploadTextAdapter, WenlaiAdapter,              │
+│            LocalArticleAdapter, ZitiAdapter, TrainerAdapter │
 └─────────────────────────┬───────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────┐
@@ -250,7 +181,7 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
                           ▼
 ┌─────────────────────────────────────────────────────────┐
 │                  Integration / Infrastructure           │
-│   SaiWenTextFetcher, SqliteRepo, ApiClient, QtLoader   │
+│   RemoteTextProvider, SqliteRepo, ApiClient, QtLoader  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -288,11 +219,19 @@ RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要
 | | LeaderboardWorker | 排行榜后台加载 |
 | | TextListWorker | 文本列表后台加载 |
 | | WeakCharsQueryWorker | 弱字符后台查询 |
+| | LocalArticleWorker | 本地文章后台加载 |
+| | TrainerWorker | 练习器后台加载 |
+| | WenlaiWorker | 晴发文本后台加载 |
+| | ZitiWorker | 字帖后台加载 |
 | **Presentation** | Bridge | QML 通信适配层：属性代理、信号转发、Slot 入口 |
 | | TypingAdapter | Qt 适配（计时器、文本着色、信号发射） |
 | | TextAdapter | Qt 适配（标准加载走 Worker、信号发射、UI 配置展示）、公开 `lookup_text_id()` 供就地载入复用 |
 | | LeaderboardAdapter | 排行榜 Qt 适配（异步 Worker、信号管理） |
 | | UploadTextAdapter | 文本上传 Qt 适配（本地写入 + 云端上传） |
+| | WenlaiAdapter | 晴发文本 Qt 适配 |
+| | LocalArticleAdapter | 本地文章 Qt 适配 |
+| | ZitiAdapter | 字帖 Qt 适配 |
+| | TrainerAdapter | 练习器 Qt 适配 |
 
 ### 薄弱字排序功能
 
@@ -343,14 +282,14 @@ weighted 模式的 `weights` 参数格式：`{"error_rate": float, "total_count"
 # main.py 中的依赖注入示例
 # Infrastructure
 api_client = ApiClient(timeout=runtime_config.api_timeout)
-sai_wen_text_fetcher = SaiWenTextFetcher(api_client=api_client)
+remote_text_provider = RemoteTextProvider(api_client=api_client)
 local_text_loader = QtLocalTextLoader()
 async_executor = QtAsyncExecutor()
 
 # Gateways
 text_source_gateway = TextSourceGateway(
     runtime_config=runtime_config,
-    text_provider=sai_wen_text_fetcher,
+    text_provider=remote_text_provider,
     local_text_loader=local_text_loader,
 )
 score_gateway = ScoreGateway(clipboard=clipboard)
@@ -382,6 +321,10 @@ typing_adapter = TypingAdapter(
 text_adapter = TextAdapter(text_gateway=text_gateway, load_text_usecase=load_text_usecase)
 auth_adapter = AuthAdapter(auth_service=auth_service)
 char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
+wenlai_adapter = WenlaiAdapter(...)
+local_article_adapter = LocalArticleAdapter(...)
+ziti_adapter = ZitiAdapter(...)
+trainer_adapter = TrainerAdapter(...)
 
 # Bridge
 bridge = Bridge(
@@ -389,6 +332,10 @@ bridge = Bridge(
     text_adapter=text_adapter,
     auth_adapter=auth_adapter,
     char_stats_adapter=char_stats_adapter,
+    wenlai_adapter=wenlai_adapter,
+    local_article_adapter=local_article_adapter,
+    ziti_adapter=ziti_adapter,
+    trainer_adapter=trainer_adapter,
 )
 ```
 
@@ -420,36 +367,28 @@ bridge = Bridge(
   - `GlobalExceptionHandler` 测试（新异常类型 → 用户消息映射）
   - 对应 service/integration 测试
 
-## 5. Spring Boot 服务接入规范（后续）
+## 5. Spring Boot 服务端接入（已接入）
 
-当前项目尚未正式接入 Spring Boot。接入时遵循以下规范。
+当前已通过 `RemoteTextProvider`、`ApiClientScoreSubmitter`、`LeaderboardFetcher` 等接入 [typetype-server](https://github.com/whynusn/typetype-server) Spring Boot 后端。
 
 ### 接入原则
 
-- 用例层只依赖 `TextFetcher` 协议，不直接依赖 HTTP 细节。
-- Spring Boot 作为新的 integration/service 实现注入，不破坏现有调用链。
+- 用例层只依赖 Port 协议（`TextProvider`、`ScoreSubmitter` 等），不直接依赖 HTTP 细节。
+- Spring Boot 后端作为 integration 层实现注入，不破坏现有调用链。
 
-### 推荐接口（v1）
+### 当前使用的接口（v1）
 
 - `GET /api/v1/texts/latest/{sourceKey}` — 获取指定来源的最新文本
 - `GET /api/v1/texts/catalog` — 获取所有可用文本来源
 - `POST /api/v1/scores` — 提交成绩（只发 textId，不发 sourceKey/content）
 - `GET /api/v1/texts/{textId}/leaderboard` — 获取文本排行榜
 
-### 客户端实现建议
+### 新增服务端能力时的扩展路径
 
-1. 新建 `SpringBootTextService`（实现 `TextFetcher`）。
-2. 复用 `ApiClient`，统一异常映射到 `network_errors.py`。
-3. 在 `RuntimeConfig.text_sources` 添加 springboot 来源。
-4. 在 `main.py` 按环境切换注入目标 service。
-
-### 配置建议
-
-后续建议新增环境变量支持：
-
-- `TYPETYPE_TEXT_API_BASE_URL`
-- `TYPETYPE_SCORE_API_BASE_URL`
-- `TYPETYPE_API_TIMEOUT`
+1. 在 `ports/` 定义新 Port 协议。
+2. 在 `integration/` 实现对应 adapter（复用 `ApiClient`，异常映射到 `network_errors.py`）。
+3. 在 `main.py` 装配层注入新实现。
+4. 配置项通过 `RuntimeConfig` 管理，`base_url` 通过 `update_base_url()` 统一更新。
 
 ## 6. 平台与权限
 

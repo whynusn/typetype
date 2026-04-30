@@ -10,7 +10,7 @@
 
 ---
 
-> 最后更新：2026-04-22
+> 最后更新：2026-04-30
 >
 > 本文档描述 **当前客户端实现**。若其他文档与其冲突，以当前源码和本文为准。
 
@@ -113,13 +113,13 @@ QML UI
 |:--- |:--- |:---|
 | QML | `src/qml/` | 页面、交互、布局、局部 UI 状态 |
 | Presentation | `Bridge` | QML 门面：属性代理、信号转发、Slot 入口（不含业务逻辑） |
-| Presentation | `TypingAdapter` / `TextAdapter` / `AuthAdapter` / `CharStatsAdapter` / `LeaderboardAdapter` / `UploadTextAdapter` | Qt 适配、线程协调（所有 I/O 走 Worker）、错误回传、会话状态机代理 |
+| Presentation | `TypingAdapter` / `TextAdapter` / `AuthAdapter` / `CharStatsAdapter` / `LeaderboardAdapter` / `UploadTextAdapter` / `WenlaiAdapter` / `LocalArticleAdapter` / `ZitiAdapter` / `TrainerAdapter` | Qt 适配、线程协调（所有 I/O 走 Worker）、错误回传、会话状态机代理 |
 | Application | `LoadTextUseCase` | 文本加载编排入口 |
 | Application | `TypingSessionContext` | 会话状态机：阶段/来源模式/上传资格推导/分片载文 |
 | Application | `TextSourceGateway` / `ScoreGateway` / `LeaderboardGateway` / `GlobalExceptionHandler` | 来源路由、DTO/剪贴板、异常消息映射 |
-| Workers | `BaseWorker` / `TextLoadWorker` / `LeaderboardWorker` / `TextListWorker` / `CatalogWorker` / `WeakCharsQueryWorker` / `ScoreSubmitWorker` / `TextContentWorker` | 后台任务执行、异常统一处理 |
+| Workers | `BaseWorker` / `TextLoadWorker` / `LeaderboardWorker` / `TextListWorker` / `CatalogWorker` / `WeakCharsQueryWorker` / `ScoreSubmitWorker` / `TextContentWorker` / `LocalArticleWorker` / `TrainerWorker` / `WenlaiWorker` / `ZitiWorker` | 后台任务执行、异常统一处理 |
 | Domain | `TypingService` / `CharStatsService` / `AuthService` | 纯业务逻辑、状态管理、统计计算 |
-| Ports | `TextProvider` / `LocalTextLoader` / `Clipboard*` / `AuthProvider` / `CharStatsRepository` / `TextUploader` / `ScoreSubmitter` / `LeaderboardProvider` / `AsyncExecutor` / `KeyListener` | 抽象协议 |
+| Ports | `TextProvider` / `LocalTextLoader` / `Clipboard*` / `AuthProvider` / `CharStatsRepository` / `TextUploader` / `ScoreSubmitter` / `LeaderboardProvider` / `AsyncExecutor` / `KeyListener` / `TokenStore` / `LocalArticleRepository` / `TrainerRepository` / `TypingTotalsStore` / `WenlaiProvider` / `ZitiRepository` | 抽象协议 |
 | Integration | `RemoteTextProvider` / `QtLocalTextLoader` / `ApiClientAuthProvider` / `SqliteCharStatsRepository` / `LeaderboardFetcher` 等 | Port 实现 |
 | Infrastructure | `ApiClient` / `network_errors.py` | 通用 HTTP 客户端、网络异常分类 |
 
@@ -135,17 +135,28 @@ src/backend/
 │   ├── exception_handler.py
 │   ├── session_context.py
 │   ├── gateways/
+│   │   ├── leaderboard_gateway.py
+│   │   ├── local_article_gateway.py
 │   │   ├── score_gateway.py
 │   │   ├── text_source_gateway.py
-│   │   └── leaderboard_gateway.py
+│   │   ├── trainer_gateway.py
+│   │   ├── typing_totals_gateway.py
+│   │   ├── wenlai_gateway.py
+│   │   └── ziti_gateway.py
 │   └── usecases/
-│       └── load_text_usecase.py
+│       ├── load_local_article_segment_usecase.py
+│       ├── load_text_usecase.py
+│       ├── load_trainer_segment_usecase.py
+│       └── load_wenlai_text_usecase.py
 ├── config/
+│   ├── app_paths.py
 │   ├── runtime_config.py
 │   └── text_source_config.py
 ├── domain/services/
 │   ├── auth_service.py
 │   ├── char_stats_service.py
+│   ├── text_filter_service.py
+│   ├── trainer_service.py
 │   └── typing_service.py
 ├── infrastructure/
 │   ├── api_client.py
@@ -153,44 +164,68 @@ src/backend/
 ├── integration/
 │   ├── api_client_auth_provider.py
 │   ├── api_client_score_submitter.py
+│   ├── file_local_article_repository.py
+│   ├── file_trainer_repository.py
+│   ├── file_ziti_repository.py
 │   ├── global_key_listener.py
+│   ├── json_typing_totals_store.py
+│   ├── key_listener_factory.py
+│   ├── leaderboard_fetcher.py
+│   ├── mac_key_listener.py
 │   ├── noop_char_stats_repository.py
 │   ├── qt_async_executor.py
 │   ├── qt_local_text_loader.py
 │   ├── remote_text_provider.py
+│   ├── secure_token_store.py
 │   ├── sqlite_char_stats_repository.py
 │   ├── system_identifier.py
 │   ├── text_uploader.py
-│   └── leaderboard_fetcher.py
+│   └── wenlai_provider.py
 ├── models/
 │   ├── dto/
 │   │   ├── auth_dto.py
 │   │   ├── fetched_text.py
+│   │   ├── local_article.py
 │   │   ├── score_dto.py
-│   │   └── text_catalog_item.py
+│   │   ├── text_catalog_item.py
+│   │   ├── text_filter.py
+│   │   ├── trainer.py
+│   │   ├── wenlai_dto.py
+│   │   └── ziti.py
 │   └── entity/
 │       ├── char_stat.py
 │       └── session_stat.py
 ├── ports/
+│   ├── async_executor.py
 │   ├── auth_provider.py
 │   ├── char_stats_repository.py
 │   ├── clipboard.py
+│   ├── key_codes.py
+│   ├── key_listener.py
+│   ├── leaderboard_provider.py
+│   ├── local_article_repository.py
 │   ├── local_text_loader.py
 │   ├── score_submitter.py
 │   ├── text_provider.py
 │   ├── text_uploader.py
-│   ├── async_executor.py
-│   ├── leaderboard_provider.py
-│   ├── key_listener.py
+│   ├── token_store.py
+│   ├── trainer_repository.py
+│   ├── typing_totals_store.py
+│   ├── wenlai_provider.py
+│   └── ziti_repository.py
 ├── presentation/
-│ ├── bridge.py
-│ └── adapters/
-│       ├── typing_adapter.py
-│       ├── text_adapter.py
+│   ├── bridge.py
+│   └── adapters/
 │       ├── auth_adapter.py
 │       ├── char_stats_adapter.py
 │       ├── leaderboard_adapter.py
-│       └── upload_text_adapter.py
+│       ├── local_article_adapter.py
+│       ├── text_adapter.py
+│       ├── trainer_adapter.py
+│       ├── typing_adapter.py
+│       ├── upload_text_adapter.py
+│       ├── wenlai_adapter.py
+│       └── ziti_adapter.py
 ├── security/
 │   ├── crypt.py
 │   └── secure_storage.py
@@ -201,11 +236,15 @@ src/backend/
     ├── base_worker.py
     ├── catalog_worker.py
     ├── leaderboard_worker.py
+    ├── local_article_worker.py
     ├── score_submit_worker.py
     ├── text_content_worker.py
     ├── text_list_worker.py
     ├── text_load_worker.py
-    └── weak_chars_query_worker.py
+    ├── trainer_worker.py
+    ├── weak_chars_query_worker.py
+    ├── wenlai_worker.py
+    └── ziti_worker.py
 ```
 
 ### QML 侧
@@ -219,6 +258,8 @@ src/qml/
 │   ├── DailyLeaderboard.qml
 │   ├── WeeklyLeaderboard.qml
 │   ├── AllTimeLeaderboard.qml
+│   ├── LocalArticlesPage.qml
+│   ├── TrainerPage.qml
 │   ├── ProfilePage.qml
 │   ├── SettingsPage.qml
 │   ├── TextLeaderboardPage.qml

@@ -119,7 +119,6 @@ else:
 - Public methods should have docstring if not obvious
 - Keep docstrings concise
 - Update `docs/ARCHITECTURE.md` when changing layer boundaries, object responsibilities, or main data flows
-- Update `docs/DEVELOPING.md` when changing startup, developer workflow, or onboarding-critical steps
 
 ## Verification Checklist ✅
 

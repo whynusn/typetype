@@ -1,7 +1,7 @@
 # 文本排行榜设计文档
 
 > 最后更新：2026-04-14
-> 状态：待审阅
+> 状态：已实现
 
 ## 一句话
 
@@ -28,7 +28,7 @@
 ### 服务端现状
 
 | 端点 | 状态 | 说明 |
-|------|------|------|
+|:--- |:--- |:---|
 | `GET /api/v1/texts/catalog` | ✅ 已有 | 返回所有 active 来源 |
 | `GET /api/v1/texts/latest/{sourceKey}` | ✅ 已有 | 获取来源最新文本 |
 | `GET /api/v1/texts/{textId}/leaderboard` | ✅ 已有 | 按 textId 查排行榜 |
@@ -143,7 +143,7 @@ def loadLeaderboardByTextId(text_id: int)  # 新增
 #### 组件选择
 
 | 区域 | 组件 | 说明 |
-|------|------|------|
+|:--- |:--- |:---|
 | 来源选择 | RinUI `ComboBox` | 下拉切换来源，触发 `loadTextList(source_key)` |
 | 文本列表 | RinUI `ListView` + 自定义 delegate | 左侧 280px，每个 item 展示标题/字数/排名 |
 | 排行榜表 | 复用 DailyLeaderboard 的 table 结构 | 右侧填充，`ListView` + header row |
@@ -325,7 +325,7 @@ class LeaderboardEntry:
 ## 风险与缓解
 
 | 风险 | 缓解措施 |
-|------|----------|
+|:--- |:---|
 | 来源下文本太多（数百篇），列表加载慢 | API 只返回摘要（无 content），数据量极小；后续可加分页 |
 | 排行榜面板遮挡打字区域 | 面板默认隐藏，用户按需展开；宽度固定 280px |
 | 无网络时面板体验差 | textId=0 直接跳过；网络失败静默降级 |
@@ -336,5 +336,5 @@ class LeaderboardEntry:
 ## 版本历史
 
 | 日期 | 变更 |
-|------|------|
+|:--- |:---|
 | 2026-04-14 | 初始设计：文本排行榜 Master-Detail + TypingPage 面板 |

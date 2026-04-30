@@ -20,6 +20,8 @@
 | [qml-pages.md](qml-pages.md) | QML 页面/组件清单 + 信号依赖 |
 | [bridge-slots.md](bridge-slots.md) | Bridge 暴露给 QML 的 Slot / Signal |
 | [api-endpoints.md](api-endpoints.md) | 服务端 API 端点清单 |
+| [typing-metrics.md](typing-metrics.md) | 打字指标定义（码长/击键/速度/键准的计算公式） |
+| [qingfa-qq-group-integration.md](qingfa-qq-group-integration.md) | 晴发 QQ 群文本集成方案 |
 
 ## 阅读建议
 
@@ -27,3 +29,5 @@
 - 改 QML 页面 → 先查 `qml-pages.md`
 - 改 Bridge/Adapter 通信 → 先查 `bridge-slots.md`
 - 改服务端交互 → 先查 `api-endpoints.md`
+- 改打字统计公式 → 先查 `typing-metrics.md`
+- 改晴发文集成 → 先查 `qingfa-qq-group-integration.md`

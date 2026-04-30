@@ -80,7 +80,7 @@ if begin_pos + n > doc_len or begin_pos >= doc_len:
 **文件**: `src/backend/presentation/bridge.py`
 
 | 场景 | 修复前 | 修复后 |
-|------|--------|--------|
+|:--- |:--- |:---|
 | `loadNextSlice`（纯文本后端） | 仅循环回绕时重置 | 始终重置目标片段 |
 | `_load_random_slice`（纯文本后端） | 仅循环回绕时重置 | 始终重置目标片段 |
 | `loadPrevSlice`（纯文本后端） | 不重置 | 重置目标片段 |
@@ -103,7 +103,7 @@ if not is_initial and index != prev_index:              # 新增
 ## 修改文件清单
 
 | 文件 | 修改 |
-|------|------|
+|:--- |:---|
 | `src/qml/pages/TypingPage.qml` | `onTypingEnded` 中清空 `upperPane.text` 前先调用 `setCursorAndScroll(0)` |
 | `src/backend/presentation/adapters/typing_adapter.py` | `_color_text` 边界检查加强：`begin_pos + n > doc_len` |
 | `src/backend/presentation/bridge.py` | `loadNextSlice`/`_load_random_slice`/`loadPrevSlice` 片段切换时重置达标次数；trainer/local_article 后端 `index != prev_index` 时重置 |

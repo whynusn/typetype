@@ -1,6 +1,14 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with this repository.
+## 📍 文档导航卡（你在这里）
+
+本文档给 Claude Code 提供项目指导。详细架构见核心文档。
+
+| 当前文档 | 其他核心文档 | 快速链接 |
+| :--- | :--- | :--- |
+| **本文** — Claude Code 项目指导 | [README.md](./README.md) — 快速入门<br>[ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](./AGENTS.md) — 开发规范 | [项目概述](#项目概述)<br>[常用命令](#常用命令)<br>[代码协作要点](#代码协作要点) |
+
+---
 
 ## 项目概述
 

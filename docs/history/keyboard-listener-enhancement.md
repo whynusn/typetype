@@ -24,7 +24,7 @@ Wayland 显示协议下，`GlobalKeyListener` 通过 evdev 监听全局按键事
 新代码改为**两阶段扫描**：
 
 | 阶段 | 方法 | 规则 | 适用场景 |
-|------|------|------|----------|
+|:--- |:--- |:--- |:---|
 | 严格 | `_is_keyboard_strict` | `EV_KEY` + 排除 `EV_REL` + 排除 `EV_ABS` + 标准键码 | 标准 USB/PS2 键盘 |
 | 宽松 | `_is_keyboard_permissive` | `EV_KEY` + 排除 `EV_REL` + 标准键码（不排除 `EV_ABS`） | 蓝牙键盘、带触摸条的键盘 |
 
@@ -44,7 +44,7 @@ Wayland 显示协议下，`GlobalKeyListener` 通过 evdev 监听全局按键事
 **API**：
 
 | 方法 | 用途 |
-|------|------|
+|:--- |:---|
 | `get_selected_device_paths()` | 读取 QSettings 中的手动设备路径 |
 | `set_selected_device_paths(paths)` | 写入 QSettings |
 | `has_selected_devices()` | 判断是否启用了手动选择 |
@@ -71,7 +71,7 @@ Wayland 显示协议下，`GlobalKeyListener` 通过 evdev 监听全局按键事
 `Bridge` 新增：
 
 | Slot/Property | 用途 |
-|---------------|------|
+|:--- |:---|
 | `listAvailableInputDevices()` | 返回带 `is_keyboard`/`selected` 标记的设备列表 |
 | `hasManualKeyboardDevices` (Property) | QML 侧查询是否启用手动选择 |
 | `setKeyboardDevices(paths)` | 设置设备并重启监听器 |
@@ -81,7 +81,7 @@ Wayland 显示协议下，`GlobalKeyListener` 通过 evdev 监听全局按键事
 ## 修改文件清单
 
 | 文件 | 修改 |
-|------|------|
+|:--- |:---|
 | `src/backend/integration/global_key_listener.py` | 重构：两阶段扫描（严格+宽松）、`_classify_device()`、手动设备选择（QSettings）、`get_all_devices()`、`restart_with_selection/restart_auto_detect` |
 | `src/backend/ports/key_listener.py` | 协议新增 `get_all_devices`、`get_selected_device_paths`、`set_selected_device_paths`、`has_selected_devices`、`restart_with_selection`、`restart_auto_detect` |
 | `src/backend/integration/mac_key_listener.py` | 新增协议方法的空实现（macOS 无设备枚举） |

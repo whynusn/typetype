@@ -65,7 +65,7 @@ TypeType 项目已具备转化为 AI Agent 项目的**极佳基础**：
 #### 现有"记忆"机制（Agent 核心基础）
 
 | 组件 | 功能 | Agent 价值 |
-|------|------|-----------|
+|:--- |:--- |:---|
 | **CharStatsService** | 字符维度统计（缓存、异步持久化） | 用户弱字记忆源 |
 | **CharStat** 模型 | 包含 `avg_ms`, `error_rate`, `char_count` 等 | 个性化数据基础 |
 | **SqliteCharStatsRepository** | SQLite 持久化 | 跨会话记忆存储 |
@@ -90,7 +90,7 @@ def accumulate(self, char: str, keystroke_ms: float, is_error: bool) -> None:
 ### 高可行性因素
 
 | 维度 | 评分 | 说明 |
-|------|------|------|
+|:--- |:--- |:---|
 | 架构适配性 | 9/10 | Ports & Adapters 模式，允许无缝添加新服务，依赖注入在 main.py 完成 |
 | 数据基础 | 8/10 | CharStat 模型完善，`get_weakest_chars()` 已实现，SQLite 持久化就绪 |
 | UI 集成 | 7/10 | WeakCharsPage 可复用，Bridge 信号机制易于扩展 |
@@ -263,7 +263,7 @@ supervisor = create_supervisor(
 ### Phase 3：增强功能（锦上添花，2-3 天）
 
 | 功能 | 实现方式 | 面试加分点 |
-|------|---------|-----------|
+|:--- |:--- |:---|
 | **RAG 记忆** | Chroma 向量库 + 用户历史打字记录 | 长期记忆 + 检索增强生成 |
 | **可观测性** | LangSmith / LangFuse | Agent 调试与监控 |
 | **本地优先** | Ollama + qwen2.5 | 离线可用 + 隐私保护 |
@@ -276,7 +276,7 @@ supervisor = create_supervisor(
 ### 推荐方案
 
 | 组件 | 选择 | 理由 |
-|------|------|------|
+|:--- |:--- |:---|
 | **Agent 框架** | LangGraph | 2025-2026 主流，面试认可度高 |
 | **LLM 提供商** | Ollama（默认） + OpenAI（可选） | 本地优先，降低成本 |
 | **结构化输出** | Instructor | Pydantic 模型强制输出 |
@@ -309,7 +309,7 @@ ai-full = [
 ### 已识别风险及对策
 
 | 风险 | 严重度 | 概率 | 缓解措施 |
-|------|--------|------|----------|
+|:--- |:--- |:--- |:---|
 | Qt 事件循环与 LangGraph 异步冲突 | 高 | 中 | 使用 `QThreadPool + AiCoachWorker`，独立线程运行 |
 | API 密钥与成本管理 | 中 | 高 | 默认 Ollama 本地模型，可选 OpenAI |
 | Agent 输出不稳定 | 中 | 中 | Instructor 结构化输出 + 重试 + 质量门控 |
@@ -337,7 +337,7 @@ class AiCoachWorker(QRunnable):
 ### 技术深度展示
 
 | 技术点 | 改造后面试价值 | 星级 |
-|--------|---------------|------|
+|:--- |:--- |:---|
 | Clean Architecture | 展示架构设计能力 | ⭐⭐⭐ |
 | Tool Use | Agent 核心能力 | ⭐⭐⭐⭐ |
 | Memory Integration | 真实用户记忆 | ⭐⭐⭐⭐ |
@@ -349,7 +349,7 @@ class AiCoachWorker(QRunnable):
 ### 面试官关注点匹配
 
 | 面试官问题 | 本项目回答方式 |
-|------------|---------------|
+|:--- |:---|
 | 怎么调试 Agent？ | LangSmith/LangFuse 可视化每一步 |
 | 怎么处理 LLM 幻觉？ | Instructor 结构化输出 + LLM-as-Judge |
 | 怎么保证质量？ | 评估循环 + 重试机制 + 质量门控 |
@@ -385,15 +385,14 @@ uv run python main.py
 
 ## 相关文档
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - 当前客户端架构
-- [roadmap.md](./roadmap.md) - 功能路线图
-- [SPRING_BOOT.md](./SPRING_BOOT.md) - Spring Boot 后端设计
+- [ARCHITECTURE.md](../../docs/ARCHITECTURE.md) - 当前客户端架构
+- [spring-boot-design.md](./spring-boot-design.md) - Spring Boot 后端设计
 
 ---
 
 ## 版本历史
 
 | 日期 | 变更 |
-|------|------|
+|:--- |:---|
 | 2026-04-06 | 重命名为 AI_AGENT_PLAN.md，整理结构 |
 | 2026-03-21 | 初始版本，完整改造方案 |

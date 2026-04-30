@@ -34,7 +34,7 @@
 ## A. 确定性分级总览（来自代码证据 + Oracle 复核）
 
 | 问题 | 级别 | 确定性 | 说明 |
-|---|---|---|---|
+|:--- |:--- |:--- |:---|
 | 排行榜页面激活触发级联请求（目录→列表→首条排行） | P0 | Definite | 调用链明确且默认触发，无需运行时假设 |
 | 排行榜加载前额外获取完整文本详情（含 content） | P0 | Definite | Worker 逻辑固定为先拉 text detail 再拉 leaderboard |
 | 长文本输入路径高频逐字符处理/着色 | P0 | Definite | `onTextChanged` + Python 处理 + QTextCursor 更新链路明确 |

@@ -28,7 +28,7 @@ log 了一下就丢弃了。`uploadFinished` 信号只携带 `(bool, str)`，没
 
 ### Commit 1: `129ab6a` - 时序和 ID 传递
 | 文件 | 修改 |
-|------|------|
+|:--- |:---|
 | `UpperPane.qml` | 移除 `Component.onCompleted` 中的 `handleLoadedText` 调用 |
 | `UploadTextAdapter` | `uploadFinished` 信号新增 `int` 参数传递服务端文本 ID |
 | `UploadTextAdapter._do_upload_cloud` | 返回 `result_id` 而非丢弃 |
@@ -37,7 +37,7 @@ log 了一下就丢弃了。`uploadFinished` 信号只携带 `(bool, str)`，没
 
 ### Commit 2: `3f4d9f2` - 高优先级修复
 | 文件 | 修改 |
-|------|------|
+|:--- |:---|
 | `Bridge.uploadText` | 异常路径 `emit` 补齐第三个 `int` 参数 |
 | `TypingPage.qml` | `onTextLoadFailed` 不再调用 `applyLoadedText` |
 
@@ -59,7 +59,7 @@ src/qml/typing/UpperPane.qml                              |  8 +--
 
 ## 场景覆盖
 | 场景 | 状态 | 说明 |
-|------|------|------|
+|:--- |:--- |:---|
 | A: 打开应用直接打字 | ✅ | sync 加载完成后才启用打字 |
 | B: 上传到云端后打字 | ✅ | 上传 ID 通过信号传递到 setTextId |
 | C: 加载失败 | ✅ | 不启用打字，保持 readOnly |

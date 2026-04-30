@@ -102,7 +102,10 @@ uv run python -m nuitka main.py \
   --include-data-dir=src/qml=src/qml \
   --include-data-dir=resources/texts=resources/texts \
   --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
-  --include-data-files=resources/fonts/*-subset.ttf=resources/fonts/
+  --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
+  --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf \
+  --include-data-dir=resources/trainer=resources/trainer \
+  --include-data-dir=resources/ziti=resources/ziti
 ```
 
 **Windows add:**
@@ -115,7 +118,7 @@ uv run python -m nuitka main.py \
 **⚠️ 打包配置同步清单**: 修改 Nuitka `--include-data-*` 参数时，必须同步更新以下 5 个位置：
 1. `AGENTS.md`
 2. `README.md`
-3. `docs/DEVELOPING.md`
+3. `docs/ARCHITECTURE.md`
 4. `skills/typetype-development/SKILL.md`
 5. `.github/workflows/build-release.yml` — 两处都要改：
    - "准备构建目录"步骤：`cp -a` / `Copy-Item` 中添加目录

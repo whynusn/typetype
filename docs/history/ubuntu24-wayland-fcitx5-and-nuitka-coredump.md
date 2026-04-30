@@ -9,7 +9,7 @@
 ## 问题现象
 
 | 场景 | 行为 | 预期 |
-|------|------|------|
+|:--- |:--- |:---|
 | Nuitka 打包的 `main.bin` 在 Ubuntu 24 上直接运行 | 启动即 **核心转储（core dump）** | 正常启动 |
 | 改用 `uv run python main.py` 运行源码 | 程序启动成功，内部逻辑正常 | — |
 | 在 LowerPane 的 TextArea 中尝试输入中文 | **fcitx5 输入法无法激活**，无候选框 | 应正常调出 fcitx5 候选 |
@@ -64,7 +64,7 @@ platforminputcontexts/
 fcitx5 在 Wayland 下与 Qt6 应用交互有两条路径：
 
 | 路径 | 需要的条件 | 本项目现状 |
-|------|-----------|-----------|
+|:--- |:--- |:---|
 | **A. fcitx5 IM Module**（专用插件） | 系统安装 `fcitx5-frontend-qt6`，且 Qt 能加载 `libfcitx5platforminputcontextplugin.so` | PySide6 wheel 不包含此插件；Nuitka 打包路径隔离，即使有系统插件也不加载 |
 | **B. 原生 Wayland text-input-v3** | Qt ≥ 6.7 + Compositor 支持 v3 + fcitx5 以 Wayland 模式运行 | Qt 6.10 ✓；GNOME/Mutter ✓；但 fcitx5 是否注册 Wayland 前端未知 |
 
@@ -116,7 +116,7 @@ gdb ./main.bin core
 **结果判定：**
 
 | 测试结果 | 根因 | 对应修复 |
-|----------|------|----------|
+|:--- |:--- |:---|
 | `QT_QUICK_BACKEND=software` 正常 | GPU/RHI 初始化失败 | 在 `main.py` 中检测并自动 fallback |
 | `QT_QPA_PLATFORM=xcb` 正常 | Wayland 插件缺失 | 修改 Nuitka 打包参数 |
 | 两者都崩溃 | 更深层问题（如 libc 版本/CPU 指令集） | 需进一步 gdb 分析 |
@@ -150,7 +150,7 @@ QT_QPA_PLATFORM=wayland uv run python main.py
 **结果判定：**
 
 | 测试结果 | 根因 | 对应修复 |
-|----------|------|----------|
+|:--- |:--- |:---|
 | `QT_QPA_PLATFORM=xcb` 下输入法正常 | 需要 XWayland 兜底 | 启动脚本自动 fallback |
 | 系统未安装 `fcitx5-frontend-qt6` | 缺少 fcitx5 Qt 插件 | `apt install fcitx5-frontend-qt6` |
 | 已安装但 PySide6 找不到 | 插件路径隔离 | 在 `main.py` 中追加 `QT_PLUGIN_PATH` |
