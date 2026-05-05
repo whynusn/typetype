@@ -250,6 +250,105 @@ FluentPage {
         }
     }
 
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("阅读字体")
+        icon.name: "ic_fluent_text_font_20_regular"
+        description: qsTr("选择打字练习区域使用的字体，可添加自定义字体文件")
+
+        RowLayout {
+            spacing: 8
+
+            ComboBox {
+                id: readerFontComboBox
+                Layout.fillWidth: true
+                model: ListModel { id: readerFontModel }
+                textRole: "label"
+                currentIndex: -1
+
+                Component.onCompleted: {
+                    if (appBridge) appBridge.loadFonts();
+                }
+
+                onCurrentIndexChanged: {
+                    if (currentIndex >= 0 && appBridge && readerFontModel.count > 0) {
+                        var item = readerFontModel.get(currentIndex);
+                        if (item) {
+                            appBridge.setReaderFontPath(item.filePath);
+                        }
+                    }
+                }
+            }
+
+            Button {
+                text: qsTr("添加")
+                icon.name: "ic_fluent_add_20_regular"
+                onClicked: {
+                    if (appBridge) appBridge.openFontFileDialog();
+                }
+            }
+
+            Button {
+                text: qsTr("删除")
+                icon.name: "ic_fluent_delete_20_regular"
+                enabled: {
+                    if (readerFontComboBox.currentIndex < 0) return false;
+                    var item = readerFontModel.get(readerFontComboBox.currentIndex);
+                    return item && !item.isBundled;
+                }
+                onClicked: {
+                    if (readerFontComboBox.currentIndex < 0) return;
+                    var item = readerFontModel.get(readerFontComboBox.currentIndex);
+                    if (item && appBridge) {
+                        appBridge.removeFont(item.name);
+                    }
+                }
+            }
+        }
+
+        Connections {
+            target: appBridge
+
+            function onFontsLoaded(fonts) {
+                readerFontModel.clear();
+                var currentPath = appBridge ? appBridge.readerFontPath : "";
+                var selectedIndex = -1;
+                for (var i = 0; i < fonts.length; i++) {
+                    var f = fonts[i];
+                    readerFontModel.append({
+                        label: f.name + (f.isBundled ? qsTr(" (内置)") : ""),
+                        name: f.name,
+                        filePath: f.filePath,
+                        isBundled: f.isBundled
+                    });
+                    if (f.filePath === currentPath) {
+                        selectedIndex = i;
+                    }
+                }
+                if (selectedIndex >= 0) {
+                    readerFontComboBox.currentIndex = selectedIndex;
+                } else if (readerFontModel.count > 0 && currentPath === "") {
+                    readerFontComboBox.currentIndex = 0;
+                    if (appBridge) {
+                        appBridge.setReaderFontPath(readerFontModel.get(0).filePath);
+                    }
+                }
+            }
+
+            function onFontAdded(success, message) {
+                if (success && appBridge) {
+                    appBridge.loadFonts();
+                }
+            }
+
+            function onFontRemoved(success, message) {
+                if (success && appBridge) {
+                    appBridge.loadFonts();
+                }
+            }
+        }
+    }
+
     Text {
         typography: Typography.Subtitle
         text: qsTr("网络")

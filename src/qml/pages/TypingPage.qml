@@ -240,18 +240,41 @@ Item {
     // 字体加载与配置（阅读/跟打专用）
     // ==========================================
 
-    // 加载 阅读/跟打 字体（UI 字体由 main.py 中 app.setFont() 全局设定）
+    // 内置默认字体（fallback）
     FontLoader {
-        id: readerFontLoader
+        id: defaultFontLoader
         source: resourceBaseUrl + "fonts/LXGWWenKai-Regular-subset.ttf"
+    }
+
+    // 用户自选字体：初始用属性绑定加载，后续用信号更新
+    FontLoader {
+        id: userFontLoader
+        source: {
+            if (!appBridge || !appBridge.readerFontPath) return "";
+            return "file://" + appBridge.readerFontPath;
+        }
+    }
+
+    Connections {
+        target: appBridge
+        enabled: typingPage.active
+
+        function onReaderFontUrlChanged(url) {
+            userFontLoader.source = url;
+        }
     }
 
     // 阅读区字体配置
     FontMetrics {
         id: fontMetricsText
         property int sharedFontSize: 40
-        // 逻辑：优先使用加载的 LXGW，如果没加载出来，回退到系统衬线/等宽字体
-        font.family: readerFontLoader.status === FontLoader.Ready ? readerFontLoader.name : "monospace"
+        font.family: {
+            if (userFontLoader.status === FontLoader.Ready)
+                return userFontLoader.name;
+            if (defaultFontLoader.status === FontLoader.Ready)
+                return defaultFontLoader.name;
+            return "monospace";
+        }
         font.pointSize: fontMetricsText.sharedFontSize
     }
 

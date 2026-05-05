@@ -50,6 +50,10 @@ def user_trainer_dir() -> Path:
     return user_data_dir() / "trainer"
 
 
+def user_fonts_dir() -> Path:
+    return user_data_dir() / "fonts"
+
+
 def ensure_user_texts_seeded(source_dir: Path | None = None) -> int:
     """Copy bundled text files into the writable user texts directory.
 
@@ -102,6 +106,34 @@ def ensure_user_trainer_seeded(source_dir: Path | None = None) -> int:
     target_dir.mkdir(parents=True, exist_ok=True)
     copied = 0
     for source_file in sorted(source_dir.glob("*.txt")):
+        target_file = target_dir / source_file.name
+        if target_file.exists():
+            continue
+        shutil.copy2(source_file, target_file)
+        copied += 1
+    return copied
+
+
+def ensure_user_fonts_seeded(source_dir: Path | None = None) -> int:
+    """Copy bundled font files into the writable user fonts directory.
+
+    Existing user files are never overwritten. Returns the number of copied files.
+    """
+    if source_dir is None:
+        source_dir = Path(__file__).resolve().parents[3] / "resources" / "fonts"
+    if not source_dir.exists():
+        return 0
+
+    target_dir = user_fonts_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for source_file in sorted(source_dir.glob("*.ttf")):
+        target_file = target_dir / source_file.name
+        if target_file.exists():
+            continue
+        shutil.copy2(source_file, target_file)
+        copied += 1
+    for source_file in sorted(source_dir.glob("*.otf")):
         target_file = target_dir / source_file.name
         if target_file.exists():
             continue

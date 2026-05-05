@@ -1,9 +1,11 @@
 import os
 import sys
+from pathlib import Path
 
 import darkdetect
 from PySide6.QtCore import QUrl
-from PySide6.QtGui import QFont, QFontDatabase, QGuiApplication
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QApplication
 
 import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
@@ -16,6 +18,7 @@ from src.backend.application.gateways.typing_totals_gateway import (
     TypingTotalsGateway,
 )
 from src.backend.application.gateways.wenlai_gateway import WenlaiGateway
+from src.backend.application.gateways.font_gateway import FontGateway
 from src.backend.application.gateways.ziti_gateway import ZitiGateway
 from src.backend.application.session_context import TypingSessionContext
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
@@ -30,10 +33,12 @@ from src.backend.application.usecases.load_wenlai_text_usecase import (
 )
 from src.backend.config.app_paths import (
     char_stats_db_path,
+    ensure_user_fonts_seeded,
     ensure_user_trainer_seeded,
     ensure_user_texts_seeded,
     ensure_user_ziti_seeded,
     typing_totals_path,
+    user_fonts_dir,
     user_trainer_dir,
     user_texts_dir,
     user_ziti_dir,
@@ -47,6 +52,7 @@ from src.backend.integration.file_local_article_repository import (
     FileLocalArticleRepository,
 )
 from src.backend.integration.file_trainer_repository import FileTrainerRepository
+from src.backend.integration.file_font_repository import FileFontRepository
 from src.backend.integration.file_ziti_repository import FileZitiRepository
 from src.backend.integration.leaderboard_fetcher import LeaderboardFetcher
 from src.backend.ports.leaderboard_provider import LeaderboardProvider
@@ -77,6 +83,7 @@ from src.backend.presentation.adapters.leaderboard_adapter import LeaderboardAda
 from src.backend.presentation.adapters.local_article_adapter import LocalArticleAdapter
 from src.backend.presentation.adapters.upload_text_adapter import UploadTextAdapter
 from src.backend.presentation.adapters.wenlai_adapter import WenlaiAdapter
+from src.backend.presentation.adapters.font_adapter import FontAdapter
 from src.backend.presentation.adapters.ziti_adapter import ZitiAdapter
 from src.backend.utils.logger import (
     install_qt_message_handler,
@@ -147,12 +154,15 @@ def _ensure_config_exists() -> None:
     copied_trainer = ensure_user_trainer_seeded()
     if copied_trainer:
         log_info(f"[main] 已初始化练单器词库: {copied_trainer} 个文件")
+    copied_fonts = ensure_user_fonts_seeded()
+    if copied_fonts:
+        log_info(f"[main] 已初始化字体文件: {copied_fonts} 个文件")
 
 
 def main():
     install_qt_message_handler()
     _ensure_config_exists()
-    app = QGuiApplication(sys.argv)
+    app = QApplication(sys.argv)
 
     # 注册 UI 字体并设为应用默认字体。
     # RinUI 内部组件在 Linux 上读取 Qt.application.font.family，
@@ -169,7 +179,7 @@ def main():
         if _families:
             app.setFont(QFont(_families[0]))
 
-    clipboard = QGuiApplication.clipboard()
+    clipboard = QApplication.clipboard()
     runtime_config = RuntimeConfig.load_from_file()
 
     # Infrastructure 层
@@ -179,7 +189,10 @@ def main():
     token_store = SecureTokenStore()
     token_store.get_token("current_user")
     token_store.get_token(WenlaiGateway.TOKEN_KEY)
-    local_article_repository = FileLocalArticleRepository(user_texts_dir())
+    bundled_texts_dir = Path(__file__).resolve().parent / "resources" / "texts"
+    local_article_repository = FileLocalArticleRepository(
+        user_texts_dir(), bundled_source_dir=bundled_texts_dir
+    )
     ziti_repository = FileZitiRepository(user_ziti_dir())
     trainer_repository = FileTrainerRepository(user_trainer_dir())
 
@@ -300,6 +313,19 @@ def main():
         load_segment_usecase=load_trainer_segment_usecase,
     )
 
+    # Font management
+    _bundled_fonts_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "resources",
+        "fonts",
+    )
+    font_repository = FileFontRepository(
+        user_dir=str(user_fonts_dir()),
+        bundled_dir=_bundled_fonts_dir,
+    )
+    font_gateway = FontGateway(repository=font_repository)
+    font_adapter = FontAdapter(gateway=font_gateway)
+
     # Leaderboard
     leaderboard_provider: LeaderboardProvider = LeaderboardFetcher(
         api_client=api_client,
@@ -344,6 +370,7 @@ def main():
         local_article_adapter=local_article_adapter,
         ziti_adapter=ziti_adapter,
         trainer_adapter=trainer_adapter,
+        font_adapter=font_adapter,
         typing_totals_gateway=typing_totals_gateway,
         key_listener=key_listener,
         base_url_update_callback=lambda new_url: _update_base_url(

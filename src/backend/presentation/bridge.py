@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Callable
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
 
+from ..config.app_paths import user_config_dir
 from ..ports.key_codes import KeyCodes
 from ..utils.logger import log_info
 
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from .adapters.typing_adapter import TypingAdapter
     from .adapters.upload_text_adapter import UploadTextAdapter
     from .adapters.wenlai_adapter import WenlaiAdapter
+    from .adapters.font_adapter import FontAdapter
     from .adapters.ziti_adapter import ZitiAdapter
 
 from .text_load_coordinator import TextLoadCoordinator
@@ -71,6 +73,7 @@ class Bridge(QObject):
     textListLoadFailed = Signal(str)
     textListLoadingChanged = Signal()
     uploadResult = Signal(bool, str, int)  # (success, message, server_text_id)
+    textFileLoaded = Signal(str)  # 文件导入：文件内容
     tokenExpired = Signal()
     textIdChanged = Signal()
     # 载文模式信号
@@ -99,6 +102,8 @@ class Bridge(QObject):
     localArticleSegmentLoaded = Signal(dict)
     localArticleSegmentLoadFailed = Signal(str)
     localArticleLoadingChanged = Signal()
+    localArticleDeleted = Signal(bool, str)
+    localArticleRenamed = Signal(bool, str)
     # 字提示信号
     zitiSchemesLoaded = Signal(list)
     zitiSchemesLoadFailed = Signal(str)
@@ -111,6 +116,13 @@ class Bridge(QObject):
     trainerSegmentLoaded = Signal(dict)
     trainerSegmentLoadFailed = Signal(str)
     trainerLoadingChanged = Signal()
+    # 字体信号
+    fontsLoaded = Signal(list)
+    fontsLoadFailed = Signal(str)
+    fontAdded = Signal(bool, str)
+    fontRemoved = Signal(bool, str)
+    readerFontPathChanged = Signal()
+    readerFontUrlChanged = Signal(str)
 
     def __init__(
         self,
@@ -124,6 +136,7 @@ class Bridge(QObject):
         local_article_adapter: LocalArticleAdapter | None = None,
         ziti_adapter: ZitiAdapter | None = None,
         trainer_adapter: TrainerAdapter | None = None,
+        font_adapter: FontAdapter | None = None,
         typing_totals_gateway: TypingTotalsGateway | None = None,
         key_listener: KeyListener | None = None,
         base_url_update_callback: Callable[[str], None] | None = None,
@@ -139,6 +152,7 @@ class Bridge(QObject):
         self._local_article_adapter = local_article_adapter
         self._ziti_adapter = ziti_adapter
         self._trainer_adapter = trainer_adapter
+        self._font_adapter = font_adapter
         self._typing_totals_gateway = typing_totals_gateway
         self._key_listener = key_listener
         self._base_url_update_callback = base_url_update_callback
@@ -148,6 +162,7 @@ class Bridge(QObject):
         self._pending_history_segment_label = ""
         self._pending_history_score_text = ""
         self._cached_devices: list[dict] | None = None
+        self._reader_font_path = self._load_reader_font_path()
 
         # 载文协调器
         self._coordinator = TextLoadCoordinator(
@@ -168,6 +183,7 @@ class Bridge(QObject):
         self._connect_local_article_signals()
         self._connect_ziti_signals()
         self._connect_trainer_signals()
+        self._connect_font_signals()
         self._connect_key_listener()
 
         self.specialPlatformConfirmed.emit(self._is_special_platform)
@@ -386,6 +402,12 @@ class Bridge(QObject):
         self._local_article_adapter.localArticleLoadingChanged.connect(
             self.localArticleLoadingChanged.emit
         )
+        self._local_article_adapter.localArticleDeleted.connect(
+            self.localArticleDeleted.emit
+        )
+        self._local_article_adapter.localArticleRenamed.connect(
+            self.localArticleRenamed.emit
+        )
 
     def _connect_ziti_signals(self) -> None:
         if not self._ziti_adapter:
@@ -410,6 +432,14 @@ class Bridge(QObject):
         self._trainer_adapter.trainerLoadingChanged.connect(
             self.trainerLoadingChanged.emit
         )
+
+    def _connect_font_signals(self) -> None:
+        if not self._font_adapter:
+            return
+        self._font_adapter.fontsLoaded.connect(self.fontsLoaded.emit)
+        self._font_adapter.fontsLoadFailed.connect(self.fontsLoadFailed.emit)
+        self._font_adapter.fontAdded.connect(self.fontAdded.emit)
+        self._font_adapter.fontRemoved.connect(self.fontRemoved.emit)
 
     def _on_trainer_segment_loaded(self, payload: dict) -> None:
         self._coordinator.on_trainer_segment_loaded(payload, self)
@@ -919,6 +949,18 @@ class Bridge(QObject):
         if self._local_article_adapter:
             self._local_article_adapter.loadLocalArticles()
 
+    @Slot(str)
+    def deleteLocalArticle(self, article_id: str) -> None:
+        """删除本地长文。"""
+        if self._local_article_adapter:
+            self._local_article_adapter.deleteArticle(article_id)
+
+    @Slot(str, str)
+    def renameLocalArticle(self, article_id: str, new_title: str) -> None:
+        """重命名本地长文。"""
+        if self._local_article_adapter:
+            self._local_article_adapter.renameArticle(article_id, new_title)
+
     @Slot(str, int, int)
     def loadLocalArticleSegment(
         self,
@@ -992,7 +1034,9 @@ class Bridge(QObject):
             trainerId,
             segmentIndex,
             groupSize,
-            full_shuffle=self._coordinator.pending_slice_params.get("full_shuffle", False),
+            full_shuffle=self._coordinator.pending_slice_params.get(
+                "full_shuffle", False
+            ),
         )
 
     @Slot()
@@ -1327,7 +1371,9 @@ class Bridge(QObject):
     def loadNextWenlaiSegmentWithScore(self) -> None:
         if not self._wenlai_adapter or self._wenlai_adapter.text_loading:
             return
-        self._coordinator.pending_wenlai_score_text = self._build_current_score_plain_text()
+        self._coordinator.pending_wenlai_score_text = (
+            self._build_current_score_plain_text()
+        )
         self._copy_text_to_clipboard(self._coordinator.pending_wenlai_score_text)
         self.loadNextWenlaiSegment()
 
@@ -1370,6 +1416,75 @@ class Bridge(QObject):
                 segment_mode,
                 strict_length,
             )
+
+    # ==========================================
+    # 字体管理
+    # ==========================================
+
+    @Property(str, notify=readerFontPathChanged)
+    def readerFontPath(self) -> str:
+        """当前阅读字体的文件路径，供 QML FontLoader 使用。"""
+        return self._reader_font_path
+
+    @Slot(str)
+    def setReaderFontPath(self, file_path: str) -> None:
+        if self._reader_font_path == file_path:
+            return
+        self._reader_font_path = file_path
+        self._save_reader_font_path(file_path)
+        self.readerFontPathChanged.emit()
+        from PySide6.QtCore import QUrl
+
+        font_url = QUrl.fromLocalFile(file_path).toString() if file_path else ""
+        self.readerFontUrlChanged.emit(font_url)
+
+    @Slot()
+    def loadFonts(self) -> None:
+        if self._font_adapter:
+            self._font_adapter.loadFonts()
+
+    @Slot(str)
+    def addFont(self, file_path: str) -> None:
+        if self._font_adapter:
+            self._font_adapter.addFont(file_path)
+
+    @Slot(str)
+    def removeFont(self, name: str) -> None:
+        if self._font_adapter:
+            self._font_adapter.removeFont(name)
+
+    @Slot()
+    def openFontFileDialog(self) -> None:
+        """打开系统文件对话框选择字体文件。"""
+        from PySide6.QtWidgets import QFileDialog
+
+        dialog = QFileDialog()
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dialog.setNameFilter("字体文件 (*.ttf *.otf)")
+        dialog.setWindowTitle("选择字体文件")
+        if dialog.exec():
+            files = dialog.selectedFiles()
+            if files:
+                self.addFont(files[0])
+
+    @Slot()
+    def openTextFileDialog(self) -> None:
+        """打开系统文件对话框导入文本文件内容。"""
+        from PySide6.QtWidgets import QFileDialog
+
+        dialog = QFileDialog()
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        dialog.setNameFilter("文本文件 (*.txt)")
+        dialog.setWindowTitle("导入文本文件")
+        if dialog.exec():
+            files = dialog.selectedFiles()
+            if files:
+                try:
+                    with open(files[0], encoding="utf-8") as f:
+                        content = f.read()
+                    self.textFileLoaded.emit(content)
+                except OSError:
+                    self.textFileLoaded.emit("")
 
     # ==========================================
     # 键盘设备选择
@@ -1434,3 +1549,40 @@ class Bridge(QObject):
             return
         self._key_listener.restart_auto_detect()
         self.keyboardDevicesChanged.emit()
+
+    # ==========================================
+    # 字体配置持久化
+    # ==========================================
+
+    @staticmethod
+    def _font_config_path() -> str:
+        import os
+
+        return os.path.join(str(user_config_dir()), "font_config.json")
+
+    def _load_reader_font_path(self) -> str:
+        import json
+        import os
+
+        path = self._font_config_path()
+        if os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                return data.get("reader_font_path", "")
+            except (json.JSONDecodeError, OSError):
+                pass
+        return ""
+
+    def _save_reader_font_path(self, file_path: str) -> None:
+        import json
+        import os
+
+        path = self._font_config_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            data = {"reader_font_path": file_path}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
