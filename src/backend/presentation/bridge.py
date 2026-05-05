@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from .adapters.wenlai_adapter import WenlaiAdapter
     from .adapters.ziti_adapter import ZitiAdapter
 
+from .text_load_coordinator import TextLoadCoordinator
+
 
 class Bridge(QObject):
     """QML 通信适配层。"""
@@ -81,6 +83,7 @@ class Bridge(QObject):
     baseUrlChanged = Signal()
     windowTitleChanged = Signal()
     typingTotalsChanged = Signal()
+    textIdLookupFailed = Signal()  # 本地 text_id 回查失败
     # 晴发文信号
     wenlaiLoadFailed = Signal(str)
     wenlaiLoadingChanged = Signal()
@@ -142,25 +145,18 @@ class Bridge(QObject):
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
-        self._pending_wenlai_score_text = ""
         self._pending_history_segment_label = ""
         self._pending_history_score_text = ""
-        self._pending_standard_source_key = ""
-        self._source_slice_backend: str | None = None
-        self._source_slice_article_id: str = ""
-        self._source_slice_segment_size: int = 0
-        self._source_slice_trainer_id: str = ""
-        self._source_slice_group_size: int = 0
-        self._pending_slice_params: dict = {
-            "key_stroke_min": 0,
-            "speed_min": 0,
-            "accuracy_min": 0,
-            "pass_count_min": 1,
-            "on_fail_action": "retype",
-            "advance_mode": "sequential",
-            "full_shuffle": False,
-        }
         self._cached_devices: list[dict] | None = None
+
+        # 载文协调器
+        self._coordinator = TextLoadCoordinator(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            wenlai_adapter=wenlai_adapter,
+            local_article_adapter=local_article_adapter,
+            trainer_adapter=trainer_adapter,
+        )
 
         self._connect_typing_signals()
         self._connect_text_load_signals()
@@ -179,8 +175,7 @@ class Bridge(QObject):
 
     def _clear_text_id(self) -> None:
         """清空 text_id（分片/乱序/自定义文本不提交成绩）。"""
-        self._text_adapter.clear_active()
-        self.setTextId(0)
+        self._coordinator.clear_text_id(self)
 
     def _clear_wenlai_active(self) -> None:
         """退出晴发文当前文本状态（切到其他来源时调用）。"""
@@ -199,9 +194,7 @@ class Bridge(QObject):
 
     def _reset_session_for_standard_load(self) -> None:
         """普通载文先清掉特殊来源会话，后续 textId 回填再确认资格。"""
-        self._typing_adapter.reset_session_context()
-        self._text_id = 0
-        self.textIdChanged.emit()
+        self._coordinator.reset_session_for_standard_load(self)
 
     def _connect_typing_signals(self) -> None:
         self._typing_adapter.typeSpeedChanged.connect(self.typeSpeedChanged.emit)
@@ -297,16 +290,12 @@ class Bridge(QObject):
         self._text_adapter.textLoadFailed.connect(self._on_standard_text_load_failed)
         self._text_adapter.textLoadingChanged.connect(self.textLoadingChanged.emit)
         self._text_adapter.localTextIdResolved.connect(self._on_local_text_id_resolved)
+        self._text_adapter.localTextIdLookupFailed.connect(self.textIdLookupFailed.emit)
 
     def _on_standard_text_loaded(
         self, text: str, text_id: int, source_label: str
     ) -> None:
-        source_key = self._pending_standard_source_key
-        if text_id > 0:
-            self._typing_adapter.setup_network_session(text_id, source_key)
-        elif source_key:
-            self._typing_adapter.setup_local_session(source_key, None)
-        self.textLoaded.emit(text, text_id, source_label)
+        self._coordinator.on_standard_text_loaded(text, text_id, source_label, self)
 
     def _on_standard_text_load_failed(self, message: str) -> None:
         self.textLoadFailed.emit(message)
@@ -423,84 +412,10 @@ class Bridge(QObject):
         )
 
     def _on_trainer_segment_loaded(self, payload: dict) -> None:
-        title = str(payload.get("title", "") or "")
-        index = int(payload.get("index", 0) or 0)
-        total = int(payload.get("total", 0) or 0)
-        title_label = title
-        if index > 0 and total > 0:
-            title_label = f"{title} {index}/{total}" if title else f"{index}/{total}"
-        self._typing_adapter.setTextTitle(title_label)
-        self.windowTitleChanged.emit()
-        content = str(payload.get("content", "") or "")
-        self._cache_current_content(content)
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
-        # 启用分片载文模式，实现自动推进下一段
-        if index > 0 and total > 0:
-            is_initial = self._source_slice_backend != "trainer"
-            prev_index = self._typing_adapter.slice_index if not is_initial else 0
-            self._source_slice_backend = "trainer"
-            self._source_slice_trainer_id = str(
-                payload.get("trainerId", self._source_slice_trainer_id)
-                or self._source_slice_trainer_id
-            )
-            self._source_slice_group_size = int(
-                payload.get("groupSize", self._source_slice_group_size)
-                or self._source_slice_group_size
-            )
-            p = self._pending_slice_params
-            self._typing_adapter.setup_sourced_slice_mode(
-                index,
-                total,
-                on_fail_action=p["on_fail_action"],
-                key_stroke_min=p["key_stroke_min"],
-                speed_min=p["speed_min"],
-                accuracy_min=p["accuracy_min"],
-                pass_count_min=p["pass_count_min"],
-                reset_counts=is_initial,
-            )
-            # 片段切换时重置目标片段的达标次数（同一片段重打则保留）
-            if not is_initial and index != prev_index:
-                self._typing_adapter.reset_slice_pass_count(index)
-            self.sliceModeChanged.emit()
-        self.trainerSegmentLoaded.emit(payload)
-        self.textLoaded.emit(content, -1, title_label)
+        self._coordinator.on_trainer_segment_loaded(payload, self)
 
     def _on_local_article_segment_loaded(self, payload: dict) -> None:
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
-        title = str(payload.get("title", "") or "")
-        index = int(payload.get("index", 0) or 0)
-        total = int(payload.get("total", 0) or 0)
-        title_label = title
-        if index > 0 and total > 0:
-            title_label = f"{title} {index}/{total}" if title else f"{index}/{total}"
-        self._typing_adapter.setTextTitle(title_label)
-        self.windowTitleChanged.emit()
-        content = str(payload.get("content", "") or "")
-        self._cache_current_content(content)
-        # 启用分片载文模式，实现自动推进下一段
-        if index > 0 and total > 0:
-            is_initial = self._source_slice_backend != "local_article"
-            prev_index = self._typing_adapter.slice_index if not is_initial else 0
-            self._source_slice_backend = "local_article"
-            p = self._pending_slice_params
-            self._typing_adapter.setup_sourced_slice_mode(
-                index,
-                total,
-                on_fail_action=p["on_fail_action"],
-                key_stroke_min=p["key_stroke_min"],
-                speed_min=p["speed_min"],
-                accuracy_min=p["accuracy_min"],
-                pass_count_min=p["pass_count_min"],
-                reset_counts=is_initial,
-            )
-            # 片段切换时重置目标片段的达标次数（同一片段重打则保留）
-            if not is_initial and index != prev_index:
-                self._typing_adapter.reset_slice_pass_count(index)
-            self.sliceModeChanged.emit()
-        self.localArticleSegmentLoaded.emit(payload)
-        self.textLoaded.emit(content, -1, title_label)
+        self._coordinator.on_local_article_segment_loaded(payload, self)
 
     def _on_wenlai_config_changed(self) -> None:
         self.wenlaiConfigChanged.emit()
@@ -508,29 +423,11 @@ class Bridge(QObject):
         self.windowTitleChanged.emit()
 
     def _on_wenlai_load_failed(self, message: str) -> None:
-        self._pending_wenlai_score_text = ""
+        self._coordinator.pending_wenlai_score_text = ""
         self.wenlaiLoadFailed.emit(message)
 
     def _on_wenlai_text_loaded(self, text: str, title: str) -> None:
-        if self._typing_adapter.is_slice_mode():
-            self.exitSliceMode()
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
-        self._typing_adapter.setup_wenlai_session()
-        self._typing_adapter.setTextTitle(title)
-        self.windowTitleChanged.emit()
-        pending_score_text = self._pending_wenlai_score_text
-        self._pending_wenlai_score_text = ""
-        sender_content = ""
-        if self._wenlai_adapter and self._wenlai_adapter.current_text:
-            sender_content = self._wenlai_adapter.current_text.sender_content
-        if sender_content:
-            clipboard_text = sender_content
-            if pending_score_text:
-                clipboard_text = f"{pending_score_text}\n{sender_content}"
-            self._copy_text_to_clipboard(clipboard_text)
-        self.wenlaiSegmentLabelChanged.emit()
-        self.textLoaded.emit(text, -1, title)
+        self._coordinator.on_wenlai_text_loaded(text, title, self)
 
     def _connect_key_listener(self) -> None:
         if self._key_listener:
@@ -873,7 +770,7 @@ class Bridge(QObject):
         self._clear_trainer_active()
         self._typing_adapter.prepare_for_text_load()
         self._reset_session_for_standard_load()
-        self._pending_standard_source_key = source_key
+        self._coordinator.pending_standard_source_key = source_key
         self._text_adapter.requestLoadText(source_key)
 
     @Slot()
@@ -885,7 +782,7 @@ class Bridge(QObject):
         self._clear_local_article_active()
         self._clear_trainer_active()
         self._typing_adapter.prepare_for_text_load()
-        self._pending_standard_source_key = ""
+        self._coordinator.pending_standard_source_key = ""
         self._text_adapter.loadTextFromClipboard()
         # 设置会话状态机
         self._typing_adapter.setup_clipboard_session()
@@ -1041,7 +938,7 @@ class Bridge(QObject):
         self._clear_text_id()
 
         # 全文乱序：先打乱全文，再使用文本分片
-        if self._pending_slice_params.get("full_shuffle"):
+        if self._coordinator.pending_slice_params.get("full_shuffle"):
             full_text = self._local_article_adapter.get_full_article_content(articleId)
             if full_text:
                 import random
@@ -1049,7 +946,7 @@ class Bridge(QObject):
                 chars = list(full_text)
                 random.shuffle(chars)
                 shuffled = "".join(chars)
-                p = self._pending_slice_params
+                p = self._coordinator.pending_slice_params
                 self.setupSliceMode(
                     shuffled,
                     segmentSize,
@@ -1063,9 +960,9 @@ class Bridge(QObject):
                 return
 
         self._typing_adapter.setup_local_article_session()
-        self._source_slice_backend = None
-        self._source_slice_article_id = articleId
-        self._source_slice_segment_size = segmentSize
+        self._coordinator.source_slice_backend = None
+        self._coordinator.source_slice_article_id = articleId
+        self._coordinator.source_slice_segment_size = segmentSize
         self._local_article_adapter.loadLocalArticleSegment(
             articleId,
             segmentIndex,
@@ -1089,13 +986,13 @@ class Bridge(QObject):
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
         self._prepare_for_trainer_load()
-        self._source_slice_trainer_id = trainerId
-        self._source_slice_group_size = groupSize
+        self._coordinator.source_slice_trainer_id = trainerId
+        self._coordinator.source_slice_group_size = groupSize
         self._trainer_adapter.loadTrainerSegment(
             trainerId,
             segmentIndex,
             groupSize,
-            full_shuffle=self._pending_slice_params.get("full_shuffle", False),
+            full_shuffle=self._coordinator.pending_slice_params.get("full_shuffle", False),
         )
 
     @Slot()
@@ -1127,17 +1024,7 @@ class Bridge(QObject):
         self._trainer_adapter.shuffleCurrentTrainerGroup()
 
     def _prepare_for_trainer_load(self) -> None:
-        if self._typing_adapter.is_slice_mode():
-            self.exitSliceMode()
-        self._clear_wenlai_active()
-        if (
-            self._local_article_adapter
-            and self._local_article_adapter.local_article_loading
-        ):
-            self._clear_local_article_active()
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
-        self._typing_adapter.setup_trainer_session()
+        self._coordinator.prepare_for_trainer_load(self)
 
     @Slot()
     def loadZitiSchemes(self) -> None:
@@ -1241,7 +1128,7 @@ class Bridge(QObject):
             return
 
         # 全文乱序：先打乱全文字符，再进入分片
-        if self._pending_slice_params.get("full_shuffle"):
+        if self._coordinator.pending_slice_params.get("full_shuffle"):
             import random
 
             chars = list(text)
@@ -1261,17 +1148,17 @@ class Bridge(QObject):
 
         # 文本型分片模式必须优先清空数据源型后端标记，避免后续重打误走
         # trainer/local_article 分支（会表现为段号不变但内容被外部源替换/乱序）。
-        self._source_slice_backend = None
-        self._source_slice_article_id = ""
-        self._source_slice_segment_size = 0
-        self._source_slice_trainer_id = ""
-        self._source_slice_group_size = 0
+        self._coordinator.source_slice_backend = None
+        self._coordinator.source_slice_article_id = ""
+        self._coordinator.source_slice_segment_size = 0
+        self._coordinator.source_slice_trainer_id = ""
+        self._coordinator.source_slice_group_size = 0
 
         if total <= 0:
             return
 
-        # 同步参数到 _pending_slice_params，使 loadNextSlice 使用相同的自动推进逻辑
-        self._pending_slice_params.update(
+        # 同步参数到 pending_slice_params，使 loadNextSlice 使用相同的自动推进逻辑
+        self._coordinator.pending_slice_params.update(
             {
                 "key_stroke_min": key_stroke_min,
                 "speed_min": speed_min,
@@ -1287,37 +1174,7 @@ class Bridge(QObject):
         self._load_current_slice()
 
     def _load_current_slice(self) -> None:
-        """加载当前片到打字区。
-
-        完全复用全文载文的流程：prepare_for_text_load → textLoaded 信号 →
-        QML applyLoadedText → handleLoadedText，与 requestShuffle / requestLoadText
-        走完全相同的路径。
-
-        注意：不在此处重置达标次数。达标次数的重置由调用方在片段切换时
-        负责（同一片段重打应保留累计达标次数）。
-        """
-        idx = self._typing_adapter.slice_index
-        total = self._typing_adapter.slice_total
-
-        if idx <= 0 or idx > total:
-            return
-
-        slice_text = self._typing_adapter.get_current_slice_text()
-        self._cache_current_content(slice_text)
-
-        # 设置片索引（注入到 historyRecordUpdated 的 record 中）
-        self._typing_adapter.set_slice_index(idx)
-
-        # 复用全文载文的 prepare 流程
-        self._typing_adapter.prepare_for_text_load()
-
-        # 清空 text_id（分片不提交成绩）
-        self._clear_text_id()
-
-        # 发射 textLoaded，QML 侧完成 applyLoadedText + handleLoadedText
-        label = f"载文 {idx}/{total}"
-        self.sliceStatusChanged.emit(f"载文模式: 第 {idx}/{total} 段")
-        self.textLoaded.emit(slice_text, -1, label)
+        self._coordinator.load_current_slice(self)
 
     @Slot()
     def collectSliceResult(self) -> None:
@@ -1336,100 +1193,21 @@ class Bridge(QObject):
     @Slot()
     def loadNextSlice(self) -> None:
         """载入下一片（无尽模式：最后一片后回到第一片）。"""
-        if self._pending_slice_params.get("advance_mode") == "random":
-            self._load_random_slice()
-            return
-
-        total = self._typing_adapter.slice_total
-        current = self._typing_adapter.slice_index
-        # Circular mode: wrap around
-        next_idx = (current % total) + 1 if total > 0 else 1
-
-        backend = self._source_slice_backend
-        if backend == "trainer" and self._source_slice_trainer_id:
-            self._trainer_adapter.loadTrainerSegment(
-                self._source_slice_trainer_id,
-                next_idx,
-                self._source_slice_group_size,
-                full_shuffle=self._pending_slice_params.get("full_shuffle", False),
-            )
-        elif backend == "local_article":
-            self._local_article_adapter.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                next_idx,
-                self._source_slice_segment_size,
-            )
-        else:
-            # 片段切换时重置目标片段的达标次数
-            self._typing_adapter.reset_slice_pass_count(next_idx)
-            self._typing_adapter.set_slice_index(next_idx)
-            self.sliceModeChanged.emit()
-            self._load_current_slice()
+        self._coordinator.load_next_slice(self)
 
     @Slot()
     def loadRandomSlice(self) -> None:
         """手动载入一个随机片段（避开当前片）。"""
         if self._typing_adapter.is_slice_mode():
-            self._load_random_slice()
+            self._coordinator.load_random_slice(self)
 
     def _load_random_slice(self) -> None:
-        """随机载入一片（避开当前片）。"""
-        total = self._typing_adapter.slice_total
-        if total <= 1:
-            return
-        current = self._typing_adapter.slice_index
-        indices = [i for i in range(1, total + 1) if i != current]
-        if not indices:
-            return
-
-        import random
-
-        next_idx = random.choice(indices)
-
-        backend = self._source_slice_backend
-        if backend == "trainer" and self._source_slice_trainer_id:
-            self._trainer_adapter.loadTrainerSegment(
-                self._source_slice_trainer_id,
-                next_idx,
-                self._source_slice_group_size,
-                full_shuffle=self._pending_slice_params.get("full_shuffle", False),
-            )
-        elif backend == "local_article":
-            self._local_article_adapter.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                next_idx,
-                self._source_slice_segment_size,
-            )
-        else:
-            # 片段切换时重置目标片段的达标次数
-            self._typing_adapter.reset_slice_pass_count(next_idx)
-            self._typing_adapter.set_slice_index(next_idx)
-            self.sliceModeChanged.emit()
-            self._load_current_slice()
+        self._coordinator.load_random_slice(self)
 
     @Slot()
     def loadPrevSlice(self) -> None:
         """载入上一片。"""
-        if self._typing_adapter.slice_index <= 1:
-            return
-
-        backend = self._source_slice_backend
-        if backend == "trainer":
-            self._trainer_adapter.loadPreviousTrainerSegment()
-        elif backend == "local_article":
-            prev_idx = self._typing_adapter.slice_index - 1
-            self._local_article_adapter.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                prev_idx,
-                self._source_slice_segment_size,
-            )
-        else:
-            prev_idx = self._typing_adapter.slice_index - 1
-            # 片段切换时重置目标片段的达标次数
-            self._typing_adapter.reset_slice_pass_count(prev_idx)
-            self._typing_adapter.back_slice()
-            self.sliceModeChanged.emit()
-            self._load_current_slice()
+        self._coordinator.load_prev_slice(self)
 
     @Slot(result=bool)
     def shouldRetype(self) -> bool:
@@ -1438,38 +1216,8 @@ class Bridge(QObject):
 
     @Slot()
     def handleSliceRetype(self) -> None:
-        """根据 on_fail_action 自动处理重打。
-
-        统一路径：
-        - shuffle → _shuffle_current_slice（local_article/trainer 各有特化）
-        - retype  → 重新从对应后端加载当前段
-        - none    → 不处理
-        """
-        backend = self._source_slice_backend
-        current = self._typing_adapter.slice_index
-        action = self._typing_adapter.on_fail_action
-
-        if action == "shuffle":
-            if backend == "trainer":
-                self._trainer_adapter.shuffleCurrentTrainerGroup()
-            else:
-                self.shuffleCurrentSlice()
-            return
-
-        if action == "retype":
-            if backend == "trainer":
-                self._trainer_adapter.loadCurrentTrainerSegment()
-            elif backend == "local_article":
-                self._local_article_adapter.loadLocalArticleSegment(
-                    self._source_slice_article_id,
-                    current,
-                    self._source_slice_segment_size,
-                )
-            else:
-                self._reload_current_slice()
-            return
-
-        # action == "none" → 不重打
+        """根据 on_fail_action 自动处理重打。"""
+        self._coordinator.handle_slice_retype(self)
 
     @Slot(result=str)
     def getOnFailAction(self) -> str:
@@ -1477,26 +1225,15 @@ class Bridge(QObject):
         return self._typing_adapter.on_fail_action
 
     def _reload_current_slice(self) -> None:
-        """重打当前片（原样重新加载）。"""
-        self._load_current_slice()
+        self._coordinator.load_current_slice(self)
 
     def _cache_current_content(self, content: str) -> None:
-        """将当前段文本写入 session context，供 get_shuffled_slice_text() 统一使用。"""
         self._typing_adapter.set_current_slice_content(content)
 
     @Slot()
     def shuffleCurrentSlice(self) -> None:
         """乱序当前片并加载。"""
-        shuffled = self._typing_adapter.get_shuffled_slice_text()
-        if not shuffled:
-            return
-
-        idx = self._typing_adapter.slice_index
-        total = self._typing_adapter.slice_total
-        self._typing_adapter.set_slice_index(idx)
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
-        self.textLoaded.emit(shuffled, -1, f"载文 {idx}/{total}（乱序）")
+        self._coordinator.shuffle_current_slice(self)
 
     @Slot(result=str)
     def buildAggregateScore(self) -> str:
@@ -1521,12 +1258,7 @@ class Bridge(QObject):
     @Slot()
     def exitSliceMode(self) -> None:
         """退出载文模式，清理状态。"""
-        self._source_slice_backend = None
-        self._source_slice_trainer_id = ""
-        self._source_slice_group_size = 0
-        self._typing_adapter.exit_slice_mode()
-        self.sliceModeChanged.emit()
-        self.sliceStatusChanged.emit("")
+        self._coordinator.exit_slice_mode(self)
 
     @Slot(int, int, int, int, str, str, bool)
     def setSliceCriteria(
@@ -1540,7 +1272,7 @@ class Bridge(QObject):
         fullShuffle: bool = False,
     ) -> None:
         """设置自动推进与乱序参数。"""
-        self._pending_slice_params = {
+        self._coordinator.pending_slice_params = {
             "key_stroke_min": keyStrokeMin,
             "speed_min": speedMin,
             "accuracy_min": accuracyMin,
@@ -1595,8 +1327,8 @@ class Bridge(QObject):
     def loadNextWenlaiSegmentWithScore(self) -> None:
         if not self._wenlai_adapter or self._wenlai_adapter.text_loading:
             return
-        self._pending_wenlai_score_text = self._build_current_score_plain_text()
-        self._copy_text_to_clipboard(self._pending_wenlai_score_text)
+        self._coordinator.pending_wenlai_score_text = self._build_current_score_plain_text()
+        self._copy_text_to_clipboard(self._coordinator.pending_wenlai_score_text)
         self.loadNextWenlaiSegment()
 
     @Slot()
@@ -1607,12 +1339,7 @@ class Bridge(QObject):
         self._wenlai_adapter.loadPrevSegment()
 
     def _prepare_for_wenlai_load(self) -> None:
-        if self._typing_adapter.is_slice_mode():
-            self.exitSliceMode()
-        self._clear_local_article_active()
-        self._clear_trainer_active()
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
+        self._coordinator.prepare_for_wenlai_load(self)
 
     @Slot()
     def refreshWenlaiDifficulties(self) -> None:

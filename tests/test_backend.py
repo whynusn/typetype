@@ -1309,9 +1309,9 @@ class TestBridgeSpecialPlatform:
         )
 
         # 模拟之前处于 trainer sourced 分片上下文
-        bridge._source_slice_backend = "trainer"
-        bridge._source_slice_trainer_id = "t1"
-        bridge._source_slice_group_size = 20
+        bridge._coordinator.source_slice_backend = "trainer"
+        bridge._coordinator.source_slice_trainer_id = "t1"
+        bridge._coordinator.source_slice_group_size = 20
 
         # 切到 TypingPage 文本型分片
         bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, 1, 0, 0, 0, 1, "retype")
@@ -1319,8 +1319,8 @@ class TestBridgeSpecialPlatform:
         # 失败重打应走文本型 reload，不应回调 trainer adapter
         bridge.handleSliceRetype()
 
-        assert bridge._source_slice_backend is None
-        assert bridge._source_slice_trainer_id == ""
+        assert bridge._coordinator.source_slice_backend is None
+        assert bridge._coordinator.source_slice_trainer_id == ""
         assert trainer_adapter.segment_requests == []
 
     def test_typing_completed_clears_cursor_before_typing_ended(self):
@@ -1398,9 +1398,9 @@ class TestBridgeSpecialPlatform:
             key_listener=None,
         )
 
-        bridge._source_slice_backend = "trainer"
-        bridge._source_slice_trainer_id = "t1"
-        bridge._source_slice_group_size = 20
+        bridge._coordinator.source_slice_backend = "trainer"
+        bridge._coordinator.source_slice_trainer_id = "t1"
+        bridge._coordinator.source_slice_group_size = 20
         typing_adapter.setup_sourced_slice_mode(
             slice_index=2,
             slice_total=10,
@@ -1432,9 +1432,9 @@ class TestBridgeSpecialPlatform:
             key_listener=None,
         )
 
-        bridge._source_slice_backend = "trainer"
-        bridge._source_slice_trainer_id = "t1"
-        bridge._source_slice_group_size = 20
+        bridge._coordinator.source_slice_backend = "trainer"
+        bridge._coordinator.source_slice_trainer_id = "t1"
+        bridge._coordinator.source_slice_group_size = 20
         typing_adapter.setup_sourced_slice_mode(
             slice_index=2,
             slice_total=10,
