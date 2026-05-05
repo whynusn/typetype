@@ -34,6 +34,7 @@ class TextAdapter(QObject):
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
     localTextIdResolved = Signal(int, int)  # (text_id, lookup_generation)
+    localTextIdLookupFailed = Signal()  # text_id 回查失败
 
     def __init__(
         self,
@@ -151,8 +152,9 @@ class TextAdapter(QObject):
                     # 从 daemon thread 直接发射信号，Qt 自动走 QueuedConnection 到主线程的 slot
                     self.localTextIdResolved.emit(resolved_id, lookup_generation)
             except Exception:
-                # 回查失败不影响主流程（文本已显示），静默降级
-                pass
+                # 回查失败不影响主流程（文本已显示），通知用户排行榜功能暂不可用
+                if lookup_generation == self._lookup_generation:
+                    self.localTextIdLookupFailed.emit()
 
     def lookup_text_id(self, source_key: str, content: str) -> None:
         """公开方法：后台异步回查服务端 text_id。

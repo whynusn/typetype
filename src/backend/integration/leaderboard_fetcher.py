@@ -1,10 +1,13 @@
 """排行榜数据获取器。"""
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..infrastructure.api_client import ApiClient
 from ..utils.logger import is_debug_enabled, log_debug, log_warning
+
+if TYPE_CHECKING:
+    from .remote_text_provider import RemoteTextProvider
 
 
 class LeaderboardFetcher:
@@ -15,10 +18,12 @@ class LeaderboardFetcher:
         api_client: ApiClient,
         base_url: str,
         token_provider: Callable[[], str] = lambda: "",
+        remote_text_provider: "RemoteTextProvider | None" = None,
     ):
         self._api_client = api_client
         self._base_url = base_url
         self._token_provider = token_provider
+        self._remote_text_provider = remote_text_provider
 
     def update_base_url(self, new_base_url: str) -> None:
         """更新 base_url。"""
@@ -42,6 +47,17 @@ class LeaderboardFetcher:
         Returns:
             来源列表，每个元素包含 sourceKey, label 等字段，失败返回 None
         """
+        if self._remote_text_provider:
+            try:
+                items = self._remote_text_provider.get_catalog()
+                return [
+                    {"sourceKey": item.text_id, "label": item.label}
+                    for item in items
+                ]
+            except Exception:
+                self._check_network_error()
+                return None
+
         url = f"{self._base_url}/api/v1/texts/catalog"
         response = self._api_client.request(
             "GET", url, headers=self._get_auth_headers()
@@ -65,6 +81,20 @@ class LeaderboardFetcher:
         Returns:
             包含 id, content, title 等字段的字典，失败返回 None
         """
+        if self._remote_text_provider:
+            try:
+                fetched = self._remote_text_provider.fetch_text_by_key(source_key)
+                if fetched is None:
+                    return None
+                return {
+                    "id": fetched.text_id,
+                    "content": fetched.content,
+                    "title": fetched.title,
+                }
+            except Exception:
+                self._check_network_error()
+                return None
+
         url = f"{self._base_url}/api/v1/texts/latest/{source_key}"
         response = self._api_client.request(
             "GET", url, headers=self._get_auth_headers()

@@ -50,11 +50,6 @@ class RuntimeConfig:
     base_url: str = "http://127.0.0.1:8080"
     api_timeout: float = 20.0
 
-    login_api_url: str = ""
-    validate_api_url: str = ""
-    refresh_api_url: str = ""
-    register_api_url: str = ""
-
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
     catalog_items: list[TextCatalogItem] = field(default_factory=list)
@@ -178,16 +173,6 @@ class RuntimeConfig:
             return default
         return value
 
-    def __post_init__(self):
-        if not self.login_api_url:
-            self.login_api_url = f"{self.base_url}/api/v1/auth/login"
-        if not self.validate_api_url:
-            self.validate_api_url = f"{self.base_url}/api/v1/users/me"
-        if not self.refresh_api_url:
-            self.refresh_api_url = f"{self.base_url}/api/v1/auth/refresh"
-        if not self.register_api_url:
-            self.register_api_url = f"{self.base_url}/api/v1/auth/register"
-
     @property
     def default_text_source_key(self) -> str:
         return self.text_source_config.default_key
@@ -210,16 +195,9 @@ class RuntimeConfig:
         self.catalog_items = items
 
     def update_base_url(self, new_base_url: str) -> None:
-        """更新 base_url 并持久化到 config.json。
-
-        同时重新计算派生的 API URL。
-        """
+        """更新 base_url 并持久化到 config.json。"""
         new_base_url = new_base_url.rstrip("/")
         self.base_url = new_base_url
-        self.login_api_url = f"{new_base_url}/api/v1/auth/login"
-        self.validate_api_url = f"{new_base_url}/api/v1/users/me"
-        self.refresh_api_url = f"{new_base_url}/api/v1/auth/refresh"
-        self.register_api_url = f"{new_base_url}/api/v1/auth/register"
         self._save_to_file()
 
     def _save_to_file(self) -> None:

@@ -247,10 +247,10 @@ def main():
 
     auth_provider = ApiClientAuthProvider(
         api_client=api_client,
-        login_url=runtime_config.login_api_url,
-        validate_url=runtime_config.validate_api_url,
-        refresh_url=runtime_config.refresh_api_url,
-        register_url=runtime_config.register_api_url,
+        login_url=f"{runtime_config.base_url}/api/v1/auth/login",
+        validate_url=f"{runtime_config.base_url}/api/v1/users/me",
+        refresh_url=f"{runtime_config.base_url}/api/v1/auth/refresh",
+        register_url=f"{runtime_config.base_url}/api/v1/auth/register",
     )
     auth_service = AuthService(auth_provider=auth_provider)
 
@@ -305,6 +305,7 @@ def main():
         api_client=api_client,
         base_url=runtime_config.base_url,
         token_provider=_get_jwt_token,
+        remote_text_provider=text_provider,
     )
     leaderboard_gateway = LeaderboardGateway(leaderboard_provider=leaderboard_provider)
     leaderboard_adapter = LeaderboardAdapter(
