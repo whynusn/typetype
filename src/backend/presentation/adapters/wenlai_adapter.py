@@ -7,7 +7,7 @@ from ...application.usecases.load_wenlai_text_usecase import (
 )
 from ...models.dto.wenlai_dto import WenlaiText
 from ...ports.wenlai_provider import WenlaiAuthRequiredError
-from ...workers.wenlai_worker import WenlaiWorker
+from ...workers.base_worker import BaseWorker
 
 
 class WenlaiAdapter(QObject):
@@ -35,7 +35,7 @@ class WenlaiAdapter(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._loading = False
         self._active_worker_count = 0
-        self._active_workers: set[WenlaiWorker] = set()
+        self._active_workers: set[BaseWorker] = set()
         self._text_loading = False
         self._current_text: WenlaiText | None = None
         self._is_active = False
@@ -130,9 +130,9 @@ class WenlaiAdapter(QObject):
         error_prefix: str,
         *,
         connect_failed: bool = True,
-    ) -> WenlaiWorker:
+    ) -> BaseWorker:
         self._begin_worker()
-        worker = WenlaiWorker(task=task, error_prefix=error_prefix)
+        worker = BaseWorker(task=task, error_prefix=error_prefix)
         self._track_worker(worker)
         if connect_failed:
             worker.signals.failed.connect(self._on_failed)
@@ -140,15 +140,15 @@ class WenlaiAdapter(QObject):
         self._thread_pool.start(worker)
         return worker
 
-    def _track_worker(self, worker: WenlaiWorker) -> None:
+    def _track_worker(self, worker: BaseWorker) -> None:
         worker.setAutoDelete(False)
         self._active_workers.add(worker)
         worker.signals.finished.connect(lambda done=worker: self._release_worker(done))
 
-    def _release_worker(self, worker: WenlaiWorker) -> None:
+    def _release_worker(self, worker: BaseWorker) -> None:
         self._active_workers.discard(worker)
 
-    def _run_text_worker(self, task, error_prefix: str) -> WenlaiWorker | None:
+    def _run_text_worker(self, task, error_prefix: str) -> BaseWorker | None:
         if self._text_loading:
             return None
         request_generation = self._next_text_request_generation()

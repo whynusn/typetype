@@ -5,7 +5,7 @@ from ...application.usecases.load_local_article_segment_usecase import (
     LoadLocalArticleSegmentUseCase,
 )
 from ...models.dto.local_article import LocalArticleCatalogItem, LocalArticleSegment
-from ...workers.local_article_worker import LocalArticleWorker
+from ...workers.base_worker import BaseWorker
 
 
 class LocalArticleAdapter(QObject):
@@ -121,7 +121,7 @@ class LocalArticleAdapter(QObject):
             return
         self._set_loading(True)
         request_generation = self._next_request_generation()
-        worker = LocalArticleWorker(
+        worker = BaseWorker(
             task=self._list_articles,
             error_prefix="加载本地长文列表失败",
         )
@@ -152,7 +152,7 @@ class LocalArticleAdapter(QObject):
             return
         self._set_loading(True)
         request_generation = self._next_request_generation()
-        worker = LocalArticleWorker(
+        worker = BaseWorker(
             task=lambda: self._load_segment(article_id, segment_index, segment_size),
             error_prefix="加载本地长文片段失败",
         )

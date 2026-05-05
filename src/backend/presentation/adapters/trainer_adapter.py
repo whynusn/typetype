@@ -7,7 +7,7 @@ from ...application.usecases.load_trainer_segment_usecase import (
     LoadTrainerSegmentUseCase,
 )
 from ...models.dto.trainer import TrainerCatalogItem, TrainerSegment
-from ...workers.trainer_worker import TrainerWorker
+from ...workers.base_worker import BaseWorker
 
 
 class TrainerAdapter(QObject):
@@ -99,7 +99,7 @@ class TrainerAdapter(QObject):
             return
         self._set_loading(True)
         request_generation = self._next_request_generation()
-        worker = TrainerWorker(
+        worker = BaseWorker(
             task=self._list_trainers,
             error_prefix="加载练单器词库列表失败",
         )
@@ -130,7 +130,7 @@ class TrainerAdapter(QObject):
             return
         self._set_loading(True)
         request_generation = self._next_request_generation()
-        worker = TrainerWorker(task=task, error_prefix=error_prefix)
+        worker = BaseWorker(task=task, error_prefix=error_prefix)
         worker.signals.succeeded.connect(
             lambda payload, gen=request_generation: self._on_segment_loaded(
                 gen,
