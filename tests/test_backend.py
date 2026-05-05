@@ -131,6 +131,8 @@ class DummyLocalArticleAdapter(QObject):
     localArticleSegmentLoaded = Signal(dict)
     localArticleSegmentLoadFailed = Signal(str)
     localArticleLoadingChanged = Signal()
+    localArticleDeleted = Signal(bool, str)
+    localArticleRenamed = Signal(bool, str)
 
     def __init__(self):
         super().__init__()

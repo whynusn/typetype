@@ -16,6 +16,8 @@ class LocalArticleAdapter(QObject):
     localArticleSegmentLoaded = Signal(dict)
     localArticleSegmentLoadFailed = Signal(str)
     localArticleLoadingChanged = Signal()
+    localArticleDeleted = Signal(bool, str)  # (success, message)
+    localArticleRenamed = Signal(bool, str)  # (success, message)
 
     def __init__(
         self,
@@ -53,6 +55,7 @@ class LocalArticleAdapter(QObject):
             "path": item.path,
             "charCount": item.char_count,
             "modifiedTimestamp": item.modified_timestamp,
+            "isBundled": item.is_bundled,
         }
 
     @staticmethod
@@ -175,3 +178,31 @@ class LocalArticleAdapter(QObject):
     @property
     def local_article_loading(self) -> bool:
         return self._local_article_loading
+
+    @Slot(str)
+    def deleteArticle(self, article_id: str) -> None:
+        def _do_delete() -> bool:
+            return self._gateway.delete_article(article_id)
+
+        worker = BaseWorker(task=_do_delete, error_prefix="删除文章失败")
+        worker.signals.succeeded.connect(
+            lambda _: self.localArticleDeleted.emit(True, "文章已删除")
+        )
+        worker.signals.failed.connect(
+            lambda msg: self.localArticleDeleted.emit(False, msg)
+        )
+        self._thread_pool.start(worker)
+
+    @Slot(str, str)
+    def renameArticle(self, article_id: str, new_title: str) -> None:
+        def _do_rename() -> bool:
+            return self._gateway.rename_article(article_id, new_title)
+
+        worker = BaseWorker(task=_do_rename, error_prefix="重命名失败")
+        worker.signals.succeeded.connect(
+            lambda _: self.localArticleRenamed.emit(True, "重命名成功")
+        )
+        worker.signals.failed.connect(
+            lambda msg: self.localArticleRenamed.emit(False, msg)
+        )
+        self._thread_pool.start(worker)

@@ -8,6 +8,7 @@ class LocalArticleCatalogItem:
     path: str
     char_count: int
     modified_timestamp: float
+    is_bundled: bool = False
 
 
 @dataclass(frozen=True)

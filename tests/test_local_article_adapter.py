@@ -59,6 +59,7 @@ def test_load_local_articles_enqueues_worker_and_emits_catalog_payload():
                 "path": "/tmp/a1.txt",
                 "charCount": 123,
                 "modifiedTimestamp": 1710000000.0,
+                "isBundled": False,
             }
         ]
     ]

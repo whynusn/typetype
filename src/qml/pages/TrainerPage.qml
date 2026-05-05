@@ -171,6 +171,11 @@ Item {
                 enabled: !(appBridge && appBridge.trainerLoading)
                 flat: true
                 onClicked: refreshTrainers()
+                ToolTip {
+                    text: qsTr("刷新")
+                    visible: parent.hovered
+
+                }
             }
         }
 

@@ -7,179 +7,155 @@ FluentPage {
     id: uploadPage
     property bool active: false  // 由 NavigationView 注入
     title: qsTr("上传文本")
+    contentSpacing: 4
 
     property bool toLocal: true
     property bool toCloud: false
-
-    ListModel {
-        id: sourceListModel
-    }
+    property bool uploading: false
 
     function clearForm() {
         titleField.text = "";
         contentArea.text = "";
-        sourceComboBox.currentIndex = 0;
         localCheckBox.checked = true;
         cloudCheckBox.checked = false;
         toLocal = true;
         toCloud = false;
-        errorText.visible = false;
-        errorText.text = "";
+        infoBar.visible = false;
     }
 
-    function syncSourceOptionsFromCatalog(catalog) {
-        sourceListModel.clear();
-        if (catalog) {
-            for (var i = 0; i < catalog.length; i++) {
-                sourceListModel.append(catalog[i]);
-            }
-        }
-        if (sourceComboBox.currentIndex >= sourceListModel.count) {
-            sourceComboBox.currentIndex = 0;
-        }
+    function showInfo(severity, title, text) {
+        infoBar.severity = severity;
+        infoBar.title = title;
+        infoBar.text = text;
+        infoBar.visible = true;
     }
 
-    onActiveChanged: {
-        if (active && appBridge) {
-            appBridge.loadCatalog();
-        }
+    // 反馈提示
+    InfoBar {
+        id: infoBar
+        Layout.fillWidth: true
+        visible: false
+        closable: true
     }
 
-    ColumnLayout {
-        spacing: 16
-
-        Text {
-            typography: Typography.Body
-            color: Theme.currentTheme.colors.textSecondaryColor
-            text: qsTr("填写以下信息以上传新的练习文本")
-        }
-
-        // 标题
-        Text {
-            typography: Typography.BodyStrong
-            text: qsTr("标题")
-        }
+    // 标题
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("标题")
+        description: qsTr("文本的显示名称")
+        icon.name: "ic_fluent_text_font_20_regular"
 
         TextField {
             id: titleField
-            Layout.fillWidth: true
+            Layout.preferredWidth: 260
             placeholderText: qsTr("请输入文本标题")
         }
+    }
 
-        // 来源
-        Text {
-            typography: Typography.BodyStrong
-            text: qsTr("来源")
-        }
+    // 内容
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("内容")
+        description: qsTr("支持从文件导入或手动输入")
+        icon.name: "ic_fluent_document_text_20_regular"
 
-        ComboBox {
-            id: sourceComboBox
-            Layout.fillWidth: true
-            model: sourceListModel
-            textRole: "label"
-            valueRole: "key"
-        }
-
-        // 内容
-        Text {
-            typography: Typography.BodyStrong
-            text: qsTr("内容")
-        }
-
-        TextArea {
-            id: contentArea
-            Layout.fillWidth: true
-            Layout.minimumHeight: 200
-            placeholderText: qsTr("请输入文本内容")
-            wrapMode: TextArea.Wrap
-        }
-
-        // 上传目标
-        Text {
-            typography: Typography.BodyStrong
-            text: qsTr("上传目标")
-        }
-
-        ColumnLayout {
-            spacing: 4
-
-            CheckBox {
-                id: localCheckBox
-                text: qsTr("本地文本库")
-                checked: true
-                onCheckedChanged: {
-                    uploadPage.toLocal = checked;
-                }
-            }
-
-            CheckBox {
-                id: cloudCheckBox
-                text: qsTr("云端（仅管理员）")
-                enabled: appBridge ? appBridge.loggedin : false
-                onCheckedChanged: {
-                    uploadPage.toCloud = checked;
-                }
+        Button {
+            text: qsTr("从文件导入")
+            icon.name: "ic_fluent_folder_open_20_regular"
+            onClicked: {
+                if (appBridge) appBridge.openTextFileDialog();
             }
         }
+    }
 
-        // 错误提示
-        Text {
-            id: errorText
-            visible: false
-            color: Theme.currentTheme.colors.systemCriticalColor
-            typography: Typography.Caption
-            Layout.fillWidth: true
-            horizontalAlignment: Qt.AlignCenter
+    TextArea {
+        id: contentArea
+        Layout.fillWidth: true
+        Layout.minimumHeight: 200
+        placeholderText: qsTr("请输入文本内容")
+        wrapMode: TextArea.Wrap
+    }
+
+    // 上传目标
+    Text {
+        Layout.topMargin: 8
+        typography: Typography.Subtitle
+        text: qsTr("上传目标")
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("本地文本库")
+        description: qsTr("保存到本地，可离线使用")
+        icon.name: "ic_fluent_folder_20_regular"
+
+        CheckBox {
+            id: localCheckBox
+            checked: true
+            onCheckedChanged: uploadPage.toLocal = checked
+        }
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("云端（仅管理员）")
+        description: qsTr("上传到服务端，需登录且具有管理员权限")
+        icon.name: "ic_fluent_cloud_20_regular"
+
+        CheckBox {
+            id: cloudCheckBox
+            enabled: appBridge ? appBridge.loggedin : false
+            onCheckedChanged: uploadPage.toCloud = checked
+        }
+    }
+
+    // 上传进度
+    ProgressBar {
+        Layout.fillWidth: true
+        visible: uploadPage.uploading
+        indeterminate: true
+    }
+
+    // 按钮区
+    Item {
+        Layout.fillHeight: true
+    }
+
+    RowLayout {
+        Layout.fillWidth: true
+        spacing: 8
+
+        Item { Layout.fillWidth: true }
+
+        Button {
+            text: qsTr("取消")
+            onClicked: clearForm()
         }
 
-        // 按钮区
-        Item {
-            Layout.fillHeight: true
-        }
-
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-
-            Item {
-                Layout.fillWidth: true
-            }
-
-            Button {
-                text: qsTr("取消")
-                onClicked: {
-                    clearForm();
+        Button {
+            id: uploadBtn
+            text: qsTr("上传")
+            highlighted: true
+            enabled: !uploadPage.uploading
+            onClicked: {
+                var title = titleField.text.trim();
+                var content = contentArea.text.trim();
+                if (!title) {
+                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请输入标题"));
+                    return;
                 }
-            }
-
-            Button {
-                id: uploadBtn
-                text: qsTr("上传")
-                highlighted: true
-                onClicked: {
-                    var title = titleField.text.trim();
-                    var content = contentArea.text.trim();
-                    if (!title) {
-                        errorText.text = qsTr("请输入标题");
-                        errorText.visible = true;
-                        return;
-                    }
-                    if (!content) {
-                        errorText.text = qsTr("请输入内容");
-                        errorText.visible = true;
-                        return;
-                    }
-                    if (!uploadPage.toLocal && !uploadPage.toCloud) {
-                        errorText.text = qsTr("请至少选择一个上传目标");
-                        errorText.visible = true;
-                        return;
-                    }
-                    errorText.visible = false;
-                    uploadBtn.enabled = false;
-                    var sourceKey = sourceComboBox.currentValue;
-                    if (appBridge)
-                        appBridge.uploadText(title, content, sourceKey, uploadPage.toLocal, uploadPage.toCloud);
+                if (!content) {
+                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请输入内容"));
+                    return;
                 }
+                if (!uploadPage.toLocal && !uploadPage.toCloud) {
+                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请至少选择一个上传目标"));
+                    return;
+                }
+                infoBar.visible = false;
+                uploadPage.uploading = true;
+                if (appBridge)
+                    appBridge.uploadText(title, content, "custom", uploadPage.toLocal, uploadPage.toCloud);
             }
         }
     }
@@ -187,18 +163,14 @@ FluentPage {
     Connections {
         target: appBridge
         enabled: appBridge !== null
+
         function onUploadResult(success, message, textId) {
-            uploadBtn.enabled = true;
+            uploadPage.uploading = false;
             if (success) {
                 clearForm();
-                // 成功提示
-                errorText.text = qsTr("上传成功");
-                errorText.color = Theme.currentTheme.colors.systemSuccessColor;
-                errorText.visible = true;
+                showInfo(Severity.Success, qsTr("上传成功"), message || qsTr("文本已成功上传"));
             } else {
-                errorText.text = message;
-                errorText.color = Theme.currentTheme.colors.systemCriticalColor;
-                errorText.visible = true;
+                showInfo(Severity.Error, qsTr("上传失败"), message);
             }
         }
         function onLoggedinChanged() {
@@ -207,8 +179,13 @@ FluentPage {
                 cloudCheckBox.checked = false;
             }
         }
-        function onCatalogLoaded(catalog) {
-            syncSourceOptionsFromCatalog(catalog);
+        function onTextFileLoaded(content) {
+            if (content) {
+                contentArea.text = content;
+                showInfo(Severity.Info, qsTr("文件已导入"), qsTr("文本内容已填充，请检查并上传"));
+            } else {
+                showInfo(Severity.Error, qsTr("导入失败"), qsTr("无法读取文件内容"));
+            }
         }
     }
 }

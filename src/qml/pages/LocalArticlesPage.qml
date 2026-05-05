@@ -45,6 +45,12 @@ Item {
         return article.updatedAt || article.updated_at || article.modifiedTimestamp || article.modified_timestamp || article.createdAt || article.created_at || "";
     }
 
+    function formatTimestamp(ts) {
+        if (!ts || ts <= 0) return "-";
+        var d = new Date(ts * 1000);
+        return Qt.formatDateTime(d, "yyyy-MM-dd hh:mm");
+    }
+
     function segmentSizeValue() {
         return Math.max(1, segmentSizeSpin.value);
     }
@@ -79,6 +85,8 @@ Item {
     }
 
     function syncLocalArticles(articles) {
+        selectedArticle = null;
+        selectedArticleIndex = -1;
         articleListModel.clear();
         if (articles) {
             for (var i = 0; i < articles.length; i++) {
@@ -173,10 +181,32 @@ Item {
             ToolButton {
                 Layout.preferredWidth: 32
                 Layout.preferredHeight: 32
+                icon.name: "ic_fluent_add_20_regular"
+                flat: true
+                onClicked: {
+                    if (Window.window && Window.window.navigationView) {
+                        Window.window.navigationView.push(Qt.resolvedUrl("UploadTextPage.qml"));
+                    }
+                }
+                ToolTip {
+                    text: qsTr("上传文本")
+                    visible: parent.hovered
+
+                }
+            }
+
+            ToolButton {
+                Layout.preferredWidth: 32
+                Layout.preferredHeight: 32
                 icon.name: "ic_fluent_arrow_sync_20_regular"
                 enabled: !(appBridge && appBridge.localArticleLoading)
                 flat: true
                 onClicked: refreshArticles()
+                ToolTip {
+                    text: qsTr("刷新")
+                    visible: parent.hovered
+
+                }
             }
         }
 
@@ -335,6 +365,32 @@ Item {
                                 text: articleTitle(selectedArticle)
                                 elide: Text.ElideRight
                             }
+
+                            ToolButton {
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                icon.name: "ic_fluent_rename_20_regular"
+                                enabled: selectedArticle !== null && !selectedArticle.isBundled
+                                onClicked: renameDialog.open()
+                                ToolTip {
+                                    text: qsTr("重命名")
+                                    visible: parent.hovered
+                
+                                }
+                            }
+
+                            ToolButton {
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                icon.name: "ic_fluent_delete_20_regular"
+                                enabled: selectedArticle !== null && !selectedArticle.isBundled
+                                onClicked: deleteConfirmDialog.open()
+                                ToolTip {
+                                    text: qsTr("删除")
+                                    visible: parent.hovered
+                
+                                }
+                            }
                         }
 
                         Rectangle {
@@ -384,7 +440,7 @@ Item {
                             Text {
                                 Layout.fillWidth: true
                                 typography: Typography.Caption
-                                text: selectedArticle ? (articleUpdatedAt(selectedArticle) || "-") : "-"
+                                text: selectedArticle ? formatTimestamp(articleUpdatedAt(selectedArticle)) : "-"
                                 elide: Text.ElideRight
                             }
                         }
@@ -819,6 +875,86 @@ Item {
         function onLocalArticleLoadingChanged() {
             if (appBridge && appBridge.localArticleLoading) {
                 statusMessage = qsTr("正在处理本地文章...");
+            }
+        }
+
+        function onLocalArticleDeleted(success, message) {
+            if (success) {
+                statusMessage = message;
+                errorMessage = "";
+                refreshArticles();
+            } else {
+                errorMessage = message;
+            }
+        }
+
+        function onLocalArticleRenamed(success, message) {
+            if (success) {
+                statusMessage = message;
+                errorMessage = "";
+                refreshArticles();
+            } else {
+                errorMessage = message;
+            }
+        }
+    }
+
+    Dialog {
+        id: deleteConfirmDialog
+        title: qsTr("确认删除")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        property string targetArticleId: ""
+        property string targetArticleTitle: ""
+
+        Text {
+            text: qsTr("确定要删除文章「%1」吗？此操作不可撤销。").arg(deleteConfirmDialog.targetArticleTitle)
+        }
+
+        onOpened: {
+            targetArticleId = selectedArticle ? articleId(selectedArticle) : "";
+            targetArticleTitle = selectedArticle ? articleTitle(selectedArticle) : "";
+        }
+
+        onAccepted: {
+            if (appBridge && targetArticleId) {
+                appBridge.deleteLocalArticle(targetArticleId);
+            }
+        }
+    }
+
+    Dialog {
+        id: renameDialog
+        title: qsTr("重命名")
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        property string targetArticleId: ""
+
+        RowLayout {
+            Layout.fillWidth: true
+            Text {
+                text: qsTr("新名称：")
+            }
+            TextField {
+                id: renameTextField
+                Layout.fillWidth: true
+                selectByMouse: true
+            }
+        }
+
+        onOpened: {
+            targetArticleId = selectedArticle ? articleId(selectedArticle) : "";
+            renameTextField.text = selectedArticle ? articleTitle(selectedArticle) : "";
+            renameTextField.selectAll();
+            renameTextField.forceActiveFocus();
+        }
+
+        onAccepted: {
+            var newName = renameTextField.text.trim();
+            if (newName && appBridge && targetArticleId) {
+                appBridge.renameLocalArticle(targetArticleId, newName);
             }
         }
     }

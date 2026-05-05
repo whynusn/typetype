@@ -22,3 +22,9 @@ class LocalArticleGateway:
 
     def load_current_segment(self, article_id: str) -> int | None:
         return self._repository.load_current_segment(article_id)
+
+    def delete_article(self, article_id: str) -> bool:
+        return self._repository.delete_article(article_id)
+
+    def rename_article(self, article_id: str, new_title: str) -> bool:
+        return self._repository.rename_article(article_id, new_title)

@@ -17,9 +17,15 @@ class FileLocalArticleRepository(LocalArticleRepository):
         self,
         article_dir: str | Path,
         progress_filename: str = PROGRESS_FILENAME,
+        bundled_source_dir: str | Path | None = None,
     ) -> None:
         self._article_dir = Path(article_dir).expanduser().resolve()
         self._progress_file = self._article_dir / progress_filename
+        self._bundled_names: set[str] = set()
+        if bundled_source_dir is not None:
+            src = Path(bundled_source_dir)
+            if src.exists():
+                self._bundled_names = {p.name for p in src.glob("*.txt")}
 
     def list_articles(self) -> list[LocalArticleCatalogItem]:
         articles: list[LocalArticleCatalogItem] = []
@@ -93,6 +99,7 @@ class FileLocalArticleRepository(LocalArticleRepository):
             path=str(path.resolve()),
             char_count=len(self._read_article(path)),
             modified_timestamp=stat.st_mtime,
+            is_bundled=path.name in self._bundled_names,
         )
 
     def _path_for_article_id(self, article_id: str) -> Path | None:
@@ -107,6 +114,41 @@ class FileLocalArticleRepository(LocalArticleRepository):
             return content.decode("utf-8")
         except UnicodeDecodeError:
             return content.decode("gb18030")
+
+    def delete_article(self, article_id: str) -> bool:
+        path = self._path_for_article_id(article_id)
+        if path is None or not path.exists():
+            return False
+        path.unlink()
+        progress = self._read_progress()
+        if article_id in progress:
+            del progress[article_id]
+            self._progress_file.write_text(
+                json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        return True
+
+    def rename_article(self, article_id: str, new_title: str) -> bool:
+        path = self._path_for_article_id(article_id)
+        if path is None or not path.exists():
+            return False
+        new_path = path.parent / f"{new_title}{path.suffix}"
+        if new_path.exists() and new_path != path:
+            return False
+        path.rename(new_path)
+        progress = self._read_progress()
+        if article_id in progress:
+            del progress[article_id]
+            new_article_id = self.make_article_id(
+                new_path.relative_to(self._article_dir)
+            )
+            progress[new_article_id] = progress.get(article_id, {})
+            self._progress_file.write_text(
+                json.dumps(progress, ensure_ascii=False, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+        return True
 
     def _read_progress(self) -> dict[str, Any]:
         if not self._progress_file.exists():
