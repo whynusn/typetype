@@ -22,7 +22,7 @@ def test_local_upload_writes_text_and_absolute_config_path(tmp_path: Path) -> No
     text_path = texts_dir / "custom_标题.txt"
     config_data = json.loads(config_path.read_text(encoding="utf-8"))
     assert text_path.read_text(encoding="utf-8") == "正文"
-    assert config_data["text_sources"]["custom"]["local_path"] == str(text_path)
+    assert config_data["text_sources"]["custom_标题"]["local_path"] == str(text_path)
 
 
 def test_local_upload_sanitizes_source_key_before_building_filename(

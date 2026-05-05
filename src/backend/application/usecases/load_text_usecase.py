@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import re
 
-from ...config.text_source_config import TextSourceEntry
+from ...config.text_source_config import SourceType, TextSourceEntry
 from ...ports.clipboard import ClipboardReader
 from ..gateways.text_source_gateway import TextSourceGateway
 
@@ -82,11 +82,9 @@ class LoadTextUseCase:
         """仅本地排行榜文本需要异步回查服务端 text_id。"""
         if fetched.text_id is not None:
             return ""
-        if not source_entry.local_path:
-            return ""
-        if not source_entry.has_ranking:
-            return ""
-        return source_entry.key
+        if source_entry.source_type == SourceType.LOCAL_RANKED:
+            return source_entry.key
+        return ""
 
     def load_from_clipboard(self) -> LoadTextResult:
         """从剪贴板加载文本。"""

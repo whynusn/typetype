@@ -102,10 +102,7 @@ class TextLoadCoordinator:
             bridge.exitSliceMode()
         if self._wenlai:
             self._wenlai.clear_active()
-        if (
-            self._local_article
-            and self._local_article.local_article_loading
-        ):
+        if self._local_article and self._local_article.local_article_loading:
             self._local_article.clear_active()
         self._typing.prepare_for_text_load()
         self.clear_text_id(bridge)

@@ -4,7 +4,7 @@ from src.backend.application.usecases.load_text_usecase import (
     LoadTextResult,
     TextLoadPlan,
 )
-from src.backend.config.text_source_config import TextSourceEntry
+from src.backend.config.text_source_config import SourceType, TextSourceEntry
 from src.backend.presentation.adapters.text_adapter import TextAdapter
 
 
@@ -213,12 +213,13 @@ def test_get_source_options_include_local_metadata():
         "builtin_demo": TextSourceEntry(
             key="builtin_demo",
             label="本地示例",
+            source_type=SourceType.LOCAL_PRACTICE,
             local_path="resources/texts/builtin_demo.txt",
         ),
         "jisubei": TextSourceEntry(
             key="jisubei",
             label="极速杯",
-            has_ranking=True,
+            source_type=SourceType.NETWORK,
         ),
     }
 
@@ -226,12 +227,14 @@ def test_get_source_options_include_local_metadata():
         {
             "key": "builtin_demo",
             "label": "本地示例",
+            "sourceType": "local_practice",
             "isLocal": True,
             "hasRanking": False,
         },
         {
             "key": "jisubei",
             "label": "极速杯",
+            "sourceType": "network",
             "isLocal": False,
             "hasRanking": True,
         },

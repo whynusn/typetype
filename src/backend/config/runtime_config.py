@@ -117,11 +117,14 @@ class RuntimeConfig:
         default_key = ""
 
         for key, source_data in sources_data.items():
+            local_path = source_data.get("local_path")
+            has_ranking = source_data.get("has_ranking", False)
             sources[key] = TextSourceEntry(
                 key=key,
                 label=source_data.get("label", key),
-                local_path=source_data.get("local_path"),
-                has_ranking=source_data.get("has_ranking", False),
+                local_path=local_path,
+                has_ranking=has_ranking,
+                source_type=TextSourceEntry.infer_source_type(local_path, has_ranking),
             )
             if not default_key:
                 default_key = key
@@ -184,7 +187,7 @@ class RuntimeConfig:
     def get_text_source_options(self) -> list[dict[str, str]]:
         options = self.text_source_config.get_source_options()
         options.extend(
-            {"key": item.text_id, "label": item.label} for item in self.catalog_items
+            {"key": item.source_key, "label": item.label} for item in self.catalog_items
         )
         return options
 

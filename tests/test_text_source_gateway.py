@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock
 
 from src.backend.application.gateways.text_source_gateway import TextSourceGateway
-from src.backend.config.text_source_config import TextSourceEntry
+from src.backend.config.text_source_config import SourceType, TextSourceEntry
 from src.backend.models.dto.fetched_text import FetchedText
 from src.backend.ports.local_text_loader import LocalTextLoader
 from src.backend.ports.text_provider import TextProvider
@@ -101,12 +101,14 @@ def test_load_from_plan_local_source_with_server_match():
 
 def test_load_from_plan_uses_text_provider_for_remote_source():
     gateway, runtime_config, text_provider, local_text_loader = _build_gateway(
-        TextSourceEntry(key="remote", label="Remote")
+        TextSourceEntry(key="remote", label="Remote", source_type=SourceType.NETWORK)
     )
     text_provider.fetch_text_by_key.return_value = FetchedText(
         content="remote text", text_id=789
     )
-    source = TextSourceEntry(key="remote", label="Remote")
+    source = TextSourceEntry(
+        key="remote", label="Remote", source_type=SourceType.NETWORK
+    )
 
     success, fetched, error = gateway.load_from_plan(source)
 

@@ -39,10 +39,10 @@ def test_get_catalog_builds_text_catalog_items_from_response():
     assert result == [
         TextCatalogItem(
             id=1,
-            text_id="cloud_001",
+            source_key="cloud_001",
             label="云端文章",
             description="每日推荐",
-            has_ranking=False,
+            has_ranking=True,
         )
     ]
     assert api_client.last_call == {

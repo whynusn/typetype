@@ -58,10 +58,10 @@ def test_runtime_config_source_options_include_catalog_items():
         [
             TextCatalogItem(
                 id=1,
-                text_id="cloud_001",
+                source_key="cloud_001",
                 label="云端文章",
                 description="每日推荐",
-                has_ranking=False,
+                has_ranking=True,
             )
         ]
     )

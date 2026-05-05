@@ -10,6 +10,7 @@ from ...application.usecases.load_text_usecase import (
     TextLoadPlan,
 )
 from ...config.runtime_config import RuntimeConfig
+from ...config.text_source_config import SourceType
 from ...workers.text_load_worker import TextLoadWorker
 
 if TYPE_CHECKING:
@@ -265,8 +266,10 @@ class TextAdapter(QObject):
             {
                 "key": source.key,
                 "label": source.label,
-                "isLocal": bool(source.local_path),
-                "hasRanking": source.has_ranking,
+                "sourceType": source.source_type.value,
+                "isLocal": source.source_type != SourceType.NETWORK,
+                "hasRanking": source.source_type
+                in (SourceType.NETWORK, SourceType.LOCAL_RANKED),
             }
             for source in self._runtime_config.text_source_config.sources.values()
         ]

@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
+from src.backend.config.text_source_config import SourceType
 from src.backend.models.dto.fetched_text import FetchedText
 
 
@@ -7,6 +8,7 @@ from src.backend.models.dto.fetched_text import FetchedText
 class DummyTextSourceEntry:
     key: str
     label: str = ""
+    source_type: SourceType = SourceType.LOCAL_PRACTICE
     local_path: str | None = None
     has_ranking: bool = False
 
@@ -95,6 +97,7 @@ def test_load_ranking_local_text_keeps_source_key_for_server_text_id_lookup():
         DummyTextSourceEntry(
             key="fst_500",
             label="前五百",
+            source_type=SourceType.LOCAL_RANKED,
             local_path="resources/texts/前五百.txt",
             has_ranking=True,
         )

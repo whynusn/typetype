@@ -82,7 +82,8 @@ class UploadTextAdapter(QObject):
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        self._update_config(safe_source_key, title, file_path)
+        config_key = f"{safe_source_key}_{safe_title}"
+        self._update_config(config_key, title, file_path)
         log_info(f"[UploadTextAdapter] 本地保存成功: {file_path}")
 
     @staticmethod
@@ -119,6 +120,7 @@ class UploadTextAdapter(QObject):
         text_sources[source_key] = {
             "label": title,
             "local_path": file_path,
+            "source_type": "local_practice",
         }
         config_data["text_sources"] = text_sources
 

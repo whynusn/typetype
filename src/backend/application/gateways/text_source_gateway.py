@@ -13,6 +13,7 @@
 from typing import TYPE_CHECKING
 
 from ...config.runtime_config import RuntimeConfig
+from ...config.text_source_config import SourceType
 from ...models.dto.fetched_text import FetchedText
 from ...ports.local_text_loader import LocalTextLoader
 from ...ports.text_provider import TextProvider
@@ -56,11 +57,11 @@ class TextSourceGateway:
         Returns:
             tuple[bool, FetchedText | None, str]: (成功, 文本对象, 错误信息)
         """
-        if source.local_path:
-            return self._load_from_local(source.local_path, source.label, source.key)
+        if source.source_type == SourceType.NETWORK:
+            return self._load_from_network(source.key)
 
-        # 网络来源
-        return self._load_from_network(source.key)
+        # LOCAL_RANKED 和 LOCAL_PRACTICE 都读本地文件
+        return self._load_from_local(source.local_path, source.label, source.key)
 
     def _load_from_local(
         self, path: str | None, label: str = "", source_key: str = ""

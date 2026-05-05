@@ -46,10 +46,10 @@ class RemoteTextProvider:
             return [
                 TextCatalogItem(
                     id=int(item.get("id", 0)),
-                    text_id=item.get("sourceKey", ""),
+                    source_key=item.get("sourceKey", ""),
                     label=item.get("label", ""),
                     description=item.get("category", ""),
-                    has_ranking=False,
+                    has_ranking=True,
                 )
                 for item in items
             ]

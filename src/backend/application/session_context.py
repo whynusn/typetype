@@ -494,10 +494,16 @@ class TypingSessionContext:
             self._notify_upload_status()
             self._notify_eligibility_reason()
 
-    _INELIGIBLE_MODES = frozenset({
-        SourceMode.SLICE, SourceMode.SHUFFLE, SourceMode.CLIPBOARD,
-        SourceMode.WENLAI, SourceMode.LOCAL_ARTICLE, SourceMode.TRAINER,
-    })
+    _INELIGIBLE_MODES = frozenset(
+        {
+            SourceMode.SLICE,
+            SourceMode.SHUFFLE,
+            SourceMode.CLIPBOARD,
+            SourceMode.WENLAI,
+            SourceMode.LOCAL_ARTICLE,
+            SourceMode.TRAINER,
+        }
+    )
     _PENDING_MODES = frozenset({SourceMode.LOCAL, SourceMode.CUSTOM})
 
     def _compute_upload_status(self) -> UploadStatus:
