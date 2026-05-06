@@ -1450,8 +1450,20 @@ class Bridge(QObject):
 
     @Slot(str)
     def removeFont(self, name: str) -> None:
-        if self._font_adapter:
-            self._font_adapter.removeFont(name)
+        if not self._font_adapter:
+            return
+
+        # 原子操作：若删除的是当前字体，先切换到其它可用字体再删除
+        entries = self._font_adapter.list_fonts()
+        target = next((e for e in entries if e.name == name), None)
+        if target and target.file_path == self._reader_font_path:
+            fallback = next(
+                (e for e in entries if e.file_path != target.file_path), None
+            )
+            if fallback:
+                self.setReaderFontPath(fallback.file_path)
+
+        self._font_adapter.removeFont(name)
 
     @Slot()
     def openFontFileDialog(self) -> None:

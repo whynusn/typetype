@@ -323,6 +323,7 @@ def main():
         user_dir=str(user_fonts_dir()),
         bundled_dir=_bundled_fonts_dir,
     )
+    font_repository.cleanup_deleted_fonts()
     font_gateway = FontGateway(repository=font_repository)
     font_adapter = FontAdapter(gateway=font_gateway)
 
