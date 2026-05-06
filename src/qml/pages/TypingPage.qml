@@ -243,7 +243,7 @@ Item {
     // 内置默认字体（fallback）
     FontLoader {
         id: defaultFontLoader
-        source: resourceBaseUrl + "fonts/LXGWWenKai-Regular-subset.ttf"
+        source: resourceBaseUrl + "fonts/LXGWWenKai-Regular.ttf"
     }
 
     // 用户自选字体：初始用属性绑定加载，后续用信号更新

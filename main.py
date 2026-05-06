@@ -177,7 +177,7 @@ def main():
         os.path.dirname(os.path.abspath(__file__)),
         "resources",
         "fonts",
-        "HarmonyOS_Sans_SC_Regular-subset.ttf",
+        "HarmonyOS_Sans_SC_Regular.ttf",
     )
     # subset 字体仍注册到 Qt 数据库，供字体 Dialog 的 FontLoader 使用
     _font_id = QFontDatabase.addApplicationFont(_ui_font_path)

@@ -64,8 +64,8 @@ jobs:
             --include-data-dir=src/qml=src/qml \
             --include-data-dir=resources/texts=resources/texts \
             --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
-            --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
-            --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf \
+            --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
+            --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf \
             --include-data-dir=resources/trainer=resources/trainer \
             --include-data-dir=resources/ziti=resources/ziti
         working-directory: build-src
@@ -215,8 +215,8 @@ jobs:
             --include-data-dir=src/qml=src/qml \
             --include-data-dir=resources/texts=resources/texts \
             --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
-            --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
-            --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf \
+            --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
+            --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf \
             --include-data-dir=resources/trainer=resources/trainer \
             --include-data-dir=resources/ziti=resources/ziti
         working-directory: build-src
