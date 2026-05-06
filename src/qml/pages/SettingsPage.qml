@@ -26,6 +26,16 @@ FluentPage {
         id: zitiSchemeModel
     }
 
+    ListModel {
+        id: readerFontModel
+    }
+
+    ListModel {
+        id: deviceListModel
+    }
+
+    property int _selectedFontIndex: -1
+
     function syncWenlaiDifficultyModel(items) {
         syncingWenlaiControls = true
         wenlaiDifficultyModel.clear()
@@ -98,7 +108,7 @@ FluentPage {
             lengthValue,
             selectedWenlaiDifficultyLevel,
             selectedWenlaiCategory,
-            wenlaiSegmentModeCombo.currentIndex === 1 ? "auto" : "manual",
+            wenlaiAutoSegmentSwitch.checked ? "auto" : "manual",
             wenlaiStrictLengthSwitch.checked
         )
     }
@@ -150,8 +160,6 @@ FluentPage {
         }
         var devices = appBridge.listAvailableInputDevices()
         if (!devices || devices.length === 0) {
-            deviceStatusText.text = qsTr("未发现输入设备")
-            deviceStatusText.visible = true
             _populatingDeviceList = false
             return
         }
@@ -171,7 +179,6 @@ FluentPage {
                 active: devices[i].active || false,
             })
         }
-        deviceStatusText.visible = false
         _populatingDeviceList = false
     }
 
@@ -189,20 +196,6 @@ FluentPage {
         } else {
             appBridge.resetKeyboardAutoDetect()
         }
-        deviceStatusText.text = qsTr("已应用")
-        deviceStatusText.visible = true
-        _showTemporaryStatus()
-    }
-
-    function _showTemporaryStatus() {
-        var timer = Qt.createQmlObject(
-            "import QtQuick 2.15; Timer { interval: 3000; running: true; }",
-            this
-        )
-        timer.triggered.connect(function() {
-            deviceStatusText.visible = false
-            timer.destroy()
-        })
     }
 
     Component.onCompleted: {
@@ -212,8 +205,10 @@ FluentPage {
             appBridge.refreshWenlaiDifficulties()
             appBridge.refreshWenlaiCategories()
         }
-        if (appBridge)
+        if (appBridge) {
             appBridge.loadZitiSchemes()
+            appBridge.loadFonts()
+        }
         // 延迟加载键盘设备列表，避免 evdev 扫描阻塞首次页面渲染
         Qt.callLater(_refreshDeviceList)
     }
@@ -251,6 +246,7 @@ FluentPage {
     }
 
     SettingCard {
+        id: fontSettingCard
         Layout.fillWidth: true
         title: qsTr("阅读字体")
         icon.name: "ic_fluent_text_font_20_regular"
@@ -259,50 +255,24 @@ FluentPage {
         RowLayout {
             spacing: 8
 
-            ComboBox {
-                id: readerFontComboBox
+            Text {
+                id: currentFontLabel
+                text: {
+                    if (_selectedFontIndex >= 0 && readerFontModel.count > 0) {
+                        var item = readerFontModel.get(_selectedFontIndex);
+                        return item ? item.label : qsTr("未选择");
+                    }
+                    return qsTr("未选择");
+                }
+                typography: Typography.Body
+                elide: Text.ElideRight
                 Layout.fillWidth: true
-                model: ListModel { id: readerFontModel }
-                textRole: "label"
-                currentIndex: -1
-
-                Component.onCompleted: {
-                    if (appBridge) appBridge.loadFonts();
-                }
-
-                onCurrentIndexChanged: {
-                    if (currentIndex >= 0 && appBridge && readerFontModel.count > 0) {
-                        var item = readerFontModel.get(currentIndex);
-                        if (item) {
-                            appBridge.setReaderFontPath(item.filePath);
-                        }
-                    }
-                }
+                color: Theme.currentTheme.colors.textColor
             }
 
             Button {
-                text: qsTr("添加")
-                icon.name: "ic_fluent_add_20_regular"
-                onClicked: {
-                    if (appBridge) appBridge.openFontFileDialog();
-                }
-            }
-
-            Button {
-                text: qsTr("删除")
-                icon.name: "ic_fluent_delete_20_regular"
-                enabled: {
-                    if (readerFontComboBox.currentIndex < 0) return false;
-                    var item = readerFontModel.get(readerFontComboBox.currentIndex);
-                    return item && !item.isBundled;
-                }
-                onClicked: {
-                    if (readerFontComboBox.currentIndex < 0) return;
-                    var item = readerFontModel.get(readerFontComboBox.currentIndex);
-                    if (item && appBridge) {
-                        appBridge.removeFont(item.name);
-                    }
-                }
+                text: qsTr("管理")
+                onClicked: fontManagerDialog.open()
             }
         }
 
@@ -312,7 +282,7 @@ FluentPage {
             function onFontsLoaded(fonts) {
                 readerFontModel.clear();
                 var currentPath = appBridge ? appBridge.readerFontPath : "";
-                var selectedIndex = -1;
+                var idx = -1;
                 for (var i = 0; i < fonts.length; i++) {
                     var f = fonts[i];
                     readerFontModel.append({
@@ -322,13 +292,12 @@ FluentPage {
                         isBundled: f.isBundled
                     });
                     if (f.filePath === currentPath) {
-                        selectedIndex = i;
+                        idx = i;
                     }
                 }
-                if (selectedIndex >= 0) {
-                    readerFontComboBox.currentIndex = selectedIndex;
-                } else if (readerFontModel.count > 0 && currentPath === "") {
-                    readerFontComboBox.currentIndex = 0;
+                _selectedFontIndex = idx;
+                if (idx < 0 && readerFontModel.count > 0 && currentPath === "") {
+                    _selectedFontIndex = 0;
                     if (appBridge) {
                         appBridge.setReaderFontPath(readerFontModel.get(0).filePath);
                     }
@@ -336,14 +305,139 @@ FluentPage {
             }
 
             function onFontAdded(success, message) {
-                if (success && appBridge) {
-                    appBridge.loadFonts();
-                }
+                // loadFonts() is already triggered by FontAdapter on success
             }
 
             function onFontRemoved(success, message) {
-                if (success && appBridge) {
-                    appBridge.loadFonts();
+                // loadFonts() is already triggered by FontAdapter on success
+            }
+        }
+    }
+
+    Dialog {
+        id: fontManagerDialog
+        title: qsTr("管理阅读字体")
+        modal: true
+        standardButtons: Dialog.Close
+        width: 420
+
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 12
+
+            Text {
+                text: qsTr("当前字体：") + (_selectedFontIndex >= 0 && readerFontModel.count > 0
+                    ? readerFontModel.get(_selectedFontIndex).label
+                    : qsTr("未选择"))
+                typography: Typography.Body
+                color: Theme.currentTheme.colors.textSecondaryColor
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: Theme.currentTheme.colors.dividerColor
+                visible: readerFontModel.count > 0
+            }
+
+            ScrollView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(readerFontModel.count * 40 + 4, 280)
+                clip: true
+                visible: readerFontModel.count > 0
+
+                ColumnLayout {
+                    spacing: 2
+                    width: parent.width
+
+                    Repeater {
+                        model: readerFontModel
+
+                        delegate: Rectangle {
+                            id: fontDlgDelegate
+                            property int fontIndex: index
+                            property string fontName: model.name
+                            property string fontFilePath: model.filePath
+                            property string fontLabel: model.label
+                            property bool fontIsBundled: model.isBundled
+                            property bool _highlighted: false
+                            property bool _deleting: false
+
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 40
+                            radius: 4
+                            color: _highlighted
+                                ? Theme.currentTheme.colors.subtleSecondaryColor
+                                : "transparent"
+
+                            Behavior on color { ColorAnimation { duration: Utils.appearanceSpeed; easing.type: Easing.InOutQuart } }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                onClicked: {
+                                    _selectedFontIndex = fontDlgDelegate.fontIndex;
+                                    if (appBridge) appBridge.setReaderFontPath(fontDlgDelegate.fontFilePath);
+                                }
+                                onEntered: fontDlgDelegate._highlighted = true
+                                onExited: fontDlgDelegate._highlighted = false
+                            }
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                spacing: 8
+
+                                Rectangle {
+                                    width: 3
+                                    height: 14
+                                    radius: 10
+                                    color: Theme.currentTheme.colors.primaryColor
+                                    visible: fontDlgDelegate.fontIndex === _selectedFontIndex
+                                }
+
+                                Text {
+                                    text: fontDlgDelegate.fontLabel
+                                    typography: Typography.Body
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+
+                                ToolButton {
+                                    flat: true
+                                    icon.name: "ic_fluent_delete_20_regular"
+                                    visible: !fontDlgDelegate.fontIsBundled
+                                    enabled: !fontDlgDelegate._deleting
+                                    onClicked: {
+                                        if (!appBridge) return;
+                                        fontDlgDelegate._deleting = true;
+                                        appBridge.removeFont(fontDlgDelegate.fontName);
+                                    }
+                                    ToolTip.text: qsTr("删除此字体")
+                                    ToolTip.visible: hovered
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: qsTr("暂无字体")
+                visible: readerFontModel.count === 0
+                horizontalAlignment: Qt.AlignHCenter
+                Layout.fillWidth: true
+                color: Theme.currentTheme.colors.textSecondaryColor
+                typography: Typography.Caption
+            }
+
+            Button {
+                text: qsTr("添加字体")
+                icon.name: "ic_fluent_add_20_regular"
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: {
+                    if (appBridge) appBridge.openFontFileDialog();
                 }
             }
         }
@@ -480,15 +574,16 @@ FluentPage {
                 }
             }
 
-            ComboBox {
-                id: wenlaiSegmentModeCombo
-                implicitWidth: 90
-                model: [qsTr("手动"), qsTr("自动")]
-                Component.onCompleted: {
-                    currentIndex = appBridge && appBridge.wenlaiSegmentMode === "auto" ? 1 : 0
-                }
-                onCurrentIndexChanged: {
-                    var nextMode = currentIndex === 1 ? "auto" : "manual"
+            Text {
+                typography: Typography.Caption
+                text: qsTr("自动换段")
+            }
+
+            Switch {
+                id: wenlaiAutoSegmentSwitch
+                checked: appBridge ? appBridge.wenlaiSegmentMode === "auto" : false
+                onCheckedChanged: {
+                    var nextMode = checked ? "auto" : "manual"
                     if (!syncingWenlaiControls && nextMode === "manual" && lastWenlaiSegmentMode !== "manual") {
                         wenlaiManualModeDialog.open()
                     }
@@ -579,116 +674,147 @@ FluentPage {
         icon.name: "ic_fluent_keyboard_20_regular"
         description: qsTr("勾选要监听的输入设备")
 
-        RowLayout {
-            spacing: 6
-
-            Button {
-                text: qsTr("刷新")
-                onClicked: {
-                    if (appBridge)
-                        appBridge.refreshInputDevices()
-                }
-            }
-
-            Button {
-                text: qsTr("恢复自动发现")
-                enabled: appBridge && appBridge.hasManualKeyboardDevices
-                onClicked: {
-                    if (appBridge)
-                        appBridge.resetKeyboardAutoDetect()
-                }
-            }
-
-            Text {
-                id: deviceStatusText
-                typography: Typography.Caption
-                visible: false
-            }
+        Button {
+            text: qsTr("管理")
+            onClicked: keyboardManagerDialog.open()
         }
     }
 
-    Frame {
-        Layout.fillWidth: true
-        leftPadding: 15
-        rightPadding: 15
-        topPadding: 8
-        bottomPadding: 8
-        visible: deviceListModel.count > 0
+    Dialog {
+        id: keyboardManagerDialog
+        title: qsTr("管理键盘设备")
+        modal: true
+        width: 420
 
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 4
+        contentItem: ColumnLayout {
+            spacing: 12
+
+            Text {
+                Layout.fillWidth: true
+                typography: Typography.Subtitle
+                text: keyboardManagerDialog.title
+            }
+
+            RowLayout {
+                spacing: 8
+                Layout.fillWidth: true
+
+                Button {
+                    text: qsTr("刷新")
+                    onClicked: {
+                        if (appBridge)
+                            appBridge.refreshInputDevices()
+                    }
+                }
+
+                Button {
+                    text: qsTr("恢复自动发现")
+                    enabled: appBridge && appBridge.hasManualKeyboardDevices
+                    onClicked: {
+                        if (appBridge)
+                            appBridge.resetKeyboardAutoDetect()
+                    }
+                }
+
+                Text {
+                    id: dialogDeviceStatusText
+                    typography: Typography.Caption
+                    color: Theme.currentTheme.colors.systemSuccessColor
+                    visible: false
+                }
+            }
 
             ScrollView {
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(deviceListModel.count * 32 + 4, 160)
+                Layout.preferredHeight: Math.min(deviceListModel.count * 36 + 4, 240)
                 clip: true
+                visible: deviceListModel.count > 0
 
                 ColumnLayout {
-                    spacing: 1
+                    spacing: 2
                     width: parent.width
 
                     Repeater {
-                        id: deviceRepeater
-                        model: ListModel { id: deviceListModel }
+                        model: deviceListModel
 
                         delegate: Rectangle {
-                            id: deviceRow
+                            id: devDlgDelegate
+                            property int devIndex: index
+                            property string devPath: model.path
+                            property string devName: model.name
+                            property string devType: model.type
+                            property bool devIsKeyboard: model.is_keyboard
+                            property bool devSelected: model.selected
+                            property bool devActive: model.active
+
                             Layout.fillWidth: true
-                            Layout.preferredHeight: 30
-                            color: model.active
+                            Layout.preferredHeight: 36
+                            radius: 4
+                            color: devActive
                                 ? Theme.currentTheme.colors.cardColor
                                 : "transparent"
-                            radius: 4
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.leftMargin: 2
-                                anchors.rightMargin: 4
-                                spacing: 6
+                                anchors.leftMargin: 8
+                                anchors.rightMargin: 8
+                                spacing: 8
 
                                 CheckBox {
-                                    id: deviceCheck
-                                    checked: model.selected
+                                    checked: devDlgDelegate.devSelected
                                     implicitHeight: 20
                                     implicitWidth: 20
                                     padding: 0
                                     onCheckedChanged: {
                                         if (_populatingDeviceList)
                                             return
-                                        deviceListModel.setProperty(index, "selected", checked)
+                                        deviceListModel.setProperty(devDlgDelegate.devIndex, "selected", checked)
                                         _applyDeviceSelection()
                                     }
                                 }
 
                                 Rectangle {
-                                    id: activeDot
                                     width: 6
                                     height: 6
                                     radius: 3
-                                    visible: model.active
+                                    visible: devDlgDelegate.devActive
                                     color: Theme.currentTheme.colors.systemSuccessColor
                                 }
 
                                 Text {
-                                    text: model.name
+                                    text: devDlgDelegate.devName
                                     typography: Typography.Body
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
-                                    opacity: model.active ? 1.0 : 0.6
+                                    opacity: devDlgDelegate.devActive ? 1.0 : 0.6
                                 }
 
                                 Text {
-                                    text: model.active
+                                    text: devDlgDelegate.devActive
                                         ? qsTr("活动中")
-                                        : _deviceTypeLabel(model.type)
+                                        : _deviceTypeLabel(devDlgDelegate.devType)
                                     typography: Typography.Caption
-                                    opacity: model.active ? 1.0 : 0.5
+                                    opacity: devDlgDelegate.devActive ? 1.0 : 0.5
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            Text {
+                text: qsTr("未发现输入设备")
+                visible: deviceListModel.count === 0
+                horizontalAlignment: Qt.AlignHCenter
+                Layout.fillWidth: true
+                color: Theme.currentTheme.colors.textSecondaryColor
+                typography: Typography.Caption
+            }
+
+            Button {
+                text: qsTr("关闭")
+                Layout.alignment: Qt.AlignRight
+                onClicked: keyboardManagerDialog.close()
             }
         }
     }
@@ -807,7 +933,7 @@ FluentPage {
             wenlaiLengthField.text = appBridge.wenlaiLength > 0 ? String(appBridge.wenlaiLength) : ""
             selectedWenlaiDifficultyLevel = appBridge.wenlaiDifficultyLevel
             selectedWenlaiCategory = appBridge.wenlaiCategory
-            wenlaiSegmentModeCombo.currentIndex = appBridge.wenlaiSegmentMode === "auto" ? 1 : 0
+            wenlaiAutoSegmentSwitch.checked = appBridge.wenlaiSegmentMode === "auto"
             lastWenlaiSegmentMode = appBridge.wenlaiSegmentMode
             wenlaiStrictLengthSwitch.checked = appBridge.wenlaiStrictLength
             syncingWenlaiControls = false
