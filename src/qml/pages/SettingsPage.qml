@@ -258,7 +258,7 @@ FluentPage {
             Text {
                 id: currentFontLabel
                 text: {
-                    if (_selectedFontIndex >= 0 && readerFontModel.count > 0) {
+                    if (_selectedFontIndex >= 0 && _selectedFontIndex < readerFontModel.count) {
                         var item = readerFontModel.get(_selectedFontIndex);
                         return item ? item.label : qsTr("未选择");
                     }
@@ -326,9 +326,13 @@ FluentPage {
             spacing: 12
 
             Text {
-                text: qsTr("当前字体：") + (_selectedFontIndex >= 0 && readerFontModel.count > 0
-                    ? readerFontModel.get(_selectedFontIndex).label
-                    : qsTr("未选择"))
+                text: {
+                    if (_selectedFontIndex >= 0 && _selectedFontIndex < readerFontModel.count) {
+                        var item = readerFontModel.get(_selectedFontIndex);
+                        return item ? qsTr("当前字体：") + item.label : qsTr("当前字体：") + qsTr("未选择");
+                    }
+                    return qsTr("当前字体：") + qsTr("未选择");
+                }
                 typography: Typography.Body
                 color: Theme.currentTheme.colors.textSecondaryColor
             }
@@ -336,7 +340,7 @@ FluentPage {
             Rectangle {
                 Layout.fillWidth: true
                 height: 1
-                color: Theme.currentTheme.colors.dividerColor
+                color: Theme.currentTheme.colors.dividerBorderColor
                 visible: readerFontModel.count > 0
             }
 
