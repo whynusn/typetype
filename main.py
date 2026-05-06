@@ -187,10 +187,11 @@ def main():
         if sys.platform == "win32" or sys.platform == "darwin":
             return None  # Windows/macOS 直接走 subset 回退
         preferred = [
-            "WenQuanYi Zen Hei",
+            "HarmonyOS Sans SC",
             "LXGW WenKai",
             "Noto Sans CJK SC",
             "Source Han Sans CN",
+            "WenQuanYi Zen Hei",
         ]
         try:
             result = subprocess.run(
