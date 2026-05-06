@@ -246,7 +246,6 @@ FluentPage {
     }
 
     SettingCard {
-        id: fontSettingCard
         Layout.fillWidth: true
         title: qsTr("阅读字体")
         icon.name: "ic_fluent_text_font_20_regular"
@@ -718,13 +717,6 @@ FluentPage {
                         if (appBridge)
                             appBridge.resetKeyboardAutoDetect()
                     }
-                }
-
-                Text {
-                    id: dialogDeviceStatusText
-                    typography: Typography.Caption
-                    color: Theme.currentTheme.colors.systemSuccessColor
-                    visible: false
                 }
             }
 
