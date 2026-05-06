@@ -122,7 +122,7 @@ class GlobalKeyListener(QObject):
                 devices.append(
                     {
                         "path": path,
-                        "name": device.name,
+                        "name": device.name.encode("utf-8", "replace").decode("utf-8"),
                         "type": device_type,
                         "is_keyboard": device_type == "keyboard",
                     }
