@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -166,15 +167,55 @@ def main():
 
     # 注册 UI 字体并设为应用默认字体。
     # RinUI 内部组件在 Linux 上读取 Qt.application.font.family，
-    # 设置后所有 RinUI 控件自动使用 HarmonyOS 字体，无需逐个覆盖。
+    # 设置后所有 RinUI 控件自动使用该字体，无需逐个覆盖。
+    #
+    # subset 字体仅通过 addApplicationFont 加载到 Qt 内部数据库，
+    # fontconfig 不感知它。当 Qt 偶尔走 fontconfig 路径解析时，
+    # subset 的 family name 无法被解析，导致中文全部乱码。
+    # 因此 app 字体必须选用 fontconfig 也能识别的系统 CJK 字体。
     _ui_font_path = os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         "resources",
         "fonts",
         "HarmonyOS_Sans_SC_Regular-subset.ttf",
     )
+    # subset 字体仍注册到 Qt 数据库，供字体 Dialog 的 FontLoader 使用
     _font_id = QFontDatabase.addApplicationFont(_ui_font_path)
-    if _font_id != -1:
+
+    def _find_system_cjk_font() -> str | None:
+        """用 fontconfig 找一个支持中文的系统字体。"""
+        if sys.platform == "win32" or sys.platform == "darwin":
+            return None  # Windows/macOS 直接走 subset 回退
+        preferred = [
+            "LXGW WenKai",
+            "Noto Sans CJK SC",
+            "Source Han Sans CN",
+            "WenQuanYi Zen Hei",
+        ]
+        try:
+            result = subprocess.run(
+                ["fc-list", ":lang=zh", "family"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            available = (
+                set(result.stdout.strip().split("\n"))
+                if result.returncode == 0
+                else set()
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            available = set()
+        for name in preferred:
+            if any(name in f for f in available):
+                return name
+        return None
+
+    _cjk_family = _find_system_cjk_font()
+    if _cjk_family:
+        app.setFont(QFont(_cjk_family))
+    elif _font_id != -1:
+        # 系统无 CJK 字体时才回退到 subset
         _families = QFontDatabase.applicationFontFamilies(_font_id)
         if _families:
             app.setFont(QFont(_families[0]))
