@@ -10,22 +10,22 @@ from PySide6.QtWidgets import QApplication
 
 import RinUI.core.theme as _rinui_theme
 from RinUI import RinUIWindow
+from src.backend.application.gateways.font_gateway import FontGateway
+from src.backend.application.gateways.leaderboard_gateway import LeaderboardGateway
+from src.backend.application.gateways.local_article_gateway import LocalArticleGateway
 from src.backend.application.gateways.score_gateway import ScoreGateway
 from src.backend.application.gateways.text_source_gateway import TextSourceGateway
-from src.backend.application.gateways.local_article_gateway import LocalArticleGateway
-from src.backend.application.gateways.leaderboard_gateway import LeaderboardGateway
 from src.backend.application.gateways.trainer_gateway import TrainerGateway
 from src.backend.application.gateways.typing_totals_gateway import (
     TypingTotalsGateway,
 )
 from src.backend.application.gateways.wenlai_gateway import WenlaiGateway
-from src.backend.application.gateways.font_gateway import FontGateway
 from src.backend.application.gateways.ziti_gateway import ZitiGateway
 from src.backend.application.session_context import TypingSessionContext
-from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.application.usecases.load_local_article_segment_usecase import (
     LoadLocalArticleSegmentUseCase,
 )
+from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.application.usecases.load_trainer_segment_usecase import (
     LoadTrainerSegmentUseCase,
 )
@@ -35,57 +35,57 @@ from src.backend.application.usecases.load_wenlai_text_usecase import (
 from src.backend.config.app_paths import (
     char_stats_db_path,
     ensure_user_fonts_seeded,
-    ensure_user_trainer_seeded,
     ensure_user_texts_seeded,
+    ensure_user_trainer_seeded,
     ensure_user_ziti_seeded,
     typing_totals_path,
     user_fonts_dir,
-    user_trainer_dir,
     user_texts_dir,
+    user_trainer_dir,
     user_ziti_dir,
 )
 from src.backend.config.runtime_config import RuntimeConfig
-from src.backend.presentation.bridge import Bridge
-from src.backend.infrastructure.api_client import ApiClient
-from src.backend.integration.api_client_auth_provider import ApiClientAuthProvider
-from src.backend.integration.api_client_score_submitter import ApiClientScoreSubmitter
-from src.backend.integration.file_local_article_repository import (
-    FileLocalArticleRepository,
-)
-from src.backend.integration.file_trainer_repository import FileTrainerRepository
-from src.backend.integration.file_font_repository import FileFontRepository
-from src.backend.integration.file_ziti_repository import FileZitiRepository
-from src.backend.integration.leaderboard_fetcher import LeaderboardFetcher
-from src.backend.ports.leaderboard_provider import LeaderboardProvider
-from src.backend.integration.text_uploader import TextUploader
 from src.backend.domain.services.auth_service import AuthService
 from src.backend.domain.services.char_stats_service import CharStatsService
 from src.backend.domain.services.trainer_service import TrainerService
 from src.backend.domain.services.typing_service import TypingService
+from src.backend.infrastructure.api_client import ApiClient
+from src.backend.integration.api_client_auth_provider import ApiClientAuthProvider
+from src.backend.integration.api_client_score_submitter import ApiClientScoreSubmitter
+from src.backend.integration.file_font_repository import FileFontRepository
+from src.backend.integration.file_local_article_repository import (
+    FileLocalArticleRepository,
+)
+from src.backend.integration.file_trainer_repository import FileTrainerRepository
+from src.backend.integration.file_ziti_repository import FileZitiRepository
 from src.backend.integration.global_key_listener import GlobalKeyListener
 from src.backend.integration.json_typing_totals_store import JsonTypingTotalsStore
 from src.backend.integration.key_listener_factory import create_key_listener
+from src.backend.integration.leaderboard_fetcher import LeaderboardFetcher
 from src.backend.integration.mac_key_listener import MacKeyListener
-from src.backend.integration.remote_text_provider import RemoteTextProvider
-from src.backend.integration.secure_token_store import SecureTokenStore
-from src.backend.integration.wenlai_provider import WenlaiProvider
 from src.backend.integration.qt_async_executor import QtAsyncExecutor
 from src.backend.integration.qt_local_text_loader import QtLocalTextLoader
+from src.backend.integration.remote_text_provider import RemoteTextProvider
+from src.backend.integration.secure_token_store import SecureTokenStore
 from src.backend.integration.sqlite_char_stats_repository import (
     SqliteCharStatsRepository,
 )
 from src.backend.integration.system_identifier import SystemIdentifier
+from src.backend.integration.text_uploader import TextUploader
+from src.backend.integration.wenlai_provider import WenlaiProvider
+from src.backend.ports.leaderboard_provider import LeaderboardProvider
+from src.backend.presentation.adapters.auth_adapter import AuthAdapter
+from src.backend.presentation.adapters.char_stats_adapter import CharStatsAdapter
+from src.backend.presentation.adapters.font_adapter import FontAdapter
+from src.backend.presentation.adapters.leaderboard_adapter import LeaderboardAdapter
+from src.backend.presentation.adapters.local_article_adapter import LocalArticleAdapter
 from src.backend.presentation.adapters.text_adapter import TextAdapter
 from src.backend.presentation.adapters.trainer_adapter import TrainerAdapter
 from src.backend.presentation.adapters.typing_adapter import TypingAdapter
-from src.backend.presentation.adapters.auth_adapter import AuthAdapter
-from src.backend.presentation.adapters.char_stats_adapter import CharStatsAdapter
-from src.backend.presentation.adapters.leaderboard_adapter import LeaderboardAdapter
-from src.backend.presentation.adapters.local_article_adapter import LocalArticleAdapter
 from src.backend.presentation.adapters.upload_text_adapter import UploadTextAdapter
 from src.backend.presentation.adapters.wenlai_adapter import WenlaiAdapter
-from src.backend.presentation.adapters.font_adapter import FontAdapter
 from src.backend.presentation.adapters.ziti_adapter import ZitiAdapter
+from src.backend.presentation.bridge import Bridge
 from src.backend.utils.logger import (
     install_qt_message_handler,
     is_debug_enabled,
@@ -187,10 +187,10 @@ def main():
         if sys.platform == "win32" or sys.platform == "darwin":
             return None  # Windows/macOS 直接走 subset 回退
         preferred = [
+            "WenQuanYi Zen Hei",
             "LXGW WenKai",
             "Noto Sans CJK SC",
             "Source Han Sans CN",
-            "WenQuanYi Zen Hei",
         ]
         try:
             result = subprocess.run(
@@ -209,7 +209,8 @@ def main():
         for name in preferred:
             if any(name in f for f in available):
                 return name
-        return None
+        # 兜底：任意一个系统 CJK 字体（优于 subset 回退导致乱码）
+        return next(iter(available), None)
 
     _cjk_family = _find_system_cjk_font()
     if _cjk_family:
