@@ -255,15 +255,6 @@ Item {
         }
     }
 
-    Connections {
-        target: appBridge
-        enabled: typingPage.active
-
-        function onReaderFontUrlChanged(url) {
-            userFontLoader.source = url;
-        }
-    }
-
     // 阅读区字体配置
     FontMetrics {
         id: fontMetricsText
