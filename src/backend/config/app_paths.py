@@ -148,3 +148,15 @@ def char_stats_db_path() -> Path:
 
 def typing_totals_path() -> Path:
     return user_data_dir() / "typing_totals.json"
+
+
+def load_common_chars() -> list[str]:
+    """加载高频五百中文汉字，用于启动时预热 char_stats 缓存。"""
+    try:
+        path = (
+            Path(__file__).resolve().parents[3] / "resources" / "texts" / "前五百.txt"
+        )
+        text = path.read_text(encoding="gbk")
+        return list(dict.fromkeys(c for c in text if "一" <= c <= "鿿"))
+    except Exception:
+        return []
