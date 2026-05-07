@@ -46,6 +46,7 @@ uv run ruff format --check .
 - 不要在用例层直接依赖 Qt 具体实现
 - 新网络能力优先通过 `TextFetcher` 协议接入
 - UI 阻塞操作应放入 worker，不直接在 QML 主线程执行
+- 新增 adapter 时改 `config/container.py` 的 `create_adapters()` + Bridge 构造参数
 
 ## RinUI 集成约定
 

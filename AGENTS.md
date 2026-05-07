@@ -279,63 +279,31 @@ weighted 模式的 `weights` 参数格式：`{"error_rate": float, "total_count"
 - **Slot 入口**：QML 调用请求转发到对应 Adapter
 
 ```python
-# main.py 中的依赖注入示例
-# Infrastructure
-api_client = ApiClient(timeout=runtime_config.api_timeout)
-remote_text_provider = RemoteTextProvider(api_client=api_client)
-local_text_loader = QtLocalTextLoader()
-async_executor = QtAsyncExecutor()
+# main.py 中的依赖注入示例（工厂函数在 config/container.py 中）
+infra = create_infra(runtime_config)
+repos = create_repos()
+providers = create_providers(runtime_config, infra)
+clipboard = QApplication.clipboard()
+gateways = create_gateways(runtime_config, providers, infra, repos, clipboard)
+use_cases = create_use_cases(gateways, repos, clipboard)
+services = create_services(infra, runtime_config)
+adapters = create_adapters(services, gateways, use_cases, infra, runtime_config)
 
-# Gateways
-text_source_gateway = TextSourceGateway(
-    runtime_config=runtime_config,
-    text_provider=remote_text_provider,
-    local_text_loader=local_text_loader,
-)
-score_gateway = ScoreGateway(clipboard=clipboard)
-
-# UseCases
-load_text_usecase = LoadTextUseCase(
-    text_gateway=text_source_gateway,
-    clipboard_reader=clipboard,
-)
-
-# Domain Services
-char_stats_service = CharStatsService(repo=char_stats_repo, async_executor=async_executor)
-typing_service = TypingService(char_stats_service=char_stats_service)
-
-auth_provider = ApiClientAuthProvider(
-    api_client=api_client,
-    login_url=runtime_config.login_api_url,
-    validate_url=runtime_config.validate_api_url,
-    refresh_url=runtime_config.refresh_api_url,
-)
-auth_service = AuthService(auth_provider=auth_provider)
-
-# Adapters
-typing_adapter = TypingAdapter(
-    typing_service=typing_service,
-    score_gateway=score_gateway,
-    score_submitter=score_submitter,
-)
-text_adapter = TextAdapter(text_gateway=text_gateway, load_text_usecase=load_text_usecase)
-auth_adapter = AuthAdapter(auth_service=auth_service)
-char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
-wenlai_adapter = WenlaiAdapter(...)
-local_article_adapter = LocalArticleAdapter(...)
-ziti_adapter = ZitiAdapter(...)
-trainer_adapter = TrainerAdapter(...)
-
-# Bridge
 bridge = Bridge(
-    typing_adapter=typing_adapter,
-    text_adapter=text_adapter,
-    auth_adapter=auth_adapter,
-    char_stats_adapter=char_stats_adapter,
-    wenlai_adapter=wenlai_adapter,
-    local_article_adapter=local_article_adapter,
-    ziti_adapter=ziti_adapter,
-    trainer_adapter=trainer_adapter,
+    typing_adapter=adapters.typing,
+    text_adapter=adapters.text,
+    auth_adapter=adapters.auth,
+    char_stats_adapter=adapters.char_stats,
+    wenlai_adapter=adapters.wenlai,
+    local_article_adapter=adapters.local_article,
+    ziti_adapter=adapters.ziti,
+    trainer_adapter=adapters.trainer,
+    font_adapter=adapters.font,
+    upload_text_adapter=adapters.upload_text,
+    leaderboard_adapter=adapters.leaderboard,
+    typing_totals_gateway=gateways.typing_totals,
+    key_listener=adapters.key_listener,
+    base_url_update_callback=update_base_url,
 )
 ```
 

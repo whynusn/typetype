@@ -150,6 +150,8 @@ src/backend/
 │       └── load_wenlai_text_usecase.py
 ├── config/
 │   ├── app_paths.py
+│   ├── container.py
+│   ├── font_setup.py
 │   ├── runtime_config.py
 │   └── text_source_config.py
 ├── domain/services/
@@ -281,29 +283,30 @@ src/qml/
 
 ## 核心对象装配（main.py）
 
-当前对象装配顺序如下：
+依赖创建逻辑集中在 `config/container.py` 的工厂函数中，`main.py` 只做高层编排：
 
 ```text
-_ensure_config_exists()（确保用户可写 config.json 存在）
+ensure_app_initialized()（确保用户可写 config.json 和种子数据存在）
   -> RuntimeConfig
-  -> ApiClient / QtLocalTextLoader / QtAsyncExecutor
-  -> RemoteTextProvider / SqliteCharStatsRepository / ApiClientAuthProvider
-  -> ScoreGateway / TextSourceGateway / LoadTextUseCase
-  -> CharStatsService / TypingService / AuthService
-  -> ApiClientScoreSubmitter / TextUploader
-  -> TypingAdapter / TextAdapter / AuthAdapter / CharStatsAdapter / LeaderboardAdapter / UploadTextAdapter
+  -> create_infra()         → Infra（ApiClient×2, QtLocalTextLoader, SecureTokenStore）
+  -> create_repos()         → Repos（3 个 file repository）
+  -> create_providers()     → Providers（RemoteTextProvider, WenlaiProvider）
+  -> create_gateways()      → Gateways（7 个 gateway）
+  -> create_use_cases()     → UseCases（4 个 usecase）
+  -> create_services()      → Services（domain services + auth + score/text/leaderboard）
+  -> create_adapters()      → Adapters（11 个 adapter + key_listener）
   -> Bridge
   -> appBridge 注入 QML
 ```
 
 ### 关键点
 
-- `main.py` 是唯一装配根；没有全局 service locator
-- `_ensure_config_exists()` 在 `RuntimeConfig.load_from_file()` 之前执行，确保用户可写配置文件存在；若不存在则从项目 `config/config.json` 或 `config/config.example.json` 复制创建。macOS 使用 `~/Library/Application Support/TypeType/config.json`，Linux 使用 `~/.config/typetype/config.json`
+- `main.py` 是唯一装配根；`config/container.py` 提供工厂函数，不被其他模块导入
+- `ensure_app_initialized()` 在 `RuntimeConfig.load_from_file()` 之前执行，确保用户可写配置文件存在；若不存在则从项目 `config/config.json` 或 `config/config.example.json` 复制创建。macOS 使用 `~/Library/Application Support/TypeType/config.json`，Linux 使用 `~/.config/typetype/config.json`
 - `Bridge` 是 QML 能看到的唯一后端门面
 - Wayland 下会额外创建 `GlobalKeyListener`；若设备权限不足（如用户不在 `input` 组），则降级为 `key_listener = None`，退格/击键统计回退到 QML 路径
 - 字符统计在应用退出前会 `flush()` 一次
-- `_update_base_url()` 是唯一协调所有 `base_url` 依赖对象更新的函数，通过 `base_url_update_callback` 闭包注入 Bridge，确保分层不越界
+- URL 更新通过列表迭代实现：`main.py` 收集所有依赖 `base_url` 的对象到 `url_dependent` 列表，`update_base_url()` 先调用 `runtime_config.update_base_url()`（strip("/") + 派生 URL + 持久化），再遍历传播
 
 ---
 
@@ -447,14 +450,10 @@ main.py
 SettingsPage.qml
   -> appBridge.setBaseUrl(new_url)
   -> Bridge.setBaseUrl(new_url)
-  -> base_url_update_callback(new_url)        # 闭包，捕获 main.py 中所有依赖对象
-  -> main._update_base_url(new_url)
+  -> base_url_update_callback(new_url)        # 闭包，main.py 中 url_dependent 列表迭代
      -> RuntimeConfig.update_base_url()       # 更新 base_url + 派生 URL，持久化到 config.json
-     -> RemoteTextProvider.update_base_url()  # 文本获取
-     -> ApiClientAuthProvider.update_base_url()  # 登录/注册/验证/刷新
-     -> ApiClientScoreSubmitter.update_base_url() # 成绩提交
-     -> TextUploader.update_base_url()        # 文本上传
-     -> LeaderboardFetcher.update_base_url()  # 排行榜
+     -> 遍历 url_dependent 列表：             # RemoteTextProvider / ApiClientAuthProvider / ApiClientScoreSubmitter / TextUploader / LeaderboardFetcher
+        -> obj.update_base_url(runtime_config.base_url)
   -> Bridge.emit(baseUrlChanged)              # QML 属性绑定自动刷新
 ```
 
@@ -474,7 +473,7 @@ SettingsPage.qml
 |:--- |:--- |:---|
 | `SettingsPage.qml` | 输入框 + 应用按钮，触发 `appBridge.setBaseUrl()` | 不直接修改配置文件 |
 | `Bridge` | Slot 入口、Property 代理、回调分发 | 不直接持有 Integration 对象引用 |
-| `main._update_base_url()` | 统一协调所有依赖 `base_url` 的对象更新 | 不做 UI 逻辑 |
+| `main.update_base_url()` | 列表迭代协调所有依赖 `base_url` 的对象更新 | 不做 UI 逻辑 |
 | `RuntimeConfig.update_base_url()` | 更新 base_url + 重算派生 URL + 持久化 | 不管其他对象的 URL |
 | `RemoteTextProvider.update_base_url()` | 更新自己的 `_base_url` | 不关心其他集成对象 |
 | `ApiClientAuthProvider.update_base_url()` | 重算 4 个独立 URL（login/validate/refresh/register） | 不存储 base_url 本身 |
