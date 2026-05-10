@@ -520,7 +520,7 @@ class TestBridgeSpecialPlatform:
 
         assert typing_adapter.text_read_only is True
 
-    def test_pause_typing_preserves_score_and_locks_input(self):
+    def test_pause_typing_preserves_score_and_allows_input(self):
         typing_adapter, _, _, _ = self._create_mock_services()
         typing_adapter._typing_service.set_total_chars(4)
         typing_adapter.handleStartStatus(True)
@@ -536,7 +536,8 @@ class TestBridgeSpecialPlatform:
         assert changed is True
         assert typing_adapter.is_paused is True
         assert typing_adapter.is_started is False
-        assert typing_adapter.text_read_only is True
+        # 暂停态不再锁定输入区，用户可直接打字恢复
+        assert typing_adapter.text_read_only is False
         assert typing_adapter.score_data.char_count == 2
         assert typing_adapter.score_data.key_stroke_count == 8
         assert events == [True]

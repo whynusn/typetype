@@ -300,6 +300,10 @@ class TypingAdapter(QObject):
 
     def handlePressed(self) -> None:
         if self._typing_service.state.is_started:
+            # 暂停态下用户直接打字：重启计时器，清除暂停标记（无需 Enter 解冻）
+            if self._is_paused and not self._second_timer.isActive():
+                self._second_timer.start()
+                self._set_paused(False)
             self._typing_service.accumulate_key()
             self.keyStrokeChanged.emit()
             self.codeLengthChanged.emit()
@@ -325,6 +329,13 @@ class TypingAdapter(QObject):
         # _check_typing_complete 中优先设置，直接拒绝即可。
         if self._typing_service.state.is_read_only:
             return
+
+        # 特殊平台（Wayland/macOS）：handlePressed 不在 onTextChanged 中调用，
+        # 需要在此处处理暂停恢复——重启计时器，让当前字符被正常计入。
+        if self._is_paused and self._typing_service.state.is_started:
+            if not self._second_timer.isActive():
+                self._second_timer.start()
+            self._set_paused(False)
         char_updates, is_completed = self._typing_service.handle_committed_text(
             s, grow_length
         )
@@ -370,6 +381,8 @@ class TypingAdapter(QObject):
         self._clear_formatting()
         plain_doc = self._rich_doc.toPlainText()
         self._cursor = QTextCursor(self._rich_doc)
+        # 停止计时器（F3 重打等路径直接调用 handleLoadedText，不经过 prepare_for_text_load）
+        self._second_timer.stop()
         # 先 set_total_chars（归零 char_count），再 set_plain_doc（设置文本）
         # 避免 set_plain_doc 触发 onTextChanged 时 char_count 仍为旧值导致负位置
         self._typing_service.set_total_chars(len(plain_doc))
@@ -396,9 +409,12 @@ class TypingAdapter(QObject):
     def handleStartStatus(self, status: bool) -> None:
         if self._typing_service.state.is_started != status:
             if status:
+                was_paused = self._is_paused
                 self._set_paused(False)
-                self._typing_service.clear()
-                self._reset_signal_cache()
+                # 从暂停恢复时不应清空已有成绩；只有全新开始才归零
+                if not was_paused:
+                    self._typing_service.clear()
+                    self._reset_signal_cache()
                 self._typing_service.start()
                 self._second_timer.start()
                 if self._session_context:
@@ -408,13 +424,13 @@ class TypingAdapter(QObject):
             else:
                 self._second_timer.stop()
                 self._typing_service.stop()
-                self._set_paused(False)
+                # 不清除 is_paused：保留暂停状态以便 QML 检测恢复路径
                 self._typing_service.clear()
                 self._reset_signal_cache()
                 self.backspaceChanged.emit()
                 self.correctionChanged.emit()
         elif not status:
-            self._set_paused(False)
+            # is_started 已为 False 时再次调用（如清空输入区）：保留 is_paused
             self._typing_service.clear()
             self._reset_signal_cache()
             self.backspaceChanged.emit()
@@ -484,7 +500,11 @@ class TypingAdapter(QObject):
         return self._typing_service.text_title
 
     def pauseTyping(self) -> bool:
-        """暂停当前跟打：保留成绩，只停止计时并锁定输入。"""
+        """暂停当前跟打：保留成绩，停止计时，但不锁定输入区（可被输入打断）。
+
+        与完成态（read_only=True）不同，暂停态下输入区仍可编辑，
+        用户直接打字即可恢复计时，无需先按 Enter 解冻。
+        """
         if self._is_paused:
             return False
         if not self._typing_service.state.is_started:
@@ -496,14 +516,15 @@ class TypingAdapter(QObject):
 
         self._second_timer.stop()
         self._typing_service.stop()
-        changed = self._typing_service.set_read_only(True)
-        if changed:
-            self.readOnlyChanged.emit()
         self._set_paused(True)
         return True
 
     def resumeTyping(self) -> bool:
-        """恢复暂停的跟打。"""
+        """恢复暂停的跟打（Enter 键触发的显式恢复）。
+
+        注意：输入区从未被锁定，所以无需 set_read_only(False)。
+        计时器在此处重启；字符统计在用户下次打字时自然恢复。
+        """
         if not self._is_paused:
             return False
         total_chars = self._typing_service.state.total_chars
@@ -514,9 +535,6 @@ class TypingAdapter(QObject):
 
         self._typing_service.start()
         self._second_timer.start()
-        changed = self._typing_service.set_read_only(False)
-        if changed:
-            self.readOnlyChanged.emit()
         self._set_paused(False)
         return True
 
