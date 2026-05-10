@@ -496,6 +496,10 @@ class TypingAdapter(QObject):
         return self._typing_service.char_num
 
     @property
+    def typing_progress(self) -> float:
+        return self._typing_service.typing_progress
+
+    @property
     def text_title(self) -> str:
         return self._typing_service.text_title
 

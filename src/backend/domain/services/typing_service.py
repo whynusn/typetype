@@ -103,6 +103,12 @@ class TypingService:
         return f"{self._state.score_data.char_count}/{self._state.total_chars}"
 
     @property
+    def typing_progress(self) -> float:
+        if self._state.total_chars <= 0:
+            return 0.0
+        return self._state.score_data.char_count / self._state.total_chars
+
+    @property
     def total_time(self) -> float:
         return self._state.score_data.time
 

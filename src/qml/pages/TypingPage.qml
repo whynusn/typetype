@@ -456,6 +456,15 @@ Item {
             wenlaiLoading: appBridge ? appBridge.wenlaiLoading : false
         }
 
+        TypingProgressBar {
+            id: typingProgressBar
+            Layout.fillWidth: true
+            Layout.topMargin: 2
+            Layout.bottomMargin: 2
+            progress: appBridge ? appBridge.typingProgress : 0.0
+            visible: appBridge && appBridge.charNum !== "0/0"
+        }
+
         RowLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true

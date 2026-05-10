@@ -544,6 +544,10 @@ class Bridge(QObject):
     def charNum(self) -> str:
         return self._typing_adapter.char_num
 
+    @Property(float, notify=charNumChanged)
+    def typingProgress(self) -> float:
+        return self._typing_adapter.typing_progress
+
     @Property(bool, notify=typingPausedChanged)
     def typingPaused(self) -> bool:
         return self._typing_adapter.is_paused
