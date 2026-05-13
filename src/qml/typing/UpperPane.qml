@@ -36,8 +36,8 @@ QQC.Pane {
         clip: true // 确保文字不超出 Pane 的边界
 
         // 在 Qt 6 中，ScrollBar 应该附加给 ScrollView
-        QQC.ScrollBar.vertical: ScrollBar {
-            policy: ScrollBar.AsNeeded
+        QQC.ScrollBar.vertical: QQC.ScrollBar {
+            policy: QQC.ScrollBar.AsNeeded
 
             // **位置控制**：通过 anchors 调整
             anchors.right: parent.right          // 贴在右侧
@@ -52,10 +52,10 @@ QQC.Pane {
             // 高度会自动根据 anchors 计算
         }
 
-        TextArea {
+        QQC.TextArea {
             id: textArea
             readOnly: true
-            wrapMode: TextArea.Wrap
+            wrapMode: QQC.TextArea.Wrap
             textFormat: TextEdit.PlainText   // PlainText 避免 RichText 转换导致 toPlainText() 异常
             font.pixelSize: 14
             text: "你好，世界。"

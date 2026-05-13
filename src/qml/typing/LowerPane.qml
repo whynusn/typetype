@@ -33,11 +33,11 @@ QQC.Pane {
         clip: true // 确保文字不超出 Pane 的边界
 
         // 在 Qt 6 中，ScrollBar 应该附加给 ScrollView
-        QQC.ScrollBar.vertical: ScrollBar {
-            policy: ScrollBar.AsNeeded
+        QQC.ScrollBar.vertical: QQC.ScrollBar {
+            policy: QQC.ScrollBar.AsNeeded
         }
 
-        TextArea {
+        QQC.TextArea {
             id: textArea
             wrapMode: TextEdit.Wrap
             font.pixelSize: 14

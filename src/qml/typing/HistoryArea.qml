@@ -25,7 +25,7 @@ QQC.Pane {
     }
 
     // 水平表头
-    HorizontalHeaderView {
+    QQC.HorizontalHeaderView {
         id: horizontalHeader
 
         anchors.left: tableView.left

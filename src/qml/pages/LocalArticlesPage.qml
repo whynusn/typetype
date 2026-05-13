@@ -903,7 +903,7 @@ Item {
         id: deleteConfirmDialog
         title: qsTr("确认删除")
         modal: true
-        anchors.centerIn: Overlay.overlay
+        anchors.centerIn: QQC.Overlay.overlay
         standardButtons: Dialog.Ok | Dialog.Cancel
         property string targetArticleId: ""
         property string targetArticleTitle: ""
@@ -928,7 +928,7 @@ Item {
         id: renameDialog
         title: qsTr("重命名")
         modal: true
-        anchors.centerIn: Overlay.overlay
+        anchors.centerIn: QQC.Overlay.overlay
         standardButtons: Dialog.Ok | Dialog.Cancel
         property string targetArticleId: ""
 
