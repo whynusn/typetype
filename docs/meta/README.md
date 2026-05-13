@@ -16,14 +16,16 @@
 
 ```text
 typetype/
-├── README.md                    ← 项目入口（快速入门、功能概览）
-├── AGENTS.md                    ← AI Agent 规则和已知陷阱
+├── README.md                    ← [人类入口] 项目概述、快速开始
+├── AGENTS.md                    ← [AI 入口] 编码规范、已知陷阱（唯一规则源）
+├── CLAUDE.md                    ← [Claude 指令] 纯指针→AGENTS.md（零重复内容）
 ├── docs/
-│   ├── ARCHITECTURE.md          ← 唯一事实来源（"宪法"）
-│   ├── reference/               ← 速查表（配置/QML/API/指标）
-│   ├── history/                 ← 历史归档（AI 一般不读）
-│   └── meta/                    ← 本文件（文档规范）
-└── skills/                      ← AI 操作手册
+│   ├── ARCHITECTURE.md          ← [宪法] 架构分层、数据流、依赖规则
+│   ├── reference/               ← [速查表] 纯表格（配置/API/QML/指标）
+│   ├── decisions/               ← [ADR] 架构决策记录（新建，按编号索引）
+│   ├── history/                 ← [归档] 历史文档（冻结，不新增）
+│   └── meta/                    ← [元规则] 本文档体系规范
+└── skills/                      ← [AI 操作手册] 场景驱动
 ```
 
 ## 权威优先级
@@ -41,34 +43,42 @@ typetype/
 
 | 类型 | 位置 | 面向 | 内容规则 |
 |:--- |:--- |:--- |:---|
-| 事实文档 | `ARCHITECTURE.md` | 所有人 | 代码事实、架构约束、数据流、陷阱。不限行数。 |
-| Agent 规则 | `AGENTS.md` | AI Agent | 开发约束、已知陷阱、验证要求、提交前检查。 |
+| 人类入口 | `README.md` | 人类开发者 | 项目概述、快速开始、功能列表。不写编码规则。 |
+| AI 规则源 | `AGENTS.md` | AI Agent | 编码规范、已知陷阱、开发约束。**所有 AI 行为规则唯一存放处**。 |
+| 工具指令 | `CLAUDE.md` | Claude Code | 纯指针→AGENTS.md，**零项目文档内容**。可有工具特有行为配置（≤15行）。 |
+| 事实文档 | `ARCHITECTURE.md` | 所有人 | 架构事实、数据流、依赖规则、设计陷阱。不限行数。 |
 | 速查表 | `docs/reference/*` | 开发者/AI | 纯表格，不写教程。每个文件 ≤ 200 行。 |
-| 历史归档 | `docs/history/*` | 参考 | 完成的设计文档、bug 记录。不修改、不删除。 |
-| 操作手册 | `skills/*` | AI Agent | 工作流指令（什么场景→查什么文档）。不复制 docs 内容。 |
+| ADR | `docs/decisions/*` | 开发者/AI | 架构决策记录。编号索引，标准模板（背景/选项/决策/影响）。 |
+| 历史归档 | `docs/history/*` | 参考 | 已完成的设计文档、bug 记录。**冻结，不新增、不修改**。 |
+| 操作手册 | `skills/*` | AI Agent | 场景驱动的工作流指令。引用 docs 内容但不复制。 |
 
 ## 同步规则
 
 ### 代码变更后的文档更新
 
-| 变更类型 | 需要更新 |
-|:--- |:---|
-| 新增/删除/重命名源码文件 | `ARCHITECTURE.md` 目录结构 |
-| 新增/修改配置字段 | `docs/reference/config.md` |
-| 新增/删除 QML 页面 | `docs/reference/qml-pages.md` |
-| 新增/修改 Bridge Slot/Signal | `docs/reference/bridge-slots.md` |
-| 新增/修改 API 端点 | `docs/reference/api-endpoints.md` |
-| 发现新的陷阱/坑位 | `ARCHITECTURE.md` 已知陷阱 或 `AGENTS.md` |
-| 架构分层变更 | `ARCHITECTURE.md` 分层架构 + 依赖规则 |
-| 新增功能或完成修复 | 考虑是否写入 `docs/history/` 作为记录 |
+| 变更类型 | 需要更新 | 原则 |
+|:--- |:---|:---|
+| 新增/删除/重命名源码文件 | `ARCHITECTURE.md` 目录结构 | 事实 → 宪法 |
+| 新增/修改配置字段 | `docs/reference/config.md` | 事实 → 速查表 |
+| 新增/删除 QML 页面 | `docs/reference/qml-pages.md` | 事实 → 速查表 |
+| 新增/修改 Bridge Slot/Signal | `docs/reference/bridge-slots.md` | 事实 → 速查表 |
+| 新增/修改 API 端点 | `docs/reference/api-endpoints.md` | 事实 → 速查表 |
+| 发现**编码实践类**陷阱 | `AGENTS.md` § 已知陷阱 | 规则 → AI 规则源 |
+| 发现**架构设计类**陷阱 | `ARCHITECTURE.md` § 已知陷阱 | 事实 → 宪法 |
+| 架构分层变更 | `ARCHITECTURE.md` 分层架构 + 依赖规则 | 事实 → 宪法 |
+| 重大架构决策 | `docs/decisions/` 新建 ADR | 决策 → ADR |
+| 完成复杂修复 | 考虑写入 `docs/decisions/` 或 `docs/history/` | 记录 → ADR 或 归档 |
+
+**核心原则**：每类信息只有一处存放。**指向不复制**。
 
 ### 验证清单（提交前）
 
 - [ ] `ARCHITECTURE.md` 目录结构与 `src/backend/` 实际文件一致
 - [ ] `docs/reference/` 中的表格与代码一致
-- [ ] `ARCHITECTURE.md` 中的陷阱是否覆盖最新发现
-- [ ] 所有内部链接无断链（相对路径）
-- [ ] `docs/history/` 中没有未完成的文档（除非标题标注"活跃"）
+- [ ] `AGENTS.md` § 已知陷阱 与 `ARCHITECTURE.md` § 已知陷阱 无内容重叠
+- [ ] 所有内部链接无断链（相对路径正确）
+- [ ] `CLAUDE.md` 不超过 15 行，无项目文档内容
+- [ ] `docs/history/` 中没有新增文件（冻结目录）
 
 ## 写作风格
 

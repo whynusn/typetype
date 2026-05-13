@@ -6,7 +6,23 @@
 
 | 当前文档 | 其他核心文档 | 快速链接 |
 | :--- | :--- | :--- |
-| **本文** — 开发约束、编码规范、已知陷阱 | [README.md](./README.md) — 快速入门<br>[ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 架构权威 | [当前架构](#2-当前架构)<br>[已知陷阱](#8-已知陷阱) |
+| **本文** — 开发约束、编码规范、已知陷阱 | [README.md](./README.md) — 快速入门<br>[ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 架构权威 | [代码风格](#3-代码风格)<br>[已知陷阱](#8-已知陷阱) |
+
+---
+
+## 🧭 AI 阅读顺序
+
+如果你是第一次接触此项目的 AI Agent，建议按以下顺序阅读：
+
+1. **本文档 §3 代码风格 + §8 已知陷阱** — 编码约束和常见坑位（最高优先级）
+2. **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — 架构分层、数据流、依赖规则（事实来源）
+3. **[docs/reference/README.md](./docs/reference/README.md)** — 配置字段、Bridge API、QML 页面速查
+4. **本文档 §4-7** — 测试策略、服务端接入、平台权限、CI 要求
+5. **`skills/` 目录** — 特定场景的操作手册（如添加功能、架构分析）
+
+> 已熟悉项目后，日常开发只需查阅 **§3 代码风格 + §8 已知陷阱** 即可。
+
+> 特定场景操作（如添加功能、架构分析、调试）可查阅 `skills/` 目录下的操作手册。
 
 ---
 
@@ -41,7 +57,8 @@
 | 新增/删除 QML 页面 | `docs/reference/qml-pages.md` | 页面名称、信号、依赖是否准确 |
 | 新增/修改 Bridge Slot/Signal | `docs/reference/bridge-slots.md` | 参数类型、返回值、使用场景 |
 | 新增/修改 API 端点 | `docs/reference/api-endpoints.md` | URL、方法、请求/响应格式 |
-| 发现新的陷阱/坑位 | `ARCHITECTURE.md` § 已知陷阱 或 **本文档** | 问题、原因、解决方案、相关修改链接 |
+| 发现新的**编码实践类**陷阱（代码怎么写） | **本文** § 已知陷阱 | 问题、原因、正确做法、历史记录。参见 §8 顶部说明 |
+| 发现新的**架构设计类**陷阱（架构/分层） | `ARCHITECTURE.md` § 已知陷阱 | 问题、原因、方案、历史记录 |
 | 架构分层变更 | `ARCHITECTURE.md` § 分层架构 + 依赖规则 | 层职责、依赖方向、绑定规则 |
 | 完成重大功能/修复 | 考虑写入 `docs/history/` | 背景、决策、实现、验证结果 |
 
@@ -77,53 +94,7 @@
 
 ## 1. 开发环境与命令
 
-### 开发环境
-
-- Python 3.12+（见 `.python-version`）
-- 包管理器：`uv`（建议 0.9.26+）
-
-### 启动
-
-```bash
-uv sync
-uv run python main.py
-```
-
-### 测试与检查
-
-```bash
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-```
-
-### 打包（Nuitka）
-
-```bash
-uv run python -m ensurepip --upgrade
-uv pip install --upgrade nuitka --index-url https://pypi.org/simple
-uv run python -m nuitka main.py \
-  --follow-imports \
-  --enable-plugin=pyside6 \
-  --include-qt-plugins=qml \
-  --include-package=RinUI \
-  --include-data-dir=RinUI=RinUI \
-  --include-data-dir=config=config \
-  --output-dir=deployment \
-  --quiet \
-  --noinclude-qt-translations \
-  --standalone \
-  --noinclude-dlls=libQt6WebEngine* \
-  --include-data-dir=src/qml=src/qml \
-  --include-data-dir=resources/texts=resources/texts \
-  --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
-  --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
-  --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf \
-  --include-data-dir=resources/trainer=resources/trainer \
-  --include-data-dir=resources/ziti=resources/ziti
-```
-
-Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disable --include-windows-runtime-dlls=yes --noinclude-dlls=Qt6WebEngine*`。
+> 开发环境搭建和运行命令见 [ARCHITECTURE.md § 快速开始](./docs/ARCHITECTURE.md#快速开始)。
 
 ### 字体裁剪说明
 
@@ -138,100 +109,11 @@ Windows 建议追加：`--assume-yes-for-downloads --windows-console-mode=disabl
 
 ## 2. 当前架构（以代码为准）
 
-> 完整的架构文档请见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)，本文档是补充速查和陷阱案例。
+> 完整的架构文档请见 [ARCHITECTURE.md](./docs/ARCHITECTURE.md)，本文档是补充速查和陷阱案例。
 
 完整的文件树见 [docs/ARCHITECTURE.md § 目录结构](./docs/ARCHITECTURE.md#目录结构)，此处不重复维护。
 
 RinUI/                   # 第三方 QML 框架（本地 vendored，少量必要修改，见 docs/ARCHITECTURE.md）
-
-### 分层架构
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    QML 层                              │
-│           (通过 appBridge 与后端通信)                    │
-└─────────────────────────┬───────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────┐
-│                  Presentation Layer                     │
-│                 (Bridge + Adapters)                    │
-│  Bridge: appBridge，属性代理/信号转发/Slot 入口          │
-│  Adapters: TypingAdapter, TextAdapter, AuthAdapter,     │
-│            CharStatsAdapter, LeaderboardAdapter,         │
-│            UploadTextAdapter, WenlaiAdapter,              │
-│            LocalArticleAdapter, ZitiAdapter, TrainerAdapter │
-└─────────────────────────┬───────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────┐
-│                     Application Layer                   │
-│        UseCases: LoadTextUseCase（路由+业务验证）         │
-│        SessionContext: TypingSessionContext（会话状态机） │
-│        Gateways: TextSourceGateway, ScoreGateway        │
-│        ExceptionHandler: GlobalExceptionHandler        │
-└─────────┬───────────────────────────┬───────────────────┘
-           │                           │
-           ▼                           ▼
-┌─────────────────────────┐   ┌───────────────────────────┐
-│      Domain Services    │   │          Ports            │
-│ (纯业务逻辑，无 Qt 依赖)  │   │   (接口协议 / 抽象依赖)    │
-│ Typing/Auth/CharStats   │   │ TextFetcher, Clipboard... │
-└─────────┬───────────────┘   └───────────┬───────────────┘
-           │                               │
-           └──────────────┬────────────────┘
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Integration / Infrastructure           │
-│   RemoteTextProvider, SqliteRepo, ApiClient, QtLoader  │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 关键点
-
-- 依赖注入在 `main.py` 完成，不再使用全局 registry。
-- QML 通过 `appBridge` 与后端交互。
-- **Domain Services 是纯业务逻辑**，无 Qt 依赖，易于测试。
-- **Presentation Layer = Bridge + Adapters**，统一封装 QML 与 Qt 交互细节。
-- **Gateways 封装 Port 适配**（不含异常转换）。
-- **TypingSessionContext 集中管理会话级别状态**（阶段、来源模式、成绩提交资格推导）。
-- **GlobalExceptionHandler 集中处理异常语义**（网络异常 → 用户友好消息），类似 Spring Boot 的 `@ControllerAdvice`。
-- **BaseWorker 统一捕获后台任务异常**，调用 GlobalExceptionHandler 转换后发射 `failed` 信号。
-- **UseCases 编排业务流程**（路由 + 业务验证），异常上浮由 BaseWorker 统一处理。
-- 文本加载支持 `network` 与 `local` 两类来源，**标准加载走后台 Worker**，避免主线程同步 I/O 阻塞 UI。就地变换（乱序、全文载入、分片载入）直接 emit textLoaded，内容已在内存中无同步 I/O。
-- **FluentPage 不使用 `layer.effect`**（避免 GPU 离屏渲染阻塞页面切换），圆角裁切由 `Flickable.clip` 和 `appLayer` 背景配合实现。
-- UI 框架使用 RinUI（vendored），提供主题、组件和暗色模式支持。
-- UI 字体由 `main.py` 中 `app.setFont()` 全局设置，QML 层不再传递字体属性。
-- `pyproject.toml` 中 `[tool.ruff] exclude = ["RinUI"]` 排除第三方代码的 lint 检查。
-
-### 各层职责
-
-| 层 | 组件 | 职责 |
-|:--- |:--- |:---|
-| **Domain Services** | TypingService | 打字统计纯逻辑（SessionStat 状态、键数累积） |
-| | AuthService | 登录认证（login/logout、token 验证与刷新） |
-| | CharStatsService | 字符维度统计（缓存、持久化、薄弱字查询、自定义排序） |
-| **Application** | LoadTextUseCase | 文本加载编排 + 业务验证（异常上浮到 BaseWorker） |
-| | TypingSessionContext | 会话状态机：阶段/来源模式/成绩提交资格推导/分片载文 |
-| | GlobalExceptionHandler | 网络异常 → 用户友好消息集中映射 |
-| **Gateways** | TextSourceGateway | Port 适配 + 配置查询 |
-| | ScoreGateway | DTO 转换 + 剪贴板操作 |
-| | LeaderboardGateway | 排行榜 Port 适配 + 数据代理 |
-| **Workers** | BaseWorker | 统一捕获后台任务异常，调用 GlobalExceptionHandler |
-| | LeaderboardWorker | 排行榜后台加载 |
-| | TextListWorker | 文本列表后台加载 |
-| | WeakCharsQueryWorker | 弱字符后台查询 |
-| | LocalArticleWorker | 本地文章后台加载 |
-| | TrainerWorker | 练习器后台加载 |
-| | WenlaiWorker | 晴发文本后台加载 |
-| | ZitiWorker | 字帖后台加载 |
-| **Presentation** | Bridge | QML 通信适配层：属性代理、信号转发、Slot 入口 |
-| | TypingAdapter | Qt 适配（计时器、文本着色、信号发射） |
-| | TextAdapter | Qt 适配（标准加载走 Worker、信号发射、UI 配置展示）、公开 `lookup_text_id()` 供就地载入复用 |
-| | LeaderboardAdapter | 排行榜 Qt 适配（异步 Worker、信号管理） |
-| | UploadTextAdapter | 文本上传 Qt 适配（本地写入 + 云端上传） |
-| | WenlaiAdapter | 晴发文本 Qt 适配 |
-| | LocalArticleAdapter | 本地文章 Qt 适配 |
-| | ZitiAdapter | 字帖 Qt 适配 |
-| | TrainerAdapter | 练习器 Qt 适配 |
 
 ### 薄弱字排序功能
 
@@ -345,12 +227,9 @@ bridge = Bridge(
 - 用例层只依赖 Port 协议（`TextProvider`、`ScoreSubmitter` 等），不直接依赖 HTTP 细节。
 - Spring Boot 后端作为 integration 层实现注入，不破坏现有调用链。
 
-### 当前使用的接口（v1）
+### 当前使用的接口
 
-- `GET /api/v1/texts/latest/{sourceKey}` — 获取指定来源的最新文本
-- `GET /api/v1/texts/catalog` — 获取所有可用文本来源
-- `POST /api/v1/scores` — 提交成绩（只发 textId，不发 sourceKey/content）
-- `GET /api/v1/texts/{textId}/leaderboard` — 获取文本排行榜
+当前接口列表见 [docs/reference/api-endpoints.md](./docs/reference/api-endpoints.md)。
 
 ### 新增服务端能力时的扩展路径
 
@@ -379,6 +258,8 @@ uv run ruff format --check .
 ```
 
 ## 8. 已知陷阱（Critical Gotchas）
+
+> **陷阱分类说明**：本文档记录**编码实践类陷阱**（代码怎么写才正确）。架构设计类陷阱见 [ARCHITECTURE.md § 已知陷阱](./docs/ARCHITECTURE.md#已知陷阱)。新增陷阱时：编码实践类写在这里，架构设计类写在 ARCHITECTURE.md。
 
 ### ⚠️ TypingService.clear() 不要清零 char_count 和 wrong_char_count
 

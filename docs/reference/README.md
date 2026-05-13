@@ -31,3 +31,4 @@
 - 改服务端交互 → 先查 `api-endpoints.md`
 - 改打字统计公式 → 先查 `typing-metrics.md`
 - 改晴发文集成 → 先查 `qingfa-qq-group-integration.md`
+- 特定操作流程（添加功能、调试）→ 查阅 `skills/` 目录下的操作手册
