@@ -1,4 +1,4 @@
-import QtQuick.Controls
+import QtQuick.Controls 2.15 as QQC
 import RinUI
 import "../components"
 

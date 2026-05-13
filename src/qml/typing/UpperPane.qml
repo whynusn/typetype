@@ -1,9 +1,9 @@
 // qml/UpperPane.qml
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import RinUI as Rin
 
-Pane {
+QQC.Pane {
     id: root
 
     property alias textDocument: textArea.textDocument
@@ -30,13 +30,13 @@ Pane {
         radius: 2
     }
 
-    ScrollView {
+    QQC.ScrollView {
         id: scrollView
         anchors.fill: parent
         clip: true // 确保文字不超出 Pane 的边界
 
         // 在 Qt 6 中，ScrollBar 应该附加给 ScrollView
-        ScrollBar.vertical: ScrollBar {
+        QQC.ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AsNeeded
 
             // **位置控制**：通过 anchors 调整

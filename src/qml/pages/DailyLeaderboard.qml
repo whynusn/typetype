@@ -1,5 +1,5 @@
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
 
@@ -225,7 +225,7 @@ FluentPage {
                 model: leaderboardRecords
                 delegate: leaderboardDelegate
 
-                ScrollBar.vertical: ScrollBar {
+                QQC.ScrollBar.vertical: ScrollBar {
                     policy: ScrollBar.AsNeeded
                 }
 
@@ -362,7 +362,7 @@ FluentPage {
                         wrapMode: Text.Wrap
                     }
 
-                    ScrollBar.vertical: ScrollBar {
+                    QQC.ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
                     }
                 }

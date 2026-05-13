@@ -1,6 +1,6 @@
 // qml/main.qml
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
 

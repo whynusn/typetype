@@ -1,5 +1,5 @@
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
 
@@ -166,7 +166,7 @@ FluentPage {
                     model: textListModel
                     delegate: textListDelegate
 
-                    ScrollBar.vertical: ScrollBar {
+                    QQC.ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
                     }
 
@@ -402,7 +402,7 @@ FluentPage {
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
 
-                            ScrollBar.horizontal: ScrollBar {
+                            QQC.ScrollBar.horizontal: ScrollBar {
                                 policy: ScrollBar.AsNeeded
                             }
 
@@ -420,7 +420,7 @@ FluentPage {
                                     delegate: leaderboardDelegate
                                     interactive: false
 
-                                    ScrollBar.vertical: ScrollBar {
+                                    QQC.ScrollBar.vertical: ScrollBar {
                                         policy: ScrollBar.AsNeeded
                                     }
 

@@ -1,5 +1,5 @@
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
 
@@ -24,7 +24,7 @@ Item {
         contentWidth: weakCharsPage.width - anchors.margins * 2
         contentHeight: column.height
 
-        ScrollBar.vertical: ScrollBar {
+        QQC.ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AsNeeded
         }
 

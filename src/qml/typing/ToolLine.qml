@@ -1,9 +1,9 @@
 // qml/ToolLine.qml
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import RinUI
 
-Pane {
+QQC.Pane {
     id: root
     property bool wenlaiLoading: false
 

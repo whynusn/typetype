@@ -1,5 +1,5 @@
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
 import RinUI
@@ -229,7 +229,7 @@ Item {
                         model: trainerListModel
                         currentIndex: selectedTrainerIndex
 
-                        ScrollBar.vertical: ScrollBar {
+                        QQC.ScrollBar.vertical: ScrollBar {
                             policy: ScrollBar.AsNeeded
                         }
 
@@ -307,7 +307,7 @@ Item {
                     contentHeight: columnLayout.implicitHeight
                     boundsBehavior: Flickable.StopAtBounds
 
-                    ScrollBar.vertical: ScrollBar {
+                    QQC.ScrollBar.vertical: ScrollBar {
                         policy: ScrollBar.AsNeeded
                     }
 

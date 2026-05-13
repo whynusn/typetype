@@ -1,9 +1,9 @@
 import QtQuick 2.15
-import QtQuick.Controls
+import QtQuick.Controls 2.15 as QQC
 import Qt.labs.qmlmodels
 import RinUI
 
-Pane {
+QQC.Pane {
     id: root
     property int rowHeight: 30
     property alias tableModel: tableView.model

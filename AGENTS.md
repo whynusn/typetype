@@ -325,6 +325,7 @@ bridge = Bridge(
 - **FluentPage 内容区的直接子项必须使用 `Layout.*` 属性而非 `anchors`**：FluentPage 的 `content` 注入到内部 `container`（ColumnLayout），因此子项受 Layout 管理器控制，使用 anchors 会触发 "Detected anchors on an item that is managed by a layout" 警告
 - **非 Layout 容器内的 Layout 管理器可用 anchors 定位自身**：如 `Frame { ColumnLayout { anchors.fill: parent } }` 是合法的，因为 Frame 不是 Layout 管理器
 - Python 与 QML 通信优先走信号槽
+- **QtQuick.Controls 必须使用限定导入 `as QQC`**：为避免与 RinUI 同名组件（Button/Frame/Dialog 等）冲突，所有 QML 文件中必须使用 `import QtQuick.Controls 2.15 as QQC` 而非 `import QtQuick.Controls 2.15`。使用 QtQuick.Controls 类型时加 `QQC.` 前缀（如 `QQC.Pane`、`QQC.ScrollView`、`QQC.ScrollBar.vertical`）。RinUI 已提供的同名类型不前缀（如 `Button`、`Frame`、`Dialog` 等从 RinUI 解析）。
 
 ## 4. 测试策略
 

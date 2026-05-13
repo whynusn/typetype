@@ -27,7 +27,6 @@ DropDownColorPicker 1.0 components/BasicInput/DropDownColorPicker.qml
 # Date & Time
 TimePicker 1.0 components/DateAndTime/TimePicker.qml
 DatePicker 1.0 components/DateAndTime/DatePicker.qml
-DateField 1.0 components/DateAndTime/DateField.qml
 PickerView 1.0 components/DateAndTime/PickerView.qml
 Calendar 1.0 components/DateAndTime/Calendar.qml
 
@@ -36,7 +35,6 @@ Dialog 1.0 components/DialogsAndFlyouts/Dialog.qml
 DialogButtonBox 1.0 components/DialogsAndFlyouts/DialogButtonBox.qml
 Flyout 1.0 components/DialogsAndFlyouts/Flyout.qml
 Popup 1.0 components/DialogsAndFlyouts/Popup.qml
-TeachingTip 1.0 components/DialogsAndFlyouts/TeachingTip.qml
 
 # Layout
 Expander 1.0 components/Layout/Expander.qml
@@ -97,7 +95,6 @@ ApplicationWindow 1.0 windows/window/ApplicationWindow.qml
 Window 1.0 windows/window/Window.qml
 
 
-ScrollViewer 1.0 components/ScrollViewer.qml
 ScrollBar 1.0 components/ScrollBar.qml
 
 IconWidget 1.0 components/Icon.qml

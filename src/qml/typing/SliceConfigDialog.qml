@@ -1,5 +1,5 @@
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
 import "../components"
@@ -384,7 +384,7 @@ Dialog {
             contentHeight: columnLayout.implicitHeight
             boundsBehavior: Flickable.StopAtBounds
 
-            ScrollBar.vertical: ScrollBar {
+            QQC.ScrollBar.vertical: ScrollBar {
                 policy: ScrollBar.AsNeeded
             }
 
@@ -433,7 +433,7 @@ Dialog {
                             }
                         }
 
-                        ScrollView {
+                        QQC.ScrollView {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
 
@@ -499,7 +499,7 @@ Dialog {
                             model: textListModel
                             currentIndex: -1
 
-                            ScrollBar.vertical: ScrollBar {
+                            QQC.ScrollBar.vertical: ScrollBar {
                                 policy: ScrollBar.AsNeeded
                             }
 
@@ -923,12 +923,12 @@ Dialog {
 
             Button {
                 text: "取消"
-                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
+                QQC.DialogButtonBox.buttonRole: QQC.DialogButtonBox.RejectRole
                 onClicked: root.reject()
             }
             Button {
                 text: "开始载文"
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
+                QQC.DialogButtonBox.buttonRole: QQC.DialogButtonBox.AcceptRole
                 enabled: contentTextArea.text.trim().length > 0 && root.validationMessage === ""
                 onClicked: root.startSliceTyping()
             }

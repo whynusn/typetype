@@ -1,5 +1,5 @@
 import QtQuick 2.15
-import QtQuick.Controls 2.15
+import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
 
@@ -343,7 +343,7 @@ FluentPage {
                 visible: readerFontModel.count > 0
             }
 
-            ScrollView {
+            QQC.ScrollView {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(readerFontModel.count * 40 + 4, 280)
                 clip: true
@@ -720,7 +720,7 @@ FluentPage {
                 }
             }
 
-            ScrollView {
+            QQC.ScrollView {
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(deviceListModel.count * 36 + 4, 240)
                 clip: true
