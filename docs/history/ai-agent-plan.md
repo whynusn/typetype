@@ -4,7 +4,7 @@
 >
 > 本文档详细说明如何将 TypeType 打字练习工具转化为 AI Agent 面试项目。
 >
-> 注意：本文是规划文档，不是当前客户端架构的事实来源。若其中出现架构术语冲突，请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 和当前源码为准。
+> 注意：本文是规划文档，不是当前客户端架构的事实来源。若其中出现架构术语冲突，请以 [ARCHITECTURE.md](../ARCHITECTURE.md) 和当前源码为准。
 
 ---
 
@@ -385,7 +385,7 @@ uv run python main.py
 
 ## 相关文档
 
-- [ARCHITECTURE.md](../../docs/ARCHITECTURE.md) - 当前客户端架构
+- [ARCHITECTURE.md](../ARCHITECTURE.md) - 当前客户端架构
 - [spring-boot-design.md](./spring-boot-design.md) - Spring Boot 后端设计
 
 ---

@@ -1,4 +1,5 @@
 # typetype 项目开发指南
+<!-- 状态: active | 最后验证: 2026-05-14 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -18,11 +19,11 @@
 2. **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — 架构分层、数据流、依赖规则（事实来源）
 3. **[docs/reference/README.md](./docs/reference/README.md)** — 配置字段、Bridge API、QML 页面速查
 4. **本文档 §4-7** — 测试策略、服务端接入、平台权限、CI 要求
-5. **`skills/` 目录** — 特定场景的操作手册（如添加功能、架构分析）
+5. **`docs/guides/` 目录** — 特定场景的操作手册（如开发、测试、部署、文档同步）
 
 > 已熟悉项目后，日常开发只需查阅 **§3 代码风格 + §8 已知陷阱** 即可。
 
-> 特定场景操作（如添加功能、架构分析、**同步文档**）可查阅 `skills/` 目录下的操作手册。
+> 特定场景操作（如添加功能、架构分析、**同步文档**）可查阅 `docs/guides/` 目录下的操作手册。
 
 ---
 
@@ -35,8 +36,11 @@
 | `ARCHITECTURE.md` | 唯一事实来源（"宪法"） | 新增/删除文件、架构变更、发现新陷阱 |
 | **本文档** | AI 开发约束与陷阱集 | 发现新坑位、编码规范变化、验证要求更新 |
 | `docs/reference/*` | 速查表（配置/QML/API） | 新增配置字段、修改 Bridge Slot、新增 API 端点 |
+| `docs/guides/*` | 操作手册 | 新增或调整开发、测试、部署等工作流 |
+| `docs/examples/*` | 独立示例 | 新增可运行示例或最佳实践样例 |
 | `docs/history/*` | 历史设计文档归档 | 完成重大功能、修复复杂 bug、记录设计决策 |
-| `docs/meta/README.md` | 文档规范与同步规则 | 文档结构变化、权威优先级调整 |
+| `docs/meta/README.md` | 文档规范与同步规则 | 文档结构变化、权威矩阵调整 |
+| `CHANGELOG.md` | 发布历史 | 版本发布或用户可见变更 |
 
 ### 修改代码后的文档更新流程
 
@@ -60,19 +64,28 @@
 | 发现新的**编码实践类**陷阱（代码怎么写） | **本文** § 已知陷阱 | 问题、原因、正确做法、历史记录。参见 §8 顶部说明 |
 | 发现新的**架构设计类**陷阱（架构/分层） | `ARCHITECTURE.md` § 已知陷阱 | 问题、原因、方案、历史记录 |
 | 架构分层变更 | `ARCHITECTURE.md` § 分层架构 + 依赖规则 | 层职责、依赖方向、绑定规则 |
+| 新增/修改工作流 | `docs/guides/` | 步骤、命令、验证方式是否完整 |
+| 新增/修改示例 | `docs/examples/` | 示例是否独立可运行，是否链接 reference |
+| 发布版本或用户可见变更 | `CHANGELOG.md` | 版本、日期、Added/Changed/Fixed 分类 |
 | 完成重大功能/修复 | 考虑写入 `docs/history/` | 背景、决策、实现、验证结果 |
 
-### 权威优先级（出现冲突时）
+### 权威矩阵（出现冲突时）
 
-见 [docs/meta/README.md § 权威优先级](./docs/meta/README.md#权威优先级)
+见 [docs/meta/README.md § 权威矩阵](./docs/meta/README.md#权威矩阵冲突解决)
 
-简版：
-1. **当前源码**（最终真理）
-2. `ARCHITECTURE.md`
-3. `docs/reference/*`
-4. **本文档** (`AGENTS.md`)
-5. `skills/*`
-6. `docs/history/*`
+**事实可靠性链**（当技术事实冲突时）：
+
+```text
+源码 > docs/ARCHITECTURE.md > docs/reference/* > docs/decisions/* > AGENTS.md > docs/guides/* > docs/history/* > docs/superpowers/*
+```
+
+**操作优先级链**（当行为指令冲突时）：
+
+```text
+AGENTS.md > docs/guides/* > docs/ARCHITECTURE.md > docs/decisions/* > docs/reference/* > docs/history/* > docs/superpowers/*
+```
+
+跨维度冲突或信息不足时，不要创作规则；先阅读源文件，仍无法判断再询问维护者。
 
 ### 提交前验证清单
 
@@ -81,6 +94,7 @@
 - [ ] `ARCHITECTURE.md` 中的陷阱是否覆盖最新发现
 - [ ] 所有内部链接无断链（相对路径正确）
 - [ ] 本文档的陷阱描述是否准确、完整
+- [ ] `CHANGELOG.md` 已更新（若涉及用户可见变更）
 - [ ] 代码改动与文档更新在同一 PR/提交中
 
 ### 文档编写规范
@@ -88,6 +102,8 @@
 - **事实文档**（`ARCHITECTURE.md`）：先给结论，再给解释。代码块标注语言。
 - **Agent 规则**（本文档）：简洁直接。陷阱必须包含：问题、原因、正确做法、历史记录。
 - **速查表**（`docs/reference/*`）：纯表格，H1 标题 + `>` 摘要行 + 表格主体。不写段落。每个文件 ≤ 200 行。
+- **操作手册**（`docs/guides/*`）：只写步骤、命令、验证方式；架构背景指向 `ARCHITECTURE.md`。
+- **示例代码**（`docs/examples/*`）：独立可运行，聚焦单一概念，完整规范指向 `docs/reference/*`。
 - **历史归档**（`docs/history/*`）：完整记录背景、决策、实现、验证。不修改、不删除。
 
 ---
@@ -188,6 +204,22 @@ bridge = Bridge(
     base_url_update_callback=update_base_url,
 )
 ```
+
+---
+
+## 💬 用户快捷操作指令
+
+当用户说出以下关键词时，AI 应自动执行对应操作：
+
+| 用户说 | AI 执行 |
+|:---|:---|
+| **"项目概览"** | 阅读 README.md 摘要 + ARCHITECTURE.md 一句话理解，汇总输出 |
+| **"同步文档"** | 按"代码变更 → 文档更新映射"逐项检查，更新受影响文件 |
+| **"检查文档"** | 运行 `scripts/verify-framework.sh`，汇总结果 |
+| **"记录决策"** | 在 `docs/decisions/` 创建架构决策记录 |
+| **"更新 CHANGELOG"** | 检查最近 git 提交，在 CHANGELOG.md 追加版本条目 |
+
+---
 
 ## 3. 代码风格
 

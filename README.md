@@ -246,8 +246,11 @@ Windows 建议追加：
 | **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | 所有人 | **唯一事实来源**：架构设计、代码分层、数据流、陷阱集锦 | 第一次了解项目 |
 | **[AGENTS.md](./AGENTS.md)** | AI 开发者 | **开发约束与陷阱**：编码规范、已知坑位、验证要求 | 修改代码前 |
 | **[docs/reference/](./docs/reference/)** | 开发者/AI | **速查表**：配置字段、QML 页面、Bridge API、端点清单 | 需要快速查找 |
+| **[docs/guides/](./docs/guides/)** | 开发者/AI | **操作手册**：开发、测试、部署等任务步骤 | 执行具体工作流 |
+| **[docs/examples/](./docs/examples/)** | 开发者/AI | **代码示例**：独立可运行示例和最佳实践 | 学习扩展模式 |
 | **[docs/history/](./docs/history/)** | 参考 | **历史归档**：完成的设计文档、bug 记录、演进记录 | 理解过去决策 |
-| **[docs/meta/README.md](./docs/meta/README.md)** | AI/维护者 | **文档规范**：文档职责定义、权威优先级、同步规则 | 维护文档或不确定信息来源 |
+| **[docs/meta/README.md](./docs/meta/README.md)** | AI/维护者 | **文档规范**：文档职责定义、权威矩阵、同步规则 | 维护文档或不确定信息来源 |
+| **[CHANGELOG.md](./CHANGELOG.md)** | 用户/维护者 | **发布历史**：版本变更、用户可见改动 | 查看版本演进 |
 
 ### 🎯 推荐阅读顺序（按场景）
 
@@ -279,11 +282,32 @@ docs/reference/README.md （速查入口）
   → 对应文件（config.md / qml-pages.md / bridge-slots.md / api-endpoints.md / typing-metrics.md）
 ```
 
+#### 📘 执行工作流
+```text
+docs/guides/README.md
+  → 对应指南
+  → docs/reference/ 或 docs/examples/ 按需查证
+```
+
 ---
 
 ## 相关搜索关键词
 
 > 中文打字练习, 跟打器, 码长统计, 击键统计, 打字速度测试, Wayland 打字工具, evdev 键盘监听, Linux 中文输入练习, Chinese typing practice, typing tutor, keystroke statistics, code length, typing speed test
+
+---
+
+## 💬 快捷操作（对 AI 说）
+
+在对话中输入以下关键词，AI 会自动执行对应操作：
+
+| 你说 | AI 会做什么 |
+|:---|:---|
+| **"项目概览"** | 汇总 README + ARCHITECTURE 的核心内容 |
+| **"同步文档"** | 检查代码变更，同步更新受影响的文档 |
+| **"检查文档"** | 运行 `scripts/verify-framework.sh` 验证完整性 |
+| **"记录决策"** | 引导创建新的架构决策记录 |
+| **"更新 CHANGELOG"** | 根据近期变更补充发布历史 |
 
 ---
 

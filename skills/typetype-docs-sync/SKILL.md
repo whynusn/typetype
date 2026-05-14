@@ -34,7 +34,7 @@ git diff main...HEAD
 | 修改 API 端点 | `docs/reference/api-endpoints.md` |
 | 新增配置字段 | `docs/reference/config.md` |
 | 新增编码陷阱 | `AGENTS.md` § 已知陷阱 |
-| 新增架构决策 | `docs/decisions/` 新建 ADR |
+| 新增架构决策 | `docs/decisions/` 新建架构决策记录 |
 | 架构/分层变更 | `ARCHITECTURE.md` 相关章节 |
 
 ### 第 2 步：更新对应文档

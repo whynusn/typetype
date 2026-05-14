@@ -1,4 +1,5 @@
 # Bridge Slot / Signal 速查
+<!-- 状态: active | 最后验证: 2026-05-14 -->
 
 > Bridge 是 QML 能看到的唯一后端门面。全局对象名：`appBridge`
 

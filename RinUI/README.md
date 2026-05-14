@@ -11,7 +11,7 @@
 
 | 当前文档 | 其他核心文档 | 快速链接 |
 | :--- | :--- | :--- |
-| **本文** — RinUI 文档索引、术语说明、快速导航 | [README.md](../../README.md) — 快速入门<br>[ARCHITECTURE.md](../../docs/ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../../AGENTS.md) — 开发规范 | [修改术语说明](#📌-修改术语说明)<br>[核心资源地图](#📍-核心资源地图)<br>[快速导航](#🎯-快速导航) |
+| **本文** — RinUI 文档索引、术语说明、快速导航 | [README.md](../README.md) — 快速入门<br>[ARCHITECTURE.md](../docs/ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../AGENTS.md) — 开发规范 | [修改术语说明](#📌-修改术语说明)<br>[核心资源地图](#📍-核心资源地图)<br>[快速导航](#🎯-快速导航) |
 
 ---
 

@@ -1,4 +1,5 @@
 # Reference 速查
+<!-- 状态: active | 最后验证: 2026-05-14 -->
 
 > 面向开发者和 AI Agent 的纯速查表。不写教程，只列"有什么"。
 
@@ -8,7 +9,7 @@
 
 | 当前文档 | 其他核心文档 | 快速链接 |
 | :--- | :--- | :--- |
-| **本文** — 速查表入口 | [README.md](../../README.md) — 快速入门<br>[ARCHITECTURE.md](../../docs/ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../../AGENTS.md) — 开发规范 | [文档清单](#文档清单)<br>[阅读建议](#阅读建议) |
+| **本文** — 速查表入口 | [README.md](../../README.md) — 快速入门<br>[ARCHITECTURE.md](../ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../../AGENTS.md) — 开发规范 | [文档清单](#文档清单)<br>[阅读建议](#阅读建议) |
 
 ---
 
@@ -31,4 +32,4 @@
 - 改服务端交互 → 先查 `api-endpoints.md`
 - 改打字统计公式 → 先查 `typing-metrics.md`
 - 改晴发文集成 → 先查 `qingfa-qq-group-integration.md`
-- 特定操作流程（添加功能、调试）→ 查阅 `skills/` 目录下的操作手册
+- 特定操作流程（添加功能、调试）→ 查阅 `docs/guides/` 目录下的操作手册

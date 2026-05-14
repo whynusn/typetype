@@ -1,4 +1,5 @@
 # 服务端 API 端点速查
+<!-- 状态: active | 最后验证: 2026-05-14 -->
 
 > 后端项目：`typetype-server`（Java Spring Boot）
 > 基础 URL：由 `RuntimeConfig.base_url` 配置，默认 `http://127.0.0.1:8080`

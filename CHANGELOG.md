@@ -57,4 +57,4 @@
 
 **维护者**: typetype 开发团队  
 **最后更新**: 2026-05-14  
-**相关文档**: [@see ARCHITECTURE.md](./ARCHITECTURE.md) — 当前架构事实源
+**相关文档**: [@see docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — 当前架构事实源

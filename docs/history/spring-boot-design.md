@@ -4,7 +4,7 @@
 >
 > 基于对 typetype 桌面客户端的完整架构分析，设计一套面试级别的 Spring Boot 后端服务。
 >
-> 注意：本文重点是后端方案，客户端架构请以 [ARCHITECTURE.md](./ARCHITECTURE.md) 和源码为准。
+> 注意：本文重点是后端方案，客户端架构请以 [ARCHITECTURE.md](../ARCHITECTURE.md) 和源码为准。
 
 ---
 

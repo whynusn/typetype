@@ -11,7 +11,7 @@
 
 | 当前文档 | 其他核心文档 | 快速链接 |
 | :--- | :--- | :--- |
-| **本文** — 修改明细表：文件/行号/修改内容/原因 | [README.md](../../README.md) — 快速入门<br>[ARCHITECTURE.md](../../docs/ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../../AGENTS.md) — 开发规范 | [修改术语说明](#📌-修改术语说明)<br>[修改 1](#1-contextmenu-下拉弹出位置与动画)<br>[修改 2](#2-navigationbar-返回按钮水平对齐) |
+| **本文** — 修改明细表：文件/行号/修改内容/原因 | [README.md](../README.md) — 快速入门<br>[ARCHITECTURE.md](../docs/ARCHITECTURE.md) — 架构权威<br>[AGENTS.md](../AGENTS.md) — 开发规范 | [修改术语说明](#📌-修改术语说明)<br>[修改 1](#1-contextmenu-下拉弹出位置与动画)<br>[修改 2](#2-navigationbar-返回按钮水平对齐) |
 
 ---
 
