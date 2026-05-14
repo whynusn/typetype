@@ -108,7 +108,8 @@ def main():
     if adapters.key_listener:
         adapters.key_listener.stop()
     del engine
-    sys.exit(exit_code)
+    del rin_window
+    os._exit(exit_code)
 
 
 if __name__ == "__main__":

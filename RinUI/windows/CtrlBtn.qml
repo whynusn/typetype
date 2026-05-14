@@ -47,11 +47,7 @@ Base {
         } else if (mode===1) {
             window.showMinimized();
         } else if (mode===2) {
-            if (window.transientParent) {
-                window.visible = false;
-            } else {
-                window.close();
-            }
+            Qt.quit();
         }
     }
 
