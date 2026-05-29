@@ -33,12 +33,14 @@ FluentPage {
     // 同步服务端目录到 ListModel
     function syncSourceOptions(catalog) {
         sourceListModel.clear();
-        if (catalog) {
+        if (catalog && catalog.length > 0) {
             for (var i = 0; i < catalog.length; i++) {
-                sourceListModel.append(catalog[i]);
+                sourceListModel.append({ key: catalog[i].key, label: catalog[i].label || catalog[i].key });
             }
-            if (catalog.length > 0) {
-                sourceComboBox.currentIndex = 0;
+            sourceComboBox.currentIndex = 0;
+            var firstKey = catalog[0].key;
+            if (firstKey && appBridge) {
+                appBridge.loadTextList(firstKey);
             }
         }
     }
@@ -223,6 +225,15 @@ FluentPage {
                         running: appBridge ? appBridge.leaderboardLoading : false
                         visible: running
                     }
+                }
+
+                // 提示信息
+                Text {
+                    Layout.fillWidth: true
+                    typography: Typography.Caption
+                    color: Theme.currentTheme.colors.textSecondaryColor
+                    text: qsTr("如果没有加载出来，可以尝试点右上角的刷新目录按钮")
+                    wrapMode: Text.WordWrap
                 }
 
                 // 分隔线
@@ -842,7 +853,6 @@ FluentPage {
 
         function onCatalogLoaded(catalog) {
             syncSourceOptions(catalog);
-            // syncSourceOptions 设 currentIndex=0 会自动触发 loadTextList，无需显式调用
         }
 
         function onCatalogLoadFailed(message) {
@@ -860,21 +870,33 @@ FluentPage {
             for (var i = 0; i < texts.length; i++) {
                 var t = texts[i];
                 // 服务端 clientTextId 可能为 null，ListModel 不接受 undefined 成员
-                textListModel.append({
-                    id: t.id || 0,
-                    title: t.title || "",
-                    char_count: t.charCount || 0,
-                    clientTextId: t.clientTextId || 0
-                });
+                var item = {};
+                item.id = t.id ? t.id : 0;
+                item.title = t.title || "";
+                item.char_count = t.charCount ? t.charCount : 0;
+                item.clientTextId = t.clientTextId ? t.clientTextId : 0;
+                textListModel.append(item);
             }
-            // 不再自动拉取首条排行榜，避免页面进入时级联请求
-            selectedTextId = -1;
-            selectedTextTitle = "";
+
+            // 自动选择第一个文本并加载排行榜，让用户一进入页面就能看到内容
+            if (textListModel.count > 0) {
+                var first = textListModel.get(0);
+                selectedTextId = first.id;
+                selectedTextTitle = first.title;
+                if (appBridge) {
+                    appBridge.loadLeaderboardByTextId(first.id);
+                }
+            } else {
+                selectedTextId = -1;
+                selectedTextTitle = "";
+            }
             errorMessage = "";
         }
 
         function onTextListLoadFailed(message) {
             textListModel.clear();
+            selectedTextId = -1;
+            selectedTextTitle = "";
             errorMessage = message;
         }
 
@@ -897,7 +919,6 @@ FluentPage {
     // ========== 页面激活时加载数据 ==========
     onActiveChanged: {
         if (active && appBridge) {
-            // 缓存优先：仅加载目录，不清空缓存；强制刷新由“刷新目录”按钮触发
             appBridge.loadCatalog();
         }
     }
