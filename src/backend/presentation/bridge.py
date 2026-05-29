@@ -1258,15 +1258,24 @@ class Bridge(QObject):
         if not text or slice_size <= 0:
             return
 
-        # 全文乱序：先打乱全文字符，再进入分片
-        if self._coordinator.pending_slice_params.get("full_shuffle"):
-            import random
-
-            chars = list(text)
-            random.shuffle(chars)
-            text = "".join(chars)
-
         # 仅使用入口页显式传入的已恢复进度（不自动从存储恢复）
+        progress_dict = None
+        if restored_progress:
+            try:
+                progress_dict = json.loads(restored_progress)
+            except (json.JSONDecodeError, TypeError):
+                progress_dict = None
+
+        # 全文乱序：恢复进度时使用已保存的乱序文本，否则重新打乱
+        if self._coordinator.pending_slice_params.get("full_shuffle"):
+            if progress_dict and progress_dict.get("slice_text"):
+                text = progress_dict["slice_text"]
+            else:
+                import random
+
+                chars = list(text)
+                random.shuffle(chars)
+                text = "".join(chars)
         progress_dict = None
         if restored_progress:
             try:
@@ -1309,6 +1318,10 @@ class Bridge(QObject):
         title: str = "",
     ) -> None:
         """实际执行分片设置（被 setupSliceMode 调用）。"""
+        # 恢复进度时，使用保存的文本（全文乱序场景下保证段落内容一致）
+        if restored_progress and restored_progress.get("slice_text"):
+            text = restored_progress["slice_text"]
+
         effective_start_slice = start_slice
         if restored_progress:
             saved_slice = restored_progress.get("current_slice", 1)
@@ -1423,6 +1436,8 @@ class Bridge(QObject):
                     if not text:
                         return
                 title = self._typing_adapter.text_title
+                # 保存完整文本，用于全文乱序模式恢复时复用同一乱序结果
+                saved_slice_text = ctx._slice_text if ctx._slice_text else ""
                 progress = {
                     "last_accessed": datetime.now().isoformat(),
                     "total_slices": ctx.slice_total,
@@ -1445,6 +1460,7 @@ class Bridge(QObject):
                         "advance_mode", "sequential"
                     ),
                     "slice_metrics": [m.copy() for m in ctx._slice_metrics],
+                    "slice_text": saved_slice_text,
                 }
                 self._text_slice_progress_store.save_progress(text, title, progress)
 
@@ -1452,23 +1468,32 @@ class Bridge(QObject):
     def isLastSlice(self) -> bool:
         return self._typing_adapter.is_last_slice()
 
+    def _save_current_slice_if_needed(self) -> None:
+        """段落切换前，若当前段有未保存的成绩则先保存。"""
+        if self._typing_adapter.get_last_slice_stats():
+            self.collectSliceResult()
+
     @Slot()
     def loadNextSlice(self) -> None:
         """载入下一片（无尽模式：最后一片后回到第一片）。"""
+        self._save_current_slice_if_needed()
         self._coordinator.load_next_slice(self)
 
     @Slot()
     def loadRandomSlice(self) -> None:
         """手动载入一个随机片段（避开当前片）。"""
         if self._typing_adapter.is_slice_mode():
+            self._save_current_slice_if_needed()
             self._coordinator.load_random_slice(self)
 
     def _load_random_slice(self) -> None:
+        self._save_current_slice_if_needed()
         self._coordinator.load_random_slice(self)
 
     @Slot()
     def loadPrevSlice(self) -> None:
         """载入上一片。"""
+        self._save_current_slice_if_needed()
         self._coordinator.load_prev_slice(self)
 
     @Slot(result=bool)
