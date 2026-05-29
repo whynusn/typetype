@@ -340,6 +340,8 @@ class TypingService:
             "date": self._state.score_data.date,
             "peakSpeed": round(self._state.peak_speed, 2),
             "peakKeyStroke": round(self._state.peak_key_stroke, 2),
-            "peakCodeLength": round(self._state.peak_code_length, 2) if self._state.peak_code_length != float("inf") else 0.0,
+            "peakCodeLength": round(self._state.peak_code_length, 2)
+            if self._state.peak_code_length != float("inf")
+            else 0.0,
             "slowChars": slow_chars,
         }

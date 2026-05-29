@@ -98,7 +98,9 @@ class ScoreSummaryDTO:
             ],
             peak_speed=score_data.peak_speed,
             peak_key_stroke=score_data.peak_key_stroke,
-            peak_code_length=score_data.peak_code_length if score_data.peak_code_length != float("inf") else 0.0,
+            peak_code_length=score_data.peak_code_length
+            if score_data.peak_code_length != float("inf")
+            else 0.0,
             slow_chars=score_data.slow_chars or None,
         )
 

@@ -443,8 +443,12 @@ class TypingSessionContext:
         self._accuracy_min = m.get("accuracy_min", self._accuracy_min)
         self._pass_count_min = m.get("pass_count_min", self._pass_count_min)
         self._on_fail_action = m.get("on_fail_action", self._on_fail_action)
-        self._auto_decrease_enabled = m.get("auto_decrease_enabled", self._auto_decrease_enabled)
-        self._key_stroke_decrease = m.get("key_stroke_decrease", self._key_stroke_decrease)
+        self._auto_decrease_enabled = m.get(
+            "auto_decrease_enabled", self._auto_decrease_enabled
+        )
+        self._key_stroke_decrease = m.get(
+            "key_stroke_decrease", self._key_stroke_decrease
+        )
         self._speed_decrease = m.get("speed_decrease", self._speed_decrease)
         self._accuracy_decrease = m.get("accuracy_decrease", self._accuracy_decrease)
 

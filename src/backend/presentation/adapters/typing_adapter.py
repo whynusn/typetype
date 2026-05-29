@@ -213,7 +213,9 @@ class TypingAdapter(QObject):
                     "time": s.time,
                     "peakSpeed": self._typing_service.peak_speed,
                     "peakKeyStroke": self._typing_service.peak_key_stroke,
-                    "peakCodeLength": self._typing_service.peak_code_length if self._typing_service.peak_code_length != float("inf") else 0.0,
+                    "peakCodeLength": self._typing_service.peak_code_length
+                    if self._typing_service.peak_code_length != float("inf")
+                    else 0.0,
                     "slowChars": s.slow_chars,
                 }
 
