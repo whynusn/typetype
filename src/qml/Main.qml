@@ -30,9 +30,21 @@ FluentWindow {
             position: Position.Top
         },
         {
+            title: qsTr("极速杯载文"),
+            page: Qt.resolvedUrl("pages/JisuBeiPage.qml"),
+            icon: "ic_fluent_globe_20_regular",
+            position: Position.None
+        },
+        {
             title: qsTr("本地文库"),
             page: Qt.resolvedUrl("pages/LocalArticlesPage.qml"),
             icon: "ic_fluent_library_20_regular",
+            position: Position.None
+        },
+        {
+            title: qsTr("自定义载文"),
+            page: Qt.resolvedUrl("pages/CustomLoadTextPage.qml"),
+            icon: "ic_fluent_edit_20_regular",
             position: Position.None
         },
         {
