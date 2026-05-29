@@ -62,6 +62,6 @@ class TextSliceProgressStore:
             "metrics": progress.get("metrics", {}),
             "slice_metrics": progress.get("slice_metrics", []),
             "advance_mode": progress.get("advance_mode", "sequential"),
-            "slice_text": progress.get("slice_text", ""),
+            "shuffle_seed": progress.get("shuffle_seed"),
         }
         self.save(data)

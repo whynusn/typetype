@@ -170,6 +170,7 @@ class Bridge(QObject):
         self._pending_history_score_text = ""
         self._pending_restored_progress: dict | None = None
         self._pending_restore_key: str = ""
+        self._current_shuffle_seed: int | None = None
         self._cached_devices: list[dict] | None = None
         self._reader_font_path = self._load_reader_font_path()
 
@@ -1045,14 +1046,23 @@ class Bridge(QObject):
             if full_text:
                 import random
 
+                # 恢复进度时用保存的 seed 复现同一排列
+                saved_seed = None
+                if self._pending_restored_progress:
+                    saved_seed = self._pending_restored_progress.get("shuffle_seed")
+                if saved_seed is None:
+                    saved_seed = random.randint(0, 2**31 - 1)
+                rng = random.Random(saved_seed)
                 chars = list(full_text)
-                random.shuffle(chars)
+                rng.shuffle(chars)
                 shuffled = "".join(chars)
                 p = self._coordinator.pending_slice_params
                 rp = ""
                 if self._pending_restored_progress:
+                    self._pending_restored_progress["shuffle_seed"] = saved_seed
                     rp = json.dumps(self._pending_restored_progress, ensure_ascii=False)
                     self._pending_restored_progress = None
+                self._current_shuffle_seed = saved_seed
                 self.setupSliceMode(
                     shuffled,
                     segmentSize,
@@ -1266,22 +1276,20 @@ class Bridge(QObject):
             except (json.JSONDecodeError, TypeError):
                 progress_dict = None
 
-        # 全文乱序：恢复进度时使用已保存的乱序文本，否则重新打乱
+        # 全文乱序：恢复进度时用保存的 seed 复现同一排列，否则生成新 seed
         if self._coordinator.pending_slice_params.get("full_shuffle"):
-            if progress_dict and progress_dict.get("slice_text"):
-                text = progress_dict["slice_text"]
-            else:
-                import random
+            import random
 
-                chars = list(text)
-                random.shuffle(chars)
-                text = "".join(chars)
-        progress_dict = None
-        if restored_progress:
-            try:
-                progress_dict = json.loads(restored_progress)
-            except (json.JSONDecodeError, TypeError):
-                progress_dict = None
+            seed = (progress_dict or {}).get("shuffle_seed")
+            if seed is None:
+                seed = random.randint(0, 2**31 - 1)
+            rng = random.Random(seed)
+            chars = list(text)
+            rng.shuffle(chars)
+            text = "".join(chars)
+            self._current_shuffle_seed = seed
+            if progress_dict is not None:
+                progress_dict["shuffle_seed"] = seed
 
         self._apply_slice_setup(
             text,
@@ -1318,10 +1326,6 @@ class Bridge(QObject):
         title: str = "",
     ) -> None:
         """实际执行分片设置（被 setupSliceMode 调用）。"""
-        # 恢复进度时，使用保存的文本（全文乱序场景下保证段落内容一致）
-        if restored_progress and restored_progress.get("slice_text"):
-            text = restored_progress["slice_text"]
-
         effective_start_slice = start_slice
         if restored_progress:
             saved_slice = restored_progress.get("current_slice", 1)
@@ -1436,8 +1440,6 @@ class Bridge(QObject):
                     if not text:
                         return
                 title = self._typing_adapter.text_title
-                # 保存完整文本，用于全文乱序模式恢复时复用同一乱序结果
-                saved_slice_text = ctx._slice_text if ctx._slice_text else ""
                 progress = {
                     "last_accessed": datetime.now().isoformat(),
                     "total_slices": ctx.slice_total,
@@ -1460,7 +1462,7 @@ class Bridge(QObject):
                         "advance_mode", "sequential"
                     ),
                     "slice_metrics": [m.copy() for m in ctx._slice_metrics],
-                    "slice_text": saved_slice_text,
+                    "shuffle_seed": self._current_shuffle_seed,
                 }
                 self._text_slice_progress_store.save_progress(text, title, progress)
 
