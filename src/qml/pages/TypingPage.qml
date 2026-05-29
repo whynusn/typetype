@@ -11,6 +11,7 @@ Item {
     property bool loggedin: false  // Will be injected by NavigationView
     property bool showLeaderboard: false
     property string sliceStatusText: ""
+    property string sliceCriteriaText: ""
     property string currentZitiHint: ""
     readonly property int historyMaxRows: 200
 
@@ -46,6 +47,16 @@ Item {
 
     function syncSliceStatus() {
         typingPage.sliceStatusText = appBridge ? appBridge.getSliceStatus() : "";
+    }
+
+    function syncSliceCriteria() {
+        typingPage.sliceCriteriaText = appBridge ? appBridge.getSliceCriteria() : "";
+    }
+
+    function openSliceConfig() {
+        if (Window.window && Window.window.navigationView) {
+            Window.window.navigationView.push(Qt.resolvedUrl("CustomLoadTextPage.qml"));
+        }
     }
 
     function refreshZitiHint() {
@@ -125,7 +136,7 @@ Item {
 
         // --- F2 按键响应（载文设置）---
         if (event.key === Qt.Key_F2) {
-            sliceConfigDialog.open();
+            typingPage.openSliceConfig();
             event.accepted = true;
         }
 
@@ -327,31 +338,41 @@ Item {
         function onTypingEnded() {
             if (appBridge && appBridge.sliceMode) {
                 appBridge.collectSliceResult();
-                if (appBridge.shouldRetype()) {
-                    // 重打（乱序或原样）：清空后由 handleSliceRetype 重新加载
+                var result = appBridge.checkSliceResult();
+                if (result === "fail") {
+                    // 基础指标未达标：降击 + 重打
                     lowerPane.suppressTextChanged = true;
                     lowerPane.text = "";
                     lowerPane.suppressTextChanged = false;
                     upperPane.setCursorAndScroll(0, false);
                     upperPane.text = "";
                     appBridge.handleSliceRetype();
-                } else if (appBridge.getOnFailAction() !== "none") {
-                    // 达标且开启自动推进 → 载入下一段
+                } else if (result === "pass") {
+                    // 基础指标达标，但连达标次数未满：重打，不降击
                     lowerPane.suppressTextChanged = true;
                     lowerPane.text = "";
                     lowerPane.suppressTextChanged = false;
                     upperPane.setCursorAndScroll(0, false);
                     upperPane.text = "";
-                    appBridge.loadNextSlice();
+                    appBridge.handleSliceRetypeNoDecrease();
                 } else {
-                    // 无自动推进：重置打字状态，保留当前文本
-                    lowerPane.suppressTextChanged = true;
-                    lowerPane.text = "";
-                    lowerPane.suppressTextChanged = false;
-                    appBridge.handleLoadedText(upperPane.textDocument, upperPane.text);
-                    Qt.callLater(function() {
-                        lowerPane.lastText = lowerPane.text;
-                    });
+                    // advance：连达标次数已满，推进下一段
+                    if (appBridge.getOnFailAction() !== "none") {
+                        lowerPane.suppressTextChanged = true;
+                        lowerPane.text = "";
+                        lowerPane.suppressTextChanged = false;
+                        upperPane.setCursorAndScroll(0, false);
+                        upperPane.text = "";
+                        appBridge.loadNextSlice();
+                    } else {
+                        lowerPane.suppressTextChanged = true;
+                        lowerPane.text = "";
+                        lowerPane.suppressTextChanged = false;
+                        appBridge.handleLoadedText(upperPane.textDocument, upperPane.text);
+                        Qt.callLater(function() {
+                            lowerPane.lastText = lowerPane.text;
+                        });
+                    }
                 }
             } else if (appBridge && appBridge.isWenlaiActive && appBridge.wenlaiSegmentMode === "auto") {
                 appBridge.loadNextWenlaiSegmentWithScore();
@@ -398,7 +419,7 @@ Item {
         }
 
         function onRequestOpenSliceConfig() {
-            sliceConfigDialog.open();
+            typingPage.openSliceConfig();
         }
     }
 
@@ -413,6 +434,7 @@ Item {
 
         function onSliceModeChanged() {
             typingPage.syncSliceStatus();
+            typingPage.syncSliceCriteria();
         }
 
         function onUploadResult(success, message, textId) {
@@ -431,6 +453,7 @@ Item {
     onActiveChanged: {
         if (active) {
             typingPage.syncSliceStatus();
+            typingPage.syncSliceCriteria();
             if (appBridge && !appBridge.sliceMode && firstActivation) {
                 firstActivation = false;
                 appBridge.setTextTitle(appBridge.defaultTextTitle);
@@ -438,6 +461,12 @@ Item {
                 Qt.callLater(function () {
                     appBridge.requestLoadText(appBridge.defaultTextSourceKey);
                 });
+            }
+            // 竞态修复：载文异步完成期间用户切走 → textLoaded 信号被
+            // enabled: typingPage.active 守卫丢弃 → read_only 停留在 true。
+            // 回来后用已有 UpperPane 文本重新初始化打字状态。
+            if (appBridge && appBridge.textReadOnly && upperPane.text.length > 0) {
+                handleRetypeRequest();
             }
         }
     }
@@ -624,6 +653,15 @@ Item {
                             }
 
                             Text {
+                                text: typingPage.sliceCriteriaText
+                                font.pixelSize: 11
+                                color: Theme.currentTheme
+                                    ? Theme.currentTheme.colors.textSecondaryColor
+                                    : "#666"
+                                visible: typingPage.sliceCriteriaText.length > 0
+                            }
+
+                            Text {
                                 text: appBridge ? "达标次数: " + appBridge.slicePassCount : ""
                                 font.pixelSize: 12
                                 font.bold: true
@@ -746,14 +784,6 @@ Item {
         x: (parent.width - width) / 2
         y: (parent.height - height) / 2
         property bool isSliceAggregate: false
-    }
-
-    SliceConfigDialog {
-        id: sliceConfigDialog
-        x: (parent.width - width) / 2
-        y: (parent.height - height) / 2
-        textSourceOptions: appBridge ? appBridge.textSourceOptions : []
-        defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
     }
 
 }
