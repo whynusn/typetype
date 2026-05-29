@@ -15,6 +15,7 @@ RowLayout {
     property alias navigationBar: navigationBar  // 导航栏
     property alias navigationItems: navigationBar.navigationItems  // 导航栏item
     property alias currentPage: navigationBar.currentPage  // 当前页面索引
+    property string previousPage: ""  // 上一页面索引（用于 pop 回退）
     property string defaultPage: ""  // 默认索引项
     property var window: parent  // 窗口对象
     
@@ -175,6 +176,7 @@ RowLayout {
         }
 
         if (currentPageInstance && currentPageInstance !== pageInstance) {
+            previousPage = currentPage
             setPropertySafe(currentPageInstance, "active", false)
             currentPageInstance.visible = false
         }
@@ -189,6 +191,12 @@ RowLayout {
     function push(page, properties) {
         if (properties === undefined) properties = {}
         showPage(page, properties)
+    }
+
+    function pop() {
+        if (previousPage) {
+            showPage(previousPage)
+        }
     }
 
     function safePush(page, reload, fromNavigation, properties) {

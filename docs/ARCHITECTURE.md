@@ -180,8 +180,10 @@ src/backend/
 │   ├── qt_local_text_loader.py
 │   ├── remote_text_provider.py
 │   ├── secure_token_store.py
+│   ├── slice_metrics_prefs_store.py
 │   ├── sqlite_char_stats_repository.py
 │   ├── system_identifier.py
+│   ├── text_slice_progress_store.py
 │   ├── text_uploader.py
 │   └── wenlai_provider.py
 ├── models/
@@ -256,13 +258,15 @@ src/backend/
 src/qml/
 ├── Main.qml
 ├── pages/
-│   ├── TypingPage.qml
+│   ├── TypingPage.qml          # 跟打页面（非载文入口）
+│   ├── CustomLoadTextPage.qml   # 载文入口：自定义载文（F2 打开）
+│   ├── LocalArticlesPage.qml    # 载文入口：本地文库
+│   ├── TrainerPage.qml          # 载文入口：练单器
+│   ├── JisuBeiPage.qml          # 载文入口：极速杯载文
 │   ├── WeakCharsPage.qml
 │   ├── DailyLeaderboard.qml
 │   ├── WeeklyLeaderboard.qml
 │   ├── AllTimeLeaderboard.qml
-│   ├── LocalArticlesPage.qml
-│   ├── TrainerPage.qml
 │   ├── ProfilePage.qml
 │   ├── SettingsPage.qml
 │   ├── TextLeaderboardPage.qml
@@ -275,10 +279,30 @@ src/qml/
 │   ├── HistoryArea.qml
 │   ├── EndDialog.qml
 │   ├── LeaderboardPanel.qml
-│   └── SliceConfigDialog.qml
+│   ├── SliceCriteriaPanel.qml   # 载文入口共享组件：达标条件面板
+│   └── TextLoadPanel.qml        # 载文入口共享组件：文本输入/选择面板
 └── components/
     └── AppText.qml
 ```
+
+#### 载文入口（Text Loading Entry Points）
+
+载文入口是用户配置和发起载文的页面，共 4 个：
+
+| 入口 | 文件 | 触发方式 | 说明 |
+|:---|:---|:---|:---|
+| 自定义载文 | `CustomLoadTextPage.qml` | TypingPage F2 / 侧边栏 | 手动输入或从文库选择文本，支持分片和全文模式 |
+| 本地文库 | `LocalArticlesPage.qml` | 侧边栏 | 扫描本地 `.txt` 文件，按文章+分段载入 |
+| 练单器 | `TrainerPage.qml` | 侧边栏 | 扫描练单器词库，按词库+分组载入 |
+| 极速杯载文 | `JisuBeiPage.qml` | 侧边栏 | 从服务端获取极速杯文本列表，支持分片 |
+
+共享组件：
+- `SliceCriteriaPanel` — 达标条件配置（击键、速度、准确率、达标次数、失败动作等）
+- `TextLoadPanel` — 文本输入区 + 文本来源选择 + 分片参数
+
+对称性规范（详见 AGENTS.md § Qt/QML）：
+- 所有入口的默认每段字数统一
+- 所有入口都提供"继续上次进度"按钮（当有历史进度时）
 
 ---
 
