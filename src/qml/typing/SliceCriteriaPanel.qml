@@ -109,6 +109,12 @@ Frame {
         keyStrokeDecreaseSpin.value = Math.round(keyStrokeDecreaseValue * 100);
         speedDecreaseSpin.value = speedDecreaseValue;
         accuracyDecreaseSpin.value = accuracyDecreaseValue;
+        for (var i = 0; i < onFailActionCombo.count; i++) {
+            if (onFailActionCombo.model.get(i).value === onFailActionValue) {
+                onFailActionCombo.currentIndex = i;
+                break;
+            }
+        }
     }
 
     // --- 控件 → 外部属性（单向，无回写）---

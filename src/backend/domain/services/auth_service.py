@@ -4,6 +4,7 @@ import time
 
 from ...ports.auth_provider import AuthProvider
 from ...ports.token_store import TokenStore
+from ...utils.logger import log_warning
 
 
 def _decode_jwt_exp(token: str) -> int | None:
@@ -105,7 +106,10 @@ class AuthService:
 
     def logout(self):
         for key in ("current_user", "current_user_refresh"):
-            self._token_store.delete_token(key)
+            try:
+                self._token_store.delete_token(key)
+            except Exception as e:
+                log_warning(f"登出时清除 {key} 失败: {e}")
 
         self._current_user_id = ""
         self._current_username = ""

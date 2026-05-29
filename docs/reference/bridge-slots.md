@@ -124,7 +124,7 @@
 | `requestShuffle` | 无 | 乱序当前文本 |
 | `getTextContentById` | `(int textId)` | 按 ID 异步获取文本内容 |
 | `copyToClipboard` | `(str text)` | 复制文本到剪贴板 |
-| `setupSliceMode` | `(str text, int sliceSize, int startSlice, float keyStrokeMin, int speedMin, int accuracyMin, int passCountMin, str onFailAction, bool autoDecreaseEnabled=false, float autoDecreaseAmount=0.01)` | 初始化载文模式（分片），分片并加载第 startSlice 片 |
+| `setupSliceMode` | `(str text, int sliceSize, int startSlice, float keyStrokeMin, int speedMin, int accuracyMin, int passCountMin, str onFailAction, bool autoDecreaseEnabled=false, float keyStrokeDecrease=0.0, int speedDecrease=0, int accuracyDecrease=0, str restoredProgress="", str title="")` | 初始化载文模式（分片），分片并加载第 startSlice 片 |
 | `collectSliceResult` | 无 | 收集当前片的 SessionStat 快照 |
 | `isLastSlice` | → `bool` | 当前片是否为最后一片 |
 | `loadNextSlice` | 无 | 载入下一片 |
@@ -139,8 +139,15 @@
 | `getLocalTextContent` | `(str source_key)` → `str` | 同步读取本地文本内容（供载文 Dialog 离线预览） |
 | `loadPrevSlice` | 无 | 载入上一片 |
 | `getOnFailAction` | → `str` | 返回当前未达标处理动作 |
+| `checkSliceResult` | → `str` | 检查当前片结果：fail/pass/advance |
+| `handleSliceRetypeNoDecrease` | 无 | 重打当前片，不触发降击（连达标未满场景） |
+| `getSliceCriteria` | → `str` | 返回当前达标条件文字（含降击后更新） |
+| `hasSliceProgress` | `(str progressKey)` → `bool` | 查询指定 key 是否有保存的分片进度 |
+| `getSliceProgressInfo` | `(str progressKey)` → `str` | 返回 JSON 格式的进度详情 |
+| `applySliceProgressRestore` | `(str progressKey, bool restore)` → `str` | 处理恢复弹窗结果，返回进度 JSON 或空字符串 |
+| `prepareSliceProgressRestore` | `(str progressKey)` | source-based 路径：预加载进度供 segment loader 恢复 |
 | `loadSliceMetricsPrefs` | → `dict` | 加载上次保存的分片指标偏好设置 |
-| `saveSliceMetricsPrefs` | `(float keyStrokeMin, int speedMin, int accuracyMin, int passCountMin, str onFailAction, bool autoDecreaseEnabled, float autoDecreaseAmount)` | 保存分片指标偏好设置 |
+| `saveSliceMetricsPrefs` | `(float keyStrokeMin, int speedMin, int accuracyMin, int passCountMin, str onFailAction, bool autoDecreaseEnabled, float keyStrokeDecrease, int speedDecrease, int accuracyDecrease)` | 保存分片指标偏好设置 |
 | `getTextSliceProgress` | `(str text)` → `dict` | 查询指定文本的分片进度历史记录 |
 | `saveTextSliceProgress` | `(str text, str title, dict progress)` | 保存指定文本的分片进度 |
 | `setBaseUrl` | `(str newBaseUrl)` | 更新 API 服务地址，持久化并同步所有依赖对象 |

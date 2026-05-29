@@ -169,6 +169,7 @@ class Bridge(QObject):
         self._pending_history_segment_label = ""
         self._pending_history_score_text = ""
         self._pending_restored_progress: dict | None = None
+        self._pending_restore_key: str = ""
         self._cached_devices: list[dict] | None = None
         self._reader_font_path = self._load_reader_font_path()
 
@@ -486,6 +487,10 @@ class Bridge(QObject):
                 m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
             ]
             ctx.restore_slice_metrics(ctx.slice_index)
+        # 恢复成功，从存储删除进度
+        if self._pending_restore_key and self._text_slice_progress_store:
+            self._text_slice_progress_store.delete_progress(self._pending_restore_key)
+            self._pending_restore_key = ""
         self._pending_restored_progress = None
 
     def _on_wenlai_config_changed(self) -> None:
@@ -813,7 +818,6 @@ class Bridge(QObject):
 
     @Slot(str, str)
     @Slot(str, str, str)
-    @Slot(str, str, str, str)
     def loadFullText(self, text: str, source_key: str = "", title: str = "") -> None:
         """全文载入（不分片），走正常文本加载路径。
 
@@ -1437,6 +1441,9 @@ class Bridge(QObject):
                         "speed_decrease": ctx._speed_decrease,
                         "accuracy_decrease": ctx._accuracy_decrease,
                     },
+                    "advance_mode": self._coordinator.pending_slice_params.get(
+                        "advance_mode", "sequential"
+                    ),
                     "slice_metrics": [m.copy() for m in ctx._slice_metrics],
                 }
                 self._text_slice_progress_store.save_progress(text, title, progress)
@@ -1515,8 +1522,11 @@ class Bridge(QObject):
             "saved_total": progress.get("total_slices", 0),
             "saved_title": progress.get("text_title", ""),
             "slice_size": progress.get("slice_size", 0),
-            "advance_mode": self._coordinator.pending_slice_params.get(
-                "advance_mode", "sequential"
+            "advance_mode": progress.get(
+                "advance_mode",
+                self._coordinator.pending_slice_params.get(
+                    "advance_mode", "sequential"
+                ),
             ),
             "last_accessed": progress.get("last_accessed", ""),
             "current_pass_count": pass_counts[saved_slice_idx]
@@ -1557,6 +1567,7 @@ class Bridge(QObject):
         progress = self._text_slice_progress_store.get_progress(progressKey)
         if progress:
             self._pending_restored_progress = progress
+            self._pending_restore_key = progressKey
             # 同时覆盖 pending_slice_params 中的指标为保存的值
             saved_metrics = progress.get("metrics", {})
             if saved_metrics:
@@ -1584,8 +1595,6 @@ class Bridge(QObject):
                 p["accuracy_decrease"] = saved_metrics.get(
                     "accuracy_decrease", p.get("accuracy_decrease", 0)
                 )
-            # 从存储删除，防止正常开始时再次触发自动恢复
-            self._text_slice_progress_store.delete_progress(progressKey)
 
     def _reload_current_slice(self) -> None:
         self._coordinator.load_current_slice(self)
