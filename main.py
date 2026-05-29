@@ -63,6 +63,16 @@ def main():
             obj.update_base_url(runtime_config.base_url)
         log_info(f"[main] base_url 已更新为: {runtime_config.base_url}")
 
+    from src.backend.config.app_paths import (
+        slice_metrics_prefs_path,
+        text_slice_progress_path,
+    )
+    from src.backend.integration.slice_metrics_prefs_store import SliceMetricsPrefsStore
+    from src.backend.integration.text_slice_progress_store import TextSliceProgressStore
+
+    slice_metrics_store = SliceMetricsPrefsStore(slice_metrics_prefs_path())
+    text_slice_progress_store = TextSliceProgressStore(text_slice_progress_path())
+
     bridge = Bridge(
         typing_adapter=adapters.typing,
         text_adapter=adapters.text,
@@ -78,6 +88,8 @@ def main():
         typing_totals_gateway=gateways.typing_totals,
         key_listener=adapters.key_listener,
         base_url_update_callback=update_base_url,
+        slice_metrics_prefs_store=slice_metrics_store,
+        text_slice_progress_store=text_slice_progress_store,
     )
     bridge.initializeLoginState()
     bridge.loadCatalog()
