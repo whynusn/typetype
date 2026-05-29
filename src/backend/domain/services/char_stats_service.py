@@ -76,6 +76,18 @@ class CharStatsService:
     def get_all(self) -> dict[str, CharStat]:
         return dict(self._cache)
 
+    def get_slow_chars(
+        self, threshold_ms: float = 500.0, limit: int = 10
+    ) -> list[tuple[str, float]]:
+        chars_with_times = []
+        for char in self._dirty:
+            if char in self._cache:
+                stat = self._cache[char]
+                if stat.avg_ms >= threshold_ms:
+                    chars_with_times.append((char, round(stat.avg_ms / 1000, 1)))
+        chars_with_times.sort(key=lambda x: x[1], reverse=True)
+        return chars_with_times[:limit]
+
     def clear(self) -> None:
         self._cache.clear()
         self._dirty.clear()
