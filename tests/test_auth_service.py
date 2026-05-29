@@ -5,13 +5,10 @@ from src.backend.domain.services.auth_service import AuthService
 from src.backend.models.dto.auth_dto import AuthResult
 
 
-# Patch SecureStorage globally for all tests (no keyring backend in sandbox)
-_secure_storage_patcher = patch.multiple(
-    "src.backend.security.secure_storage.SecureStorage",
-    save_jwt=MagicMock(),
-    get_jwt=MagicMock(return_value=None),
-)
-_secure_storage_patcher.start()
+def _make_token_store() -> MagicMock:
+    store = MagicMock()
+    store.get_token.return_value = None
+    return store
 
 
 def _make_provider(
@@ -29,7 +26,7 @@ def _make_provider(
 class TestAuthServiceRefreshInterval:
     def test_refresh_interval_zero_when_no_expires_in(self):
         provider = _make_provider()
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         assert svc.refresh_interval_seconds == 0
 
     def test_refresh_interval_normal(self):
@@ -42,7 +39,7 @@ class TestAuthServiceRefreshInterval:
                 user_info={"id": "1", "nickname": "test"},
             )
         )
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         with patch.object(svc, "_auth_provider", provider):
             svc.login("u", "p")
         # 900 - 120 = 780
@@ -58,7 +55,7 @@ class TestAuthServiceRefreshInterval:
                 user_info={"id": "1", "nickname": "test"},
             )
         )
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         with patch.object(svc, "_auth_provider", provider):
             svc.login("u", "p")
         # 100 - 120 = -20 -> max(-20, 60) = 60
@@ -68,7 +65,7 @@ class TestAuthServiceRefreshInterval:
 class TestAuthTokenRemaining:
     def test_remaining_zero_when_not_logged_in(self):
         provider = _make_provider()
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         assert svc.token_remaining_seconds == 0
 
     def test_remaining_decreases_over_time(self):
@@ -81,7 +78,7 @@ class TestAuthTokenRemaining:
                 user_info={"id": "1", "nickname": "test"},
             )
         )
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         with patch.object(svc, "_auth_provider", provider):
             svc.login("u", "p")
         # Immediately after login, remaining should be close to 900
@@ -105,7 +102,7 @@ class TestAuthTokenRemaining:
                 user_info={"id": "1", "username": "test", "nickname": "test"},
             ),
         )
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         with patch.object(svc, "_auth_provider", provider):
             svc.login("u", "p")
             # Manually set issued_at to simulate time passing
@@ -129,12 +126,12 @@ class TestAuthLogoutReset:
                 user_info={"id": "1", "nickname": "test"},
             )
         )
-        svc = AuthService(auth_provider=provider)
+        token_store = _make_token_store()
+        svc = AuthService(auth_provider=provider, token_store=token_store)
         with patch.object(svc, "_auth_provider", provider):
             svc.login("u", "p")
         assert svc.refresh_interval_seconds == 780
-        with patch("src.backend.domain.services.auth_service.keyring.delete_password"):
-            svc.logout()
+        svc.logout()
         assert svc.refresh_interval_seconds == 0
         assert svc.token_remaining_seconds == 0
 
@@ -154,7 +151,7 @@ class TestAuthServiceRegister:
             success=True,
             user_info={"id": "1", "nickname": "newuser"},
         )
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         success, message, user_info = svc.register("newuser", "password123", "newuser")
         assert success is True
         assert message == "登录成功"
@@ -170,7 +167,7 @@ class TestAuthServiceRegister:
             success=False,
             error_message="用户名已存在",
         )
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         success, message, user_info = svc.register("existing", "password123")
         assert success is False
         assert message == "用户名已存在"
@@ -192,7 +189,7 @@ class TestAuthServiceRegister:
             success=True,
             user_info={"id": "42", "nickname": "nick"},
         )
-        svc = AuthService(auth_provider=provider)
+        svc = AuthService(auth_provider=provider, token_store=_make_token_store())
         success, _, _ = svc.register("user", "pass123", "nick")
         assert success is True
         assert svc.current_user_id == "42"

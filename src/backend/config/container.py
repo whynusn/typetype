@@ -305,7 +305,7 @@ def create_services(infra: Infra, runtime_config: RuntimeConfig) -> Services:
         refresh_url=f"{runtime_config.base_url}/api/v1/auth/refresh",
         register_url=f"{runtime_config.base_url}/api/v1/auth/register",
     )
-    auth_service = AuthService(auth_provider=auth_provider)
+    auth_service = AuthService(auth_provider=auth_provider, token_store=infra.token_store)
 
     # Score submitter
     score_submitter = ApiClientScoreSubmitter(
