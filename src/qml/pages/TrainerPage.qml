@@ -3,6 +3,7 @@ import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
 import RinUI
+import "../typing"
 
 Item {
     id: trainerPage
@@ -12,6 +13,10 @@ Item {
     property var selectedTrainer: null
     property string errorMessage: ""
     property string statusMessage: ""
+    property bool hasProgress: false
+
+    // 分片模式开关（true=分片，false=全文）
+    property bool sliceModeChecked: true
 
     function trainerId(item) {
         if (!item)
@@ -31,21 +36,6 @@ Item {
         return item.entryCount || item.entry_count || item.count || 0;
     }
 
-    function segmentCount() {
-        var total = trainerEntryCount(selectedTrainer);
-        if (total <= 0)
-            return 1;
-        return Math.max(1, Math.ceil(total / Math.max(1, groupSizeSpin.value)));
-    }
-
-    function clampSegmentIndex() {
-        segmentIndexSpin.to = Math.max(1, segmentCount());
-        if (segmentIndexSpin.value > segmentIndexSpin.to)
-            segmentIndexSpin.value = segmentIndexSpin.to;
-        if (segmentIndexSpin.value < 1)
-            segmentIndexSpin.value = 1;
-    }
-
     function selectTrainer(index) {
         if (index < 0 || index >= trainerListModel.count) {
             selectedTrainerIndex = -1;
@@ -55,9 +45,41 @@ Item {
         selectedTrainerIndex = index;
         selectedTrainer = trainerListModel.get(index);
         trainerListView.currentIndex = index;
-        clampSegmentIndex();
         errorMessage = "";
         statusMessage = qsTr("已选择：") + trainerTitle(selectedTrainer);
+        checkProgress();
+    }
+
+    function checkProgress() {
+        if (selectedTrainer && appBridge) {
+            hasProgress = appBridge.hasSliceProgress("__trainer__:" + trainerId(selectedTrainer));
+        } else {
+            hasProgress = false;
+        }
+    }
+
+    function continueLastProgress() {
+        if (!appBridge || !selectedTrainer) {
+            errorMessage = qsTr("请选择一个词库");
+            return;
+        }
+        var idValue = trainerId(selectedTrainer);
+        if (!idValue) {
+            errorMessage = qsTr("词库缺少可加载的 ID");
+            return;
+        }
+
+        var progressKey = "__trainer__:" + idValue;
+        var infoJson = appBridge.getSliceProgressInfo(progressKey);
+        if (!infoJson || infoJson.length === 0) {
+            // 无进度，直接开始
+            loadSelectedTrainer();
+            return;
+        }
+
+        progressRestoreDialog.progressInfo = JSON.parse(infoJson);
+        progressRestoreDialog._trainerId = idValue;
+        progressRestoreDialog.open();
     }
 
     function syncTrainers(items) {
@@ -96,19 +118,47 @@ Item {
             errorMessage = qsTr("词库缺少可加载的 ID");
             return;
         }
-        var index = Math.max(1, Math.min(segmentIndexSpin.value, segmentCount()));
-        var groupSize = Math.max(1, groupSizeSpin.value);
-        errorMessage = "";
-        statusMessage = qsTr("正在打开第 %1 段...").arg(index);
-        // 自动推进参数通过已嵌入的 UI 字段直接设置
-        if (appBridge) {
-            var criteriaOn = conditionCheck.checked;
-            appBridge.setSliceCriteria(criteriaOn ? keyStrokeMinSpin.value : 0, criteriaOn ? speedMinSpin.value : 0, criteriaOn ? accuracyMinSpin.value : 0, criteriaOn ? passCountMinSpin.value : 1, criteriaOn ? onFailActionCombo.currentValue : "none", advanceModeCombo.currentValue, fullShuffleCheck.checked);
+
+        var index = Math.max(1, Math.min(sliceSettingsPanel.startSlice, sliceSettingsPanel.totalSlices));
+        var groupSize = sliceSettingsPanel.sliceSize;
+        var fullText = !trainerPage.sliceModeChecked;
+
+        if (fullText) {
+            groupSize = trainerEntryCount(selectedTrainer);
+            index = 1;
         }
+
+        errorMessage = "";
+        statusMessage = fullText ? qsTr("正在载入全文...") : qsTr("正在打开第 %1 段...").arg(index);
+
+        // 自动推进参数通过 SliceCriteriaPanel 组件设置
+        if (appBridge) {
+            var criteriaOn = sliceCriteriaPanel.conditionChecked;
+            appBridge.setSliceCriteria(
+                criteriaOn ? sliceCriteriaPanel.keyStrokeMinValue : 0,
+                criteriaOn ? sliceCriteriaPanel.speedMinValue : 0,
+                criteriaOn ? sliceCriteriaPanel.accuracyMinValue : 0,
+                criteriaOn ? sliceCriteriaPanel.passCountMinValue : 1,
+                criteriaOn ? sliceCriteriaPanel.onFailActionValue : "none",
+                sliceCriteriaPanel.advanceModeValue,
+                sliceSettingsPanel.fullShuffleChecked,
+                sliceCriteriaPanel.autoDecreaseEnabled,
+                sliceCriteriaPanel.keyStrokeDecreaseValue,
+                sliceCriteriaPanel.speedDecreaseValue,
+                sliceCriteriaPanel.accuracyDecreaseValue
+            );
+        }
+
         pushTypingPage();
+
         Qt.callLater(function () {
-            if (appBridge)
-                appBridge.loadTrainerSegment(idValue, index, groupSize);
+            if (appBridge) {
+                if (fullText) {
+                    appBridge.loadTrainerSegment(idValue, 1, groupSize);
+                } else {
+                    appBridge.loadTrainerSegment(idValue, index, groupSize);
+                }
+            }
         });
     }
 
@@ -140,6 +190,17 @@ Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 36
             spacing: 8
+
+            ToolButton {
+                Layout.preferredWidth: 32; Layout.preferredHeight: 32
+                icon.name: "ic_fluent_arrow_left_20_regular"
+                flat: true
+                onClicked: {
+                    if (Window.window && Window.window.navigationView)
+                        Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"));
+                }
+                ToolTip { text: qsTr("返回"); visible: parent.hovered }
+            }
 
             Text {
                 Layout.fillWidth: true
@@ -342,363 +403,21 @@ Item {
                             color: Theme.currentTheme.colors.cardBorderColor
                         }
 
-                        // --- 分片设置（包裹所有分片相关控件）---
-                        Frame {
+                        // --- 分片设置（复用组件）---
+                        SliceSettingsPanel {
+                            id: sliceSettingsPanel
                             Layout.fillWidth: true
-                            radius: 6
-                            hoverable: false
-                            padding: 8
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                spacing: 8
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-
-                                    Text {
-                                        text: qsTr("分片设置")
-                                        font.bold: true
-                                        font.pixelSize: 13
-                                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                                    }
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-
-                                    Text {
-                                        text: qsTr("词库条目按每段词数分组，顺序跟打")
-                                        font.pixelSize: 11
-                                        color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
-                                    }
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 1
-                                    color: Theme.currentTheme.colors.cardBorderColor
-                                }
-
-                                // 每组数量
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 42
-                                    spacing: 8
-
-                                    Text {
-                                        Layout.preferredWidth: 72
-                                        typography: Typography.Body
-                                        text: qsTr("每段词数")
-                                    }
-
-                                    SpinBox {
-                                        id: groupSizeSpin
-                                        Layout.preferredWidth: 128
-                                        Layout.preferredHeight: 34
-                                        from: 1
-                                        to: 99999
-                                        value: 20
-                                        editable: true
-                                        stepSize: 5
-                                        onValueChanged: clampSegmentIndex()
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        typography: Typography.Caption
-                                        color: Theme.currentTheme.colors.textSecondaryColor
-                                        text: qsTr("共 %1 段").arg(segmentCount())
-                                        elide: Text.ElideRight
-                                    }
-                                }
-
-                                // 组序号
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 42
-                                    spacing: 8
-
-                                    Text {
-                                        Layout.preferredWidth: 72
-                                        typography: Typography.Body
-                                        text: qsTr("段序号")
-                                    }
-
-                                    SpinBox {
-                                        id: segmentIndexSpin
-                                        Layout.preferredWidth: 128
-                                        Layout.preferredHeight: 34
-                                        from: 1
-                                        to: 1
-                                        value: 1
-                                        editable: true
-                                    }
-
-                                    Text {
-                                        Layout.fillWidth: true
-                                        typography: Typography.Caption
-                                        color: Theme.currentTheme.colors.textSecondaryColor
-                                        text: qsTr("范围 1-%1").arg(segmentIndexSpin.to)
-                                        elide: Text.ElideRight
-                                    }
-                                }
-
-                                // 全文乱序
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 8
-
-                                    Text {
-                                        text: qsTr("全文乱序")
-                                        font.pixelSize: 13
-                                        color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
-                                    }
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-
-                                    CheckBox {
-                                        id: fullShuffleCheck
-                                        text: qsTr("分片前打乱全文")
-                                    }
-                                }
-                            }
+                            sliceModeChecked: trainerPage.sliceModeChecked
+                            contentLength: selectedTrainer ? trainerEntryCount(selectedTrainer) : 0
+                            sliceSize: 100
+                            startSlice: 1
+                            onSliceModeCheckedChanged: trainerPage.sliceModeChecked = sliceModeChecked
                         }
 
-                        // --- 自动推进 ---
-                        Frame {
+                        // --- 达标条件（复用组件）---
+                        SliceCriteriaPanel {
+                            id: sliceCriteriaPanel
                             Layout.fillWidth: true
-                            radius: 6
-                            hoverable: false
-                            padding: 8
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                spacing: 8
-
-                                RowLayout {
-                                    Layout.fillWidth: true
-
-                                    Text {
-                                        typography: Typography.BodyStrong
-                                        text: qsTr("自动推进")
-                                    }
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-
-                                    CheckBox {
-                                        id: conditionCheck
-                                        text: qsTr("开启")
-                                    }
-                                }
-
-                                Text {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    typography: Typography.Caption
-                                    text: qsTr("每段达标后自动跳转下一段，可循环跟打")
-                                    wrapMode: Text.Wrap
-                                }
-
-                                // 推进模式
-                                RowLayout {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    spacing: 8
-
-                                    Text {
-                                        typography: Typography.Body
-                                        text: qsTr("推进模式")
-                                    }
-
-                                    ComboBox {
-                                        id: advanceModeCombo
-                                        model: ListModel {
-                                            ListElement {
-                                                text: qsTr("顺序下一段")
-                                                value: "sequential"
-                                            }
-                                            ListElement {
-                                                text: qsTr("随机下一段")
-                                                value: "random"
-                                            }
-                                        }
-                                        textRole: "text"
-                                        valueRole: "value"
-                                    }
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                // 达标条件
-                                Text {
-                                    visible: conditionCheck.checked
-                                    typography: Typography.Body
-                                    text: qsTr("达标条件")
-                                }
-
-                                RowLayout {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    spacing: 6
-
-                                    Text {
-                                        typography: Typography.Body
-                                        text: qsTr("击键 ≥")
-                                    }
-                                    SpinBox {
-                                        id: keyStrokeMinSpin
-                                        Layout.preferredWidth: 128
-                                        Layout.preferredHeight: 34
-                                        from: 0
-                                        to: 99
-                                        value: 6
-                                        stepSize: 1
-                                        editable: true
-                                    }
-                                    Text {
-                                        typography: Typography.Caption
-                                        text: qsTr("次/秒")
-                                    }
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                RowLayout {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    spacing: 6
-
-                                    Text {
-                                        typography: Typography.Body
-                                        text: qsTr("速度 ≥")
-                                    }
-                                    SpinBox {
-                                        id: speedMinSpin
-                                        Layout.preferredWidth: 128
-                                        Layout.preferredHeight: 34
-                                        from: 0
-                                        to: 999
-                                        value: 100
-                                        stepSize: 10
-                                        editable: true
-                                    }
-                                    Text {
-                                        typography: Typography.Caption
-                                        text: qsTr("字/分")
-                                    }
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                RowLayout {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    spacing: 6
-
-                                    Text {
-                                        typography: Typography.Body
-                                        text: qsTr("键准 ≥")
-                                    }
-                                    SpinBox {
-                                        id: accuracyMinSpin
-                                        Layout.preferredWidth: 128
-                                        Layout.preferredHeight: 34
-                                        from: 0
-                                        to: 100
-                                        value: 95
-                                        stepSize: 5
-                                        editable: true
-                                    }
-                                    Text {
-                                        typography: Typography.Caption
-                                        text: "%"
-                                    }
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                RowLayout {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    spacing: 6
-
-                                    Text {
-                                        typography: Typography.Body
-                                        text: qsTr("连达标 ≥")
-                                    }
-                                    SpinBox {
-                                        id: passCountMinSpin
-                                        Layout.preferredWidth: 128
-                                        Layout.preferredHeight: 34
-                                        from: 1
-                                        to: 99
-                                        value: 1
-                                        stepSize: 1
-                                        editable: true
-                                    }
-                                    Text {
-                                        typography: Typography.Caption
-                                        text: qsTr("次")
-                                    }
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-
-                                Text {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    typography: Typography.Caption
-                                    text: qsTr("击键、速度、键准均达标且无错字算一次合格")
-                                    wrapMode: Text.Wrap
-                                }
-
-                                RowLayout {
-                                    visible: conditionCheck.checked
-                                    Layout.fillWidth: true
-                                    spacing: 8
-
-                                    Text {
-                                        typography: Typography.Body
-                                        text: qsTr("未达标/有错字")
-                                    }
-
-                                    ComboBox {
-                                        id: onFailActionCombo
-                                        currentIndex: 1
-                                        model: ListModel {
-                                            ListElement {
-                                                text: qsTr("乱序重打")
-                                                value: "shuffle"
-                                            }
-                                            ListElement {
-                                                text: qsTr("重打")
-                                                value: "retype"
-                                            }
-                                            ListElement {
-                                                text: qsTr("无动作")
-                                                value: "none"
-                                            }
-                                        }
-                                        textRole: "text"
-                                        valueRole: "value"
-                                    }
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                    }
-                                }
-                            }
                         }
 
                         Item {
@@ -737,6 +456,14 @@ Item {
                                 enabled: selectedTrainer !== null && !(appBridge && appBridge.trainerLoading)
                                 onClicked: loadSelectedSegment()
                             }
+
+                            Button {
+                                Layout.preferredHeight: 34
+                                text: qsTr("继续上次进度")
+                                visible: hasProgress
+                                enabled: selectedTrainer !== null && !(appBridge && appBridge.trainerLoading)
+                                onClicked: continueLastProgress()
+                            }
                         }
                     }
                 }
@@ -772,6 +499,46 @@ Item {
         function onTrainerLoadingChanged() {
             if (appBridge && appBridge.trainerLoading)
                 statusMessage = qsTr("正在处理练单器词库...");
+        }
+    }
+
+    function _startWithCriteria(trainerId, index) {
+        var groupSize = sliceSettingsPanel.sliceSize;
+        errorMessage = "";
+        statusMessage = qsTr("正在恢复进度...");
+        if (appBridge) {
+            var criteriaOn = sliceCriteriaPanel.conditionChecked;
+            appBridge.setSliceCriteria(
+                criteriaOn ? sliceCriteriaPanel.keyStrokeMinValue : 0,
+                criteriaOn ? sliceCriteriaPanel.speedMinValue : 0,
+                criteriaOn ? sliceCriteriaPanel.accuracyMinValue : 0,
+                criteriaOn ? sliceCriteriaPanel.passCountMinValue : 1,
+                criteriaOn ? sliceCriteriaPanel.onFailActionValue : "none",
+                sliceCriteriaPanel.advanceModeValue,
+                sliceSettingsPanel.fullShuffleChecked,
+                sliceCriteriaPanel.autoDecreaseEnabled,
+                sliceCriteriaPanel.keyStrokeDecreaseValue,
+                sliceCriteriaPanel.speedDecreaseValue,
+                sliceCriteriaPanel.accuracyDecreaseValue
+            );
+        }
+        pushTypingPage();
+        Qt.callLater(function () {
+            if (appBridge)
+                appBridge.loadTrainerSegment(trainerId, index, groupSize);
+        });
+    }
+
+    SliceProgressRestoreDialog {
+        id: progressRestoreDialog
+        property string _trainerId: ""
+        onRestoreAccepted: {
+            appBridge.prepareSliceProgressRestore("__trainer__:" + _trainerId);
+            trainerPage._startWithCriteria(_trainerId, 1);
+        }
+        onStartFresh: {
+            appBridge.applySliceProgressRestore("__trainer__:" + _trainerId, false);
+            trainerPage._startWithCriteria(_trainerId, 1);
         }
     }
 }
