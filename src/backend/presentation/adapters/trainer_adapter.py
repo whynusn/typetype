@@ -225,6 +225,16 @@ class TrainerAdapter(QObject):
             error_prefix="加载练单器上一段失败",
         )
 
+    @Slot(int)
+    def setTrainerSegment(self, index: int) -> None:
+        """设置指定段落的 index，不重新加载词库。"""
+        self._run_segment_worker(
+            task=lambda: self._segment_to_dict(
+                self._load_segment_usecase.set_segment(index)
+            ),
+            error_prefix="设置练单器段落失败",
+        )
+
     @Slot()
     def shuffleCurrentTrainerGroup(self) -> None:
         self._run_segment_worker(

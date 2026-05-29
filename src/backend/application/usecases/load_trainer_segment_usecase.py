@@ -32,5 +32,9 @@ class LoadTrainerSegmentUseCase:
     def previous_segment(self) -> TrainerSegment:
         return self._service.previous_segment()
 
+    def set_segment(self, index: int) -> TrainerSegment:
+        """设置指定段落的 index，不重新加载词库。"""
+        return self._service.set_segment(index)
+
     def shuffle_current_group(self) -> TrainerSegment:
         return self._service.shuffle_current_group()

@@ -82,6 +82,16 @@ class TrainerService:
         self._save_progress()
         return self.current_segment()
 
+    def set_segment(self, index: int) -> TrainerSegment:
+        """设置指定段落的 index，不重新加载词库。
+
+        用于随机模式或恢复进度时，直接跳转到指定段落。
+        """
+        session = self._require_session()
+        session.index = self._clamp_index(index, len(session.groups))
+        self._save_progress()
+        return self.current_segment()
+
     def shuffle_current_group(self) -> TrainerSegment:
         session = self._require_session()
         if session.groups:
