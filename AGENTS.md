@@ -240,6 +240,10 @@ bridge = Bridge(
 - **非 Layout 容器内的 Layout 管理器可用 anchors 定位自身**：如 `Frame { ColumnLayout { anchors.fill: parent } }` 是合法的，因为 Frame 不是 Layout 管理器
 - Python 与 QML 通信优先走信号槽
 - **QtQuick.Controls 必须使用限定导入 `as QQC`**：为避免与 RinUI 同名组件（Button/Frame/Dialog 等）冲突，所有 QML 文件中必须使用 `import QtQuick.Controls 2.15 as QQC` 而非 `import QtQuick.Controls 2.15`。使用 QtQuick.Controls 类型时加 `QQC.` 前缀（如 `QQC.Pane`、`QQC.ScrollView`、`QQC.ScrollBar.vertical`）。RinUI 已提供的同名类型不前缀（如 `Button`、`Frame`、`Dialog` 等从 RinUI 解析）。
+- **载文入口 UI 对称性**：所有载文入口页面（CustomLoadTextPage、LocalArticlesPage、TrainerPage、JisuBeiPage）应保持一致的 UI 模式：
+  - 默认每段字数统一（当前为 100）
+  - 所有入口都应提供"继续上次进度"按钮（当有历史进度时显示）
+  - 共享组件：`SliceCriteriaPanel`（达标条件）、`TextLoadPanel`（文本输入/选择）
 
 ## 4. 测试策略
 

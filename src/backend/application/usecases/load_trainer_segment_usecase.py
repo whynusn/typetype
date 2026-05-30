@@ -15,12 +15,14 @@ class LoadTrainerSegmentUseCase:
         segment_index: int,
         group_size: int,
         full_shuffle: bool = False,
+        seed: int | None = None,
     ) -> TrainerSegment:
         return self._service.load_trainer(
             trainer_id,
             group_size=group_size,
             segment_index=segment_index,
             full_shuffle=full_shuffle,
+            seed=seed,
         )
 
     def current_segment(self) -> TrainerSegment:
@@ -31,6 +33,10 @@ class LoadTrainerSegmentUseCase:
 
     def previous_segment(self) -> TrainerSegment:
         return self._service.previous_segment()
+
+    def set_segment(self, index: int) -> TrainerSegment:
+        """设置指定段落的 index，不重新加载词库。"""
+        return self._service.set_segment(index)
 
     def shuffle_current_group(self) -> TrainerSegment:
         return self._service.shuffle_current_group()

@@ -41,6 +41,9 @@ class TypingState:
     plain_doc: str = ""
     text_id: int | None = None
     text_title: str = ""
+    peak_speed: float = 0.0
+    peak_key_stroke: float = 0.0
+    peak_code_length: float = float("inf")
 
 
 class TypingService:
@@ -123,6 +126,29 @@ class TypingService:
     @property
     def text_title(self) -> str:
         return self._state.text_title
+
+    @property
+    def peak_speed(self) -> float:
+        return self._state.peak_speed
+
+    @property
+    def peak_key_stroke(self) -> float:
+        return self._state.peak_key_stroke
+
+    @property
+    def peak_code_length(self) -> float:
+        return self._state.peak_code_length
+
+    def update_peaks(self) -> None:
+        s = self._state.score_data
+        if s.time <= 0:
+            return
+        if s.speed > self._state.peak_speed:
+            self._state.peak_speed = s.speed
+        if s.keyStroke > self._state.peak_key_stroke:
+            self._state.peak_key_stroke = s.keyStroke
+        if s.codeLength < self._state.peak_code_length:
+            self._state.peak_code_length = s.codeLength
 
     def start(self) -> None:
         """开始打字。"""
@@ -295,9 +321,12 @@ class TypingService:
         if self._char_stats_service:
             self._char_stats_service.flush_async()
 
-    def get_history_record(self) -> dict[str, float | int | str]:
+    def get_history_record(self) -> dict[str, float | int | str | list]:
         """获取历史记录。"""
         self._state.score_data.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        slow_chars = []
+        if self._char_stats_service:
+            slow_chars = self._char_stats_service.get_slow_chars()
         return {
             "speed": round(self._state.score_data.speed, 2),
             "keyStroke": round(self._state.score_data.keyStroke, 2),
@@ -309,4 +338,10 @@ class TypingService:
             "charNum": self._state.score_data.char_count,
             "time": round(self._state.score_data.time, 2),
             "date": self._state.score_data.date,
+            "peakSpeed": round(self._state.peak_speed, 2),
+            "peakKeyStroke": round(self._state.peak_key_stroke, 2),
+            "peakCodeLength": round(self._state.peak_code_length, 2)
+            if self._state.peak_code_length != float("inf")
+            else 0.0,
+            "slowChars": slow_chars,
         }

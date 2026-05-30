@@ -85,6 +85,7 @@ def test_load_trainer_segment_enqueues_worker_and_emits_segment_payload() -> Non
         segment_index=1,
         group_size=2,
         full_shuffle=False,
+        seed=None,
     )
     assert loaded == [
         {

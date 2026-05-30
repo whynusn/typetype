@@ -4,13 +4,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_main_window_includes_local_articles_navigation_item():
+def test_main_window_includes_navigation_items():
     main_qml = PROJECT_ROOT / "src/qml/Main.qml"
 
     source = main_qml.read_text(encoding="utf-8")
 
+    assert 'title: qsTr("极速杯载文")' in source
+    assert 'page: Qt.resolvedUrl("pages/JisuBeiPage.qml")' in source
     assert 'title: qsTr("本地文库")' in source
     assert 'page: Qt.resolvedUrl("pages/LocalArticlesPage.qml")' in source
+    assert 'title: qsTr("自定义载文")' in source
+    assert 'page: Qt.resolvedUrl("pages/CustomLoadTextPage.qml")' in source
 
 
 def test_main_window_includes_trainer_navigation_item():
@@ -35,7 +39,7 @@ def test_trainer_page_uses_expected_bridge_contract():
     assert "onTrainersLoadFailed" in source
     assert "onTrainerSegmentLoaded" in source
     assert "onTrainerSegmentLoadFailed" in source
-    assert "currentIndex: 1" in source
+    assert "SliceCriteriaPanel" in source
     assert (
         'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
     )
@@ -56,7 +60,7 @@ def test_local_articles_page_uses_expected_bridge_contract():
     assert "onLocalArticleSegmentLoaded" in source
     assert "onLocalArticleSegmentLoadFailed" in source
     assert "onLocalArticleLoadingChanged" in source
-    assert "currentIndex: 1" in source
+    assert "SliceCriteriaPanel" in source
     assert (
         'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
     )
@@ -78,14 +82,6 @@ def test_typing_page_handles_local_article_segment_load_failure():
 
     assert "onLocalArticleSegmentLoadFailed" in source
     assert "upperPane.text = message" in source
-
-
-def test_slice_config_dialog_defaults_on_fail_action_to_retype():
-    dialog_qml = PROJECT_ROOT / "src/qml/typing/SliceConfigDialog.qml"
-
-    source = dialog_qml.read_text(encoding="utf-8")
-
-    assert "onFailActionCombo.currentIndex = 1; // 默认“重打”，避免默认乱序" in source
 
 
 def test_typing_page_renders_ziti_hint_from_bridge():

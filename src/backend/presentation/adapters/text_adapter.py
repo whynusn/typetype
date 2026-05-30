@@ -9,8 +9,11 @@ from ...application.usecases.load_text_usecase import (
     LoadTextUseCase,
     TextLoadPlan,
 )
+from ...application.usecases.text_session_usecase import TextSessionUseCase
 from ...config.runtime_config import RuntimeConfig
 from ...config.text_source_config import SourceType
+from ...integration.file_segment_provider import FileSegmentProvider
+from ...models.dto.text_session import SegmentResult, TextHandle, TextKind
 from ...workers.text_load_worker import TextLoadWorker
 
 if TYPE_CHECKING:
@@ -54,8 +57,8 @@ class TextAdapter(QObject):
         # text_id 回查调度：latest-only + single-flight
         self._lookup_lock = threading.Lock()
         self._lookup_inflight = False
-        self._lookup_pending: tuple[str, str] | None = None
-        self._lookup_latest_requested: tuple[str, str] | None = None
+        self._lookup_pending: tuple[str, str, int] | None = None
+        self._lookup_latest_requested: tuple[str, str, int] | None = None
 
     def _set_text_loading(self, loading: bool) -> None:
         if self._text_loading != loading:
@@ -314,3 +317,50 @@ class TextAdapter(QObject):
     def get_base_url(self) -> str:
         """获取当前 API 服务地址。"""
         return self._runtime_config.base_url
+
+    def startFileTextSession(
+        self,
+        file_path: str,
+        kind: TextKind,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+    ) -> "SegmentResult | None":
+        """启动统一载文会话（File 模式），返回首段结果。调用方负责发射信号。"""
+        if not file_path or slice_size <= 0:
+            return None
+
+        small_threshold = self._runtime_config.text_session.small_file_threshold
+        provider = FileSegmentProvider(file_path, small_file_threshold=small_threshold)
+        provider.load_index_cache()
+        total_chars = provider.get_total_chars()
+        if provider._index and not provider._text:
+            provider.save_index_cache()
+
+        handle = TextHandle(
+            kind=kind,
+            identifier=identifier,
+            title=title,
+            char_count=total_chars,
+            version=version,
+        )
+        self._text_session_usecase = TextSessionUseCase(
+            provider,
+            handle,
+            full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
+        )
+        self._session_slice_size = slice_size
+        return self._text_session_usecase.get_segment(start_slice, slice_size)
+
+    @property
+    def text_session_usecase(self) -> TextSessionUseCase | None:
+        return getattr(self, "_text_session_usecase", None)
+
+    def get_text_session_segment(self, index: int) -> "SegmentResult | None":
+        """从当前 TextSessionUseCase 按 1-based 索引取段。"""
+        usecase = self.text_session_usecase
+        if usecase is None:
+            return None
+        return usecase.get_segment(index, self._session_slice_size)

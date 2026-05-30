@@ -28,6 +28,14 @@ class SessionStat:
     correction_count: int = 0
     date: str = ""
 
+    # 峰值统计
+    peak_speed: float = 0.0
+    peak_key_stroke: float = 0.0
+    peak_code_length: float = 0.0
+
+    # 慢字列表 [(char, seconds), ...]
+    slow_chars: list[tuple[str, float]] = field(default_factory=list)
+
     def __post_init__(self):
         if self.time < 0:
             self.time = 0.0

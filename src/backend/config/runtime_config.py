@@ -44,6 +44,20 @@ class WenlaiConfig:
 
 
 @dataclass
+class TextSessionConfig:
+    """载文会话配置。"""
+
+    small_file_threshold: int = 100_000
+    full_shuffle_threshold: int = 1_000_000
+
+    def __post_init__(self) -> None:
+        if self.small_file_threshold < 0:
+            self.small_file_threshold = 100_000
+        if self.full_shuffle_threshold < 0:
+            self.full_shuffle_threshold = 1_000_000
+
+
+@dataclass
 class RuntimeConfig:
     """运行时配置，从 JSON 文件加载。"""
 
@@ -52,6 +66,7 @@ class RuntimeConfig:
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
+    text_session: TextSessionConfig = field(default_factory=TextSessionConfig)
     catalog_items: list[TextCatalogItem] = field(default_factory=list)
     _config_path: str | None = field(default=None, repr=False)
 
@@ -152,11 +167,24 @@ class RuntimeConfig:
             user_id=cls._safe_int(wenlai_data.get("user_id"), 0),
         )
 
+        ts_data = data.get("text_session", {})
+        if not isinstance(ts_data, dict):
+            ts_data = {}
+        text_session = TextSessionConfig(
+            small_file_threshold=cls._safe_int(
+                ts_data.get("small_file_threshold"), 100_000
+            ),
+            full_shuffle_threshold=cls._safe_int(
+                ts_data.get("full_shuffle_threshold"), 1_000_000
+            ),
+        )
+
         return cls(
             base_url=base_url,
             api_timeout=api_timeout,
             text_source_config=text_source_config,
             wenlai=wenlai,
+            text_session=text_session,
         )
 
     @staticmethod
@@ -248,6 +276,10 @@ class RuntimeConfig:
                 "username": self.wenlai.username,
                 "display_name": self.wenlai.display_name,
                 "user_id": self.wenlai.user_id,
+            },
+            "text_session": {
+                "small_file_threshold": self.text_session.small_file_threshold,
+                "full_shuffle_threshold": self.text_session.full_shuffle_threshold,
             },
         }
 

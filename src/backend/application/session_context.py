@@ -63,14 +63,21 @@ class TypingSessionContext:
         # 分片载文状态
         self._slices: list[str] = []
         self._slice_stats: list[dict | None] = []
-        self._key_stroke_min: int = 0
+        self._key_stroke_min: float = 0.0
         self._speed_min: int = 0
         self._accuracy_min: int = 0
         self._pass_count_min: int = 1
         self._on_fail_action: str = "retype"
         self._start_slice: int = 1
         self._slice_pass_counts: list[int] = []
+        self._slice_metrics: list[dict] = []  # per-slice 指标（每片独立的达标阈值）
         self._current_slice_content: str = ""  # 当前段文本缓存（所有分片模式统一）
+
+        # 失败自动降指标（每指标独立）
+        self._auto_decrease_enabled: bool = False
+        self._key_stroke_decrease: float = 0.0
+        self._speed_decrease: int = 0
+        self._accuracy_decrease: int = 0
 
         self._on_upload_status_changed: list[Callable[[UploadStatus], None]] = []
         self._on_eligibility_reason_changed: list[Callable[[str], None]] = []
@@ -115,8 +122,6 @@ class TypingSessionContext:
             return "本地长文，成绩不提交排行榜"
         if self._source_mode == SourceMode.TRAINER:
             return "练单器，成绩不提交排行榜"
-        if self._upload_status == UploadStatus.CONFIRMED:
-            return "成绩将提交排行榜"
         if self._upload_status == UploadStatus.PENDING:
             return "正在确认成绩提交资格..."
         return "成绩不提交排行榜"
@@ -182,12 +187,17 @@ class TypingSessionContext:
         self,
         slice_index: int,
         slice_total: int,
+        slice_size: int = 0,
         on_fail_action: str = "none",
-        key_stroke_min: int = 0,
+        key_stroke_min: float = 0.0,
         speed_min: int = 0,
         accuracy_min: int = 0,
         pass_count_min: int = 1,
         reset_counts: bool = True,
+        auto_decrease_enabled: bool = False,
+        key_stroke_decrease: float = 0.0,
+        speed_decrease: int = 0,
+        accuracy_decrease: int = 0,
     ) -> None:
         """设置基于外部来源的分片模式（不分片文本，由适配器提供分段）。
 
@@ -198,16 +208,27 @@ class TypingSessionContext:
         self._source_mode = SourceMode.SLICE
         self._slice_index = slice_index
         self._slice_total = slice_total
-        self._key_stroke_min = key_stroke_min
-        self._speed_min = speed_min
-        self._accuracy_min = accuracy_min
-        self._pass_count_min = pass_count_min
-        self._on_fail_action = on_fail_action
+
         if reset_counts or len(self._slice_pass_counts) != slice_total:
+            # 初始载入：用传入参数设置标量指标，并初始化 per-slice 指标
+            self._key_stroke_min = key_stroke_min
+            self._speed_min = speed_min
+            self._accuracy_min = accuracy_min
+            self._pass_count_min = pass_count_min
+            self._on_fail_action = on_fail_action
+            self._auto_decrease_enabled = auto_decrease_enabled
+            self._key_stroke_decrease = key_stroke_decrease
+            self._speed_decrease = speed_decrease
+            self._accuracy_decrease = accuracy_decrease
             self._slice_pass_counts = [0] * slice_total
             self._slice_stats = []
+            self._init_slice_metrics(slice_total)
+        else:
+            # 非初始载入（推进/重打）：从 per-slice 指标恢复当前片的指标
+            self.restore_slice_metrics(slice_index)
+
         self._slice_text = ""
-        self._slice_size = 0
+        self._slice_size = slice_size
         self._text_id = None
         self._text_id_resolved = True
         self._phase = SessionPhase.READY
@@ -218,11 +239,15 @@ class TypingSessionContext:
         text: str,
         slice_size: int,
         start_slice: int,
-        key_stroke_min: int,
+        key_stroke_min: float,
         speed_min: int,
         accuracy_min: int,
         pass_count_min: int,
         on_fail_action: str,
+        auto_decrease_enabled: bool = False,
+        key_stroke_decrease: float = 0.0,
+        speed_decrease: int = 0,
+        accuracy_decrease: int = 0,
     ) -> int:
         if not text or slice_size <= 0:
             return 0
@@ -241,9 +266,14 @@ class TypingSessionContext:
         self._accuracy_min = accuracy_min
         self._pass_count_min = pass_count_min
         self._on_fail_action = on_fail_action
+        self._auto_decrease_enabled = auto_decrease_enabled
+        self._key_stroke_decrease = key_stroke_decrease
+        self._speed_decrease = speed_decrease
+        self._accuracy_decrease = accuracy_decrease
         self._start_slice = max(1, min(start_slice, self._slice_total))
         self._slice_pass_counts = [0] * self._slice_total
         self._slice_stats = []
+        self._init_slice_metrics(self._slice_total)
         self._source_mode = SourceMode.SLICE
         self._text_id = None
         self._slice_index = self._start_slice
@@ -330,25 +360,122 @@ class TypingSessionContext:
            返回 False（达标，可推进）；否则返回 True。
         若 on_fail_action 为 'none'，直接返回 False，不再重打。
         """
+        result = self.check_slice_result()
+        return result != "advance"
+
+    def check_slice_result(self) -> str:
+        """检查当前片结果，区分三种状态。
+
+        Returns:
+            "fail": 基础指标未达标（应触发降击 + 重打）
+            "pass": 基础指标达标，但连达标次数未满（应重打，不降击）
+            "advance": 连达标次数已满（应推进下一段）
+        """
         if self._on_fail_action == "none":
-            return False
+            return "advance"
 
         target_index = self._slice_index - 1
         if not (0 <= target_index < len(self._slice_stats)):
-            return True
+            return "fail"
 
         current = self._slice_stats[target_index]
         if current is None:
-            return True
+            return "fail"
 
         if not self._check_base_metrics(current):
-            return True
+            return "fail"
 
-        return self._slice_pass_counts[target_index] < self._pass_count_min
+        if self._slice_pass_counts[target_index] < self._pass_count_min:
+            return "pass"
+
+        return "advance"
 
     @property
     def on_fail_action(self) -> str:
         return self._on_fail_action
+
+    @property
+    def auto_decrease_enabled(self) -> bool:
+        return self._auto_decrease_enabled
+
+    @property
+    def key_stroke_decrease(self) -> float:
+        return self._key_stroke_decrease
+
+    @property
+    def speed_decrease(self) -> int:
+        return self._speed_decrease
+
+    @property
+    def accuracy_decrease(self) -> int:
+        return self._accuracy_decrease
+
+    def decrease_metrics_on_fail(self) -> None:
+        if not self._auto_decrease_enabled:
+            return
+        if self._key_stroke_min > self._key_stroke_decrease > 0:
+            self._key_stroke_min = round(
+                self._key_stroke_min - self._key_stroke_decrease, 2
+            )
+        if self._speed_min > 0 and self._speed_decrease > 0:
+            self._speed_min = max(0, self._speed_min - self._speed_decrease)
+        if self._accuracy_min > 0 and self._accuracy_decrease > 0:
+            self._accuracy_min = max(0, self._accuracy_min - self._accuracy_decrease)
+        self.save_current_slice_metrics()
+
+    def _build_current_metrics_dict(self) -> dict:
+        """构建当前标量指标的字典快照。"""
+        return {
+            "key_stroke_min": self._key_stroke_min,
+            "speed_min": self._speed_min,
+            "accuracy_min": self._accuracy_min,
+            "pass_count_min": self._pass_count_min,
+            "on_fail_action": self._on_fail_action,
+            "auto_decrease_enabled": self._auto_decrease_enabled,
+            "key_stroke_decrease": self._key_stroke_decrease,
+            "speed_decrease": self._speed_decrease,
+            "accuracy_decrease": self._accuracy_decrease,
+        }
+
+    def _apply_metrics_dict(self, m: dict) -> None:
+        """从字典恢复标量指标。"""
+        self._key_stroke_min = m.get("key_stroke_min", self._key_stroke_min)
+        self._speed_min = m.get("speed_min", self._speed_min)
+        self._accuracy_min = m.get("accuracy_min", self._accuracy_min)
+        self._pass_count_min = m.get("pass_count_min", self._pass_count_min)
+        self._on_fail_action = m.get("on_fail_action", self._on_fail_action)
+        self._auto_decrease_enabled = m.get(
+            "auto_decrease_enabled", self._auto_decrease_enabled
+        )
+        self._key_stroke_decrease = m.get(
+            "key_stroke_decrease", self._key_stroke_decrease
+        )
+        self._speed_decrease = m.get("speed_decrease", self._speed_decrease)
+        self._accuracy_decrease = m.get("accuracy_decrease", self._accuracy_decrease)
+
+    def _init_slice_metrics(self, slice_total: int) -> None:
+        """用当前标量指标初始化 per-slice 指标列表。"""
+        m = self._build_current_metrics_dict()
+        self._slice_metrics = [m.copy() for _ in range(slice_total)]
+
+    def save_current_slice_metrics(self) -> None:
+        """将当前标量指标保存到当前片的 per-slice 指标中。"""
+        idx = self._slice_index - 1
+        if 0 <= idx < len(self._slice_metrics):
+            self._slice_metrics[idx] = self._build_current_metrics_dict()
+
+    def restore_slice_metrics(self, idx: int) -> None:
+        """从 per-slice 指标恢复指定片的标量指标。"""
+        target = idx - 1
+        if 0 <= target < len(self._slice_metrics):
+            self._apply_metrics_dict(self._slice_metrics[target])
+
+    def get_slice_metrics(self, idx: int) -> dict | None:
+        """返回指定片的指标字典，越界返回 None。"""
+        target = idx - 1
+        if 0 <= target < len(self._slice_metrics):
+            return self._slice_metrics[target]
+        return None
 
     def get_slice_status(self) -> str:
         """返回当前片进度摘要。

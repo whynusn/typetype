@@ -25,6 +25,10 @@ class ScoreSummaryDTO:
     """成绩摘要展示 DTO。"""
 
     items: list[ScoreSummaryItemDTO]
+    peak_speed: float = 0.0
+    peak_key_stroke: float = 0.0
+    peak_code_length: float = 0.0
+    slow_chars: list[tuple[str, float]] | None = None
 
     @classmethod
     def from_score_data(cls, score_data: "SessionStat") -> "ScoreSummaryDTO":
@@ -91,7 +95,13 @@ class ScoreSummaryDTO:
                     unit="",
                     value_format="d",
                 ),
-            ]
+            ],
+            peak_speed=score_data.peak_speed,
+            peak_key_stroke=score_data.peak_key_stroke,
+            peak_code_length=score_data.peak_code_length
+            if score_data.peak_code_length != float("inf")
+            else 0.0,
+            slow_chars=score_data.slow_chars or None,
         )
 
     def to_clipboard_text(self) -> str:
@@ -103,6 +113,13 @@ class ScoreSummaryDTO:
                 parts.append(f"{item.label}{value_str}{item.unit}")
             else:
                 parts.append(f"{item.label}{value_str}")
+        if self.peak_speed > 0:
+            parts.append(
+                f"峰值{self.peak_speed:.2f}/{self.peak_key_stroke:.2f}/{self.peak_code_length:.2f}"
+            )
+        if self.slow_chars:
+            slow_str = ",".join(f"{c}({t}s)" for c, t in self.slow_chars)
+            parts.append(f"慢字:{slow_str}")
         return " ".join(parts)
 
     def to_plain_text(self) -> str:
@@ -122,6 +139,13 @@ class ScoreSummaryDTO:
             lines.append(
                 f"{item.label}: {value_prefix}{value_str}{value_suffix}{unit_part}{line_suffix}"
             )
+        if self.peak_speed > 0:
+            lines.append(
+                f"峰值: {value_prefix}{self.peak_speed:.2f}/{self.peak_key_stroke:.2f}/{self.peak_code_length:.2f}{value_suffix}{line_suffix}"
+            )
+        if self.slow_chars:
+            slow_str = ", ".join(f"{c}({t}s)" for c, t in self.slow_chars)
+            lines.append(f"慢字: {slow_str}{line_suffix}")
         return "".join(lines)
 
 

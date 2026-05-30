@@ -19,11 +19,11 @@ class LoadLocalArticleSegmentUseCase:
             raise ValueError("segment_size must be greater than 0")
 
         article = self._gateway.get_article(article_id)
-        content = self._gateway.load_content(article_id)
-        total = max(1, (len(content) + segment_size - 1) // segment_size)
+        char_count = self._gateway.count_chars(article_id)
+        total = max(1, (char_count + segment_size - 1) // segment_size)
         index = min(max(segment_index, 1), total)
         start = (index - 1) * segment_size
-        end = start + segment_size
+        content = self._gateway.load_segment_content(article_id, start, segment_size)
         try:
             self._gateway.save_current_segment(article_id, index)
         except OSError:
@@ -32,7 +32,7 @@ class LoadLocalArticleSegmentUseCase:
         return LocalArticleSegment(
             article_id=article_id,
             title=article.title,
-            content=content[start:end],
+            content=content,
             index=index,
             total=total,
         )

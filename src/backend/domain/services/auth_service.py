@@ -2,10 +2,8 @@ import base64
 import json
 import time
 
-import keyring
-
 from ...ports.auth_provider import AuthProvider
-from ...security.secure_storage import SecureStorage
+from ...ports.token_store import TokenStore
 from ...utils.logger import log_warning
 
 
@@ -27,8 +25,9 @@ class AuthService:
 
     REFRESH_AHEAD_SECONDS = 120
 
-    def __init__(self, auth_provider: AuthProvider):
+    def __init__(self, auth_provider: AuthProvider, token_store: TokenStore):
         self._auth_provider = auth_provider
+        self._token_store = token_store
         self._current_user_id = ""
         self._current_username = ""
         self._current_nickname = ""
@@ -80,8 +79,8 @@ class AuthService:
         if not result.success:
             return False, result.error_message, {}
 
-        SecureStorage.save_jwt("current_user", result.access_token)
-        SecureStorage.save_jwt("current_user_refresh", result.refresh_token)
+        self._token_store.save_token("current_user", result.access_token)
+        self._token_store.save_token("current_user_refresh", result.refresh_token)
 
         self._token_issued_at = time.monotonic()
         if result.expires_in > 0:
@@ -108,7 +107,7 @@ class AuthService:
     def logout(self):
         for key in ("current_user", "current_user_refresh"):
             try:
-                keyring.delete_password(SecureStorage.SERVICE_NAME, f"jwt_{key}")
+                self._token_store.delete_token(key)
             except Exception as e:
                 log_warning(f"登出时清除 {key} 失败: {e}")
 
@@ -119,7 +118,7 @@ class AuthService:
         self._token_issued_at = 0.0
 
     def refresh_token(self) -> tuple[bool, dict]:
-        ref = SecureStorage.get_jwt("current_user_refresh")
+        ref = self._token_store.get_token("current_user_refresh")
         if not ref:
             return False, {}
 
@@ -127,9 +126,9 @@ class AuthService:
         if not result.success:
             return False, {}
 
-        SecureStorage.save_jwt("current_user", result.access_token)
+        self._token_store.save_token("current_user", result.access_token)
         if result.refresh_token:
-            SecureStorage.save_jwt("current_user_refresh", result.refresh_token)
+            self._token_store.save_token("current_user_refresh", result.refresh_token)
 
         self._token_issued_at = time.monotonic()
         if result.expires_in > 0:
@@ -145,7 +144,7 @@ class AuthService:
         return True, user_info
 
     def validate_token(self) -> tuple[bool, dict]:
-        jwt = SecureStorage.get_jwt("current_user")
+        jwt = self._token_store.get_token("current_user")
         if not jwt:
             return False, {}
 
@@ -164,7 +163,7 @@ class AuthService:
         # validate_token 的 /api/v1/users/me 不返回 expires_in，
         # 直接从 JWT 的 exp 声明本地解码，无需额外网络请求。
         if is_valid and self._expires_in <= 0:
-            jwt = SecureStorage.get_jwt("current_user")
+            jwt = self._token_store.get_token("current_user")
             if jwt:
                 self._apply_jwt_exp(jwt)
         return is_valid

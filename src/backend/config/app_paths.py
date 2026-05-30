@@ -150,6 +150,18 @@ def typing_totals_path() -> Path:
     return user_data_dir() / "typing_totals.json"
 
 
+def slice_metrics_prefs_path() -> Path:
+    return user_data_dir() / "slice_metrics_prefs.json"
+
+
+def text_slice_progress_path() -> Path:
+    return user_data_dir() / "text_slice_progress.json"
+
+
+def user_indexes_dir() -> Path:
+    return user_data_dir() / "indexes"
+
+
 def load_common_chars() -> list[str]:
     """加载高频五百中文汉字，用于启动时预热 char_stats 缓存。"""
     try:

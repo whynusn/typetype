@@ -141,6 +141,7 @@ class TypingAdapter(QObject):
 
     def _accumulate_time(self) -> None:
         self._typing_service.accumulate_time(self.timeInterval)
+        self._typing_service.update_peaks()
         self.totalTimeChanged.emit()
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
@@ -184,6 +185,14 @@ class TypingAdapter(QObject):
             changed = self._typing_service.set_read_only(True)
             if changed:
                 self.readOnlyChanged.emit()
+            # 捕获慢字和峰值（必须在 flush_char_stats 之前，否则 _dirty 被清空）
+            ts = self._typing_service
+            ts.score_data.peak_speed = ts.peak_speed
+            ts.score_data.peak_key_stroke = ts.peak_key_stroke
+            ts.score_data.peak_code_length = ts.peak_code_length
+            if ts._char_stats_service:
+                ts.score_data.slow_chars = ts._char_stats_service.get_slow_chars()
+
             self._typing_service.flush_char_stats()
 
             # 分片模式：在任何清理之前捕获 score_data 快照
@@ -202,6 +211,12 @@ class TypingAdapter(QObject):
                     "char_count": s.char_count,
                     "key_stroke_count": s.key_stroke_count,
                     "time": s.time,
+                    "peakSpeed": self._typing_service.peak_speed,
+                    "peakKeyStroke": self._typing_service.peak_key_stroke,
+                    "peakCodeLength": self._typing_service.peak_code_length
+                    if self._typing_service.peak_code_length != float("inf")
+                    else 0.0,
+                    "slowChars": s.slow_chars,
                 }
 
             # 异步提交成绩到服务器（后台线程，不阻塞 UI）
@@ -503,6 +518,10 @@ class TypingAdapter(QObject):
     def text_title(self) -> str:
         return self._typing_service.text_title
 
+    @property
+    def plain_doc(self) -> str:
+        return self._typing_service.plain_doc
+
     def pauseTyping(self) -> bool:
         """暂停当前跟打：保留成绩，停止计时，但不锁定输入区（可被输入打断）。
 
@@ -571,6 +590,22 @@ class TypingAdapter(QObject):
         """代理：重置指定段的达标次数（无尽模式循环回绕时使用）。"""
         if self._session_context:
             self._session_context.reset_slice_pass_count(idx)
+
+    def save_current_slice_metrics(self) -> None:
+        """代理：保存当前片的指标到 per-slice 存储。"""
+        if self._session_context:
+            self._session_context.save_current_slice_metrics()
+
+    def restore_slice_metrics(self, idx: int) -> None:
+        """代理：从 per-slice 存储恢复指定片的指标。"""
+        if self._session_context:
+            self._session_context.restore_slice_metrics(idx)
+
+    def get_slice_metrics(self, idx: int) -> dict | None:
+        """代理：获取指定片的指标字典。"""
+        if self._session_context:
+            return self._session_context.get_slice_metrics(idx)
+        return None
 
     def get_last_slice_stats(self) -> dict | None:
         """获取最近一次分片完成时的 score_data 快照。"""
@@ -679,12 +714,17 @@ class TypingAdapter(QObject):
         self,
         slice_index: int,
         slice_total: int,
+        slice_size: int = 0,
         on_fail_action: str = "none",
-        key_stroke_min: int = 0,
+        key_stroke_min: float = 0.0,
         speed_min: int = 0,
         accuracy_min: int = 0,
         pass_count_min: int = 1,
         reset_counts: bool = True,
+        auto_decrease_enabled: bool = False,
+        key_stroke_decrease: float = 0.0,
+        speed_decrease: int = 0,
+        accuracy_decrease: int = 0,
     ) -> None:
         """代理：设置基于外部来源的分片模式。"""
         self._slice_index = (
@@ -694,12 +734,17 @@ class TypingAdapter(QObject):
             self._session_context.setup_sourced_slice_mode(
                 slice_index=slice_index,
                 slice_total=slice_total,
+                slice_size=slice_size,
                 on_fail_action=on_fail_action,
                 key_stroke_min=key_stroke_min,
                 speed_min=speed_min,
                 accuracy_min=accuracy_min,
                 pass_count_min=pass_count_min,
                 reset_counts=reset_counts,
+                auto_decrease_enabled=auto_decrease_enabled,
+                key_stroke_decrease=key_stroke_decrease,
+                speed_decrease=speed_decrease,
+                accuracy_decrease=accuracy_decrease,
             )
 
     def setup_slice_mode(
@@ -707,11 +752,15 @@ class TypingAdapter(QObject):
         text: str,
         slice_size: int,
         start_slice: int,
-        key_stroke_min: int,
+        key_stroke_min: float,
         speed_min: int,
         accuracy_min: int,
         pass_count_min: int,
         on_fail_action: str,
+        auto_decrease_enabled: bool = False,
+        key_stroke_decrease: float = 0.0,
+        speed_decrease: int = 0,
+        accuracy_decrease: int = 0,
     ) -> int:
         """代理：初始化分片载文模式。返回总片数。"""
         if self._session_context:
@@ -724,6 +773,10 @@ class TypingAdapter(QObject):
                 accuracy_min=accuracy_min,
                 pass_count_min=pass_count_min,
                 on_fail_action=on_fail_action,
+                auto_decrease_enabled=auto_decrease_enabled,
+                key_stroke_decrease=key_stroke_decrease,
+                speed_decrease=speed_decrease,
+                accuracy_decrease=accuracy_decrease,
             )
             self._slice_index = self._session_context.slice_index  # 同步适配器字段
             return total
@@ -763,12 +816,46 @@ class TypingAdapter(QObject):
             return self._session_context.should_retype()
         return False
 
+    def check_slice_result(self) -> str:
+        """代理：检查当前片结果（fail/pass/advance）。"""
+        if self._session_context:
+            return self._session_context.check_slice_result()
+        return "fail"
+
     @property
     def on_fail_action(self) -> str:
         """代理：未达标时的处理动作。"""
         if self._session_context:
             return self._session_context.on_fail_action
         return "retype"
+
+    @property
+    def auto_decrease_enabled(self) -> bool:
+        if self._session_context:
+            return self._session_context.auto_decrease_enabled
+        return False
+
+    @property
+    def key_stroke_decrease(self) -> float:
+        if self._session_context:
+            return self._session_context.key_stroke_decrease
+        return 0.0
+
+    @property
+    def speed_decrease(self) -> int:
+        if self._session_context:
+            return self._session_context.speed_decrease
+        return 0
+
+    @property
+    def accuracy_decrease(self) -> int:
+        if self._session_context:
+            return self._session_context.accuracy_decrease
+        return 0
+
+    def decrease_metrics_on_fail(self) -> None:
+        if self._session_context:
+            self._session_context.decrease_metrics_on_fail()
 
     def get_slice_status(self) -> str:
         """代理：返回当前片进度摘要。"""

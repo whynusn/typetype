@@ -46,17 +46,25 @@ class TextLoadCoordinator:
         self._source_slice_segment_size: int = 0
         self._source_slice_trainer_id: str = ""
         self._source_slice_group_size: int = 0
+        self._source_slice_title: str = ""
 
         # 分片参数
         self._pending_slice_params: dict = {
-            "key_stroke_min": 0,
+            "key_stroke_min": 0.0,
             "speed_min": 0,
             "accuracy_min": 0,
             "pass_count_min": 1,
             "on_fail_action": "retype",
             "advance_mode": "sequential",
             "full_shuffle": False,
+            "auto_decrease_enabled": False,
+            "key_stroke_decrease": 0.0,
+            "speed_decrease": 0,
+            "accuracy_decrease": 0,
         }
+
+        # 随机模式已访问片段集合
+        self._visited_slices: set[int] = set()
 
     # ==========================================
     # 来源清理（幂等，无需判断当前来源）
@@ -182,12 +190,17 @@ class TextLoadCoordinator:
             self._typing.setup_sourced_slice_mode(
                 index,
                 total,
+                slice_size=self._source_slice_group_size,
                 on_fail_action=p["on_fail_action"],
                 key_stroke_min=p["key_stroke_min"],
                 speed_min=p["speed_min"],
                 accuracy_min=p["accuracy_min"],
                 pass_count_min=p["pass_count_min"],
                 reset_counts=is_initial,
+                auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+                key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+                speed_decrease=p.get("speed_decrease", 0),
+                accuracy_decrease=p.get("accuracy_decrease", 0),
             )
             if not is_initial and index != prev_index:
                 self._typing.reset_slice_pass_count(index)
@@ -216,12 +229,17 @@ class TextLoadCoordinator:
             self._typing.setup_sourced_slice_mode(
                 index,
                 total,
+                slice_size=self._source_slice_segment_size,
                 on_fail_action=p["on_fail_action"],
                 key_stroke_min=p["key_stroke_min"],
                 speed_min=p["speed_min"],
                 accuracy_min=p["accuracy_min"],
                 pass_count_min=p["pass_count_min"],
                 reset_counts=is_initial,
+                auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+                key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+                speed_decrease=p.get("speed_decrease", 0),
+                accuracy_decrease=p.get("accuracy_decrease", 0),
             )
             if not is_initial and index != prev_index:
                 self._typing.reset_slice_pass_count(index)
@@ -243,7 +261,12 @@ class TextLoadCoordinator:
         self._typing.set_slice_index(idx)
         self._typing.prepare_for_text_load()
         self.clear_text_id(bridge)
-        label = f"载文 {idx}/{total}"
+        if self._source_slice_title:
+            label = f"{self._source_slice_title} {idx}/{total}"
+        else:
+            label = f"载文 {idx}/{total}"
+        self._typing.setTextTitle(label)
+        bridge.windowTitleChanged.emit()
         bridge.sliceStatusChanged.emit(f"载文模式: 第 {idx}/{total} 段")
         bridge.textLoaded.emit(slice_text, -1, label)
 
@@ -258,21 +281,16 @@ class TextLoadCoordinator:
 
         backend = self._source_slice_backend
         if backend == "trainer" and self._source_slice_trainer_id:
-            self._trainer.loadTrainerSegment(
-                self._source_slice_trainer_id,
-                next_idx,
-                self._source_slice_group_size,
-                full_shuffle=self._pending_slice_params.get("full_shuffle", False),
-            )
+            # 使用 next_segment() 而不是 loadTrainerSegment()
+            # next_segment() 只更新 session 中的 index，不会重新加载词库
+            # 这样可以保持打乱后的顺序
+            self._trainer.loadNextTrainerSegment()
         elif backend == "local_article":
-            self._local_article.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                next_idx,
-                self._source_slice_segment_size,
-            )
+            self._navigate_local_article(bridge, next_idx)
         else:
             self._typing.reset_slice_pass_count(next_idx)
             self._typing.set_slice_index(next_idx)
+            self._typing.restore_slice_metrics(next_idx)
             bridge.sliceModeChanged.emit()
             self.load_current_slice(bridge)
 
@@ -281,31 +299,32 @@ class TextLoadCoordinator:
         if total <= 1:
             return
         current = self._typing.slice_index
-        indices = [i for i in range(1, total + 1) if i != current]
-        if not indices:
+        self._visited_slices.add(current)
+
+        # 优先选择未访问的片段；全部访问过则重置
+        unvisited = [i for i in range(1, total + 1) if i not in self._visited_slices]
+        if not unvisited:
+            self._visited_slices = {current}
+            unvisited = [i for i in range(1, total + 1) if i != current]
+        if not unvisited:
             return
 
         import random
 
-        next_idx = random.choice(indices)
+        next_idx = random.choice(unvisited)
 
         backend = self._source_slice_backend
         if backend == "trainer" and self._source_slice_trainer_id:
-            self._trainer.loadTrainerSegment(
-                self._source_slice_trainer_id,
-                next_idx,
-                self._source_slice_group_size,
-                full_shuffle=self._pending_slice_params.get("full_shuffle", False),
-            )
+            # 使用 setTrainerSegment() 而不是 loadTrainerSegment()
+            # setTrainerSegment() 只更新 session 中的 index，不会重新加载词库
+            # 这样可以保持打乱后的顺序
+            self._trainer.setTrainerSegment(next_idx)
         elif backend == "local_article":
-            self._local_article.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                next_idx,
-                self._source_slice_segment_size,
-            )
+            self._navigate_local_article(bridge, next_idx)
         else:
             self._typing.reset_slice_pass_count(next_idx)
             self._typing.set_slice_index(next_idx)
+            self._typing.restore_slice_metrics(next_idx)
             bridge.sliceModeChanged.emit()
             self.load_current_slice(bridge)
 
@@ -318,15 +337,12 @@ class TextLoadCoordinator:
             self._trainer.loadPreviousTrainerSegment()
         elif backend == "local_article":
             prev_idx = self._typing.slice_index - 1
-            self._local_article.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                prev_idx,
-                self._source_slice_segment_size,
-            )
+            self._navigate_local_article(bridge, prev_idx)
         else:
             prev_idx = self._typing.slice_index - 1
             self._typing.reset_slice_pass_count(prev_idx)
             self._typing.back_slice()
+            self._typing.restore_slice_metrics(prev_idx)
             bridge.sliceModeChanged.emit()
             self.load_current_slice(bridge)
 
@@ -346,11 +362,7 @@ class TextLoadCoordinator:
             if backend == "trainer":
                 self._trainer.loadCurrentTrainerSegment()
             elif backend == "local_article":
-                self._local_article.loadLocalArticleSegment(
-                    self._source_slice_article_id,
-                    current,
-                    self._source_slice_segment_size,
-                )
+                self._navigate_local_article(bridge, current)
             else:
                 self.load_current_slice(bridge)
             return
@@ -370,6 +382,7 @@ class TextLoadCoordinator:
         self._source_slice_backend = None
         self._source_slice_trainer_id = ""
         self._source_slice_group_size = 0
+        self._visited_slices.clear()
         self._typing.exit_slice_mode()
         bridge.sliceModeChanged.emit()
         bridge.sliceStatusChanged.emit("")
@@ -377,6 +390,27 @@ class TextLoadCoordinator:
     # ==========================================
     # 辅助方法
     # ==========================================
+
+    def _navigate_local_article(self, bridge: "Bridge", index: int) -> None:
+        """通过 TextSessionUseCase 导航本地文库段（保持乱序状态）。"""
+        result = self._text_adapter.get_text_session_segment(index)
+        if result is None:
+            return
+        title = self._source_slice_title or "本地文库"
+        title_label = (
+            f"{title} {result.index}/{result.total}"
+            if title
+            else f"{result.index}/{result.total}"
+        )
+        self._typing.setTextTitle(title_label)
+        bridge.windowTitleChanged.emit()
+        self._cache_current_content(result.content)
+        self._typing.reset_slice_pass_count(result.index)
+        self._typing.set_slice_index(result.index)
+        self._typing.restore_slice_metrics(result.index)
+        self._typing._session_context._slice_size = self._source_slice_segment_size
+        bridge.sliceModeChanged.emit()
+        bridge.textLoaded.emit(result.content, -1, title_label)
 
     def _cache_current_content(self, content: str) -> None:
         self._typing.set_current_slice_content(content)

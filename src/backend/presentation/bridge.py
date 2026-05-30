@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import TYPE_CHECKING, Callable
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
@@ -22,6 +24,8 @@ from ..utils.logger import log_info
 if TYPE_CHECKING:
     from ..ports.key_listener import KeyListener
     from ..application.gateways.typing_totals_gateway import TypingTotalsGateway
+    from ..integration.slice_metrics_prefs_store import SliceMetricsPrefsStore
+    from ..integration.text_slice_progress_store import TextSliceProgressStore
     from .adapters.auth_adapter import AuthAdapter
     from .adapters.char_stats_adapter import CharStatsAdapter
     from .adapters.leaderboard_adapter import LeaderboardAdapter
@@ -35,6 +39,17 @@ if TYPE_CHECKING:
     from .adapters.ziti_adapter import ZitiAdapter
 
 from .text_load_coordinator import TextLoadCoordinator
+
+
+def _compute_progress_key(key_type: str, identifier: str) -> str:
+    """统一的进度 key 生成。key_type: "local_article" / "trainer" / "custom_text"。"""
+    if key_type == "local_article":
+        return f"__local_article__:{identifier}"
+    if key_type == "trainer":
+        return f"__trainer__:{identifier}"
+    return (
+        f"__custom_text__:{hashlib.sha256(identifier.encode('utf-8')).hexdigest()[:16]}"
+    )
 
 
 class Bridge(QObject):
@@ -140,6 +155,8 @@ class Bridge(QObject):
         typing_totals_gateway: TypingTotalsGateway | None = None,
         key_listener: KeyListener | None = None,
         base_url_update_callback: Callable[[str], None] | None = None,
+        slice_metrics_prefs_store: "SliceMetricsPrefsStore | None" = None,
+        text_slice_progress_store: "TextSliceProgressStore | None" = None,
     ):
         super().__init__()
         self._typing_adapter = typing_adapter
@@ -156,11 +173,18 @@ class Bridge(QObject):
         self._typing_totals_gateway = typing_totals_gateway
         self._key_listener = key_listener
         self._base_url_update_callback = base_url_update_callback
+        self._slice_metrics_prefs_store = slice_metrics_prefs_store
+        self._text_slice_progress_store = text_slice_progress_store
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
         self._pending_history_segment_label = ""
         self._pending_history_score_text = ""
+        self._pending_restored_progress: dict | None = None
+        self._pending_restore_key: str = ""
+        self._current_shuffle_seed: int | None = None
+        self._progress_key_text: str = ""  # 全文乱序前的原文，用于进度存储 key
+        self._progress_key_override: str = ""  # 显式覆盖进度 key（如本地文库全文乱序）
         self._cached_devices: list[dict] | None = None
         self._reader_font_path = self._load_reader_font_path()
 
@@ -397,7 +421,7 @@ class Bridge(QObject):
             self._on_local_article_segment_loaded
         )
         self._local_article_adapter.localArticleSegmentLoadFailed.connect(
-            self.localArticleSegmentLoadFailed.emit
+            self._on_local_article_segment_load_failed
         )
         self._local_article_adapter.localArticleLoadingChanged.connect(
             self.localArticleLoadingChanged.emit
@@ -427,7 +451,7 @@ class Bridge(QObject):
             self._on_trainer_segment_loaded
         )
         self._trainer_adapter.trainerSegmentLoadFailed.connect(
-            self.trainerSegmentLoadFailed.emit
+            self._on_trainer_segment_load_failed
         )
         self._trainer_adapter.trainerLoadingChanged.connect(
             self.trainerLoadingChanged.emit
@@ -443,9 +467,49 @@ class Bridge(QObject):
 
     def _on_trainer_segment_loaded(self, payload: dict) -> None:
         self._coordinator.on_trainer_segment_loaded(payload, self)
+        self._restore_pending_progress()
+        self._update_progress_current_slice()
+
+    def _on_trainer_segment_load_failed(self, message: str) -> None:
+        self._pending_restored_progress = None
+        self.trainerSegmentLoadFailed.emit(message)
 
     def _on_local_article_segment_loaded(self, payload: dict) -> None:
         self._coordinator.on_local_article_segment_loaded(payload, self)
+        self._restore_pending_progress()
+        self._update_progress_current_slice()
+
+    def _on_local_article_segment_load_failed(self, message: str) -> None:
+        self._pending_restored_progress = None
+        self.localArticleSegmentLoadFailed.emit(message)
+
+    def _restore_pending_progress(self) -> None:
+        """source-based 路径恢复历史进度（达标次数 + per-slice 指标）。
+
+        不删除存储中的进度条目——由 collectSliceResult 在用户完成一段后自然覆盖。
+        这样即使用户继续进度后未完成一段就关闭应用，进度也不会丢失。
+        """
+        if not self._pending_restored_progress:
+            return
+        ctx = self._typing_adapter._session_context
+        if not ctx:
+            self._pending_restored_progress = None
+            return
+        rp = self._pending_restored_progress
+        saved_counts = rp.get("slice_pass_counts")
+        if saved_counts:
+            for i, count in enumerate(saved_counts):
+                if i < len(ctx._slice_pass_counts):
+                    ctx._slice_pass_counts[i] = count
+        # 恢复 per-slice 指标
+        saved_slice_metrics = rp.get("slice_metrics")
+        if saved_slice_metrics and len(saved_slice_metrics) == ctx.slice_total:
+            ctx._slice_metrics = [
+                m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
+            ]
+            ctx.restore_slice_metrics(ctx.slice_index)
+        self._pending_restore_key = ""
+        self._pending_restored_progress = None
 
     def _on_wenlai_config_changed(self) -> None:
         self.wenlaiConfigChanged.emit()
@@ -772,7 +836,7 @@ class Bridge(QObject):
 
     @Slot(str, str)
     @Slot(str, str, str)
-    def loadFullText(self, text: str, source_key: str = "") -> None:
+    def loadFullText(self, text: str, source_key: str = "", title: str = "") -> None:
         """全文载入（不分片），走正常文本加载路径。
 
         与 setupSliceMode 的区别：不进入 slice_mode，排行榜/成绩正常工作。
@@ -790,7 +854,10 @@ class Bridge(QObject):
         self._clear_text_id()
         # 设置会话状态机
         self._typing_adapter.setup_custom_session(source_key or "custom")
-        self.textLoaded.emit(text, -1, "自定义文本")
+        display_title = title if title else "自定义文本"
+        self._typing_adapter.setTextTitle(display_title)
+        self.windowTitleChanged.emit()
+        self.textLoaded.emit(text, -1, display_title)
         # 异步回查服务端 text_id（复用 TextAdapter 的 localTextIdResolved 信号链）
         lookup_key = source_key if source_key else "custom"
         self._text_adapter.lookup_text_id(lookup_key, text)
@@ -976,6 +1043,13 @@ class Bridge(QObject):
         if not self._local_article_adapter:
             return
 
+        # 入口页已通过 prepareSliceProgressRestore 设置了待恢复进度，使用保存的分片索引
+        if self._pending_restored_progress:
+            saved_slice = self._pending_restored_progress.get("current_slice", 1)
+            saved_total = self._pending_restored_progress.get("total_slices", 0)
+            if 1 <= saved_slice <= saved_total:
+                segmentIndex = saved_slice
+
         if self._typing_adapter.is_slice_mode():
             self.exitSliceMode()
         self._clear_wenlai_active()
@@ -983,37 +1057,101 @@ class Bridge(QObject):
         self._typing_adapter.prepare_for_text_load()
         self._clear_text_id()
 
-        # 全文乱序：先打乱全文，再使用文本分片
-        if self._coordinator.pending_slice_params.get("full_shuffle"):
-            full_text = self._local_article_adapter.get_full_article_content(articleId)
-            if full_text:
-                import random
+        # 全文乱序：通过 TextSessionUseCase.shuffle_all_virtual 统一处理
+        full_shuffle = self._coordinator.pending_slice_params.pop("full_shuffle", False)
 
-                chars = list(full_text)
-                random.shuffle(chars)
-                shuffled = "".join(chars)
-                p = self._coordinator.pending_slice_params
-                self.setupSliceMode(
-                    shuffled,
-                    segmentSize,
-                    segmentIndex,
-                    p["key_stroke_min"],
-                    p["speed_min"],
-                    p["accuracy_min"],
-                    p["pass_count_min"],
-                    p["on_fail_action"],
-                )
+        file_path = self._local_article_adapter.resolve_article_path(articleId)
+        if file_path:
+            from pathlib import Path
+
+            stat = Path(file_path).stat()
+            version = f"{stat.st_size}:{stat.st_mtime}"
+            title = self._local_article_adapter.get_article_title(articleId)
+            from src.backend.models.dto.text_session import TextKind
+
+            result = self._text_adapter.startFileTextSession(
+                file_path=file_path,
+                kind=TextKind.LOCAL_ARTICLE,
+                identifier=articleId,
+                title=title,
+                version=version,
+                slice_size=segmentSize,
+                start_slice=segmentIndex,
+            )
+            if result is None:
                 return
 
-        self._typing_adapter.setup_local_article_session()
-        self._coordinator.source_slice_backend = None
-        self._coordinator.source_slice_article_id = articleId
-        self._coordinator.source_slice_segment_size = segmentSize
-        self._local_article_adapter.loadLocalArticleSegment(
-            articleId,
-            segmentIndex,
-            segmentSize,
-        )
+            # 全文乱序：通过 UseCase 统一处理（小文本全量 shuffle，大文本 Feistel）
+            # 保留 _pending_restored_progress 以便后续 _restore_pending_progress 使用
+            saved_progress = self._pending_restored_progress
+            if full_shuffle:
+                import random
+
+                saved_seed = None
+                if saved_progress:
+                    saved_seed = saved_progress.get("shuffle_seed")
+                if saved_seed is None:
+                    saved_seed = random.randint(0, 2**31 - 1)
+                usecase = self._text_adapter.text_session_usecase
+                if usecase:
+                    shuffled_usecase = usecase.shuffle_all_virtual(saved_seed)
+                    self._text_adapter._text_session_usecase = shuffled_usecase
+                    result = shuffled_usecase.get_segment(segmentIndex, segmentSize)
+                self._current_shuffle_seed = saved_seed
+                if saved_progress:
+                    saved_progress["shuffle_seed"] = saved_seed
+                self._progress_key_override = _compute_progress_key(
+                    "local_article", articleId
+                )
+
+            # 设置分片模式（自动推进、重打、指标等依赖此状态）
+            p = self._coordinator.pending_slice_params
+            title_label = title
+            if result.total > 1:
+                title_label = (
+                    f"{title} {result.index}/{result.total}"
+                    if title
+                    else f"{result.index}/{result.total}"
+                )
+            self._typing_adapter.setTextTitle(title_label)
+            self.windowTitleChanged.emit()
+            self._coordinator._cache_current_content(result.content)
+            self._coordinator.source_slice_backend = "local_article"
+            self._coordinator.source_slice_article_id = articleId
+            self._coordinator.source_slice_segment_size = segmentSize
+            self._coordinator._visited_slices.clear()
+            self._typing_adapter.setup_sourced_slice_mode(
+                result.index,
+                result.total,
+                slice_size=segmentSize,
+                on_fail_action=p["on_fail_action"],
+                key_stroke_min=p["key_stroke_min"],
+                speed_min=p["speed_min"],
+                accuracy_min=p["accuracy_min"],
+                pass_count_min=p["pass_count_min"],
+                reset_counts=True,
+                auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+                key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+                speed_decrease=p.get("speed_decrease", 0),
+                accuracy_decrease=p.get("accuracy_decrease", 0),
+            )
+            # 恢复进度（达标次数 + per-slice 指标）
+            self._pending_restored_progress = saved_progress
+            self._restore_pending_progress()
+            self._update_progress_current_slice()
+            self.sliceModeChanged.emit()
+            self.textLoaded.emit(result.content, -1, title_label)
+        else:
+            self._typing_adapter.setup_local_article_session()
+            self._coordinator.source_slice_backend = None
+            self._coordinator.source_slice_article_id = articleId
+            self._coordinator._visited_slices.clear()
+            self._coordinator.source_slice_segment_size = segmentSize
+            self._local_article_adapter.loadLocalArticleSegment(
+                articleId,
+                segmentIndex,
+                segmentSize,
+            )
 
     @Slot()
     def loadTrainers(self) -> None:
@@ -1031,44 +1169,72 @@ class Bridge(QObject):
         """加载练单器指定分组。"""
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
+
+        # 入口页已通过 prepareSliceProgressRestore 设置了待恢复进度，使用保存的分片索引
+        if self._pending_restored_progress:
+            saved_slice = self._pending_restored_progress.get("current_slice", 1)
+            saved_total = self._pending_restored_progress.get("total_slices", 0)
+            if 1 <= saved_slice <= saved_total:
+                segmentIndex = saved_slice
+
         self._prepare_for_trainer_load()
         self._coordinator.source_slice_trainer_id = trainerId
         self._coordinator.source_slice_group_size = groupSize
+        self._coordinator._visited_slices.clear()
+
+        # 全文乱序 seed 管理：恢复进度时用保存的 seed，否则生成新 seed
+        full_shuffle = self._coordinator.pending_slice_params.get("full_shuffle", False)
+        seed = None
+        if full_shuffle:
+            import random
+
+            saved_seed = None
+            if self._pending_restored_progress:
+                saved_seed = self._pending_restored_progress.get("shuffle_seed")
+            if saved_seed is not None:
+                seed = saved_seed
+            else:
+                seed = random.randint(0, 2**31 - 1)
+            self._current_shuffle_seed = seed
+
         self._trainer_adapter.loadTrainerSegment(
             trainerId,
             segmentIndex,
             groupSize,
-            full_shuffle=self._coordinator.pending_slice_params.get(
-                "full_shuffle", False
-            ),
+            full_shuffle=full_shuffle,
+            seed=seed,
         )
 
     @Slot()
     def loadCurrentTrainerSegment(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.loadCurrentTrainerSegment()
 
     @Slot()
     def loadNextTrainerSegment(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.loadNextTrainerSegment()
 
     @Slot()
     def loadPreviousTrainerSegment(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.loadPreviousTrainerSegment()
 
     @Slot()
     def shuffleCurrentTrainerGroup(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.shuffleCurrentTrainerGroup()
 
     def _prepare_for_trainer_load(self) -> None:
@@ -1159,51 +1325,191 @@ class Bridge(QObject):
     def slicePassCount(self) -> int:
         return self._typing_adapter.get_slice_pass_count()
 
-    @Slot(str, int, int, int, int, int, int, str)
+    @Slot(str, str, str, str, str, int, int)
+    def startFileTextSession(
+        self,
+        file_path: str,
+        kind: str,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+    ) -> None:
+        """统一文件型载文入口：通过 FileSegmentProvider 创建会话并加载第一段。"""
+        from src.backend.models.dto.text_session import TextKind
+
+        if not file_path or slice_size <= 0:
+            return
+
+        self._typing_adapter.prepare_for_text_load()
+        self._coordinator.clear_text_id(self)
+        result = self._text_adapter.startFileTextSession(
+            file_path=file_path,
+            kind=TextKind(kind),
+            identifier=identifier,
+            title=title,
+            version=version,
+            slice_size=slice_size,
+            start_slice=start_slice,
+        )
+        if result is not None:
+            label = title
+            if result.total > 1:
+                label = (
+                    f"{title} {result.index}/{result.total}"
+                    if title
+                    else f"{result.index}/{result.total}"
+                )
+            self.textLoaded.emit(result.content, -1, label)
+
+    @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str)
+    @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str, str)
     def setupSliceMode(
         self,
         text: str,
         slice_size: int,
         start_slice: int,
-        key_stroke_min: int,
+        key_stroke_min: float,
         speed_min: int,
         accuracy_min: int,
         pass_count_min: int,
         on_fail_action: str,
+        auto_decrease_enabled: bool = False,
+        key_stroke_decrease: float = 0.0,
+        speed_decrease: int = 0,
+        accuracy_decrease: int = 0,
+        restored_progress: str = "",
+        title: str = "",
     ) -> None:
         """初始化载文模式：分片文本并加载第 start_slice 片。"""
         if not text or slice_size <= 0:
             return
 
-        # 全文乱序：先打乱全文字符，再进入分片
+        # 仅使用入口页显式传入的已恢复进度（不自动从存储恢复）
+        progress_dict = None
+        if restored_progress:
+            try:
+                progress_dict = json.loads(restored_progress)
+            except (json.JSONDecodeError, TypeError):
+                progress_dict = None
+
+        # 保存乱序前的原文用于进度存储 key（全文乱序后 _slice_text 是乱序文本）
+        self._progress_key_text = text
+
+        # 全文乱序：恢复进度时用保存的 seed 复现同一排列，否则生成新 seed
         if self._coordinator.pending_slice_params.get("full_shuffle"):
             import random
 
+            seed = (progress_dict or {}).get("shuffle_seed")
+            if seed is None:
+                seed = random.randint(0, 2**31 - 1)
+            rng = random.Random(seed)
             chars = list(text)
-            random.shuffle(chars)
+            rng.shuffle(chars)
             text = "".join(chars)
+            self._current_shuffle_seed = seed
+            if progress_dict is not None:
+                progress_dict["shuffle_seed"] = seed
 
+        self._apply_slice_setup(
+            text,
+            slice_size,
+            start_slice,
+            key_stroke_min,
+            speed_min,
+            accuracy_min,
+            pass_count_min,
+            on_fail_action,
+            auto_decrease_enabled,
+            key_stroke_decrease,
+            speed_decrease,
+            accuracy_decrease,
+            progress_dict,
+            title,
+        )
+
+    def _apply_slice_setup(
+        self,
+        text: str,
+        slice_size: int,
+        start_slice: int,
+        key_stroke_min: float,
+        speed_min: int,
+        accuracy_min: int,
+        pass_count_min: int,
+        on_fail_action: str,
+        auto_decrease_enabled: bool,
+        key_stroke_decrease: float,
+        speed_decrease: int,
+        accuracy_decrease: int,
+        restored_progress: dict | None,
+        title: str = "",
+    ) -> None:
+        """实际执行分片设置（被 setupSliceMode 调用）。"""
+        effective_start_slice = start_slice
+        if restored_progress:
+            saved_slice = restored_progress.get("current_slice", 1)
+            saved_total = restored_progress.get("total_slices", 0)
+            if saved_slice > 1 and saved_slice <= saved_total:
+                effective_start_slice = saved_slice
+
+        # 保存进度时的指标（可能含降击值），用于恢复 per-slice 数据
+        saved_metrics = (
+            restored_progress.get("metrics", {}) if restored_progress else {}
+        )
+        saved_slice_metrics = (
+            restored_progress.get("slice_metrics") if restored_progress else None
+        )
+
+        # 用原始用户指标初始化 per-slice 列表（确保未访问片段保持原始值）
         total = self._typing_adapter.setup_slice_mode(
             text=text,
             slice_size=slice_size,
-            start_slice=start_slice,
+            start_slice=effective_start_slice,
             key_stroke_min=key_stroke_min,
             speed_min=speed_min,
             accuracy_min=accuracy_min,
             pass_count_min=pass_count_min,
             on_fail_action=on_fail_action,
+            auto_decrease_enabled=auto_decrease_enabled,
+            key_stroke_decrease=key_stroke_decrease,
+            speed_decrease=speed_decrease,
+            accuracy_decrease=accuracy_decrease,
         )
 
-        # 文本型分片模式必须优先清空数据源型后端标记，避免后续重打误走
-        # trainer/local_article 分支（会表现为段号不变但内容被外部源替换/乱序）。
+        # 文本型分片模式必须优先清空数据源型后端标记
         self._coordinator.source_slice_backend = None
         self._coordinator.source_slice_article_id = ""
         self._coordinator.source_slice_segment_size = 0
         self._coordinator.source_slice_trainer_id = ""
         self._coordinator.source_slice_group_size = 0
+        self._coordinator._source_slice_title = title
+        if title:
+            self._typing_adapter.setTextTitle(title)
+            self.windowTitleChanged.emit()
 
         if total <= 0:
             return
+
+        # 恢复历史达标次数和指标配置
+        if restored_progress:
+            ctx = self._typing_adapter._session_context
+            if not ctx:
+                return
+            if restored_progress.get("slice_pass_counts"):
+                saved_counts = restored_progress["slice_pass_counts"]
+                for i, count in enumerate(saved_counts):
+                    if i < len(ctx._slice_pass_counts):
+                        ctx._slice_pass_counts[i] = count
+            # 恢复保存时的标量指标（含降击值）
+            if saved_metrics:
+                ctx._apply_metrics_dict(saved_metrics)
+            # 恢复 per-slice 指标（已访问片段的降击历史）
+            if saved_slice_metrics and len(saved_slice_metrics) == ctx.slice_total:
+                ctx._slice_metrics = [
+                    m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
+                ]
 
         # 同步参数到 pending_slice_params，使 loadNextSlice 使用相同的自动推进逻辑
         self._coordinator.pending_slice_params.update(
@@ -1213,11 +1519,16 @@ class Bridge(QObject):
                 "accuracy_min": accuracy_min,
                 "pass_count_min": pass_count_min,
                 "on_fail_action": on_fail_action,
+                "auto_decrease_enabled": auto_decrease_enabled,
+                "key_stroke_decrease": key_stroke_decrease,
+                "speed_decrease": speed_decrease,
+                "accuracy_decrease": accuracy_decrease,
             }
         )
         self._clear_wenlai_active()
         self._clear_local_article_active()
         self._clear_trainer_active()
+        self._coordinator._visited_slices.clear()
         self.sliceModeChanged.emit()
         self._load_current_slice()
 
@@ -1228,34 +1539,143 @@ class Bridge(QObject):
     def collectSliceResult(self) -> None:
         """收集当前片的 SessionStat 快照。"""
         stats = self._typing_adapter.get_last_slice_stats()
+        log_info(
+            f"[collectSliceResult] stats={stats is not None} "
+            f"store={self._text_slice_progress_store is not None} "
+            f"slice_mode={self._typing_adapter.is_slice_mode()} "
+            f"backend={self._coordinator.source_slice_backend}"
+        )
         if not stats:
             return
         self._typing_adapter.collect_slice_result(stats)
         self.sliceStatusChanged.emit(self._typing_adapter.get_slice_status())
-        self.sliceModeChanged.emit()  # 更新 slicePassCount 等绑定
+        self.sliceModeChanged.emit()
+
+        if self._text_slice_progress_store and self._typing_adapter.is_slice_mode():
+            from datetime import datetime
+
+            ctx = self._typing_adapter._session_context
+            if ctx:
+                # source-based 路径（本地文库、练单器）始终使用后端标识作为进度 key，
+                # 不受全文乱序影响。_progress_key_override 用于全文乱序本地文库路径
+                # （source_slice_backend 为 None 但需要使用 local_article 前缀 key）。
+                if self._progress_key_override:
+                    text = self._progress_key_override
+                elif self._coordinator.source_slice_backend == "local_article":
+                    text = _compute_progress_key(
+                        "local_article", self._coordinator.source_slice_article_id
+                    )
+                elif self._coordinator.source_slice_backend == "trainer":
+                    text = _compute_progress_key(
+                        "trainer", self._coordinator.source_slice_trainer_id
+                    )
+                else:
+                    # text-based 路径：使用乱序前原文（如有）生成稳定的 key
+                    raw = self._progress_key_text or ctx._slice_text
+                    text = _compute_progress_key("custom_text", raw)
+                if not text:
+                    return
+                title = self._typing_adapter.text_title
+                # 保存下一片索引（用户正在打的片），而非刚完成的片
+                next_slice = (
+                    (ctx.slice_index % ctx.slice_total) + 1
+                    if ctx.slice_total > 0
+                    else ctx.slice_index
+                )
+                progress = {
+                    "last_accessed": datetime.now().isoformat(),
+                    "total_slices": ctx.slice_total,
+                    "current_slice": next_slice,
+                    "slice_size": ctx._slice_size if hasattr(ctx, "_slice_size") else 0,
+                    "slice_pass_counts": list(ctx._slice_pass_counts),
+                    "slice_stats": [s for s in ctx._slice_stats if s is not None],
+                    "metrics": {
+                        "key_stroke_min": ctx._key_stroke_min,
+                        "speed_min": ctx._speed_min,
+                        "accuracy_min": ctx._accuracy_min,
+                        "pass_count_min": ctx._pass_count_min,
+                        "on_fail_action": ctx.on_fail_action,
+                        "auto_decrease_enabled": ctx.auto_decrease_enabled,
+                        "key_stroke_decrease": ctx._key_stroke_decrease,
+                        "speed_decrease": ctx._speed_decrease,
+                        "accuracy_decrease": ctx._accuracy_decrease,
+                    },
+                    "advance_mode": self._coordinator.pending_slice_params.get(
+                        "advance_mode", "sequential"
+                    ),
+                    "slice_metrics": [m.copy() for m in ctx._slice_metrics],
+                    "shuffle_seed": self._current_shuffle_seed,
+                }
+                log_info(
+                    f"[collectSliceResult] saving key={text[:40]}... title={title}"
+                )
+                self._text_slice_progress_store.save_progress(text, title, progress)
 
     @Slot(result=bool)
     def isLastSlice(self) -> bool:
         return self._typing_adapter.is_last_slice()
 
+    def _save_current_slice_if_needed(self) -> None:
+        """段落切换前，若当前段有未保存的成绩则先保存。"""
+        if self._typing_adapter.get_last_slice_stats():
+            self.collectSliceResult()
+
+    def _update_progress_current_slice(self) -> None:
+        """片切换后，更新已保存进度的 current_slice 为当前正在打的片。"""
+        if (
+            not self._text_slice_progress_store
+            or not self._typing_adapter.is_slice_mode()
+        ):
+            return
+        ctx = self._typing_adapter._session_context
+        if not ctx:
+            return
+        if self._progress_key_override:
+            key = self._progress_key_override
+        elif self._coordinator.source_slice_backend == "local_article":
+            key = _compute_progress_key(
+                "local_article", self._coordinator.source_slice_article_id
+            )
+        elif self._coordinator.source_slice_backend == "trainer":
+            key = _compute_progress_key(
+                "trainer", self._coordinator.source_slice_trainer_id
+            )
+        else:
+            raw = self._progress_key_text or ctx._slice_text
+            key = _compute_progress_key("custom_text", raw)
+        entry, hash_key = self._find_progress(key)
+        if entry and hash_key:
+            entry["current_slice"] = ctx.slice_index
+            self._text_slice_progress_store.save_progress(
+                key, entry.get("text_title", ""), entry
+            )
+
     @Slot()
     def loadNextSlice(self) -> None:
         """载入下一片（无尽模式：最后一片后回到第一片）。"""
+        self._save_current_slice_if_needed()
         self._coordinator.load_next_slice(self)
+        self._update_progress_current_slice()
 
     @Slot()
     def loadRandomSlice(self) -> None:
         """手动载入一个随机片段（避开当前片）。"""
         if self._typing_adapter.is_slice_mode():
+            self._save_current_slice_if_needed()
             self._coordinator.load_random_slice(self)
+            self._update_progress_current_slice()
 
     def _load_random_slice(self) -> None:
+        self._save_current_slice_if_needed()
         self._coordinator.load_random_slice(self)
+        self._update_progress_current_slice()
 
     @Slot()
     def loadPrevSlice(self) -> None:
         """载入上一片。"""
+        self._save_current_slice_if_needed()
         self._coordinator.load_prev_slice(self)
+        self._update_progress_current_slice()
 
     @Slot(result=bool)
     def shouldRetype(self) -> bool:
@@ -1264,13 +1684,226 @@ class Bridge(QObject):
 
     @Slot()
     def handleSliceRetype(self) -> None:
-        """根据 on_fail_action 自动处理重打。"""
+        """根据 on_fail_action 自动处理重打（含降击）。"""
+        if self._typing_adapter.auto_decrease_enabled:
+            self._typing_adapter.decrease_metrics_on_fail()
+            self.sliceModeChanged.emit()
         self._coordinator.handle_slice_retype(self)
+
+    @Slot()
+    def handleSliceRetypeNoDecrease(self) -> None:
+        """重打当前片，不触发降击（连达标未满场景）。"""
+        self._coordinator.handle_slice_retype(self)
+
+    @Slot(result=str)
+    def checkSliceResult(self) -> str:
+        """检查当前片结果：'fail'（未达标）/ 'pass'（达标但连达标未满）/ 'advance'（可推进）。"""
+        return self._typing_adapter.check_slice_result()
 
     @Slot(result=str)
     def getOnFailAction(self) -> str:
         """返回当前未达标处理动作（供 QML 查询）。"""
         return self._typing_adapter.on_fail_action
+
+    def _find_progress(
+        self, progressKey: str, title: str = ""
+    ) -> tuple[dict | None, str]:
+        """查找进度条目，返回 (entry, hash_key)。
+
+        hash_key 是 JSON 文件中的 SHA-256 hex key，可直接用于 delete_by_hash_key。
+        优先按 progressKey 直接查找，找不到时按标题前缀回退扫描（兼容旧格式 key）。
+        多条匹配时取 last_accessed 最新的条目。
+        """
+        if not self._text_slice_progress_store:
+            return None, ""
+        store = self._text_slice_progress_store
+        data = store.load()
+        hash_key = hashlib.sha256(progressKey.encode("utf-8")).hexdigest()
+        entry = data.get(hash_key)
+        if isinstance(entry, dict):
+            log_info(
+                f"[_find_progress] hash HIT: key={progressKey[:40]} "
+                f"title={entry.get('text_title')} seed={entry.get('shuffle_seed')}"
+            )
+            return entry, hash_key
+        # 回退：按标题前缀扫描（兼容旧格式 key），取最新条目
+        if title:
+            best: dict | None = None
+            best_key = ""
+            for key, item in data.items():
+                if isinstance(item, dict) and item.get("text_title", "").startswith(
+                    title
+                ):
+                    if best is None or item.get("last_accessed", "") > best.get(
+                        "last_accessed", ""
+                    ):
+                        best = item
+                        best_key = key
+            if best is not None:
+                log_info(
+                    f"[_find_progress] title SCAN: key={progressKey[:40]} "
+                    f"found={best.get('text_title')} seed={best.get('shuffle_seed')} "
+                    f"last_accessed={best.get('last_accessed')}"
+                )
+                return best, best_key
+        log_info(f"[_find_progress] MISS: key={progressKey[:40]} title={title}")
+        return None, ""
+
+    @Slot(str, str, result=bool)
+    def hasSliceProgress(self, progressKey: str, title: str = "") -> bool:
+        """同步查询指定 key 是否有保存的分片进度。title 用于旧格式回退查找。"""
+        entry, _ = self._find_progress(progressKey, title)
+        return entry is not None
+
+    @Slot(str, str, result=str)
+    def getSliceProgressInfo(self, progressKey: str, title: str = "") -> str:
+        """返回 JSON 格式的进度详情，供入口页弹窗展示。无进度时返回空字符串。"""
+        progress, _ = self._find_progress(progressKey, title)
+        if not progress:
+            return ""
+        metrics = progress.get("metrics", {})
+        saved_slice_idx = progress.get("current_slice", 1) - 1
+        pass_counts = progress.get("slice_pass_counts", [])
+        info = {
+            "saved_slice": progress.get("current_slice", 1),
+            "saved_total": progress.get("total_slices", 0),
+            "saved_title": progress.get("text_title", ""),
+            "slice_size": progress.get("slice_size", 0),
+            "advance_mode": progress.get(
+                "advance_mode",
+                self._coordinator.pending_slice_params.get(
+                    "advance_mode", "sequential"
+                ),
+            ),
+            "last_accessed": progress.get("last_accessed", ""),
+            "current_pass_count": pass_counts[saved_slice_idx]
+            if 0 <= saved_slice_idx < len(pass_counts)
+            else 0,
+            "saved_pass_count_min": metrics.get("pass_count_min", 1),
+            "saved_ks": metrics.get("key_stroke_min", 0),
+            "saved_spd": metrics.get("speed_min", 0),
+            "saved_acc": metrics.get("accuracy_min", 0),
+            "saved_onfail": metrics.get("on_fail_action", "retype"),
+        }
+        return json.dumps(info, ensure_ascii=False)
+
+    @Slot(str, str, result=str)
+    def getProgressKey(self, keyType: str, identifier: str) -> str:
+        """统一的进度 key 生成入口（供 QML 调用）。"""
+        return _compute_progress_key(keyType, identifier)
+
+    @Slot(result=str)
+    def getRestoredSliceSettings(self) -> str:
+        """返回已恢复进度的完整设置 JSON，供 _startWithCriteria 使用。
+
+        包含 slice_size, advance_mode, full_shuffle, 以及各项达标指标。
+        无待恢复进度时返回空 JSON 对象 "{}"。
+        """
+        if not self._pending_restored_progress:
+            return "{}"
+        p = self._pending_restored_progress
+        metrics = p.get("metrics", {})
+        settings = {
+            "slice_size": p.get("slice_size", 0),
+            "advance_mode": p.get("advance_mode", "sequential"),
+            "full_shuffle": p.get("shuffle_seed") is not None,
+            "condition_on": bool(
+                metrics.get("key_stroke_min", 0)
+                or metrics.get("speed_min", 0)
+                or metrics.get("accuracy_min", 0)
+                or metrics.get("on_fail_action", "none") != "none"
+            ),
+            "key_stroke_min": metrics.get("key_stroke_min", 0),
+            "speed_min": metrics.get("speed_min", 0),
+            "accuracy_min": metrics.get("accuracy_min", 0),
+            "pass_count_min": metrics.get("pass_count_min", 1),
+            "on_fail_action": metrics.get("on_fail_action", "none"),
+            "auto_decrease_enabled": metrics.get("auto_decrease_enabled", False),
+            "key_stroke_decrease": metrics.get("key_stroke_decrease", 0.0),
+            "speed_decrease": metrics.get("speed_decrease", 0),
+            "accuracy_decrease": metrics.get("accuracy_decrease", 0),
+        }
+        return json.dumps(settings, ensure_ascii=False)
+
+    @Slot()
+    def clearPendingRestore(self) -> None:
+        """清除待恢复进度状态（非恢复流程开始时调用，防止旧数据残留）。"""
+        self._pending_restored_progress = None
+        self._pending_restore_key = ""
+
+    @Slot(str, bool, str, result=str)
+    def applySliceProgressRestore(
+        self, progressKey: str, restore: bool, title: str = ""
+    ) -> str:
+        """处理入口页弹窗结果。
+
+        restore=True 时返回保存的进度 JSON（供 setupSliceMode 使用），
+        不删除进度——由 collectSliceResult 在用户完成一段后自然覆盖。
+        restore=False 时删除进度并返回空字符串（用户主动放弃进度）。
+        """
+        progress, actual_key = self._find_progress(progressKey, title)
+        log_info(
+            f"[applySliceProgressRestore] key={progressKey[:40]} restore={restore} "
+            f"found={progress is not None} "
+            f"title={progress.get('text_title') if progress else None} "
+            f"seed={progress.get('shuffle_seed') if progress else None}"
+        )
+        if restore:
+            if progress:
+                return json.dumps(progress, ensure_ascii=False)
+            return ""
+        else:
+            if actual_key and self._text_slice_progress_store:
+                self._text_slice_progress_store.delete_by_hash_key(actual_key)
+            return ""
+
+    @Slot(str, str)
+    def prepareSliceProgressRestore(self, progressKey: str, title: str = "") -> None:
+        """从存储读取进度并设置 _pending_restored_progress，供 loader 恢复。"""
+        progress, actual_key = self._find_progress(progressKey, title)
+        log_info(
+            f"[prepareSliceProgressRestore] key={progressKey[:40]} "
+            f"found={progress is not None} "
+            f"title={progress.get('text_title') if progress else None} "
+            f"seed={progress.get('shuffle_seed') if progress else None} "
+            f"slice={progress.get('current_slice') if progress else None}/{progress.get('total_slices') if progress else None}"
+        )
+        if progress:
+            self._pending_restored_progress = progress
+            self._pending_restore_key = actual_key
+            # 同时覆盖 pending_slice_params 中的指标为保存的值
+            p = self._coordinator.pending_slice_params
+            saved_metrics = progress.get("metrics", {})
+            if saved_metrics:
+                p["key_stroke_min"] = saved_metrics.get(
+                    "key_stroke_min", p["key_stroke_min"]
+                )
+                p["speed_min"] = saved_metrics.get("speed_min", p["speed_min"])
+                p["accuracy_min"] = saved_metrics.get("accuracy_min", p["accuracy_min"])
+                p["pass_count_min"] = saved_metrics.get(
+                    "pass_count_min", p["pass_count_min"]
+                )
+                p["on_fail_action"] = saved_metrics.get(
+                    "on_fail_action", p["on_fail_action"]
+                )
+                p["auto_decrease_enabled"] = saved_metrics.get(
+                    "auto_decrease_enabled", p.get("auto_decrease_enabled", False)
+                )
+                p["key_stroke_decrease"] = saved_metrics.get(
+                    "key_stroke_decrease", p.get("key_stroke_decrease", 0.0)
+                )
+                p["speed_decrease"] = saved_metrics.get(
+                    "speed_decrease", p.get("speed_decrease", 0)
+                )
+                p["accuracy_decrease"] = saved_metrics.get(
+                    "accuracy_decrease", p.get("accuracy_decrease", 0)
+                )
+            # 恢复 advance_mode 和 full_shuffle
+            saved_advance = progress.get("advance_mode")
+            if saved_advance:
+                p["advance_mode"] = saved_advance
+            if progress.get("shuffle_seed") is not None:
+                p["full_shuffle"] = True
 
     def _reload_current_slice(self) -> None:
         self._coordinator.load_current_slice(self)
@@ -1306,18 +1939,25 @@ class Bridge(QObject):
     @Slot()
     def exitSliceMode(self) -> None:
         """退出载文模式，清理状态。"""
+        self._progress_key_text = ""
+        self._progress_key_override = ""
+        self._current_shuffle_seed = None
         self._coordinator.exit_slice_mode(self)
 
-    @Slot(int, int, int, int, str, str, bool)
+    @Slot(float, int, int, int, str, str, bool, bool, float, int, int)
     def setSliceCriteria(
         self,
-        keyStrokeMin: int,
+        keyStrokeMin: float,
         speedMin: int,
         accuracyMin: int,
         passCountMin: int,
         onFailAction: str,
         advanceMode: str = "sequential",
         fullShuffle: bool = False,
+        autoDecreaseEnabled: bool = False,
+        keyStrokeDecrease: float = 0.0,
+        speedDecrease: int = 0,
+        accuracyDecrease: int = 0,
     ) -> None:
         """设置自动推进与乱序参数。"""
         self._coordinator.pending_slice_params = {
@@ -1328,12 +1968,75 @@ class Bridge(QObject):
             "on_fail_action": onFailAction,
             "advance_mode": advanceMode,
             "full_shuffle": fullShuffle,
+            "auto_decrease_enabled": autoDecreaseEnabled,
+            "key_stroke_decrease": keyStrokeDecrease,
+            "speed_decrease": speedDecrease,
+            "accuracy_decrease": accuracyDecrease,
         }
+
+    @Slot(result="QVariantMap")
+    def loadSliceMetricsPrefs(self) -> dict:
+        if self._slice_metrics_prefs_store:
+            return self._slice_metrics_prefs_store.load()
+        return {}
+
+    @Slot(float, int, int, int, str, bool, float, int, int)
+    def saveSliceMetricsPrefs(
+        self,
+        keyStrokeMin: float,
+        speedMin: int,
+        accuracyMin: int,
+        passCountMin: int,
+        onFailAction: str,
+        autoDecreaseEnabled: bool,
+        keyStrokeDecrease: float,
+        speedDecrease: int,
+        accuracyDecrease: int,
+    ) -> None:
+        if self._slice_metrics_prefs_store:
+            self._slice_metrics_prefs_store.save(
+                {
+                    "key_stroke_min": keyStrokeMin,
+                    "speed_min": speedMin,
+                    "accuracy_min": accuracyMin,
+                    "pass_count_min": passCountMin,
+                    "on_fail_action": onFailAction,
+                    "auto_decrease_enabled": autoDecreaseEnabled,
+                    "key_stroke_decrease": keyStrokeDecrease,
+                    "speed_decrease": speedDecrease,
+                    "accuracy_decrease": accuracyDecrease,
+                }
+            )
+
+    @Slot(str, result="QVariantMap")
+    def getTextSliceProgress(self, text: str) -> dict:
+        if self._text_slice_progress_store:
+            result = self._text_slice_progress_store.get_progress(text)
+            return result if result else {}
+        return {}
+
+    @Slot(str, str, "QVariantMap")
+    def saveTextSliceProgress(self, text: str, title: str, progress: dict) -> None:
+        if self._text_slice_progress_store:
+            self._text_slice_progress_store.save_progress(text, title, progress)
 
     @Slot(result=str)
     def getSliceStatus(self) -> str:
         """返回当前片进度摘要。"""
         return self._typing_adapter.get_slice_status()
+
+    @Slot(result=str)
+    def getSliceCriteria(self) -> str:
+        """返回当前达标条件文字（含降击后更新）。"""
+        if self._typing_adapter.is_slice_mode():
+            ctx = self._typing_adapter._session_context
+            if ctx:
+                ks = ctx._key_stroke_min
+                spd = ctx._speed_min
+                acc = ctx._accuracy_min
+                pc = ctx._pass_count_min
+                return f"击键≥{ks:.2f}  速度≥{spd}  键准≥{acc}%  达标≥{pc}次"
+        return ""
 
     @Slot(result="QVariantMap")
     def getLastSliceStats(self) -> dict:
