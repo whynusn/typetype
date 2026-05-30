@@ -1463,7 +1463,6 @@ def test_progress_key_consistency_between_save_and_lookup():
     两个 key 格式不同导致 hash 查找永远失败，只能靠 title 回退匹配旧条目。
     """
     import hashlib
-    import json
     import tempfile
     from pathlib import Path
     from src.backend.presentation.bridge import _compute_progress_key
@@ -1521,7 +1520,6 @@ def test_find_progress_title_scan_prefers_newest():
     回归测试：旧版 JSON 中存在大量同标题旧条目（如"前五百 2/50"），
     title 扫描返回第一个匹配项（最早的旧条目），而非最新的进度。
     """
-    import hashlib
     import tempfile
     from pathlib import Path
     from src.backend.integration.text_slice_progress_store import TextSliceProgressStore
@@ -1576,7 +1574,6 @@ def test_full_shuffle_save_restore_cycle():
     模拟完整的 save → lookup → restore 流程，
     验证 _progress_key_override 使得 key 在保存和查找时一致。
     """
-    import hashlib
     import tempfile
     from pathlib import Path
     from src.backend.presentation.bridge import Bridge, _compute_progress_key
@@ -1638,6 +1635,7 @@ def test_full_shuffle_save_restore_cycle():
         store.save_progress(expected_key, article_title, progress)
         result = bridge.applySliceProgressRestore(expected_key, True, article_title)
         import json
+
         restored = json.loads(result)
         assert restored["shuffle_seed"] == 999999
         assert restored["current_slice"] == 3
@@ -1648,17 +1646,22 @@ def test_full_shuffle_save_restore_cycle():
 
         # 7. 验证 save_progress 的 aggressive cleanup
         #    先保存旧格式条目
-        store.save_progress("old_text", "前五百 2/50", {
-            "last_accessed": "2025-01-01",
-            "total_slices": 50,
-            "current_slice": 2,
-            "text_title": "前五百 2/50",
-        })
+        store.save_progress(
+            "old_text",
+            "前五百 2/50",
+            {
+                "last_accessed": "2025-01-01",
+                "total_slices": 50,
+                "current_slice": 2,
+                "text_title": "前五百 2/50",
+            },
+        )
         #    再保存新条目（应清理旧条目）
         store.save_progress(expected_key, article_title, progress)
         data = store.load()
         qianwubai_entries = [
-            v for v in data.values()
+            v
+            for v in data.values()
             if isinstance(v, dict) and "前五百" in v.get("text_title", "")
         ]
         assert len(qianwubai_entries) == 1, (

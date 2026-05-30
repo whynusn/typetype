@@ -686,47 +686,22 @@ Item {
         }
     }
 
-    function _startWithCriteria(articleId, index) {
-        var settings = appBridge ? JSON.parse(appBridge.getRestoredSliceSettings()) : {};
-        var size = settings.slice_size > 0 ? settings.slice_size : sliceSettingsPanel.sliceSize;
-        errorMessage = "";
-        statusMessage = qsTr("正在恢复进度...");
-        if (appBridge) {
-            var criteriaOn = settings.condition_on !== undefined ? settings.condition_on : sliceCriteriaPanel.conditionChecked;
-            appBridge.setSliceCriteria(
-                criteriaOn ? (settings.key_stroke_min || sliceCriteriaPanel.keyStrokeMinValue) : 0,
-                criteriaOn ? (settings.speed_min || sliceCriteriaPanel.speedMinValue) : 0,
-                criteriaOn ? (settings.accuracy_min || sliceCriteriaPanel.accuracyMinValue) : 0,
-                criteriaOn ? (settings.pass_count_min || sliceCriteriaPanel.passCountMinValue) : 1,
-                criteriaOn ? (settings.on_fail_action || sliceCriteriaPanel.onFailActionValue) : "none",
-                settings.advance_mode || sliceCriteriaPanel.advanceModeValue,
-                settings.full_shuffle !== undefined ? settings.full_shuffle : sliceSettingsPanel.fullShuffleChecked,
-                settings.auto_decrease_enabled !== undefined ? settings.auto_decrease_enabled : sliceCriteriaPanel.autoDecreaseEnabled,
-                settings.key_stroke_decrease || sliceCriteriaPanel.keyStrokeDecreaseValue,
-                settings.speed_decrease || sliceCriteriaPanel.speedDecreaseValue,
-                settings.accuracy_decrease || sliceCriteriaPanel.accuracyDecreaseValue
-            );
-        }
-        if (Window.window && Window.window.navigationView)
-            Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"));
-        Qt.callLater(function () {
-            if (appBridge)
-                appBridge.loadLocalArticleSegment(articleId, index, size);
-        });
-    }
-
     SliceProgressRestoreDialog {
         id: progressRestoreDialog
         property string _articleId: ""
         property string _articleTitle: ""
         onRestoreAccepted: {
-            // 保存恢复上下文，让 loader 处理实际恢复（含 per-slice 指标和达标次数）
             appBridge.prepareSliceProgressRestore(appBridge.getProgressKey("local_article", _articleId), _articleTitle);
-            localArticlesPage._startWithCriteria(_articleId, 1);
+            var settings = JSON.parse(appBridge.getRestoredSliceSettings());
+            SliceHelpers.startWithCriteria(
+                appBridge, Window.window ? Window.window.navigationView : null,
+                sliceSettingsPanel, sliceCriteriaPanel, settings,
+                function(size) { appBridge.loadLocalArticleSegment(_articleId, 1, size); }
+            );
         }
         onStartFresh: {
             appBridge.applySliceProgressRestore(appBridge.getProgressKey("local_article", _articleId), false, _articleTitle);
-            localArticlesPage._startWithCriteria(_articleId, 1);
+            localArticlesPage.loadSelectedSegment();
         }
     }
 }

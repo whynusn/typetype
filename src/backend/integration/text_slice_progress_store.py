@@ -63,7 +63,8 @@ class TextSliceProgressStore:
             stale_keys = [
                 k
                 for k, v in data.items()
-                if isinstance(v, dict) and (
+                if isinstance(v, dict)
+                and (
                     v.get("text_title", "").startswith(title)
                     or title.startswith(v.get("text_title", ""))
                 )

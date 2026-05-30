@@ -5,6 +5,7 @@ ScoreArea 254.0 ScoreArea.qml
 LowerPane 254.0 LowerPane.qml
 HistoryArea 254.0 HistoryArea.qml
 EndDialog 254.0 EndDialog.qml
+singleton SliceHelpers 254.0 SliceHelpers.qml
 SliceSettingsPanel 254.0 SliceSettingsPanel.qml
 SliceCriteriaPanel 254.0 SliceCriteriaPanel.qml
 SliceProgressRestoreDialog 254.0 SliceProgressRestoreDialog.qml
