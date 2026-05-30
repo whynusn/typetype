@@ -19,10 +19,12 @@ def _make_handle(char_count: int = 0) -> TextHandle:
     )
 
 
-def _make_usecase(text: str) -> TextSessionUseCase:
+def _make_usecase(
+    text: str, full_shuffle_threshold: int = 1_000_000
+) -> TextSessionUseCase:
     provider = InMemorySegmentProvider(text)
     handle = _make_handle(len(text))
-    return TextSessionUseCase(provider, handle)
+    return TextSessionUseCase(provider, handle, full_shuffle_threshold)
 
 
 class TestFeistelPermutation:
@@ -118,35 +120,20 @@ class TestShuffleAllVirtual:
         assert r1.content == r2.content
 
     def test_feistel_path_preserves_characters(self):
-        import src.backend.application.usecases.text_session_usecase as mod
-
         text = "ABC" * 100  # 300 chars
-        usecase = _make_usecase(text)
-        orig_threshold = mod._FULL_SHUFFLE_THRESHOLD
-        mod._FULL_SHUFFLE_THRESHOLD = 100  # force feistel
-        try:
-            shuffled = usecase.shuffle_all_virtual(seed=42)
-            result = shuffled.get_segment(1, 50)
-            assert len(result.content) == 50
-            # Characters should come from the original text
-            for ch in result.content:
-                assert ch in text
-        finally:
-            mod._FULL_SHUFFLE_THRESHOLD = orig_threshold
+        usecase = _make_usecase(text, full_shuffle_threshold=100)
+        shuffled = usecase.shuffle_all_virtual(seed=42)
+        result = shuffled.get_segment(1, 50)
+        assert len(result.content) == 50
+        for ch in result.content:
+            assert ch in text
 
     def test_feistel_path_all_segments_cover_all_chars(self):
-        import src.backend.application.usecases.text_session_usecase as mod
-
         text = "ABCDE" * 20  # 100 chars
-        usecase = _make_usecase(text)
-        orig_threshold = mod._FULL_SHUFFLE_THRESHOLD
-        mod._FULL_SHUFFLE_THRESHOLD = 10  # force feistel
-        try:
-            shuffled = usecase.shuffle_all_virtual(seed=42)
-            all_chars = ""
-            for i in range(1, shuffled.total_chars + 1):
-                seg = shuffled.get_segment(i, 1)
-                all_chars += seg.content
-            assert sorted(all_chars) == sorted(text)
-        finally:
-            mod._FULL_SHUFFLE_THRESHOLD = orig_threshold
+        usecase = _make_usecase(text, full_shuffle_threshold=10)
+        shuffled = usecase.shuffle_all_virtual(seed=42)
+        all_chars = ""
+        for i in range(1, shuffled.total_chars + 1):
+            seg = shuffled.get_segment(i, 1)
+            all_chars += seg.content
+        assert sorted(all_chars) == sorted(text)

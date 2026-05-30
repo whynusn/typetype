@@ -8,19 +8,21 @@ from pathlib import Path
 
 from ..config.app_paths import user_indexes_dir
 
-_SMALL_FILE_THRESHOLD = 100_000  # 100KB 以下全量加载到内存
 _INDEX_INTERVAL = 10_000  # 每 10000 个字符记录一个索引点
 
 
 class FileSegmentProvider:
     """基于磁盘文件的文本段提供者。
 
-    小文件（< 100KB）：首次访问时全量读入内存，后续等同于字符串切片。
-    大文件（>= 100KB）：构建稀疏字符索引，按需读取字符窗口。
+    小文件（< small_file_threshold）：首次访问时全量读入内存，后续等同于字符串切片。
+    大文件（>= small_file_threshold）：构建稀疏字符索引，按需读取字符窗口。
     """
 
-    def __init__(self, path: str | Path) -> None:
+    def __init__(
+        self, path: str | Path, small_file_threshold: int = 100_000
+    ) -> None:
         self._path = Path(path)
+        self._small_file_threshold = small_file_threshold
         self._encoding: str | None = None
         self._total_chars: int | None = None
         # 小文件：全量加载后的字符串
@@ -48,7 +50,7 @@ class FileSegmentProvider:
             return
         self._detect_encoding()
         total = self.get_total_chars()
-        if total < _SMALL_FILE_THRESHOLD:
+        if total < self._small_file_threshold:
             self._text = self._read_all()
         else:
             self._build_index()

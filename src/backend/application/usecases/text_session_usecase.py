@@ -9,8 +9,6 @@ from ...ports.text_segment_provider import TextSegmentProvider
 if TYPE_CHECKING:
     pass
 
-_FULL_SHUFFLE_THRESHOLD = 1_000_000  # 1MB 以下全量 shuffle，以上用虚拟 permutation
-
 
 class _FeistelPermutation:
     """基于平衡 Feistel 网络的可逆伪随机排列。
@@ -95,10 +93,16 @@ class TextSessionUseCase:
     差异仅在于 provider 的数据获取方式。
     """
 
-    def __init__(self, provider: TextSegmentProvider, handle: TextHandle) -> None:
+    def __init__(
+        self,
+        provider: TextSegmentProvider,
+        handle: TextHandle,
+        full_shuffle_threshold: int = 1_000_000,
+    ) -> None:
         self._provider = provider
         self._handle = handle
         self._total_chars = provider.get_total_chars()
+        self._full_shuffle_threshold = full_shuffle_threshold
 
     @property
     def handle(self) -> TextHandle:
@@ -135,7 +139,7 @@ class TextSessionUseCase:
         if self._total_chars <= 0:
             return self
 
-        if self._total_chars <= _FULL_SHUFFLE_THRESHOLD:
+        if self._total_chars <= self._full_shuffle_threshold:
             return self._shuffle_full(seed)
 
         return self._shuffle_feistel(seed)
@@ -161,7 +165,9 @@ class TextSessionUseCase:
             source_key=self._handle.source_key,
             server_text_id=self._handle.server_text_id,
         )
-        return TextSessionUseCase(new_provider, new_handle)
+        return TextSessionUseCase(
+            new_provider, new_handle, self._full_shuffle_threshold
+        )
 
     def _shuffle_feistel(self, seed: int) -> "TextSessionUseCase":
         """大文本：用 Feistel permutation 做虚拟乱序。"""
@@ -176,4 +182,6 @@ class TextSessionUseCase:
             source_key=self._handle.source_key,
             server_text_id=self._handle.server_text_id,
         )
-        return TextSessionUseCase(new_provider, new_handle)
+        return TextSessionUseCase(
+            new_provider, new_handle, self._full_shuffle_threshold
+        )

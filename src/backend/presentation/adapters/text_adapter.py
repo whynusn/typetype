@@ -341,7 +341,10 @@ class TextAdapter(QObject):
             version=version,
         )
         provider = InMemorySegmentProvider(text)
-        self._text_session_usecase = TextSessionUseCase(provider, handle)
+        self._text_session_usecase = TextSessionUseCase(
+            provider, handle,
+            full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
+        )
         result = self._text_session_usecase.get_segment(start_slice, slice_size)
 
         label = title
@@ -363,7 +366,8 @@ class TextAdapter(QObject):
         if not file_path or slice_size <= 0:
             return
 
-        provider = FileSegmentProvider(file_path)
+        small_threshold = self._runtime_config.text_session.small_file_threshold
+        provider = FileSegmentProvider(file_path, small_file_threshold=small_threshold)
         provider.load_index_cache()
         total_chars = provider.get_total_chars()
         if provider._index and not provider._text:
@@ -376,7 +380,10 @@ class TextAdapter(QObject):
             char_count=total_chars,
             version=version,
         )
-        self._text_session_usecase = TextSessionUseCase(provider, handle)
+        self._text_session_usecase = TextSessionUseCase(
+            provider, handle,
+            full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
+        )
         result = self._text_session_usecase.get_segment(start_slice, slice_size)
 
         label = title
