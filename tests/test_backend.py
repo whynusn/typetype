@@ -236,6 +236,7 @@ class DummyTrainerAdapter(QObject):
         segment_index: int,
         group_size: int,
         full_shuffle: bool = False,
+        seed: int | None = None,
     ) -> None:
         self.segment_requests.append((trainer_id, segment_index, group_size))
 
@@ -1452,3 +1453,215 @@ class TestBridgeSpecialPlatform:
 
         assert trainer_adapter.shuffle_count == 1
         assert trainer_adapter.segment_requests == []
+
+
+def test_progress_key_consistency_between_save_and_lookup():
+    """验证 full_shuffle 路径的进度 key 在保存和查找时一致。
+
+    回归测试：之前 collectSliceResult 用 _compute_progress_key("custom_text", shuffled_text)
+    生成 key，但 QML 用 getProgressKey("local_article", articleId) 查找，
+    两个 key 格式不同导致 hash 查找永远失败，只能靠 title 回退匹配旧条目。
+    """
+    import hashlib
+    import json
+    import tempfile
+    from pathlib import Path
+    from src.backend.presentation.bridge import _compute_progress_key
+    from src.backend.integration.text_slice_progress_store import TextSliceProgressStore
+
+    # 1. 验证 _compute_progress_key 返回一致的格式
+    key_from_qml = _compute_progress_key("local_article", "42")
+    assert key_from_qml == "__local_article__:42"
+
+    # 2. 验证 store 的 save/get/delete 循环使用一致的 key
+    with tempfile.TemporaryDirectory() as td:
+        store_path = Path(td) / "progress.json"
+        store = TextSliceProgressStore(store_path)
+
+        # 模拟 collectSliceResult 保存进度（使用 local_article 前缀 key）
+        progress_data = {
+            "last_accessed": "2026-05-29T10:00:00",
+            "total_slices": 10,
+            "current_slice": 3,
+            "slice_size": 100,
+            "slice_pass_counts": [1, 1, 0],
+            "slice_stats": [],
+            "metrics": {},
+            "slice_metrics": [],
+            "shuffle_seed": 12345,
+        }
+        store.save_progress(key_from_qml, "前五百", progress_data)
+
+        # 3. 验证 _find_progress 的 hash 查找逻辑能找到刚保存的条目
+        #    （模拟 bridge._find_progress 的行为）
+        data = store.load()
+        hash_key = hashlib.sha256(key_from_qml.encode("utf-8")).hexdigest()
+        entry = data.get(hash_key)
+        assert entry is not None, f"hash lookup failed for key '{key_from_qml}'"
+        assert entry["text_title"] == "前五百"
+        assert entry["current_slice"] == 3
+        assert entry["shuffle_seed"] == 12345
+
+        # 4. 验证 delete_by_hash_key 能正确删除
+        store.delete_by_hash_key(hash_key)
+        data_after = store.load()
+        assert hash_key not in data_after
+
+    # 5. 验证 custom_text 路径也一致
+    custom_text = "这是一段测试文本"
+    key_custom = _compute_progress_key("custom_text", custom_text)
+    assert key_custom.startswith("__custom_text__:")
+    expected_hash = hashlib.sha256(custom_text.encode("utf-8")).hexdigest()[:16]
+    assert key_custom == f"__custom_text__:{expected_hash}"
+
+
+def test_find_progress_title_scan_prefers_newest():
+    """验证 title 回退扫描优先返回 last_accessed 最新的条目。
+
+    回归测试：旧版 JSON 中存在大量同标题旧条目（如"前五百 2/50"），
+    title 扫描返回第一个匹配项（最早的旧条目），而非最新的进度。
+    """
+    import hashlib
+    import tempfile
+    from pathlib import Path
+    from src.backend.integration.text_slice_progress_store import TextSliceProgressStore
+    from src.backend.presentation.bridge import Bridge
+    from unittest.mock import MagicMock
+
+    with tempfile.TemporaryDirectory() as td:
+        store_path = Path(td) / "progress.json"
+        store = TextSliceProgressStore(store_path)
+
+        # 模拟旧数据：多个同标题条目，最早插入的最先被遍历
+        old_entry = {
+            "text_title": "前五百 2/50",
+            "current_slice": 2,
+            "total_slices": 50,
+            "last_accessed": "2025-01-01T00:00:00",
+            "shuffle_seed": None,
+        }
+        new_entry = {
+            "text_title": "前五百 1/50",
+            "current_slice": 1,
+            "total_slices": 50,
+            "last_accessed": "2026-05-29T10:00:00",
+            "shuffle_seed": 850682343,
+        }
+        # 保存顺序：旧条目在前
+        store.save_progress("old_text_1", "前五百 2/50", old_entry)
+        store.save_progress("old_text_2", "前五百 1/50", new_entry)
+
+        # 用 Bridge 的 _find_progress 做 title 扫描（模拟 hash 查找失败的情况）
+        bridge = Bridge(
+            typing_adapter=MagicMock(),
+            text_adapter=MagicMock(),
+            auth_adapter=MagicMock(),
+            char_stats_adapter=MagicMock(),
+            key_listener=None,
+        )
+        bridge._text_slice_progress_store = store
+
+        # hash 查找一定失败（key 不存在于 JSON）
+        entry, key = bridge._find_progress("__local_article__:999", "前五百")
+        assert entry is not None, "title scan should find entry"
+        # 应该返回最新的条目（last_accessed 更大）
+        assert entry["shuffle_seed"] == 850682343, (
+            f"expected newest entry (seed=850682343), got seed={entry.get('shuffle_seed')}"
+        )
+
+
+def test_full_shuffle_save_restore_cycle():
+    """端到端验证：full_shuffle 路径的进度保存和恢复。
+
+    模拟完整的 save → lookup → restore 流程，
+    验证 _progress_key_override 使得 key 在保存和查找时一致。
+    """
+    import hashlib
+    import tempfile
+    from pathlib import Path
+    from src.backend.presentation.bridge import Bridge, _compute_progress_key
+    from src.backend.integration.text_slice_progress_store import TextSliceProgressStore
+
+    with tempfile.TemporaryDirectory() as td:
+        store = TextSliceProgressStore(Path(td) / "progress.json")
+        bridge = Bridge(
+            typing_adapter=MagicMock(),
+            text_adapter=MagicMock(),
+            auth_adapter=MagicMock(),
+            char_stats_adapter=MagicMock(),
+            key_listener=None,
+        )
+        bridge._text_slice_progress_store = store
+
+        article_id = "前五百-abc123def456"
+        article_title = "前五百"
+
+        # 1. 模拟 full_shuffle 路径设置 _progress_key_override
+        bridge._progress_key_override = _compute_progress_key(
+            "local_article", article_id
+        )
+        expected_key = f"__local_article__:{article_id}"
+
+        # 2. 模拟 collectSliceResult 保存进度
+        #    （使用 _progress_key_override 作为 key）
+        progress = {
+            "last_accessed": "2026-05-30T10:00:00",
+            "total_slices": 50,
+            "current_slice": 3,
+            "slice_size": 100,
+            "slice_pass_counts": [1, 1, 0],
+            "slice_stats": [],
+            "metrics": {},
+            "slice_metrics": [],
+            "shuffle_seed": 999999,
+            "advance_mode": "sequential",
+        }
+        store.save_progress(expected_key, article_title, progress)
+
+        # 3. 验证 hash 查找能找到刚保存的条目
+        entry, hash_key = bridge._find_progress(expected_key, article_title)
+        assert entry is not None, "hash lookup should find entry"
+        assert entry["current_slice"] == 3
+        assert entry["shuffle_seed"] == 999999
+        assert entry["text_title"] == article_title
+
+        # 4. 验证 prepareSliceProgressRestore 能正确恢复
+        bridge._pending_restored_progress = None
+        bridge._pending_restore_key = ""
+        bridge.prepareSliceProgressRestore(expected_key, article_title)
+        assert bridge._pending_restored_progress is not None
+        assert bridge._pending_restored_progress["shuffle_seed"] == 999999
+        assert bridge._pending_restore_key == hash_key
+
+        # 5. 验证 applySliceProgressRestore 能删除并返回进度
+        #    先重新保存（prepareSliceProgressRestore 不删除）
+        store.save_progress(expected_key, article_title, progress)
+        result = bridge.applySliceProgressRestore(expected_key, True, article_title)
+        import json
+        restored = json.loads(result)
+        assert restored["shuffle_seed"] == 999999
+        assert restored["current_slice"] == 3
+
+        # 6. 验证删除后查找失败
+        entry2, _ = bridge._find_progress(expected_key, article_title)
+        assert entry2 is None, "after delete, lookup should fail"
+
+        # 7. 验证 save_progress 的 aggressive cleanup
+        #    先保存旧格式条目
+        store.save_progress("old_text", "前五百 2/50", {
+            "last_accessed": "2025-01-01",
+            "total_slices": 50,
+            "current_slice": 2,
+            "text_title": "前五百 2/50",
+        })
+        #    再保存新条目（应清理旧条目）
+        store.save_progress(expected_key, article_title, progress)
+        data = store.load()
+        qianwubai_entries = [
+            v for v in data.values()
+            if isinstance(v, dict) and "前五百" in v.get("text_title", "")
+        ]
+        assert len(qianwubai_entries) == 1, (
+            f"expected 1 entry, got {len(qianwubai_entries)}: "
+            f"{[e.get('text_title') for e in qianwubai_entries]}"
+        )

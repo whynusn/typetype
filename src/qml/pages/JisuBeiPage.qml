@@ -60,7 +60,7 @@ Item {
         // 优先使用内容哈希（与 collectSliceResult 保存的 key 一致）
         var text = root.textContent;
         if (text && text.length > 0) {
-            hasProgress = appBridge.hasSliceProgress(text);
+            hasProgress = appBridge.hasSliceProgress(appBridge.getProgressKey("custom_text", text), textTitle(selectedText));
         } else {
             hasProgress = false;
         }
@@ -77,7 +77,7 @@ Item {
             return;
         }
 
-        var infoJson = appBridge.getSliceProgressInfo(text);
+        var infoJson = appBridge.getSliceProgressInfo(appBridge.getProgressKey("custom_text", text), textTitle(selectedText));
         if (!infoJson || infoJson.length === 0) {
             // 无进度，直接开始
             loadSelectedText();
@@ -118,6 +118,8 @@ Item {
             errorMessage = qsTr("请选择一篇文本");
             return;
         }
+        // 非恢复流程：清除可能残留的待恢复进度
+        if (!restoredProgress) appBridge.clearPendingRestore();
 
         var text = root.textContent;
         if (!text || text.length === 0) {
@@ -125,20 +127,23 @@ Item {
             return;
         }
 
-        var ks = sliceCriteriaPanel.keyStrokeMinValue;
-        var spd = sliceCriteriaPanel.speedMinValue;
-        var acc = sliceCriteriaPanel.accuracyMinValue;
-        var pc = sliceCriteriaPanel.passCountMinValue;
-        var onFail = sliceCriteriaPanel.onFailActionValue;
-        var adEn = sliceCriteriaPanel.autoDecreaseEnabled;
-        var ksDec = sliceCriteriaPanel.keyStrokeDecreaseValue;
-        var spdDec = sliceCriteriaPanel.speedDecreaseValue;
-        var accDec = sliceCriteriaPanel.accuracyDecreaseValue;
-        var advanceMode = sliceCriteriaPanel.advanceModeValue;
-        var fullShuffle = sliceSettingsPanel.fullShuffleChecked;
-        var sliceSize = sliceSettingsPanel.sliceSize;
-        var startSlice = sliceSettingsPanel.startSlice;
-        var openCondition = sliceCriteriaPanel.conditionChecked;
+        // 有恢复进度时使用保存的设置，否则用 UI 面板值
+        var rp = restoredProgress ? JSON.parse(restoredProgress) : null;
+        var rpMetrics = rp ? (rp.metrics || {}) : {};
+        var ks = rpMetrics.key_stroke_min !== undefined ? rpMetrics.key_stroke_min : sliceCriteriaPanel.keyStrokeMinValue;
+        var spd = rpMetrics.speed_min !== undefined ? rpMetrics.speed_min : sliceCriteriaPanel.speedMinValue;
+        var acc = rpMetrics.accuracy_min !== undefined ? rpMetrics.accuracy_min : sliceCriteriaPanel.accuracyMinValue;
+        var pc = rpMetrics.pass_count_min !== undefined ? rpMetrics.pass_count_min : sliceCriteriaPanel.passCountMinValue;
+        var onFail = rpMetrics.on_fail_action || sliceCriteriaPanel.onFailActionValue;
+        var adEn = rpMetrics.auto_decrease_enabled !== undefined ? rpMetrics.auto_decrease_enabled : sliceCriteriaPanel.autoDecreaseEnabled;
+        var ksDec = rpMetrics.key_stroke_decrease !== undefined ? rpMetrics.key_stroke_decrease : sliceCriteriaPanel.keyStrokeDecreaseValue;
+        var spdDec = rpMetrics.speed_decrease !== undefined ? rpMetrics.speed_decrease : sliceCriteriaPanel.speedDecreaseValue;
+        var accDec = rpMetrics.accuracy_decrease !== undefined ? rpMetrics.accuracy_decrease : sliceCriteriaPanel.accuracyDecreaseValue;
+        var advanceMode = rp ? (rp.advance_mode || sliceCriteriaPanel.advanceModeValue) : sliceCriteriaPanel.advanceModeValue;
+        var fullShuffle = rp && rp.shuffle_seed !== null && rp.shuffle_seed !== undefined ? true : sliceSettingsPanel.fullShuffleChecked;
+        var sliceSize = rp && rp.slice_size > 0 ? rp.slice_size : sliceSettingsPanel.sliceSize;
+        var startSlice = rp && rp.current_slice > 0 ? rp.current_slice : sliceSettingsPanel.startSlice;
+        var openCondition = rp ? (ks > 0 || spd > 0 || acc > 0 || onFail !== "none") : sliceCriteriaPanel.conditionChecked;
         var fullText = !root.sliceModeChecked;
 
         if (fullText) {
@@ -377,6 +382,7 @@ Item {
                         SliceCriteriaPanel {
                             id: sliceCriteriaPanel
                             Layout.fillWidth: true
+                            visible: root.sliceModeChecked
                         }
 
                         Item { Layout.fillHeight: true }
@@ -448,11 +454,11 @@ Item {
     SliceProgressRestoreDialog {
         id: progressRestoreDialog
         onRestoreAccepted: {
-            var rp = appBridge.applySliceProgressRestore(root.textContent, true);
+            var rp = appBridge.applySliceProgressRestore(appBridge.getProgressKey("custom_text", root.textContent), true, textTitle(selectedText));
             root.loadSelectedText(rp);
         }
         onStartFresh: {
-            appBridge.applySliceProgressRestore(root.textContent, false);
+            appBridge.applySliceProgressRestore(appBridge.getProgressKey("custom_text", root.textContent), false, textTitle(selectedText));
             root.loadSelectedText();
         }
     }

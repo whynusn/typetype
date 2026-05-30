@@ -15,12 +15,14 @@ class LoadTrainerSegmentUseCase:
         segment_index: int,
         group_size: int,
         full_shuffle: bool = False,
+        seed: int | None = None,
     ) -> TrainerSegment:
         return self._service.load_trainer(
             trainer_id,
             group_size=group_size,
             segment_index=segment_index,
             full_shuffle=full_shuffle,
+            seed=seed,
         )
 
     def current_segment(self) -> TrainerSegment:

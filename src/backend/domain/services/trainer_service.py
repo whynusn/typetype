@@ -31,6 +31,7 @@ class TrainerService:
         group_size: int,
         segment_index: int | None = None,
         full_shuffle: bool = False,
+        seed: int | None = None,
     ) -> TrainerSegment:
         if group_size <= 0:
             raise ValueError("group_size must be greater than 0")
@@ -39,7 +40,8 @@ class TrainerService:
         groups = [list(group) for group in lexicon.groups]
         if full_shuffle and groups:
             all_entries = [e for group in groups for e in group]
-            self._randomizer.shuffle(all_entries)
+            rng = Random(seed) if seed is not None else self._randomizer
+            rng.shuffle(all_entries)
             groups = [
                 all_entries[i : i + group_size]
                 for i in range(0, len(all_entries), group_size)

@@ -72,7 +72,7 @@ Item {
 
     function checkProgress() {
         if (selectedArticle && appBridge) {
-            hasProgress = appBridge.hasSliceProgress("__local_article__:" + articleId(selectedArticle));
+            hasProgress = appBridge.hasSliceProgress(appBridge.getProgressKey("local_article", articleId(selectedArticle)), articleTitle(selectedArticle));
         } else {
             hasProgress = false;
         }
@@ -89,8 +89,8 @@ Item {
             return;
         }
 
-        var progressKey = "__local_article__:" + idValue;
-        var infoJson = appBridge.getSliceProgressInfo(progressKey);
+        var progressKey = appBridge.getProgressKey("local_article", idValue);
+        var infoJson = appBridge.getSliceProgressInfo(progressKey, articleTitle(selectedArticle));
         if (!infoJson || infoJson.length === 0) {
             // 无进度，直接开始
             loadSelectedSegment();
@@ -99,6 +99,7 @@ Item {
 
         progressRestoreDialog.progressInfo = JSON.parse(infoJson);
         progressRestoreDialog._articleId = idValue;
+        progressRestoreDialog._articleTitle = articleTitle(selectedArticle);
         progressRestoreDialog.open();
     }
 
@@ -135,6 +136,8 @@ Item {
             errorMessage = qsTr("文章缺少可加载的 ID");
             return;
         }
+        // 非恢复流程：清除可能残留的待恢复进度
+        appBridge.clearPendingRestore();
 
         var size = sliceSettingsPanel.sliceSize;
         var index = Math.max(1, Math.min(sliceSettingsPanel.startSlice, sliceSettingsPanel.totalSlices));
@@ -517,6 +520,7 @@ Item {
                         SliceCriteriaPanel {
                             id: sliceCriteriaPanel
                             Layout.fillWidth: true
+                            visible: localArticlesPage.sliceModeChecked
                         }
 
                         Item {
@@ -683,23 +687,24 @@ Item {
     }
 
     function _startWithCriteria(articleId, index) {
-        var size = sliceSettingsPanel.sliceSize;
+        var settings = appBridge ? JSON.parse(appBridge.getRestoredSliceSettings()) : {};
+        var size = settings.slice_size > 0 ? settings.slice_size : sliceSettingsPanel.sliceSize;
         errorMessage = "";
         statusMessage = qsTr("正在恢复进度...");
         if (appBridge) {
-            var criteriaOn = sliceCriteriaPanel.conditionChecked;
+            var criteriaOn = settings.condition_on !== undefined ? settings.condition_on : sliceCriteriaPanel.conditionChecked;
             appBridge.setSliceCriteria(
-                criteriaOn ? sliceCriteriaPanel.keyStrokeMinValue : 0,
-                criteriaOn ? sliceCriteriaPanel.speedMinValue : 0,
-                criteriaOn ? sliceCriteriaPanel.accuracyMinValue : 0,
-                criteriaOn ? sliceCriteriaPanel.passCountMinValue : 1,
-                criteriaOn ? sliceCriteriaPanel.onFailActionValue : "none",
-                sliceCriteriaPanel.advanceModeValue,
-                sliceSettingsPanel.fullShuffleChecked,
-                sliceCriteriaPanel.autoDecreaseEnabled,
-                sliceCriteriaPanel.keyStrokeDecreaseValue,
-                sliceCriteriaPanel.speedDecreaseValue,
-                sliceCriteriaPanel.accuracyDecreaseValue
+                criteriaOn ? (settings.key_stroke_min || sliceCriteriaPanel.keyStrokeMinValue) : 0,
+                criteriaOn ? (settings.speed_min || sliceCriteriaPanel.speedMinValue) : 0,
+                criteriaOn ? (settings.accuracy_min || sliceCriteriaPanel.accuracyMinValue) : 0,
+                criteriaOn ? (settings.pass_count_min || sliceCriteriaPanel.passCountMinValue) : 1,
+                criteriaOn ? (settings.on_fail_action || sliceCriteriaPanel.onFailActionValue) : "none",
+                settings.advance_mode || sliceCriteriaPanel.advanceModeValue,
+                settings.full_shuffle !== undefined ? settings.full_shuffle : sliceSettingsPanel.fullShuffleChecked,
+                settings.auto_decrease_enabled !== undefined ? settings.auto_decrease_enabled : sliceCriteriaPanel.autoDecreaseEnabled,
+                settings.key_stroke_decrease || sliceCriteriaPanel.keyStrokeDecreaseValue,
+                settings.speed_decrease || sliceCriteriaPanel.speedDecreaseValue,
+                settings.accuracy_decrease || sliceCriteriaPanel.accuracyDecreaseValue
             );
         }
         if (Window.window && Window.window.navigationView)
@@ -713,13 +718,14 @@ Item {
     SliceProgressRestoreDialog {
         id: progressRestoreDialog
         property string _articleId: ""
+        property string _articleTitle: ""
         onRestoreAccepted: {
             // 保存恢复上下文，让 loader 处理实际恢复（含 per-slice 指标和达标次数）
-            appBridge.prepareSliceProgressRestore("__local_article__:" + _articleId);
+            appBridge.prepareSliceProgressRestore(appBridge.getProgressKey("local_article", _articleId), _articleTitle);
             localArticlesPage._startWithCriteria(_articleId, 1);
         }
         onStartFresh: {
-            appBridge.applySliceProgressRestore("__local_article__:" + _articleId, false);
+            appBridge.applySliceProgressRestore(appBridge.getProgressKey("local_article", _articleId), false, _articleTitle);
             localArticlesPage._startWithCriteria(_articleId, 1);
         }
     }

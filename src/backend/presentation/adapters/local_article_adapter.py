@@ -77,6 +77,10 @@ class LocalArticleAdapter(QObject):
         """返回指定文章的完整文本内容。"""
         return self._gateway.load_content(article_id)
 
+    def get_article_title(self, article_id: str) -> str:
+        """返回指定文章的标题。"""
+        return self._gateway.get_article(article_id).title
+
     def _load_segment(
         self,
         article_id: str,

@@ -118,3 +118,21 @@ def test_load_trainer_rejects_invalid_group_size() -> None:
 
     with pytest.raises(ValueError, match="group_size"):
         service.load_trainer("words", group_size=0)
+
+
+def test_load_trainer_with_seed_produces_deterministic_shuffle() -> None:
+    repository = FakeTrainerRepository()
+    service1 = TrainerService(repository=repository)
+    service2 = TrainerService(repository=repository)
+
+    seg1 = service1.load_trainer("words", group_size=2, full_shuffle=True, seed=42)
+    seg2 = service2.load_trainer("words", group_size=2, full_shuffle=True, seed=42)
+
+    # Same seed -> same shuffle order
+    assert seg1.content == seg2.content
+    assert seg1.items == seg2.items
+
+    # No seed -> uses internal randomizer (non-deterministic, just verify no crash)
+    service3 = TrainerService(repository=FakeTrainerRepository())
+    seg3 = service3.load_trainer("words", group_size=2, full_shuffle=True)
+    assert len(seg3.items) > 0

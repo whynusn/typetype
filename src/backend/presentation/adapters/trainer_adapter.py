@@ -85,12 +85,14 @@ class TrainerAdapter(QObject):
         segment_index: int,
         group_size: int,
         full_shuffle: bool = False,
+        seed: int | None = None,
     ) -> dict:
         segment = self._load_segment_usecase.load_segment(
             trainer_id,
             segment_index=segment_index,
             group_size=group_size,
             full_shuffle=full_shuffle,
+            seed=seed,
         )
         return self._segment_to_dict(segment)
 
@@ -190,10 +192,11 @@ class TrainerAdapter(QObject):
         segment_index: int,
         group_size: int,
         full_shuffle: bool = False,
+        seed: int | None = None,
     ) -> None:
         self._run_segment_worker(
             task=lambda: self._load_segment(
-                trainer_id, segment_index, group_size, full_shuffle
+                trainer_id, segment_index, group_size, full_shuffle, seed
             ),
             error_prefix="加载练单器段落失败",
         )
