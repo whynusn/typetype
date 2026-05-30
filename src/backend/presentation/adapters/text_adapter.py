@@ -13,7 +13,7 @@ from ...application.usecases.text_session_usecase import TextSessionUseCase
 from ...config.runtime_config import RuntimeConfig
 from ...config.text_source_config import SourceType
 from ...integration.file_segment_provider import FileSegmentProvider
-from ...models.dto.text_session import TextHandle, TextKind
+from ...models.dto.text_session import SegmentResult, TextHandle, TextKind
 from ...workers.text_load_worker import TextLoadWorker
 
 if TYPE_CHECKING:
@@ -327,10 +327,10 @@ class TextAdapter(QObject):
         version: str,
         slice_size: int,
         start_slice: int = 1,
-    ) -> None:
-        """启动统一载文会话（File 模式，支持大文件稀疏索引）。"""
+    ) -> "SegmentResult | None":
+        """启动统一载文会话（File 模式），返回首段结果。调用方负责发射信号。"""
         if not file_path or slice_size <= 0:
-            return
+            return None
 
         small_threshold = self._runtime_config.text_session.small_file_threshold
         provider = FileSegmentProvider(file_path, small_file_threshold=small_threshold)
@@ -350,12 +350,7 @@ class TextAdapter(QObject):
             provider, handle,
             full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
         )
-        result = self._text_session_usecase.get_segment(start_slice, slice_size)
-
-        label = title
-        if result.total > 1:
-            label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
-        self.textLoaded.emit(result.content, -1, label)
+        return self._text_session_usecase.get_segment(start_slice, slice_size)
 
     @property
     def text_session_usecase(self) -> TextSessionUseCase | None:

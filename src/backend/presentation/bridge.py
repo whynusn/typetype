@@ -1068,15 +1068,20 @@ class Bridge(QObject):
             stat = Path(file_path).stat()
             version = f"{stat.st_size}:{stat.st_mtime}"
             title = self._local_article_adapter.get_article_title(articleId)
-            self.startFileTextSession(
+            from src.backend.models.dto.text_session import TextKind
+
+            result = self._text_adapter.startFileTextSession(
                 file_path=file_path,
-                kind="local_article",
+                kind=TextKind.LOCAL_ARTICLE,
                 identifier=articleId,
                 title=title,
                 version=version,
                 slice_size=segmentSize,
                 start_slice=segmentIndex,
             )
+            if result is None:
+                return
+
             # 全文乱序：通过 UseCase 统一处理（小文本全量 shuffle，大文本 Feistel）
             if full_shuffle:
                 import random
@@ -1091,10 +1096,6 @@ class Bridge(QObject):
                     shuffled_usecase = usecase.shuffle_all_virtual(saved_seed)
                     self._text_adapter._text_session_usecase = shuffled_usecase
                     result = shuffled_usecase.get_segment(segmentIndex, segmentSize)
-                    label = title
-                    if result.total > 1:
-                        label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
-                    self._text_adapter.textLoaded.emit(result.content, -1, label)
                 self._current_shuffle_seed = saved_seed
                 if self._pending_restored_progress:
                     self._pending_restored_progress["shuffle_seed"] = saved_seed
@@ -1102,6 +1103,35 @@ class Bridge(QObject):
                 self._progress_key_override = _compute_progress_key(
                     "local_article", articleId
                 )
+
+            # 设置分片模式（自动推进、重打、指标等依赖此状态）
+            p = self._coordinator.pending_slice_params
+            title_label = title
+            if result.total > 1:
+                title_label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+            self._typing_adapter.setTextTitle(title_label)
+            self.windowTitleChanged.emit()
+            self._coordinator._cache_current_content(result.content)
+            self._coordinator.source_slice_backend = "local_article"
+            self._coordinator.source_slice_article_id = articleId
+            self._coordinator.source_slice_segment_size = segmentSize
+            self._coordinator._visited_slices.clear()
+            self._typing_adapter.setup_sourced_slice_mode(
+                result.index,
+                result.total,
+                on_fail_action=p["on_fail_action"],
+                key_stroke_min=p["key_stroke_min"],
+                speed_min=p["speed_min"],
+                accuracy_min=p["accuracy_min"],
+                pass_count_min=p["pass_count_min"],
+                reset_counts=True,
+                auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+                key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+                speed_decrease=p.get("speed_decrease", 0),
+                accuracy_decrease=p.get("accuracy_decrease", 0),
+            )
+            self.sliceModeChanged.emit()
+            self.textLoaded.emit(result.content, -1, title_label)
         else:
             self._typing_adapter.setup_local_article_session()
             self._coordinator.source_slice_backend = None
@@ -1301,7 +1331,7 @@ class Bridge(QObject):
 
         self._typing_adapter.prepare_for_text_load()
         self._coordinator.clear_text_id(self)
-        self._text_adapter.startFileTextSession(
+        result = self._text_adapter.startFileTextSession(
             file_path=file_path,
             kind=TextKind(kind),
             identifier=identifier,
@@ -1310,6 +1340,11 @@ class Bridge(QObject):
             slice_size=slice_size,
             start_slice=start_slice,
         )
+        if result is not None:
+            label = title
+            if result.total > 1:
+                label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+            self.textLoaded.emit(result.content, -1, label)
 
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str)
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str, str)
