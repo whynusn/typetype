@@ -1638,6 +1638,7 @@ class Bridge(QObject):
         """载入下一片（无尽模式：最后一片后回到第一片）。"""
         self._save_current_slice_if_needed()
         self._coordinator.load_next_slice(self)
+        self._update_progress_current_slice()
 
     @Slot()
     def loadRandomSlice(self) -> None:

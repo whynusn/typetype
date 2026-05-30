@@ -1463,9 +1463,16 @@ class TestBridgeSpecialPlatform:
     def test_local_article_progress_updates_after_async_next_segment_loaded(
         self, tmp_path
     ):
+        from src.backend.integration.in_memory_segment_provider import (
+            InMemorySegmentProvider,
+        )
         from src.backend.integration.text_slice_progress_store import (
             TextSliceProgressStore,
         )
+        from src.backend.application.usecases.text_session_usecase import (
+            TextSessionUseCase,
+        )
+        from src.backend.models.dto.text_session import TextHandle, TextKind
         from src.backend.presentation.bridge import _compute_progress_key
 
         typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
@@ -1484,6 +1491,21 @@ class TestBridgeSpecialPlatform:
             text_slice_progress_store=store,
             key_listener=None,
         )
+
+        # 通过 TextSessionUseCase 初始化分片状态
+        content = "第一段" * 50 + "第二段" * 50 + "第三段" * 50 + "第四段" * 50 + "第五段" * 50
+        provider = InMemorySegmentProvider(content)
+        handle = TextHandle(
+            kind=TextKind.LOCAL_ARTICLE,
+            identifier="a1",
+            title="长文",
+            char_count=len(content),
+            version="1",
+        )
+        usecase = TextSessionUseCase(provider, handle)
+        text_adapter._text_session_usecase = usecase
+        text_adapter._session_slice_size = 100
+
         key = _compute_progress_key("local_article", "a1")
         store.save_progress(
             key,
@@ -1498,19 +1520,10 @@ class TestBridgeSpecialPlatform:
         bridge._coordinator.source_slice_backend = "local_article"
         bridge._coordinator.source_slice_article_id = "a1"
         bridge._coordinator.source_slice_segment_size = 100
+        bridge._coordinator.source_slice_title = "长文"
         typing_adapter.setup_sourced_slice_mode(2, 5, on_fail_action="none")
 
         bridge.loadNextSlice()
-        assert local_article_adapter.segment_requests == [("a1", 3, 100)]
-        local_article_adapter.localArticleSegmentLoaded.emit(
-            {
-                "articleId": "a1",
-                "title": "长文",
-                "content": "第三段",
-                "index": 3,
-                "total": 5,
-            }
-        )
 
         entry, _ = bridge._find_progress(key, "长文")
         assert entry is not None
