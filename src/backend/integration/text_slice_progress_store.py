@@ -57,20 +57,6 @@ class TextSliceProgressStore:
 
     def save_progress(self, text: str, title: str, progress: dict[str, Any]) -> None:
         data = self.load()
-        # 清理同文章的旧条目（防止 title 回退扫描匹配到过期数据）
-        # 匹配逻辑：title 是旧条目的前缀，或旧条目 title 是 title 的前缀
-        if title:
-            stale_keys = [
-                k
-                for k, v in data.items()
-                if isinstance(v, dict)
-                and (
-                    v.get("text_title", "").startswith(title)
-                    or title.startswith(v.get("text_title", ""))
-                )
-            ]
-            for k in stale_keys:
-                del data[k]
         data[_text_hash(text)] = {
             "text_title": title,
             "text_preview": text[:80],

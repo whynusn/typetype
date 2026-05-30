@@ -1760,8 +1760,7 @@ def test_full_shuffle_save_restore_cycle():
         assert bridge._pending_restored_progress["shuffle_seed"] == 999999
         assert bridge._pending_restore_key == hash_key
 
-        # 5. 验证 applySliceProgressRestore 能删除并返回进度
-        #    先重新保存（prepareSliceProgressRestore 不删除）
+        # 5. 验证 applySliceProgressRestore 能返回进度且不删除
         store.save_progress(expected_key, article_title, progress)
         result = bridge.applySliceProgressRestore(expected_key, True, article_title)
         import json
@@ -1770,31 +1769,23 @@ def test_full_shuffle_save_restore_cycle():
         assert restored["shuffle_seed"] == 999999
         assert restored["current_slice"] == 3
 
-        # 6. 验证删除后查找失败
+        # 6. 验证恢复后进度仍保留在存储中（由 collectSliceResult 自然覆盖）
         entry2, _ = bridge._find_progress(expected_key, article_title)
-        assert entry2 is None, "after delete, lookup should fail"
+        assert entry2 is not None, "progress should persist after restore"
+        assert entry2["current_slice"] == 3
 
-        # 7. 验证 save_progress 的 aggressive cleanup
-        #    先保存旧格式条目
-        store.save_progress(
-            "old_text",
-            "前五百 2/50",
-            {
-                "last_accessed": "2025-01-01",
-                "total_slices": 50,
-                "current_slice": 2,
-                "text_title": "前五百 2/50",
-            },
-        )
-        #    再保存新条目（应清理旧条目）
+        # 7. 验证 restore=False 时删除进度
+        result2 = bridge.applySliceProgressRestore(expected_key, False, article_title)
+        assert result2 == ""
+        entry3, _ = bridge._find_progress(expected_key, article_title)
+        assert entry3 is None, "progress should be deleted when restore=False"
+
+        # 7. 验证 save_progress 按 hash key 覆盖同源条目
         store.save_progress(expected_key, article_title, progress)
-        data = store.load()
-        qianwubai_entries = [
-            v
-            for v in data.values()
-            if isinstance(v, dict) and "前五百" in v.get("text_title", "")
-        ]
-        assert len(qianwubai_entries) == 1, (
-            f"expected 1 entry, got {len(qianwubai_entries)}: "
-            f"{[e.get('text_title') for e in qianwubai_entries]}"
-        )
+        # 再次保存不同 slice 的进度（同 key，应覆盖）
+        progress2 = dict(progress, current_slice=5, slice_size=200)
+        store.save_progress(expected_key, article_title, progress2)
+        entry4, _ = bridge._find_progress(expected_key, article_title)
+        assert entry4 is not None
+        assert entry4["current_slice"] == 5
+        assert entry4["slice_size"] == 200

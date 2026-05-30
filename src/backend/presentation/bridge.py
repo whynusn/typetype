@@ -484,7 +484,11 @@ class Bridge(QObject):
         self.localArticleSegmentLoadFailed.emit(message)
 
     def _restore_pending_progress(self) -> None:
-        """source-based 路径恢复历史进度（达标次数 + per-slice 指标）。"""
+        """source-based 路径恢复历史进度（达标次数 + per-slice 指标）。
+
+        不删除存储中的进度条目——由 collectSliceResult 在用户完成一段后自然覆盖。
+        这样即使用户继续进度后未完成一段就关闭应用，进度也不会丢失。
+        """
         if not self._pending_restored_progress:
             return
         ctx = self._typing_adapter._session_context
@@ -504,12 +508,7 @@ class Bridge(QObject):
                 m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
             ]
             ctx.restore_slice_metrics(ctx.slice_index)
-        # 恢复成功，从存储删除进度
-        if self._pending_restore_key and self._text_slice_progress_store:
-            self._text_slice_progress_store.delete_by_hash_key(
-                self._pending_restore_key
-            )
-            self._pending_restore_key = ""
+        self._pending_restore_key = ""
         self._pending_restored_progress = None
 
     def _on_wenlai_config_changed(self) -> None:
@@ -1828,10 +1827,11 @@ class Bridge(QObject):
     def applySliceProgressRestore(
         self, progressKey: str, restore: bool, title: str = ""
     ) -> str:
-        """处理入口页弹窗结果。删除已保存进度以防止后端二次检测。
+        """处理入口页弹窗结果。
 
         restore=True 时返回保存的进度 JSON（供 setupSliceMode 使用），
-        restore=False 时仅删除进度并返回空字符串。
+        不删除进度——由 collectSliceResult 在用户完成一段后自然覆盖。
+        restore=False 时删除进度并返回空字符串（用户主动放弃进度）。
         """
         progress, actual_key = self._find_progress(progressKey, title)
         log_info(
@@ -1841,8 +1841,6 @@ class Bridge(QObject):
             f"seed={progress.get('shuffle_seed') if progress else None}"
         )
         if restore:
-            if actual_key and self._text_slice_progress_store:
-                self._text_slice_progress_store.delete_by_hash_key(actual_key)
             if progress:
                 return json.dumps(progress, ensure_ascii=False)
             return ""
