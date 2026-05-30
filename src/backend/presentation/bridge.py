@@ -1083,12 +1083,14 @@ class Bridge(QObject):
                 return
 
             # 全文乱序：通过 UseCase 统一处理（小文本全量 shuffle，大文本 Feistel）
+            # 保留 _pending_restored_progress 以便后续 _restore_pending_progress 使用
+            saved_progress = self._pending_restored_progress
             if full_shuffle:
                 import random
 
                 saved_seed = None
-                if self._pending_restored_progress:
-                    saved_seed = self._pending_restored_progress.get("shuffle_seed")
+                if saved_progress:
+                    saved_seed = saved_progress.get("shuffle_seed")
                 if saved_seed is None:
                     saved_seed = random.randint(0, 2**31 - 1)
                 usecase = self._text_adapter.text_session_usecase
@@ -1097,9 +1099,8 @@ class Bridge(QObject):
                     self._text_adapter._text_session_usecase = shuffled_usecase
                     result = shuffled_usecase.get_segment(segmentIndex, segmentSize)
                 self._current_shuffle_seed = saved_seed
-                if self._pending_restored_progress:
-                    self._pending_restored_progress["shuffle_seed"] = saved_seed
-                    self._pending_restored_progress = None
+                if saved_progress:
+                    saved_progress["shuffle_seed"] = saved_seed
                 self._progress_key_override = _compute_progress_key(
                     "local_article", articleId
                 )
@@ -1131,6 +1132,10 @@ class Bridge(QObject):
                 speed_decrease=p.get("speed_decrease", 0),
                 accuracy_decrease=p.get("accuracy_decrease", 0),
             )
+            # 恢复进度（达标次数 + per-slice 指标）
+            self._pending_restored_progress = saved_progress
+            self._restore_pending_progress()
+            self._update_progress_current_slice()
             self.sliceModeChanged.emit()
             self.textLoaded.emit(result.content, -1, title_label)
         else:
@@ -1201,28 +1206,32 @@ class Bridge(QObject):
     def loadCurrentTrainerSegment(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.loadCurrentTrainerSegment()
 
     @Slot()
     def loadNextTrainerSegment(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.loadNextTrainerSegment()
 
     @Slot()
     def loadPreviousTrainerSegment(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.loadPreviousTrainerSegment()
 
     @Slot()
     def shuffleCurrentTrainerGroup(self) -> None:
         if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
             return
-        self._prepare_for_trainer_load()
+        if self._coordinator.source_slice_backend != "trainer":
+            self._prepare_for_trainer_load()
         self._trainer_adapter.shuffleCurrentTrainerGroup()
 
     def _prepare_for_trainer_load(self) -> None:
