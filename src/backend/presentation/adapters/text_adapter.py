@@ -12,6 +12,7 @@ from ...application.usecases.load_text_usecase import (
 from ...application.usecases.text_session_usecase import TextSessionUseCase
 from ...config.runtime_config import RuntimeConfig
 from ...config.text_source_config import SourceType
+from ...integration.file_segment_provider import FileSegmentProvider
 from ...integration.in_memory_segment_provider import InMemorySegmentProvider
 from ...models.dto.text_session import TextHandle, TextKind
 from ...workers.text_load_worker import TextLoadWorker
@@ -340,6 +341,41 @@ class TextAdapter(QObject):
             version=version,
         )
         provider = InMemorySegmentProvider(text)
+        self._text_session_usecase = TextSessionUseCase(provider, handle)
+        result = self._text_session_usecase.get_segment(start_slice, slice_size)
+
+        label = title
+        if result.total > 1:
+            label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+        self.textLoaded.emit(result.content, -1, label)
+
+    def startFileTextSession(
+        self,
+        file_path: str,
+        kind: TextKind,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+    ) -> None:
+        """启动统一载文会话（File 模式，支持大文件稀疏索引）。"""
+        if not file_path or slice_size <= 0:
+            return
+
+        provider = FileSegmentProvider(file_path)
+        provider.load_index_cache()
+        total_chars = provider.get_total_chars()
+        if provider._index and not provider._text:
+            provider.save_index_cache()
+
+        handle = TextHandle(
+            kind=kind,
+            identifier=identifier,
+            title=title,
+            char_count=total_chars,
+            version=version,
+        )
         self._text_session_usecase = TextSessionUseCase(provider, handle)
         result = self._text_session_usecase.get_segment(start_slice, slice_size)
 

@@ -1,6 +1,8 @@
 import hashlib
 import json
 import re
+import codecs
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +49,20 @@ class FileLocalArticleRepository(LocalArticleRepository):
         if path is None:
             raise FileNotFoundError(f"unknown article_id: {article_id}")
         return self._read_article(path)
+
+    def load_article_segment(self, article_id: str, start: int, length: int) -> str:
+        path = self._path_for_article_id(article_id)
+        if path is None:
+            raise FileNotFoundError(f"unknown article_id: {article_id}")
+        if start < 0 or length <= 0:
+            return ""
+        return self._read_article_segment(path, start, length)
+
+    def count_article_chars(self, article_id: str) -> int:
+        path = self._path_for_article_id(article_id)
+        if path is None:
+            raise FileNotFoundError(f"unknown article_id: {article_id}")
+        return self._count_article_chars(path)
 
     def save_current_segment(self, article_id: str, segment_index: int) -> None:
         self._article_dir.mkdir(parents=True, exist_ok=True)
@@ -97,7 +113,7 @@ class FileLocalArticleRepository(LocalArticleRepository):
             article_id=self.make_article_id(path.relative_to(self._article_dir)),
             title=path.stem,
             path=str(path.resolve()),
-            char_count=len(self._read_article(path)),
+            char_count=self._count_article_chars(path),
             modified_timestamp=stat.st_mtime,
             is_bundled=path.name in self._bundled_names,
         )
@@ -108,12 +124,62 @@ class FileLocalArticleRepository(LocalArticleRepository):
                 return path
         return None
 
+    def resolve_article_path(self, article_id: str) -> str | None:
+        path = self._path_for_article_id(article_id)
+        if path is None or not path.exists():
+            return None
+        return str(path.resolve())
+
     def _read_article(self, path: Path) -> str:
-        content = path.read_bytes()
+        return "".join(self._iter_decoded_chunks(path))
+
+    def _count_article_chars(self, path: Path) -> int:
+        return sum(len(chunk) for chunk in self._iter_decoded_chunks(path))
+
+    def _read_article_segment(self, path: Path, start: int, length: int) -> str:
+        remaining_skip = start
+        remaining_take = length
+        parts: list[str] = []
+        for chunk in self._iter_decoded_chunks(path):
+            if remaining_skip >= len(chunk):
+                remaining_skip -= len(chunk)
+                continue
+            if remaining_skip:
+                chunk = chunk[remaining_skip:]
+                remaining_skip = 0
+            if remaining_take <= 0:
+                break
+            parts.append(chunk[:remaining_take])
+            remaining_take -= len(parts[-1])
+            if remaining_take <= 0:
+                break
+        return "".join(parts)
+
+    def _iter_decoded_chunks(self, path: Path) -> Iterator[str]:
+        encoding = self._detect_encoding(path)
+        yield from self._iter_text_file(path, encoding)
+
+    def _detect_encoding(self, path: Path) -> str:
+        decoder = codecs.getincrementaldecoder("utf-8")()
         try:
-            return content.decode("utf-8")
+            with path.open("rb") as f:
+                while True:
+                    chunk = f.read(64 * 1024)
+                    if not chunk:
+                        break
+                    decoder.decode(chunk)
+                decoder.decode(b"", final=True)
         except UnicodeDecodeError:
-            return content.decode("gb18030")
+            return "gb18030"
+        return "utf-8"
+
+    def _iter_text_file(self, path: Path, encoding: str) -> Iterator[str]:
+        with path.open("r", encoding=encoding) as f:
+            while True:
+                chunk = f.read(64 * 1024)
+                if not chunk:
+                    break
+                yield chunk
 
     def delete_article(self, article_id: str) -> bool:
         path = self._path_for_article_id(article_id)

@@ -1112,16 +1112,33 @@ class Bridge(QObject):
                 )
                 return
 
-        self._typing_adapter.setup_local_article_session()
-        self._coordinator.source_slice_backend = None
-        self._coordinator.source_slice_article_id = articleId
-        self._coordinator._visited_slices.clear()
-        self._coordinator.source_slice_segment_size = segmentSize
-        self._local_article_adapter.loadLocalArticleSegment(
-            articleId,
-            segmentIndex,
-            segmentSize,
-        )
+        file_path = self._local_article_adapter.resolve_article_path(articleId)
+        if file_path:
+            from pathlib import Path
+
+            stat = Path(file_path).stat()
+            version = f"{stat.st_size}:{stat.st_mtime}"
+            title = self._local_article_adapter.get_article_title(articleId)
+            self.startFileTextSession(
+                file_path=file_path,
+                kind="local_article",
+                identifier=articleId,
+                title=title,
+                version=version,
+                slice_size=segmentSize,
+                start_slice=segmentIndex,
+            )
+        else:
+            self._typing_adapter.setup_local_article_session()
+            self._coordinator.source_slice_backend = None
+            self._coordinator.source_slice_article_id = articleId
+            self._coordinator._visited_slices.clear()
+            self._coordinator.source_slice_segment_size = segmentSize
+            self._local_article_adapter.loadLocalArticleSegment(
+                articleId,
+                segmentIndex,
+                segmentSize,
+            )
 
     @Slot()
     def loadTrainers(self) -> None:
@@ -1312,6 +1329,35 @@ class Bridge(QObject):
         self._coordinator.clear_text_id(self)
         self._text_adapter.startTextSession(
             text=text,
+            kind=TextKind(kind),
+            identifier=identifier,
+            title=title,
+            version=version,
+            slice_size=slice_size,
+            start_slice=start_slice,
+        )
+
+    @Slot(str, str, str, str, str, int, int)
+    def startFileTextSession(
+        self,
+        file_path: str,
+        kind: str,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+    ) -> None:
+        """统一文件型载文入口：通过 FileSegmentProvider 创建会话并加载第一段。"""
+        from ...models.dto.text_session import TextKind
+
+        if not file_path or slice_size <= 0:
+            return
+
+        self._typing_adapter.prepare_for_text_load()
+        self._coordinator.clear_text_id(self)
+        self._text_adapter.startFileTextSession(
+            file_path=file_path,
             kind=TextKind(kind),
             identifier=identifier,
             title=title,

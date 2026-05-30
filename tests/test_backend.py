@@ -159,6 +159,12 @@ class DummyLocalArticleAdapter(QObject):
     def clear_active(self) -> None:
         self.clear_count += 1
 
+    def resolve_article_path(self, article_id: str) -> str | None:
+        return None
+
+    def get_article_title(self, article_id: str) -> str:
+        return ""
+
 
 class DummyZitiAdapter(QObject):
     schemesLoaded = Signal(list)
@@ -1453,6 +1459,117 @@ class TestBridgeSpecialPlatform:
 
         assert trainer_adapter.shuffle_count == 1
         assert trainer_adapter.segment_requests == []
+
+    def test_local_article_progress_updates_after_async_next_segment_loaded(
+        self, tmp_path
+    ):
+        from src.backend.integration.text_slice_progress_store import (
+            TextSliceProgressStore,
+        )
+        from src.backend.presentation.bridge import _compute_progress_key
+
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        session = TypingSessionContext()
+        typing_adapter._session_context = session
+        local_article_adapter = DummyLocalArticleAdapter()
+        store = TextSliceProgressStore(tmp_path / "progress.json")
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            local_article_adapter=local_article_adapter,
+            text_slice_progress_store=store,
+            key_listener=None,
+        )
+        key = _compute_progress_key("local_article", "a1")
+        store.save_progress(
+            key,
+            "长文",
+            {
+                "current_slice": 2,
+                "total_slices": 5,
+                "slice_size": 100,
+                "metrics": {},
+            },
+        )
+        bridge._coordinator.source_slice_backend = "local_article"
+        bridge._coordinator.source_slice_article_id = "a1"
+        bridge._coordinator.source_slice_segment_size = 100
+        typing_adapter.setup_sourced_slice_mode(2, 5, on_fail_action="none")
+
+        bridge.loadNextSlice()
+        assert local_article_adapter.segment_requests == [("a1", 3, 100)]
+        local_article_adapter.localArticleSegmentLoaded.emit(
+            {
+                "articleId": "a1",
+                "title": "长文",
+                "content": "第三段",
+                "index": 3,
+                "total": 5,
+            }
+        )
+
+        entry, _ = bridge._find_progress(key, "长文")
+        assert entry is not None
+        assert entry["current_slice"] == 3
+
+    def test_trainer_progress_updates_after_async_next_segment_loaded(self, tmp_path):
+        from src.backend.integration.text_slice_progress_store import (
+            TextSliceProgressStore,
+        )
+        from src.backend.presentation.bridge import _compute_progress_key
+
+        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
+            self._create_mock_services()
+        )
+        session = TypingSessionContext()
+        typing_adapter._session_context = session
+        trainer_adapter = DummyTrainerAdapter()
+        store = TextSliceProgressStore(tmp_path / "progress.json")
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            trainer_adapter=trainer_adapter,
+            text_slice_progress_store=store,
+            key_listener=None,
+        )
+        key = _compute_progress_key("trainer", "t1")
+        store.save_progress(
+            key,
+            "前500",
+            {
+                "current_slice": 2,
+                "total_slices": 5,
+                "slice_size": 100,
+                "metrics": {},
+            },
+        )
+        bridge._coordinator.source_slice_backend = "trainer"
+        bridge._coordinator.source_slice_trainer_id = "t1"
+        bridge._coordinator.source_slice_group_size = 100
+        typing_adapter.setup_sourced_slice_mode(2, 5, on_fail_action="none")
+
+        bridge.loadNextSlice()
+        assert trainer_adapter.next_count == 1
+        trainer_adapter.trainerSegmentLoaded.emit(
+            {
+                "trainerId": "t1",
+                "title": "前500",
+                "content": "第三段",
+                "index": 3,
+                "total": 5,
+                "groupSize": 100,
+            }
+        )
+
+        entry, _ = bridge._find_progress(key, "前500")
+        assert entry is not None
+        assert entry["current_slice"] == 3
 
 
 def test_progress_key_consistency_between_save_and_lookup():

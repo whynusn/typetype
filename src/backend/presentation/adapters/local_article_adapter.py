@@ -81,6 +81,10 @@ class LocalArticleAdapter(QObject):
         """返回指定文章的标题。"""
         return self._gateway.get_article(article_id).title
 
+    def resolve_article_path(self, article_id: str) -> str | None:
+        """返回指定文章的文件绝对路径。"""
+        return self._gateway.resolve_article_path(article_id)
+
     def _load_segment(
         self,
         article_id: str,
