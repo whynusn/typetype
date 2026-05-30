@@ -69,14 +69,14 @@ def test_list_articles_skips_files_that_fail_during_metadata_read(
     good_file.write_text("正文", encoding="utf-8")
     broken_file.write_text("boom", encoding="utf-8")
     repository = FileLocalArticleRepository(article_dir)
-    original_read_article = repository._read_article
+    original_count_article_chars = repository._count_article_chars
 
-    def fail_for_broken(path: Path) -> str:
+    def fail_for_broken(path: Path) -> int:
         if path.name == "broken.txt":
             raise OSError("file disappeared")
-        return original_read_article(path)
+        return original_count_article_chars(path)
 
-    monkeypatch.setattr(repository, "_read_article", fail_for_broken)
+    monkeypatch.setattr(repository, "_count_article_chars", fail_for_broken)
 
     catalog = repository.list_articles()
 
@@ -107,6 +107,31 @@ def test_load_article_content_rejects_unknown_article_id(tmp_path: Path):
 
     with pytest.raises(FileNotFoundError, match="unknown article_id"):
         repository.load_article_content("missing")
+
+
+def test_load_article_segment_reads_only_requested_window(tmp_path: Path):
+    article_dir = tmp_path / "articles"
+    article_dir.mkdir()
+    article_file = article_dir / "long.txt"
+    article_file.write_text("甲乙丙丁戊己庚辛", encoding="utf-8")
+    repository = FileLocalArticleRepository(article_dir)
+
+    article_id = repository.make_article_id("long.txt")
+
+    assert repository.count_article_chars(article_id) == 8
+    assert repository.load_article_segment(article_id, 2, 3) == "丙丁戊"
+
+
+def test_load_article_segment_supports_gb18030(tmp_path: Path):
+    article_dir = tmp_path / "articles"
+    article_dir.mkdir()
+    article_file = article_dir / "gb.txt"
+    article_file.write_bytes("甲乙丙丁".encode("gb18030"))
+    repository = FileLocalArticleRepository(article_dir)
+
+    article_id = repository.make_article_id("gb.txt")
+
+    assert repository.load_article_segment(article_id, 1, 2) == "乙丙"
 
 
 def test_get_article_metadata_does_not_decode_other_articles(tmp_path: Path):

@@ -368,12 +368,18 @@ ToolLine.qml
 | 乱序 | `Bridge.requestShuffle()` | 乱序当前文本，清空 text_id，emit textLoaded |
 | 全文载入 | `Bridge.loadFullText(text, source_key)` | 载文 Dialog 勾选"全文载入"，异步回查 text_id |
 | 分片载入 | `Bridge._load_current_slice()` | 载文模式每片加载，text_id 传 -1 防止成绩提交 |
+| 来源型分片 | `Bridge.loadLocalArticleSegment()` / `Bridge.loadTrainerSegment()` | 本地文库/练单器按段异步加载，结果到达后更新统一分片状态与进度 |
 
 共同模式：
 1. `prepare_for_text_load()` — 停计时器、清状态、锁定输入
 2. 清空 `text_id`（分片传 -1，全文/乱序传 -1）
 3. `textLoaded.emit(text, -1, label)` → QML `applyLoadedText` → `handleLoadedText`
 4. 全文载入额外调用 `TextAdapter.lookup_text_id()` 异步回查服务端 text_id
+
+**来源型分片（本地文库/练单器）当前约束：**
+- 本地文库普通分片只读取目标字符窗口：`LocalArticleRepository.load_article_segment(article_id, start, length)`，避免每次上一段/下一段把全文读入内存。
+- 本地文库全文乱序仍需要读取全文并只在首次载文时打乱；这是显式选择的高内存路径，不应作为普通长文分片路径。
+- `collectSliceResult()` 负责保存统一分片进度；手动上一段/下一段/随机段在异步 segment loaded 后再把 `current_slice` 更新为实际载入段，避免 QML “继续上次进度”与后端仓储进度不一致。
 
 ### 文本加载里各层到底负责什么
 
@@ -384,6 +390,7 @@ ToolLine.qml
 | `TextSourceGateway` | 查配置、决定本地还是远程、调用 Port | 不管 UI 状态 |
 | `QtLocalTextLoader` | 读本地文件 | 不含业务路由 |
 | `RemoteTextProvider` | 发 HTTP 请求取文本 | 不含 UI/线程逻辑 |
+| `LocalArticleRepository` | 列出本地文章、按字符窗口读取片段、保存本地文章当前段 | 不做 QML 进度弹窗逻辑 |
 
 ### 从剪贴板载文
 
