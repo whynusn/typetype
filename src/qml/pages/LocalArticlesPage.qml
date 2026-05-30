@@ -14,6 +14,7 @@ Item {
     property string errorMessage: ""
     property string statusMessage: ""
     property bool hasProgress: false
+    readonly property var _navigationView: Window.window ? Window.window.navigationView : null
 
     // 分片模式开关（true=分片，false=全文）
     property bool sliceModeChecked: true
@@ -694,7 +695,7 @@ Item {
             appBridge.prepareSliceProgressRestore(appBridge.getProgressKey("local_article", _articleId), _articleTitle);
             var settings = JSON.parse(appBridge.getRestoredSliceSettings());
             SliceHelpers.startWithCriteria(
-                appBridge, Window.window ? Window.window.navigationView : null,
+                appBridge, localArticlesPage._navigationView,
                 sliceSettingsPanel, sliceCriteriaPanel, settings,
                 function(size) { appBridge.loadLocalArticleSegment(_articleId, 1, size); }
             );
