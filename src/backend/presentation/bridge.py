@@ -1283,35 +1283,6 @@ class Bridge(QObject):
         return self._typing_adapter.get_slice_pass_count()
 
     @Slot(str, str, str, str, str, int, int)
-    def startTextSession(
-        self,
-        text: str,
-        kind: str,
-        identifier: str,
-        title: str,
-        version: str,
-        slice_size: int,
-        start_slice: int = 1,
-    ) -> None:
-        """统一载文入口：创建会话并加载第一段。"""
-        from ...models.dto.text_session import TextKind
-
-        if not text or slice_size <= 0:
-            return
-
-        self._typing_adapter.prepare_for_text_load()
-        self._coordinator.clear_text_id(self)
-        self._text_adapter.startTextSession(
-            text=text,
-            kind=TextKind(kind),
-            identifier=identifier,
-            title=title,
-            version=version,
-            slice_size=slice_size,
-            start_slice=start_slice,
-        )
-
-    @Slot(str, str, str, str, str, int, int)
     def startFileTextSession(
         self,
         file_path: str,

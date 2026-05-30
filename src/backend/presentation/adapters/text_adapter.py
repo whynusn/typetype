@@ -13,7 +13,6 @@ from ...application.usecases.text_session_usecase import TextSessionUseCase
 from ...config.runtime_config import RuntimeConfig
 from ...config.text_source_config import SourceType
 from ...integration.file_segment_provider import FileSegmentProvider
-from ...integration.in_memory_segment_provider import InMemorySegmentProvider
 from ...models.dto.text_session import TextHandle, TextKind
 from ...workers.text_load_worker import TextLoadWorker
 
@@ -318,39 +317,6 @@ class TextAdapter(QObject):
     def get_base_url(self) -> str:
         """获取当前 API 服务地址。"""
         return self._runtime_config.base_url
-
-    def startTextSession(
-        self,
-        text: str,
-        kind: TextKind,
-        identifier: str,
-        title: str,
-        version: str,
-        slice_size: int,
-        start_slice: int = 1,
-    ) -> None:
-        """启动统一载文会话（InMemory 模式，同步执行）。"""
-        if not text or slice_size <= 0:
-            return
-
-        handle = TextHandle(
-            kind=kind,
-            identifier=identifier,
-            title=title,
-            char_count=len(text),
-            version=version,
-        )
-        provider = InMemorySegmentProvider(text)
-        self._text_session_usecase = TextSessionUseCase(
-            provider, handle,
-            full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
-        )
-        result = self._text_session_usecase.get_segment(start_slice, slice_size)
-
-        label = title
-        if result.total > 1:
-            label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
-        self.textLoaded.emit(result.content, -1, label)
 
     def startFileTextSession(
         self,
