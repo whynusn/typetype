@@ -397,7 +397,11 @@ class TextLoadCoordinator:
         if result is None:
             return
         title = self._source_slice_title or "本地文库"
-        title_label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+        title_label = (
+            f"{title} {result.index}/{result.total}"
+            if title
+            else f"{result.index}/{result.total}"
+        )
         self._typing.setTextTitle(title_label)
         bridge.windowTitleChanged.emit()
         self._cache_current_content(result.content)

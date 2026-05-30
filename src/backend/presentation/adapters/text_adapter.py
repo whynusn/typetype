@@ -347,7 +347,8 @@ class TextAdapter(QObject):
             version=version,
         )
         self._text_session_usecase = TextSessionUseCase(
-            provider, handle,
+            provider,
+            handle,
             full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
         )
         self._session_slice_size = slice_size

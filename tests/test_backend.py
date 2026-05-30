@@ -1493,7 +1493,13 @@ class TestBridgeSpecialPlatform:
         )
 
         # 通过 TextSessionUseCase 初始化分片状态
-        content = "第一段" * 50 + "第二段" * 50 + "第三段" * 50 + "第四段" * 50 + "第五段" * 50
+        content = (
+            "第一段" * 50
+            + "第二段" * 50
+            + "第三段" * 50
+            + "第四段" * 50
+            + "第五段" * 50
+        )
         provider = InMemorySegmentProvider(content)
         handle = TextHandle(
             kind=TextKind.LOCAL_ARTICLE,

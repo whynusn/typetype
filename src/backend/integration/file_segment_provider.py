@@ -18,9 +18,7 @@ class FileSegmentProvider:
     大文件（>= small_file_threshold）：构建稀疏字符索引，按需读取字符窗口。
     """
 
-    def __init__(
-        self, path: str | Path, small_file_threshold: int = 100_000
-    ) -> None:
+    def __init__(self, path: str | Path, small_file_threshold: int = 100_000) -> None:
         self._path = Path(path)
         self._small_file_threshold = small_file_threshold
         self._encoding: str | None = None

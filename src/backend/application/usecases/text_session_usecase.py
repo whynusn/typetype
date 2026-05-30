@@ -64,7 +64,9 @@ class _FeistelPermutation:
 class _ShuffledSegmentProvider:
     """通过虚拟 permutation 从原始 provider 逐字符构造乱序段。"""
 
-    def __init__(self, original: TextSegmentProvider, perm: _FeistelPermutation) -> None:
+    def __init__(
+        self, original: TextSegmentProvider, perm: _FeistelPermutation
+    ) -> None:
         self._original = original
         self._perm = perm
 

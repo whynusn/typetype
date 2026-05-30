@@ -1108,7 +1108,11 @@ class Bridge(QObject):
             p = self._coordinator.pending_slice_params
             title_label = title
             if result.total > 1:
-                title_label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+                title_label = (
+                    f"{title} {result.index}/{result.total}"
+                    if title
+                    else f"{result.index}/{result.total}"
+                )
             self._typing_adapter.setTextTitle(title_label)
             self.windowTitleChanged.emit()
             self._coordinator._cache_current_content(result.content)
@@ -1352,7 +1356,11 @@ class Bridge(QObject):
         if result is not None:
             label = title
             if result.total > 1:
-                label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+                label = (
+                    f"{title} {result.index}/{result.total}"
+                    if title
+                    else f"{result.index}/{result.total}"
+                )
             self.textLoaded.emit(result.content, -1, label)
 
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str)
