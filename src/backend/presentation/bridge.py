@@ -468,6 +468,7 @@ class Bridge(QObject):
     def _on_trainer_segment_loaded(self, payload: dict) -> None:
         self._coordinator.on_trainer_segment_loaded(payload, self)
         self._restore_pending_progress()
+        self._update_progress_current_slice()
 
     def _on_trainer_segment_load_failed(self, message: str) -> None:
         self._pending_restored_progress = None
@@ -476,6 +477,7 @@ class Bridge(QObject):
     def _on_local_article_segment_loaded(self, payload: dict) -> None:
         self._coordinator.on_local_article_segment_loaded(payload, self)
         self._restore_pending_progress()
+        self._update_progress_current_slice()
 
     def _on_local_article_segment_load_failed(self, message: str) -> None:
         self._pending_restored_progress = None
@@ -1288,6 +1290,35 @@ class Bridge(QObject):
     @Property(int, notify=sliceModeChanged)
     def slicePassCount(self) -> int:
         return self._typing_adapter.get_slice_pass_count()
+
+    @Slot(str, str, str, str, str, int, int)
+    def startTextSession(
+        self,
+        text: str,
+        kind: str,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+    ) -> None:
+        """统一载文入口：创建会话并加载第一段。"""
+        from ...models.dto.text_session import TextKind
+
+        if not text or slice_size <= 0:
+            return
+
+        self._typing_adapter.prepare_for_text_load()
+        self._coordinator.clear_text_id(self)
+        self._text_adapter.startTextSession(
+            text=text,
+            kind=TextKind(kind),
+            identifier=identifier,
+            title=title,
+            version=version,
+            slice_size=slice_size,
+            start_slice=start_slice,
+        )
 
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str)
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str, str)
