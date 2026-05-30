@@ -1294,7 +1294,7 @@ class Bridge(QObject):
         start_slice: int = 1,
     ) -> None:
         """统一文件型载文入口：通过 FileSegmentProvider 创建会话并加载第一段。"""
-        from ...models.dto.text_session import TextKind
+        from src.backend.models.dto.text_session import TextKind
 
         if not file_path or slice_size <= 0:
             return
