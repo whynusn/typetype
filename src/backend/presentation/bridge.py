@@ -1058,59 +1058,8 @@ class Bridge(QObject):
         self._typing_adapter.prepare_for_text_load()
         self._clear_text_id()
 
-        # 全文乱序：先打乱全文，再使用文本分片（只在首次载文时打乱一次）
-        if self._coordinator.pending_slice_params.pop("full_shuffle", False):
-            full_text = self._local_article_adapter.get_full_article_content(articleId)
-            if full_text:
-                import random
-
-                # 恢复进度时用保存的 seed 复现同一排列
-                saved_seed = None
-                if self._pending_restored_progress:
-                    saved_seed = self._pending_restored_progress.get("shuffle_seed")
-                if saved_seed is None:
-                    saved_seed = random.randint(0, 2**31 - 1)
-                rng = random.Random(saved_seed)
-                chars = list(full_text)
-                rng.shuffle(chars)
-                shuffled = "".join(chars)
-                p = self._coordinator.pending_slice_params
-                rp = ""
-                if self._pending_restored_progress:
-                    self._pending_restored_progress["shuffle_seed"] = saved_seed
-                    rp = json.dumps(self._pending_restored_progress, ensure_ascii=False)
-                    self._pending_restored_progress = None
-                self._current_shuffle_seed = saved_seed
-                title = self._local_article_adapter.get_article_title(articleId)
-                self.setupSliceMode(
-                    shuffled,
-                    segmentSize,
-                    segmentIndex,
-                    p["key_stroke_min"],
-                    p["speed_min"],
-                    p["accuracy_min"],
-                    p["pass_count_min"],
-                    p["on_fail_action"],
-                    p.get("auto_decrease_enabled", False),
-                    p.get("key_stroke_decrease", 0.0),
-                    p.get("speed_decrease", 0),
-                    p.get("accuracy_decrease", 0),
-                    rp,
-                    title,
-                )
-                # 注意：不设置 source_slice_backend = "local_article"，
-                # 因为 full_shuffle 路径使用 setupSliceMode 做内存切片，
-                # load_next_slice 需要走 else 分支（内存切片导航）而非文件加载。
-                # 通过 _progress_key_override 让 collectSliceResult 使用与 QML 一致的 key。
-                self._progress_key_override = _compute_progress_key(
-                    "local_article", articleId
-                )
-                log_info(
-                    f"[loadLocalArticleSegment] full_shuffle: "
-                    f"progress_key_override={self._progress_key_override} "
-                    f"articleId={articleId} title={title}"
-                )
-                return
+        # 全文乱序：通过 TextSessionUseCase.shuffle_all_virtual 统一处理
+        full_shuffle = self._coordinator.pending_slice_params.pop("full_shuffle", False)
 
         file_path = self._local_article_adapter.resolve_article_path(articleId)
         if file_path:
@@ -1128,6 +1077,31 @@ class Bridge(QObject):
                 slice_size=segmentSize,
                 start_slice=segmentIndex,
             )
+            # 全文乱序：通过 UseCase 统一处理（小文本全量 shuffle，大文本 Feistel）
+            if full_shuffle:
+                import random
+
+                saved_seed = None
+                if self._pending_restored_progress:
+                    saved_seed = self._pending_restored_progress.get("shuffle_seed")
+                if saved_seed is None:
+                    saved_seed = random.randint(0, 2**31 - 1)
+                usecase = self._text_adapter.text_session_usecase
+                if usecase:
+                    shuffled_usecase = usecase.shuffle_all_virtual(saved_seed)
+                    self._text_adapter._text_session_usecase = shuffled_usecase
+                    result = shuffled_usecase.get_segment(segmentIndex, segmentSize)
+                    label = title
+                    if result.total > 1:
+                        label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+                    self._text_adapter.textLoaded.emit(result.content, -1, label)
+                self._current_shuffle_seed = saved_seed
+                if self._pending_restored_progress:
+                    self._pending_restored_progress["shuffle_seed"] = saved_seed
+                    self._pending_restored_progress = None
+                self._progress_key_override = _compute_progress_key(
+                    "local_article", articleId
+                )
         else:
             self._typing_adapter.setup_local_article_session()
             self._coordinator.source_slice_backend = None
