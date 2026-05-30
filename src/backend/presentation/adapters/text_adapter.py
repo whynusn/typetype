@@ -57,8 +57,8 @@ class TextAdapter(QObject):
         # text_id 回查调度：latest-only + single-flight
         self._lookup_lock = threading.Lock()
         self._lookup_inflight = False
-        self._lookup_pending: tuple[str, str] | None = None
-        self._lookup_latest_requested: tuple[str, str] | None = None
+        self._lookup_pending: tuple[str, str, int] | None = None
+        self._lookup_latest_requested: tuple[str, str, int] | None = None
 
     def _set_text_loading(self, loading: bool) -> None:
         if self._text_loading != loading:
@@ -350,8 +350,16 @@ class TextAdapter(QObject):
             provider, handle,
             full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
         )
+        self._session_slice_size = slice_size
         return self._text_session_usecase.get_segment(start_slice, slice_size)
 
     @property
     def text_session_usecase(self) -> TextSessionUseCase | None:
         return getattr(self, "_text_session_usecase", None)
+
+    def get_text_session_segment(self, index: int) -> "SegmentResult | None":
+        """从当前 TextSessionUseCase 按 1-based 索引取段。"""
+        usecase = self.text_session_usecase
+        if usecase is None:
+            return None
+        return usecase.get_segment(index, self._session_slice_size)

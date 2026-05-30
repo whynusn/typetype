@@ -284,11 +284,7 @@ class TextLoadCoordinator:
             # 这样可以保持打乱后的顺序
             self._trainer.loadNextTrainerSegment()
         elif backend == "local_article":
-            self._local_article.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                next_idx,
-                self._source_slice_segment_size,
-            )
+            self._navigate_local_article(bridge, next_idx)
         else:
             self._typing.reset_slice_pass_count(next_idx)
             self._typing.set_slice_index(next_idx)
@@ -322,11 +318,7 @@ class TextLoadCoordinator:
             # 这样可以保持打乱后的顺序
             self._trainer.setTrainerSegment(next_idx)
         elif backend == "local_article":
-            self._local_article.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                next_idx,
-                self._source_slice_segment_size,
-            )
+            self._navigate_local_article(bridge, next_idx)
         else:
             self._typing.reset_slice_pass_count(next_idx)
             self._typing.set_slice_index(next_idx)
@@ -343,11 +335,7 @@ class TextLoadCoordinator:
             self._trainer.loadPreviousTrainerSegment()
         elif backend == "local_article":
             prev_idx = self._typing.slice_index - 1
-            self._local_article.loadLocalArticleSegment(
-                self._source_slice_article_id,
-                prev_idx,
-                self._source_slice_segment_size,
-            )
+            self._navigate_local_article(bridge, prev_idx)
         else:
             prev_idx = self._typing.slice_index - 1
             self._typing.reset_slice_pass_count(prev_idx)
@@ -372,11 +360,7 @@ class TextLoadCoordinator:
             if backend == "trainer":
                 self._trainer.loadCurrentTrainerSegment()
             elif backend == "local_article":
-                self._local_article.loadLocalArticleSegment(
-                    self._source_slice_article_id,
-                    current,
-                    self._source_slice_segment_size,
-                )
+                self._navigate_local_article(bridge, current)
             else:
                 self.load_current_slice(bridge)
             return
@@ -404,6 +388,28 @@ class TextLoadCoordinator:
     # ==========================================
     # 辅助方法
     # ==========================================
+
+    def _navigate_local_article(self, bridge: "Bridge", index: int) -> None:
+        """通过 TextSessionUseCase 导航本地文库段（保持乱序状态）。"""
+        result = self._text_adapter.get_text_session_segment(index)
+        if result is not None:
+            title = self._source_slice_title or "本地文库"
+            title_label = f"{title} {result.index}/{result.total}" if title else f"{result.index}/{result.total}"
+            self._typing.setTextTitle(title_label)
+            bridge.windowTitleChanged.emit()
+            self._cache_current_content(result.content)
+            self._typing.reset_slice_pass_count(result.index)
+            self._typing.set_slice_index(result.index)
+            self._typing.restore_slice_metrics(result.index)
+            bridge.sliceModeChanged.emit()
+            bridge.textLoaded.emit(result.content, -1, title_label)
+        else:
+            # 回退到旧路径（无 TextSessionUseCase 时）
+            self._local_article.loadLocalArticleSegment(
+                self._source_slice_article_id,
+                index,
+                self._source_slice_segment_size,
+            )
 
     def _cache_current_content(self, content: str) -> None:
         self._typing.set_current_slice_content(content)
