@@ -187,6 +187,7 @@ class TypingSessionContext:
         self,
         slice_index: int,
         slice_total: int,
+        slice_size: int = 0,
         on_fail_action: str = "none",
         key_stroke_min: float = 0.0,
         speed_min: int = 0,
@@ -227,7 +228,7 @@ class TypingSessionContext:
             self.restore_slice_metrics(slice_index)
 
         self._slice_text = ""
-        self._slice_size = 0
+        self._slice_size = slice_size
         self._text_id = None
         self._text_id_resolved = True
         self._phase = SessionPhase.READY

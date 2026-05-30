@@ -190,6 +190,7 @@ class TextLoadCoordinator:
             self._typing.setup_sourced_slice_mode(
                 index,
                 total,
+                slice_size=self._source_slice_group_size,
                 on_fail_action=p["on_fail_action"],
                 key_stroke_min=p["key_stroke_min"],
                 speed_min=p["speed_min"],
@@ -228,6 +229,7 @@ class TextLoadCoordinator:
             self._typing.setup_sourced_slice_mode(
                 index,
                 total,
+                slice_size=self._source_slice_segment_size,
                 on_fail_action=p["on_fail_action"],
                 key_stroke_min=p["key_stroke_min"],
                 speed_min=p["speed_min"],
@@ -402,6 +404,7 @@ class TextLoadCoordinator:
         self._typing.reset_slice_pass_count(result.index)
         self._typing.set_slice_index(result.index)
         self._typing.restore_slice_metrics(result.index)
+        self._typing._session_context._slice_size = self._source_slice_segment_size
         bridge.sliceModeChanged.emit()
         bridge.textLoaded.emit(result.content, -1, title_label)
 

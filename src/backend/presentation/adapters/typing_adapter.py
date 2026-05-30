@@ -714,6 +714,7 @@ class TypingAdapter(QObject):
         self,
         slice_index: int,
         slice_total: int,
+        slice_size: int = 0,
         on_fail_action: str = "none",
         key_stroke_min: float = 0.0,
         speed_min: int = 0,
@@ -733,6 +734,7 @@ class TypingAdapter(QObject):
             self._session_context.setup_sourced_slice_mode(
                 slice_index=slice_index,
                 slice_total=slice_total,
+                slice_size=slice_size,
                 on_fail_action=on_fail_action,
                 key_stroke_min=key_stroke_min,
                 speed_min=speed_min,

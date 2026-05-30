@@ -1119,6 +1119,7 @@ class Bridge(QObject):
             self._typing_adapter.setup_sourced_slice_mode(
                 result.index,
                 result.total,
+                slice_size=segmentSize,
                 on_fail_action=p["on_fail_action"],
                 key_stroke_min=p["key_stroke_min"],
                 speed_min=p["speed_min"],
