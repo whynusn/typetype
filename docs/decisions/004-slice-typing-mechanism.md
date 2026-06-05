@@ -56,4 +56,4 @@
 ## 参考
 
 - 详细设计：[`docs/history/2026-04-21-slice-typing-design.md`](../history/2026-04-21-slice-typing-design.md)
-- 实施计划：[`docs/history/2026-04-19-weak-chars-custom-sort.md`](../history/2026-04-19-weak-chars-custom-sort.md)
+- 初版草案：[`docs/history/2026-04-21-slice-typing-design-v1.md`](../history/2026-04-21-slice-typing-design-v1.md)

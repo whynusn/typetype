@@ -77,7 +77,7 @@ uv sync
 uv run python main.py
 ```
 
-> **联网功能说明：** 排行榜、载文等联网功能依赖 [typetype-server](https://github.com/whynusn/typetype-server) 服务端，默认配置指向 `127.0.0.1:8080`。当前服务端还存在不少安全性问题，所以 IP 暂不便公开。想体验在线服务可以联系 `whynusn@qq.com`，或者参考服务端仓库自行本地部署后修改 `config/config.example.json` 中的 `base_url`。仅使用本地打字功能则无需服务端。
+> **联网功能说明：** 排行榜、载文等联网功能依赖 [typetype-server](https://github.com/whynusn/typetype-server) 服务端，默认配置指向 `127.0.0.1:8080`。当前服务端还存在不少安全性问题，所以 IP 暂不便公开。想体验在线服务可以联系 `whynusn@qq.com`，或者参考服务端仓库自行本地部署后修改客户端设置中的 `base_url`。仅使用本地打字功能则无需服务端。
 
 ### Linux Wayland 权限
 
@@ -87,7 +87,7 @@ uv run python main.py
 sudo usermod -aG input $USER
 ```
 
-重新登录后生效。即使没有该权限，程序也会优雅降级，不影响基础打字功能。
+重新登录后生效。若没有该权限，部分指标统计会有问题，但不影响基础打字功能。
 
 ### macOS 输入监控权限
 
@@ -299,15 +299,7 @@ docs/guides/README.md
 
 ## 💬 快捷操作（对 AI 说）
 
-在对话中输入以下关键词，AI 会自动执行对应操作：
-
-| 你说 | AI 会做什么 |
-|:---|:---|
-| **"项目概览"** | 汇总 README + ARCHITECTURE 的核心内容 |
-| **"同步文档"** | 检查代码变更，同步更新受影响的文档 |
-| **"检查文档"** | 运行 `scripts/verify-framework.sh` 验证完整性 |
-| **"记录决策"** | 引导创建新的架构决策记录 |
-| **"更新 CHANGELOG"** | 根据近期变更补充发布历史 |
+在对话中输入「项目概览」「同步文档」「检查文档」「记录决策」「更新 CHANGELOG」等关键词，AI 会自动执行对应操作。完整指令表见 [AGENTS.md](./AGENTS.md) 的「用户快捷操作指令」。
 
 ---
 

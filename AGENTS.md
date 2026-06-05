@@ -38,6 +38,8 @@
 
 ### 权威矩阵
 
+> 摘要；完整定义（含跨维度冲突处理）见 [docs/meta/README.md](./docs/meta/README.md#权威矩阵冲突解决)。<!-- @summary from:docs/meta/README.md -->
+
 **事实可靠性链**：源码 > ARCHITECTURE.md > reference/* > decisions/* > AGENTS.md > guides/* > history/*
 
 **操作优先级链**：AGENTS.md > guides/* > ARCHITECTURE.md > decisions/* > reference/* > history/*
@@ -47,7 +49,7 @@
 ```
 改完代码
   ↓
-判断变更类型（见上表）
+判断变更类型（见上表；逐项映射见 docs/meta/README.md § 同步规则）
   ↓
 更新对应文档
   ↓

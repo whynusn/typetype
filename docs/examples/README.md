@@ -33,7 +33,3 @@ example-name/
 - 示例 README 必须包含运行命令、预期输出和相关文档链接。
 - API、配置字段、Bridge Slot 的完整规范应指向 `docs/reference/`。
 - 架构背景应指向 `docs/ARCHITECTURE.md`。
-
----
-
-**维护者**: typetype 开发团队

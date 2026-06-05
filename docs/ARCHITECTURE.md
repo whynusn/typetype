@@ -68,13 +68,13 @@ QML UI
 |:--- |:--- |:---|
 | QML | `src/qml/` | 页面、交互、布局、局部 UI 状态 |
 | Presentation | `Bridge` | QML 门面：属性代理、信号转发、Slot 入口 |
-| Presentation | `*Adapter`（11 个） | Qt 适配、线程协调、错误回传 |
-| Application | `*UseCase`（4 个） | 流程编排、业务验证 |
+| Presentation | `*Adapter` | Qt 适配、线程协调、错误回传 |
+| Application | `*UseCase` | 流程编排、业务验证 |
 | Application | `TypingSessionContext` | 会话状态机：阶段/来源模式/分片载文 |
-| Application | `*Gateway`（7 个） | 来源路由、DTO/剪贴板、异常映射 |
-| Domain | `*Service`（3 个） | 纯业务逻辑、状态管理、统计计算 |
-| Ports | ~20 个 | 抽象协议 |
-| Integration | ~20 个 | Port 实现 |
+| Application | `*Gateway` | 来源路由、DTO/剪贴板、异常映射 |
+| Domain | `*Service` | 纯业务逻辑、状态管理、统计计算 |
+| Ports | 各 Port 协议 | 抽象协议 |
+| Integration | 各 Port 实现 | Port 实现 |
 | Infrastructure | `ApiClient` / `network_errors` | 通用 HTTP 客户端、网络异常分类 |
 
 ---
@@ -88,22 +88,22 @@ src/backend/
 ├── application/
 │   ├── exception_handler.py
 │   ├── session_context.py
-│   ├── gateways/          # 7 个 gateway
-│   └── usecases/          # 4 个 usecase
+│   ├── gateways/          # gateway 实现
+│   └── usecases/          # usecase
 ├── config/                # 配置 + 容器工厂
-├── domain/services/       # 3 个 service
+├── domain/services/       # domain service
 ├── infrastructure/        # HTTP 客户端 + 异常分类
-├── integration/           # Port 实现 (~20 个)
+├── integration/           # Port 实现
 ├── models/
 │   ├── dto/               # 数据传输对象
 │   └── entity/            # 领域实体
-├── ports/                 # 抽象协议 (~20 个)
+├── ports/                 # 抽象协议
 ├── presentation/
 │   ├── bridge.py          # QML 门面
-│   └── adapters/          # 11 个 adapter + key_listener
+│   └── adapters/          # adapter
 ├── security/              # 加密 + 安全存储
 ├── utils/                 # 日志 + 文本工具
-└── workers/               # ~13 个后台 worker
+└── workers/               # 后台 worker
 ```
 
 > 完整文件树见 git 仓库。本文档不再维护逐文件列表（代码提交即变更）。
@@ -257,10 +257,6 @@ onActivated → Qt.callLater() 延迟触发信号
 ```
 
 详见 memory 中的完整版时序陷阱记录。
-
-### RinUI ContextMenu height 不能用 enter transition 动画
-
-`enter` transition 中动画 `height` 会破坏属性绑定。首次打开时 `implicitHeight` 为 0，导致展开到 6px 后缩回。正确做法是 `Behavior on height` + `enter` 只动画 opacity。
 
 ---
 
