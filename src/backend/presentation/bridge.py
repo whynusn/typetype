@@ -88,7 +88,8 @@ class Bridge(QObject):
     textListLoadFailed = Signal(str)
     textListLoadingChanged = Signal()
     uploadResult = Signal(bool, str, int)  # (success, message, server_text_id)
-    textFileLoaded = Signal(str)  # 文件导入：文件内容
+    textFileLoaded = Signal(str)  # 文件导入：预览内容
+    textFilePathLoaded = Signal(str)  # 文件导入：文件路径（用于上传）
     tokenExpired = Signal()
     textIdChanged = Signal()
     # 载文模式信号
@@ -897,6 +898,22 @@ class Bridge(QObject):
             self.uploadResult.emit(False, "上传功能未初始化", 0)
             return
         self._upload_text_adapter.upload(title, content, sourceKey, toLocal, toCloud)
+
+    @Slot(str, str, str, bool, bool)
+    def uploadTextFromFile(
+        self, title: str, filePath: str, sourceKey: str, toLocal: bool, toCloud: bool
+    ) -> None:
+        """从文件路径上传文本。
+
+        本地上传：直接复制文件（不经过内存）
+        云端上传：multipart/form-data 分块传输
+        """
+        if not self._upload_text_adapter:
+            self.uploadResult.emit(False, "上传功能未初始化", 0)
+            return
+        self._upload_text_adapter.upload_from_file(
+            title, filePath, sourceKey, toLocal, toCloud
+        )
 
     @Slot(bool)
     def handleStartStatus(self, status: bool) -> None:
@@ -2188,7 +2205,7 @@ class Bridge(QObject):
 
     @Slot()
     def openTextFileDialog(self) -> None:
-        """打开系统文件对话框导入文本文件内容。"""
+        """打开系统文件对话框导入文本文件。只读取前 20 行用于预览，上传时直接传输文件。"""
         from PySide6.QtWidgets import QFileDialog
 
         dialog = QFileDialog()
@@ -2198,12 +2215,32 @@ class Bridge(QObject):
         if dialog.exec():
             files = dialog.selectedFiles()
             if files:
+                file_path = files[0]
                 try:
-                    with open(files[0], encoding="utf-8") as f:
-                        content = f.read()
-                    self.textFileLoaded.emit(content)
+                    # 只读取前 20 行 / 前 4096 字节用于预览（防止单行大文件炸内存）
+                    preview_lines = []
+                    byte_count = 0
+                    max_preview_bytes = 4096
+                    with open(file_path, encoding="utf-8") as f:
+                        for i, line in enumerate(f):
+                            if i >= 20:
+                                preview_lines.append("... [仅显示前 20 行预览]")
+                                break
+                            line_bytes = len(line.encode("utf-8"))
+                            if byte_count + line_bytes > max_preview_bytes:
+                                preview_lines.append(
+                                    "... [预览截断，上传时传输完整文件]"
+                                )
+                                break
+                            preview_lines.append(line.rstrip("\n\r"))
+                            byte_count += line_bytes
+
+                    preview = "\n".join(preview_lines)
+                    self.textFileLoaded.emit(preview)
+                    self.textFilePathLoaded.emit(file_path)
                 except OSError:
                     self.textFileLoaded.emit("")
+                    self.textFilePathLoaded.emit("")
 
     # ==========================================
     # 键盘设备选择
