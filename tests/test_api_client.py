@@ -37,7 +37,9 @@ class DummyHttpClient:
         self.last_call = None
         self.closed = False
 
-    def request(self, method, url, params=None, json=None, data=None, headers=None):
+    def request(
+        self, method, url, params=None, json=None, data=None, files=None, headers=None
+    ):
         if self._request_error is not None:
             raise self._request_error
         if self._should_raise:
@@ -48,6 +50,7 @@ class DummyHttpClient:
             "params": params,
             "json": json,
             "data": data,
+            "files": files,
             "headers": headers,
         }
         return DummyResponse(self._payload, json_error=self._json_error)
@@ -103,6 +106,7 @@ def test_request_success():
         "params": {"p": 1},
         "json": {"a": 1},
         "data": {"b": 2},
+        "files": None,
         "headers": {"X-Test": "1"},
     }
     assert client.last_error is None

@@ -71,6 +71,46 @@ class UploadTextAdapter(QObject):
                 True, f"已上传到{'/'.join(results)}", server_text_id
             )
 
+    def upload_from_file(
+        self,
+        title: str,
+        file_path: str,
+        source_key: str,
+        to_local: bool,
+        to_cloud: bool,
+    ) -> None:
+        """从文件路径上传文本。
+
+        本地上传：直接复制文件（不经过内存）
+        云端上传：multipart/form-data 分块传输（不全量加载到内存）
+        """
+        results: list[str] = []
+        errors: list[str] = []
+        server_text_id: int = 0
+
+        if to_local:
+            try:
+                self._do_upload_local_from_file(title, file_path, source_key)
+                results.append("本地")
+            except Exception as e:
+                errors.append(f"本地: {e}")
+
+        if to_cloud:
+            try:
+                rid = self._do_upload_cloud_from_file(title, file_path, source_key)
+                results.append("云端")
+                if rid is not None:
+                    server_text_id = rid
+            except Exception as e:
+                errors.append(f"云端: {e}")
+
+        if errors:
+            self.uploadFinished.emit(False, "；".join(errors), server_text_id)
+        else:
+            self.uploadFinished.emit(
+                True, f"已上传到{'/'.join(results)}", server_text_id
+            )
+
     def _do_upload_local(self, title: str, content: str, source_key: str) -> None:
         """写文件到本地并更新 config.json 的 text_sources 配置。"""
         os.makedirs(self._texts_dir, exist_ok=True)
@@ -97,6 +137,35 @@ class UploadTextAdapter(QObject):
     def _do_upload_cloud(self, title: str, content: str, source_key: str) -> int | None:
         """调用 TextUploader 上传到云端，返回服务端文本 ID。"""
         result_id = self._text_uploader.upload(content, title, source_key)
+        if result_id is None:
+            raise RuntimeError("服务器未返回有效ID")
+        log_info(f"[UploadTextAdapter] 云端上传成功: id={result_id}")
+        return result_id
+
+    def _do_upload_local_from_file(
+        self, title: str, file_path: str, source_key: str
+    ) -> None:
+        """从文件路径复制到本地并更新配置。"""
+        import shutil
+
+        os.makedirs(self._texts_dir, exist_ok=True)
+        safe_source_key = self._safe_filename_part(source_key, "custom")
+        safe_title = self._safe_filename_part(title, "untitled")
+        filename = f"{safe_source_key}_{safe_title}.txt"
+        dest_path = os.path.join(self._texts_dir, filename)
+
+        # 直接复制文件，不加载到内存
+        shutil.copy2(file_path, dest_path)
+
+        config_key = f"{safe_source_key}_{safe_title}"
+        self._update_config(config_key, title, dest_path)
+        log_info(f"[UploadTextAdapter] 本地保存成功（从文件复制）: {dest_path}")
+
+    def _do_upload_cloud_from_file(
+        self, title: str, file_path: str, source_key: str
+    ) -> int | None:
+        """上传文件到云端（multipart/form-data，不加载到内存）。"""
+        result_id = self._text_uploader.upload_file(file_path, title, source_key)
         if result_id is None:
             raise RuntimeError("服务器未返回有效ID")
         log_info(f"[UploadTextAdapter] 云端上传成功: id={result_id}")

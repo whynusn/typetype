@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from typing import Any
 import time
 
@@ -31,6 +32,7 @@ class ApiClient:
         params: dict[Any, Any] | None = None,
         json: dict[Any, Any] | None = None,
         data: dict[Any, Any] | None = None,
+        files: Mapping[str, Any] | None = None,
         headers: dict[str, str] | None = None,
     ) -> dict[str, Any] | None:
         """
@@ -55,6 +57,7 @@ class ApiClient:
                 params=params,
                 json=json,
                 data=data,
+                files=files,
                 headers=headers,
             )
             result = response.json()
