@@ -48,22 +48,8 @@
 6. **更新文档** — 按 [AGENTS.md § 文档维护指南](../../AGENTS.md#-文档维护指南)
 7. **提交** — 代码和文档更新在同一提交
 
-## 分层规则速查
+## 相关参考
 
-| 层 | 可以依赖 | 禁止依赖 |
-|:--- |:--- |:--- |
-| QML | Bridge | 任何 Python 类型 |
-| Bridge | Adapters | Integration / Domain |
-| Adapter | Application / Domain | Integration |
-| UseCase | Domain / Ports / Config | Qt 类型 |
-| Gateway | Domain / Ports / Config | Qt 类型 |
-| Domain | 纯 Python 类型（Port 协议） | Qt / HTTP / SQLite |
-| Integration | Port 协议 / Domain | Qt（除非是 Port 本身） |
-
-## 陷阱清单
-
-- ❌ Adapter 做业务路由 → 路由在 Gateway
-- ❌ Domain 直接 import PySide6 → Domain 是纯 Python
-- ❌ QML 直接读 config.json → 通过 Bridge → RuntimeConfig
-- ❌ UseCase 捕获网络异常 → 异常由 GlobalExceptionHandler 处理
-- ❌ 本地文本在主线程同步加载 → 统一走 Worker
+- 分层和依赖规则：[ARCHITECTURE.md § 分层架构](../ARCHITECTURE.md#分层架构)
+- 代码规范和实践陷阱：[AGENTS.md § 代码风格](../../AGENTS.md#3-代码风格)
+- 配置、Bridge、QML、API 速查：[docs/reference/](../reference/)
