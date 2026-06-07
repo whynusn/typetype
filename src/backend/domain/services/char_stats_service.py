@@ -3,6 +3,32 @@ from ...ports.async_executor import AsyncExecutor
 from ...ports.char_stats_repository import CharStatsRepository
 
 
+def _is_cjk(char: str) -> bool:
+    """Check if a character is a CJK Unified Ideograph."""
+    cp = ord(char)
+    return 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
+
+
+def _cjk_run_segments(text: str) -> list[tuple[str, int, int]]:
+    """Split text into segments where consecutive CJK chars form a segment.
+
+    Each segment is (text, start_pos, end_pos). Multi-char segments consist
+    of consecutive CJK chars; single-char segments are non-CJK characters.
+    """
+    segments: list[tuple[str, int, int]] = []
+    i = 0
+    while i < len(text):
+        if _is_cjk(text[i]):
+            start = i
+            while i < len(text) and _is_cjk(text[i]):
+                i += 1
+            segments.append((text[start:i], start, i))
+        else:
+            segments.append((text[i], i, i + 1))
+            i += 1
+    return segments
+
+
 class CharStatsService:
     """字符统计领域服务，纯业务逻辑。
 
@@ -87,6 +113,68 @@ class CharStatsService:
                     chars_with_times.append((char, round(stat.avg_ms / 1000, 1)))
         chars_with_times.sort(key=lambda x: x[1], reverse=True)
         return chars_with_times[:limit]
+
+    def get_slow_entries(
+        self, text: str, threshold_ms: float = 500.0, limit: int = 10
+    ) -> list[tuple[str, float]]:
+        """Get slow entries grouped by word-level segments in the source text.
+
+        Groups consecutive CJK characters that are slow into multi-char word
+        entries. Single slow chars (non-CJK or isolated) are still reported
+        individually.
+
+        Args:
+            text: The source text being typed (for word boundary detection).
+            threshold_ms: Minimum average time in ms to be considered slow.
+            limit: Maximum number of entries to return.
+
+        Returns:
+            List of (entry_text, avg_time_seconds) sorted by time descending.
+            entry_text may be a single char or a multi-char word segment.
+        """
+        # Get slow chars (same logic as get_slow_chars)
+        slow_data: dict[str, float] = {}
+        for char in self._dirty:
+            if char in self._cache:
+                stat = self._cache[char]
+                if stat.avg_ms >= threshold_ms:
+                    slow_data[char] = round(stat.avg_ms / 1000, 1)
+
+        if not slow_data:
+            return []
+
+        # Find all positions of slow chars in the source text
+        slow_positions: set[int] = set()
+        for i, ch in enumerate(text):
+            if ch in slow_data:
+                slow_positions.add(i)
+
+        if not slow_positions:
+            return list(slow_data.items())
+
+        # Group consecutive slow positions
+        sorted_pos = sorted(slow_positions)
+        groups: list[list[int]] = [[sorted_pos[0]]]
+        for pos in sorted_pos[1:]:
+            if pos == groups[-1][-1] + 1:
+                groups[-1].append(pos)
+            else:
+                groups.append([pos])
+
+        # Build result: 2+ consecutive chars form a word, otherwise individual
+        result: list[tuple[str, float]] = []
+        for group in groups:
+            if len(group) >= 2:
+                word_text = "".join(text[p] for p in group)
+                max_time = max(slow_data[text[p]] for p in group)
+                result.append((word_text, max_time))
+            else:
+                ch = text[group[0]]
+                if ch in slow_data:
+                    result.append((ch, slow_data[ch]))
+
+        result.sort(key=lambda x: x[1], reverse=True)
+        return result[:limit]
 
     def clear(self) -> None:
         self._cache.clear()
