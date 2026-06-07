@@ -21,7 +21,7 @@ class SessionStat:
 
     # 打字统计数据
     time: float = 0.0
-    key_stroke_count: int = 0
+    key_stroke_count: float = 0.0
     char_count: int = 0
     wrong_char_count: int = 0
     backspace_count: int = 0

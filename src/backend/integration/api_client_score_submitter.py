@@ -76,7 +76,7 @@ class ApiClientScoreSubmitter:
             "wrongCharCount": score_data.wrong_char_count,
             "backspaceCount": score_data.backspace_count,
             "correctionCount": score_data.correction_count,
-            "keyStrokeCount": score_data.key_stroke_count,
+            "keyStrokeCount": int(score_data.key_stroke_count),
             "time": round(score_data.time, 2),
         }
 
