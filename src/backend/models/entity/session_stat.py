@@ -34,6 +34,8 @@ class SessionStat:
     peak_code_length: float = 0.0
 
     # 慢字列表 [(char, seconds), ...]
+    # 打词率（0~100）
+    word_typing_rate: float = 0.0
     slow_chars: list[tuple[str, float]] = field(default_factory=list)
 
     def __post_init__(self):

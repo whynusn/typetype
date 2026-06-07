@@ -95,6 +95,12 @@ class ScoreSummaryDTO:
                     unit="",
                     value_format=".2f",
                 ),
+                ScoreSummaryItemDTO(
+                    label="打词率",
+                    value=score_data.word_typing_rate,
+                    unit="%",
+                    value_format=".1f",
+                ),
             ],
             peak_speed=score_data.peak_speed,
             peak_key_stroke=score_data.peak_key_stroke,
@@ -163,6 +169,7 @@ class HistoryRecordDTO:
     time: float
     date: str
     key_accuracy: float
+    word_typing_rate: float = 0.0
 
     @classmethod
     def from_score_data(cls, score_data: "SessionStat") -> "HistoryRecordDTO":
@@ -178,6 +185,7 @@ class HistoryRecordDTO:
             time=round(score_data.time, 2),
             date=score_data.date,
             key_accuracy=round(score_data.keyAccuracy, 2),
+            word_typing_rate=score_data.word_typing_rate,
         )
 
     def to_dict(self) -> dict[str, float | int | str]:
@@ -190,6 +198,7 @@ class HistoryRecordDTO:
             "correctionCount": self.correction_count,
             "backspaceCount": self.backspace_count,
             "keyAccuracy": self.key_accuracy,
+            "wordTypingRate": self.word_typing_rate,
             "charNum": self.char_num,
             "time": self.time,
             "date": self.date,

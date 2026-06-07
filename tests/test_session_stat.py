@@ -199,3 +199,23 @@ class TestSessionStatCalculations:
         # wrong_keys = 100 + 0 = 100, keystrokes = 10
         # raw = (10 - 100) / 10 * 100 = -900%
         assert score.keyAccuracy == 0.0
+
+
+class TestWordTypingRate:
+    """测试打词率字段"""
+
+    def test_default_is_zero(self):
+        """默认打词率为 0"""
+        score = SessionStat()
+        assert score.word_typing_rate == 0.0
+
+    def test_can_set_non_zero(self):
+        """可设置非零打词率"""
+        score = SessionStat(
+            time=60.0,
+            key_stroke_count=300,
+            char_count=240,
+            wrong_char_count=0,
+            word_typing_rate=85.5,
+        )
+        assert score.word_typing_rate == 85.5

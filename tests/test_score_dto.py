@@ -28,6 +28,7 @@ class TestHistoryRecordDTO:
             "correctionCount",
             "backspaceCount",
             "keyAccuracy",
+            "wordTypingRate",
             "charNum",
             "time",
             "date",
@@ -43,6 +44,7 @@ class TestHistoryRecordDTO:
             "charNum": 240,
             "time": 60.0,
             "date": "2024-01-01 00:00:00",
+            "wordTypingRate": 0.0,
         }
 
 
@@ -61,7 +63,7 @@ class TestScoreSummaryDTO:
 
         dto = ScoreSummaryDTO.from_score_data(score)
 
-        assert len(dto.items) == 10
+        assert len(dto.items) == 11
         assert dto.items[0].label == "速度"
         assert dto.items[0].unit == "字/分"
         assert dto.items[1].label == "击键"
@@ -82,6 +84,9 @@ class TestScoreSummaryDTO:
         assert dto.items[8].unit == "秒"
         assert dto.items[9].label == "键数"
         assert dto.items[9].unit == ""
+        assert dto.items[10].label == "打词率"
+        assert dto.items[10].unit == "%"
+        assert dto.items[10].value_format == ".1f"
 
     def test_to_clipboard_text(self):
         """应输出木易跟打器风格单行纯文本"""
@@ -105,6 +110,7 @@ class TestScoreSummaryDTO:
         assert "速度240.00" in text
         assert "字数240" in text
         assert "键数300" in text
+        assert "打词率" in text
 
     def test_to_plain_text(self):
         """应输出纯文本格式摘要"""
@@ -120,6 +126,7 @@ class TestScoreSummaryDTO:
 
         assert "速度:" in text
         assert "字/分" in text
+        assert "打词率:" in text
         assert "\n" in text
 
     def test_to_html(self):
@@ -137,3 +144,4 @@ class TestScoreSummaryDTO:
         assert "<b>" in text
         assert "</b>" in text
         assert "<br>" in text
+        assert "打词率" in text
