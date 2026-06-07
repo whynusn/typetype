@@ -36,7 +36,7 @@ class TypingState:
     cursor_position: int = 0
     is_started: bool = False
     is_read_only: bool = False
-    wrong_char_prefix_sum: list[int] = field(default_factory=list)
+    wrong_char_prefix_sum: dict[int, int] = field(default_factory=dict)
     last_commit_time_ms: float = 0.0
     plain_doc: str = ""
     text_id: int | None = None
@@ -183,7 +183,7 @@ class TypingService:
         self._state.total_chars = total
         self._state.score_data.char_count = 0
         self._state.score_data.wrong_char_count = 0
-        self._state.wrong_char_prefix_sum = [0 for _ in range(total)]
+        self._state.wrong_char_prefix_sum = {}
 
     def set_plain_doc(self, text: str) -> None:
         """设置目标文本。"""
@@ -261,12 +261,12 @@ class TypingService:
                 char_updates.append((pos, char, is_error))
 
                 # 更新 prefix_sum
-                pre_sum = self._state.wrong_char_prefix_sum[pos - 1] if pos > 0 else 0
+                pre_sum = self._state.wrong_char_prefix_sum.get(pos - 1, 0) if pos > 0 else 0
                 self._state.wrong_char_prefix_sum[pos] = pre_sum + (
                     1 if is_error else 0
                 )
                 self._state.score_data.wrong_char_count = (
-                    self._state.wrong_char_prefix_sum[pos]
+                    self._state.wrong_char_prefix_sum.get(pos, 0)
                 )
 
                 # 累积字符统计
@@ -294,7 +294,7 @@ class TypingService:
 
                 # 更新 prefix_sum
                 pre_sum = (
-                    self._state.wrong_char_prefix_sum[begin_pos + i - 1]
+                    self._state.wrong_char_prefix_sum.get(begin_pos + i - 1, 0)
                     if begin_pos + i > 0
                     else 0
                 )
@@ -302,7 +302,7 @@ class TypingService:
                     1 if is_error else 0
                 )
                 self._state.score_data.wrong_char_count = (
-                    self._state.wrong_char_prefix_sum[begin_pos + i]
+                    self._state.wrong_char_prefix_sum.get(begin_pos + i, 0)
                 )
 
             # 删除时清除被删除位置
