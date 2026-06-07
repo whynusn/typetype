@@ -81,3 +81,6 @@ memory/
 # Git worktrees
 .worktrees/
 worktrees/
+
+# Presentation deck (project-adjacent, not part of source)
+ppt-swiss/
