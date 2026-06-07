@@ -261,7 +261,9 @@ class TypingService:
                 char_updates.append((pos, char, is_error))
 
                 # 更新 prefix_sum
-                pre_sum = self._state.wrong_char_prefix_sum.get(pos - 1, 0) if pos > 0 else 0
+                pre_sum = (
+                    self._state.wrong_char_prefix_sum.get(pos - 1, 0) if pos > 0 else 0
+                )
                 self._state.wrong_char_prefix_sum[pos] = pre_sum + (
                     1 if is_error else 0
                 )

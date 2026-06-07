@@ -16,6 +16,24 @@ class DummyThreadPool:
         self.started_workers.append(worker)
 
 
+class CapturingExecutor:
+    """Captures submitted callables without executing them.
+
+    Replaces the old FakeThread mock pattern that monkeypatched
+    threading.Thread - with ThreadPoolExecutor, thread creation is
+    internal, so we inject a fake executor instead.
+    """
+
+    def __init__(self):
+        self.submitted: list[callable] = []
+
+    def submit(self, fn, /, *args, **kwargs):
+        self.submitted.append(fn)
+
+    def shutdown(self, wait=True):
+        pass
+
+
 def _build_adapter() -> tuple[TextAdapter, MagicMock, MagicMock]:
     runtime_config = MagicMock()
     runtime_config.text_source_config.default_key = "builtin_demo"
@@ -114,19 +132,11 @@ def test_request_load_text_reports_planning_errors_without_runtime_config_lookup
     runtime_config.get_text_source.assert_not_called()
 
 
-def test_stale_local_text_id_lookup_result_is_not_emitted(monkeypatch):
+def test_stale_local_text_id_lookup_result_is_not_emitted():
     adapter, _, load_text_usecase = _build_adapter()
-    targets = []
+    executor = CapturingExecutor()
+    adapter._lookup_executor = executor
 
-    class FakeThread:
-        def __init__(self, target, daemon):
-            self._target = target
-            self.daemon = daemon
-
-        def start(self):
-            targets.append(self._target)
-
-    monkeypatch.setattr("threading.Thread", FakeThread)
     load_text_usecase.lookup_text_id.side_effect = lambda source_key, content: {
         "old text": 111,
         "new text": 222,
@@ -140,29 +150,20 @@ def test_stale_local_text_id_lookup_result_is_not_emitted(monkeypatch):
     adapter.lookup_text_id("local", "new text")
     # latest-only + single-flight: second request replaces pending payload,
     # so only one worker thread should run and only latest result emitted.
-    assert len(targets) == 1
-    targets[0]()
+    assert len(executor.submitted) == 1
+    executor.submitted[0]()
 
     assert resolved == [222]
 
 
-def test_invalidated_local_text_id_lookup_does_not_call_server(monkeypatch):
+def test_invalidated_local_text_id_lookup_does_not_call_server():
     adapter, _, load_text_usecase = _build_adapter()
-    targets = []
-
-    class FakeThread:
-        def __init__(self, target, daemon):
-            self._target = target
-            self.daemon = daemon
-
-        def start(self):
-            targets.append(self._target)
-
-    monkeypatch.setattr("threading.Thread", FakeThread)
+    executor = CapturingExecutor()
+    adapter._lookup_executor = executor
 
     adapter.lookup_text_id("local", "old text")
     adapter.invalidate_pending_text_id_lookup()
-    targets[0]()
+    executor.submitted[0]()
 
     load_text_usecase.lookup_text_id.assert_not_called()
 

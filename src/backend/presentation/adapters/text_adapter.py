@@ -60,7 +60,9 @@ class TextAdapter(QObject):
         self._lookup_inflight = False
         self._lookup_pending: tuple[str, str, int] | None = None
         self._lookup_latest_requested: tuple[str, str, int] | None = None
-        self._lookup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="text-lookup")
+        self._lookup_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="text-lookup"
+        )
 
     def _set_text_loading(self, loading: bool) -> None:
         if self._text_loading != loading:
