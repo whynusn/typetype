@@ -64,13 +64,12 @@ class LeaderboardWorker(BaseWorker):
         }
 
     def _fetch_by_text_id(self, text_id: int) -> dict[str, Any]:
-        """直接通过 text_id 获取排行榜。"""
-        # 1. 获取文本详情
-        text_info = self._leaderboard_gateway.get_text_by_id(text_id)
-        if text_info is None:
-            raise Exception(f"无法获取文本信息: text_id={text_id}")
+        """直接通过 text_id 获取排行榜。
 
-        # 2. 获取排行榜
+        注意：text_info 中不返回 title/content——title 由前端文本列表
+        的 delegate onClicked 设置 selectedTextTitle，无需额外网络请求。
+        """
+        # 获取排行榜（只取排行榜数据，跳过 get_text_by_id 的冗余网络请求）
         leaderboard_data = self._leaderboard_gateway.get_leaderboard(text_id)
         if leaderboard_data is None:
             raise Exception("无法获取排行榜数据")
@@ -81,8 +80,6 @@ class LeaderboardWorker(BaseWorker):
         return {
             "text_info": {
                 "id": text_id,
-                "title": text_info.get("title", ""),
-                "content": text_info.get("content", ""),
             },
             "leaderboard": records,
             "total": total,
