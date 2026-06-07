@@ -333,7 +333,9 @@ class TypingService:
         self._state.score_data.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         slow_chars = []
         if self._char_stats_service:
-            slow_chars = self._char_stats_service.get_slow_chars()
+            slow_chars = self._char_stats_service.get_slow_entries(
+                self._state.plain_doc
+            )
         return {
             "speed": round(self._state.score_data.speed, 2),
             "keyStroke": round(self._state.score_data.keyStroke, 2),
