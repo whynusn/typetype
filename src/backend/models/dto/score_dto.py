@@ -93,7 +93,7 @@ class ScoreSummaryDTO:
                     label="键数",
                     value=score_data.key_stroke_count,
                     unit="",
-                    value_format="d",
+                    value_format=".2f",
                 ),
             ],
             peak_speed=score_data.peak_speed,
