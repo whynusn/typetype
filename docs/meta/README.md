@@ -27,10 +27,23 @@ typetype/
 │   ├── reference/               ← [速查表] 纯表格（配置/API/QML/指标）
 │   ├── examples/                ← [代码示例] 独立可运行的示例
 │   ├── decisions/               ← [决策] 架构决策记录（新建，按编号索引）
-│   ├── history/                 ← [归档] 历史设计文档（冻结，不新增）
+│   ├── history/                 ← [归档] 旧设计/旧计划/修复记录（冻结内容）
 │   └── meta/                    ← [元规则] 本文档体系规范
 └── CHANGELOG.md                 ← [发布历史] 版本变更记录
 ```
+
+## 文档分型
+
+采用 Diataxis 的四类文档分工，并为本项目补充决策和归档两类：
+
+| 类型 | 用户需求 | 本项目位置 | 写作边界 |
+|:--- |:--- |:--- |:--- |
+| Tutorial | 第一次学会 | `docs/tutorials/*` | 只走一条成功路径，少解释 |
+| How-to | 完成具体任务 | `docs/guides/*` | 步骤、命令、验证；不复制参考表 |
+| Reference | 查事实 | `docs/reference/*` | 中立、完整、可扫描 |
+| Explanation | 理解系统 | `docs/ARCHITECTURE.md` | 解释架构和数据流，不写操作流水账 |
+| Decision | 理解决策 | `docs/decisions/*` | 背景、选项、决策、影响 |
+| Archive | 追溯历史 | `docs/history/*` | 旧资料目录化；内容不再维护 |
 
 ## 权威矩阵（冲突解决）
 
@@ -71,7 +84,7 @@ AGENTS.md > docs/guides/* > docs/ARCHITECTURE.md > docs/decisions/* > docs/refer
 | 教程 | `docs/tutorials/*` | 新人 | 端到端跟做的学习路径。完整规范指向 reference。 |
 | 代码示例 | `docs/examples/*` | 开发者/AI | 独立可运行示例，展示最佳实践。完整规范指向 reference。 |
 | 架构决策记录 | `docs/decisions/*` | 开发者/AI | 架构决策记录。编号索引，标准模板（背景/选项/决策/影响）。 |
-| 历史归档 | `docs/history/*` | 参考 | 已完成的设计文档、bug 记录。**冻结，不新增、不修改**。 |
+| 历史归档 | `docs/history/*` | 参考 | 旧设计、旧计划、修复记录。可归档迁移，归档后正文不再维护。 |
 | 发布历史 | `CHANGELOG.md` | 用户/维护者 | 版本变更、用户可见改动、破坏性变更。 |
 
 ## 分级复制规则
@@ -102,7 +115,7 @@ AGENTS.md > docs/guides/* > docs/ARCHITECTURE.md > docs/decisions/* > docs/refer
 | 新增工作流/流程 | `docs/guides/` 新建指南 | 流程 → guide |
 | 新增示例 | `docs/examples/` 新建示例 | 示例 → examples |
 | 发布版本 | `CHANGELOG.md` | 事件 → 历史 |
-| 完成复杂修复 | 考虑写入 `docs/decisions/` 或 `docs/history/` | 记录 → 决策记录 或 归档 |
+| 完成复杂修复 | `docs/decisions/` 或 `CHANGELOG.md`；旧资料迁移到 `docs/history/` | 新事实 → 决策/发布；旧资料 → 归档 |
 
 **核心原则**：每类信息只有一处存放。**指向不复制**。
 
@@ -115,7 +128,7 @@ AGENTS.md > docs/guides/* > docs/ARCHITECTURE.md > docs/decisions/* > docs/refer
 - [ ] 所有 `@see`、`@summary from:`、`@snapshot from:` 标记指向有效位置
 - [ ] `CHANGELOG.md` 已更新（若涉及用户可见变更）
 - [ ] `CLAUDE.md` 保持指针性质，无项目文档内容
-- [ ] `docs/history/` 中没有新增常规文档；被归档的历史资料保持冻结
+- [ ] `docs/history/` 只接收旧资料迁移；归档后正文保持冻结
 
 ---
 

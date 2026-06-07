@@ -240,55 +240,16 @@ Windows 建议追加：
 
 ## 开发者文档
 
-### 📍 核心文档导航
-
 | 文档 | 面向 | 职责 | 何时读 |
 |:--- |:--- |:--- |:---|
-| **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | 所有人 | **唯一事实来源**：架构设计、代码分层、数据流、陷阱集锦 | 第一次了解项目 |
-| **[AGENTS.md](./AGENTS.md)** | AI 开发者 | **开发约束与陷阱**：编码规范、已知坑位、验证要求 | 修改代码前 |
-| **[docs/reference/](./docs/reference/)** | 开发者/AI | **速查表**：配置字段、QML 页面、Bridge API、端点清单 | 需要快速查找 |
-| **[docs/guides/](./docs/guides/)** | 开发者/AI | **操作手册**：开发、测试、部署等任务步骤 | 执行具体工作流 |
-| **[docs/examples/](./docs/examples/)** | 开发者/AI | **代码示例**：独立可运行示例和最佳实践 | 学习扩展模式 |
-| **[docs/history/](./docs/history/)** | 参考 | **历史归档**：完成的设计文档、bug 记录、演进记录 | 理解过去决策 |
-| **[docs/meta/README.md](./docs/meta/README.md)** | AI/维护者 | **文档规范**：文档职责定义、权威矩阵、同步规则 | 维护文档或不确定信息来源 |
-| **[CHANGELOG.md](./CHANGELOG.md)** | 用户/维护者 | **发布历史**：版本变更、用户可见改动 | 查看版本演进 |
-
-### 🎯 推荐阅读顺序（按场景）
-
-#### 🚀 快速上手
-```
-README.md （快速入门）
-  → ARCHITECTURE.md § 快速开始
-  → ARCHITECTURE.md § 一句话先理解项目
-```
-
-#### 🔧 修改代码
-```
-ARCHITECTURE.md § 分层架构（理解分层）
-  → AGENTS.md § 当前架构（快速索引）
-  → AGENTS.md § 已知陷阱（查阅相关坑位）
-  → 对应源文件位置
-```
-
-#### 🐛 遇到问题
-```
-AGENTS.md § 已知陷阱（关键词搜索）
-  → 对应 ARCHITECTURE.md 相关部分
-  → docs/history/ （查历史 bug 记录）
-```
-
-#### ⚙️ 查配置/API/页面
-```
-docs/reference/README.md （速查入口）
-  → 对应文件（config.md / qml-pages.md / bridge-slots.md / api-endpoints.md / typing-metrics.md）
-```
-
-#### 📘 执行工作流
-```text
-docs/guides/README.md
-  → 对应指南
-  → docs/reference/ 或 docs/examples/ 按需查证
-```
+| **[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)** | 开发者 | 架构事实、分层、数据流 | 理解或修改代码 |
+| **[AGENTS.md](./AGENTS.md)** | AI 开发者 | 编码约束、已知陷阱、验证要求 | 让 AI 参与开发 |
+| **[docs/guides/](./docs/guides/)** | 开发者/AI | 任务步骤 | 执行具体工作流 |
+| **[docs/reference/](./docs/reference/)** | 开发者/AI | 配置、API、QML、指标速查 | 查字段、接口、页面 |
+| **[docs/tutorials/](./docs/tutorials/)** | 新贡献者 | 端到端入门教程 | 第一次改代码 |
+| **[docs/decisions/](./docs/decisions/)** | 维护者 | 已接受的架构决策 | 理解决策背景 |
+| **[docs/history/](./docs/history/)** | 参考 | 旧设计、旧计划、修复记录归档 | 追溯历史 |
+| **[docs/meta/README.md](./docs/meta/README.md)** | 维护者 | 文档体系规则 | 调整文档结构 |
 
 ---
 
