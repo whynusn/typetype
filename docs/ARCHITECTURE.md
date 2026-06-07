@@ -256,7 +256,7 @@ onActivating → 只做状态重置
 onActivated → Qt.callLater() 延迟触发信号
 ```
 
-详见 memory 中的完整版时序陷阱记录。
+相关决策见 [ADR-003：单实例页面导航](./decisions/003-single-instance-page-navigation.md)。
 
 ---
 
