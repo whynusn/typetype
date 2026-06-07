@@ -332,3 +332,54 @@ def test_restore_progress_preserves_unvisited_slice_metrics():
     assert ctx2._key_stroke_min == 6.0, f"第二段应为原始值: {ctx2._key_stroke_min}"
     assert ctx2._speed_min == 100
     assert ctx2._accuracy_min == 95
+
+
+def test_last_char_error_allows_correction():
+    """模拟最后一个字输错时不结束，允许回改后正常完成 (Issue #2)。"""
+    service = TypingService()
+    text = "测试文本"
+    service.set_total_chars(len(text))
+    service.set_plain_doc(text)
+    service.clear()
+    service.start()
+
+    # 逐个打字，前三个正确
+    service.handle_committed_text("测", 1)
+    service.handle_committed_text("试", 1)
+    service.handle_committed_text("文", 1)
+
+    # 最后一个字输错
+    updates, completed = service.handle_committed_text("不", 1)
+    assert not completed, "最后一个字输错时不应当结束"
+    assert updates[0][2] is True, "输错的字应当标记为错误"
+    assert service.score_data.char_count == 4
+    assert service.score_data.wrong_char_count == 1
+
+    # 回改（退格删除错误字符）
+    service.handle_committed_text("", -1)
+    assert service.score_data.char_count == 3
+    # wrong_char_count 在回改路径中不做更新（pre-existing行为），
+    # 但重打正确后会由新增路径重新计算
+
+    # 重新打对最后一个字
+    updates, completed = service.handle_committed_text("本", 1)
+    assert completed, "更正后应当正常结束"
+    assert updates[0][2] is False, "更正后的字符应当标记为正确"
+    assert service.score_data.char_count == 4
+    assert service.score_data.wrong_char_count == 0
+
+
+def test_last_char_correct_still_completes():
+    """最后一个字正确时，行为不变，正常结束。"""
+    service = TypingService()
+    text = "测试文本"
+    service.set_total_chars(len(text))
+    service.set_plain_doc(text)
+    service.clear()
+    service.start()
+
+    # 全部打对
+    updates, completed = service.handle_committed_text("测试文本", 4)
+    assert completed, "全部正确时应当正常结束"
+    assert service.score_data.char_count == 4
+    assert service.score_data.wrong_char_count == 0

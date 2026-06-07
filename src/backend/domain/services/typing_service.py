@@ -284,7 +284,12 @@ class TypingService:
                 and self._state.score_data.char_count >= self._state.total_chars
                 and self._state.is_started
             ):
-                is_completed = True
+                # 如果最后一个字正确则完成，否则允许回改（Issue #2）
+                last_pos = self._state.total_chars - 1
+                prev_wrong = self._state.wrong_char_prefix_sum.get(last_pos - 1, 0)
+                last_wrong = self._state.wrong_char_prefix_sum.get(last_pos, prev_wrong)
+                if last_wrong == prev_wrong:
+                    is_completed = True
         else:
             # 删除字符 / 纯替换
             for i in range(len(s)):
