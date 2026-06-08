@@ -5,10 +5,11 @@ import os
 import re
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ...config.app_paths import user_config_path, user_texts_dir
 from ...utils.logger import log_info, log_warning
+from ...workers.base_worker import BaseWorker
 
 if TYPE_CHECKING:
     from ...ports.text_uploader import TextUploader
@@ -43,33 +44,31 @@ class UploadTextAdapter(QObject):
     def upload(
         self, title: str, content: str, source_key: str, to_local: bool, to_cloud: bool
     ) -> None:
-        """上传文本到指定目标，支持同时上传本地和云端。"""
-        results: list[str] = []
-        errors: list[str] = []
-        server_text_id: int = 0
+        """上传文本到指定目标，支持同时上传本地和云端。
 
+        本地写入走同步（快速文件 I/O），云端上传走后台线程避免 UI 阻塞。
+        """
         if to_local:
             try:
                 self._do_upload_local(title, content, source_key)
-                results.append("本地")
             except Exception as e:
-                errors.append(f"本地: {e}")
+                self.uploadFinished.emit(False, f"本地上传失败: {e}", 0)
+                return
 
         if to_cloud:
-            try:
-                rid = self._do_upload_cloud(title, content, source_key)
-                results.append("云端")
-                if rid is not None:
-                    server_text_id = rid
-            except Exception as e:
-                errors.append(f"云端: {e}")
-
-        if errors:
-            self.uploadFinished.emit(False, "；".join(errors), server_text_id)
-        else:
-            self.uploadFinished.emit(
-                True, f"已上传到{'/'.join(results)}", server_text_id
+            worker = BaseWorker(
+                lambda: self._do_upload_cloud(title, content, source_key),
+                error_prefix="云端上传失败",
             )
+            worker.signals.succeeded.connect(
+                lambda rid: self.uploadFinished.emit(True, "上传成功", rid or 0)
+            )
+            worker.signals.failed.connect(
+                lambda msg: self.uploadFinished.emit(False, msg, 0)
+            )
+            QThreadPool.globalInstance().start(worker)
+        else:
+            self.uploadFinished.emit(True, "上传成功", 0)
 
     def upload_from_file(
         self,
@@ -81,35 +80,30 @@ class UploadTextAdapter(QObject):
     ) -> None:
         """从文件路径上传文本。
 
-        本地上传：直接复制文件（不经过内存）
-        云端上传：multipart/form-data 分块传输（不全量加载到内存）
+        本地上传：直接复制文件（快速文件 I/O，同步）
+        云端上传：走后台线程避免 UI 阻塞
         """
-        results: list[str] = []
-        errors: list[str] = []
-        server_text_id: int = 0
-
         if to_local:
             try:
                 self._do_upload_local_from_file(title, file_path, source_key)
-                results.append("本地")
             except Exception as e:
-                errors.append(f"本地: {e}")
+                self.uploadFinished.emit(False, f"本地上传失败: {e}", 0)
+                return
 
         if to_cloud:
-            try:
-                rid = self._do_upload_cloud_from_file(title, file_path, source_key)
-                results.append("云端")
-                if rid is not None:
-                    server_text_id = rid
-            except Exception as e:
-                errors.append(f"云端: {e}")
-
-        if errors:
-            self.uploadFinished.emit(False, "；".join(errors), server_text_id)
-        else:
-            self.uploadFinished.emit(
-                True, f"已上传到{'/'.join(results)}", server_text_id
+            worker = BaseWorker(
+                lambda: self._do_upload_cloud_from_file(title, file_path, source_key),
+                error_prefix="云端上传失败",
             )
+            worker.signals.succeeded.connect(
+                lambda rid: self.uploadFinished.emit(True, "上传成功", rid or 0)
+            )
+            worker.signals.failed.connect(
+                lambda msg: self.uploadFinished.emit(False, msg, 0)
+            )
+            QThreadPool.globalInstance().start(worker)
+        else:
+            self.uploadFinished.emit(True, "上传成功", 0)
 
     def _do_upload_local(self, title: str, content: str, source_key: str) -> None:
         """写文件到本地并更新 config.json 的 text_sources 配置。"""
