@@ -9,13 +9,22 @@ FluentPage {
     title: qsTr("上传文本")
     contentSpacing: 4
 
+    onActiveChanged: {
+        if (active) {
+            clearForm();
+        }
+    }
+
     property bool toLocal: true
     property bool toCloud: false
     property bool uploading: false
+    property string filePath: ""  // 导入的文件路径
+    property int maxContentLength: 10000  // 手动输入字数上限
 
     function clearForm() {
         titleField.text = "";
         contentArea.text = "";
+        filePath = "";
         localCheckBox.checked = true;
         cloudCheckBox.checked = false;
         toLocal = true;
@@ -56,7 +65,7 @@ FluentPage {
     SettingCard {
         Layout.fillWidth: true
         title: qsTr("内容")
-        description: qsTr("支持从文件导入或手动输入")
+        description: qsTr("文件导入无大小限制，手动输入限 " + maxContentLength + " 字")
         icon.name: "ic_fluent_document_text_20_regular"
 
         Button {
@@ -68,12 +77,94 @@ FluentPage {
         }
     }
 
-    TextArea {
-        id: contentArea
+    // 内容显示区
+    ColumnLayout {
         Layout.fillWidth: true
-        Layout.minimumHeight: 200
-        placeholderText: qsTr("请输入文本内容")
-        wrapMode: TextArea.Wrap
+        spacing: 4
+
+        // 文件导入提示
+        Text {
+            visible: uploadPage.filePath !== ""
+            typography: Typography.Caption
+            color: "#666"
+            text: qsTr("已导入文件（仅显示前 20 行预览，上传时直接传输文件）")
+        }
+
+        // 文件预览（只读）
+        Frame {
+            visible: uploadPage.filePath !== ""
+            Layout.fillWidth: true
+            Layout.preferredHeight: 200
+            radius: 6
+            hoverable: false
+
+            QQC.ScrollView {
+                anchors.fill: parent
+
+                TextArea {
+                    id: previewArea
+                    readOnly: true
+                    wrapMode: TextArea.Wrap
+                    text: ""
+                    font.pixelSize: 14
+                }
+            }
+        }
+
+        // 手动输入区（无文件时显示）
+        ColumnLayout {
+            visible: uploadPage.filePath === ""
+            Layout.fillWidth: true
+            spacing: 4
+
+            Frame {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 200
+                radius: 6
+                hoverable: false
+
+                QQC.ScrollView {
+                    anchors.fill: parent
+
+                    TextArea {
+                        id: contentArea
+                        placeholderText: qsTr("请输入文本内容")
+                        wrapMode: TextArea.Wrap
+                        font.pixelSize: 14
+                        onTextChanged: {
+                            if (text.length > maxContentLength) {
+                                var cursorPos = cursorPosition;
+                                text = text.substring(0, maxContentLength);
+                                cursorPosition = Math.min(cursorPos, maxContentLength);
+                                showInfo(Severity.Warning, qsTr("字数限制"), qsTr("已截断至 " + maxContentLength + " 字，请使用文件导入大文本"));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 字数统计
+            RowLayout {
+                Layout.fillWidth: true
+
+                Text {
+                    typography: Typography.Caption
+                    color: contentArea.text.length >= maxContentLength ? Theme.currentTheme.colors.systemCriticalColor : Theme.currentTheme.colors.textSecondaryColor
+                    text: contentArea.text.length + "/" + maxContentLength
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Text {
+                    visible: contentArea.text.length >= maxContentLength * 0.9
+                    typography: Typography.Caption
+                    color: Theme.currentTheme.colors.systemCriticalColor
+                    text: contentArea.text.length >= maxContentLength
+                          ? qsTr("已达字数上限，请精简内容或使用文件导入")
+                          : qsTr("即将达到字数上限")
+                }
+            }
+        }
     }
 
     // 上传目标
@@ -139,23 +230,38 @@ FluentPage {
             enabled: !uploadPage.uploading
             onClicked: {
                 var title = titleField.text.trim();
-                var content = contentArea.text.trim();
                 if (!title) {
                     showInfo(Severity.Error, qsTr("验证失败"), qsTr("请输入标题"));
-                    return;
-                }
-                if (!content) {
-                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请输入内容"));
                     return;
                 }
                 if (!uploadPage.toLocal && !uploadPage.toCloud) {
                     showInfo(Severity.Error, qsTr("验证失败"), qsTr("请至少选择一个上传目标"));
                     return;
                 }
+
+                // 检查内容：文件路径或手动输入
+                var hasFile = uploadPage.filePath !== "";
+                var hasContent = contentArea.text.trim() !== "";
+                if (!hasFile && !hasContent) {
+                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请选择文件或输入内容"));
+                    return;
+                }
+
+                // 手动输入时检查字数
+                if (!hasFile && contentArea.text.length > maxContentLength) {
+                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("内容超出字数限制，请精简内容或使用文件导入"));
+                    return;
+                }
+
                 infoBar.visible = false;
                 uploadPage.uploading = true;
-                if (appBridge)
-                    appBridge.uploadText(title, content, "custom", uploadPage.toLocal, uploadPage.toCloud);
+                if (appBridge) {
+                    if (hasFile) {
+                        appBridge.uploadTextFromFile(title, uploadPage.filePath, "custom", uploadPage.toLocal, uploadPage.toCloud);
+                    } else {
+                        appBridge.uploadText(title, contentArea.text.trim(), "custom", uploadPage.toLocal, uploadPage.toCloud);
+                    }
+                }
             }
         }
     }
@@ -179,13 +285,16 @@ FluentPage {
                 cloudCheckBox.checked = false;
             }
         }
-        function onTextFileLoaded(content) {
-            if (content) {
-                contentArea.text = content;
-                showInfo(Severity.Info, qsTr("文件已导入"), qsTr("文本内容已填充，请检查并上传"));
+        function onTextFileLoaded(preview) {
+            if (preview) {
+                previewArea.text = preview;
+                showInfo(Severity.Info, qsTr("文件已导入"), qsTr("已显示前 20 行预览，上传时直接传输文件"));
             } else {
                 showInfo(Severity.Error, qsTr("导入失败"), qsTr("无法读取文件内容"));
             }
+        }
+        function onTextFilePathLoaded(path) {
+            uploadPage.filePath = path;
         }
     }
 }

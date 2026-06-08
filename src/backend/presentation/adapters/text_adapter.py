@@ -1,5 +1,6 @@
 import threading
 from typing import TYPE_CHECKING
+from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
@@ -59,6 +60,9 @@ class TextAdapter(QObject):
         self._lookup_inflight = False
         self._lookup_pending: tuple[str, str, int] | None = None
         self._lookup_latest_requested: tuple[str, str, int] | None = None
+        self._lookup_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="text-lookup"
+        )
 
     def _set_text_loading(self, loading: bool) -> None:
         if self._text_loading != loading:
@@ -125,7 +129,7 @@ class TextAdapter(QObject):
                 should_start_worker = True
 
         if should_start_worker:
-            threading.Thread(target=self._lookup_worker_loop, daemon=True).start()
+            self._lookup_executor.submit(self._lookup_worker_loop)
 
     def _lookup_worker_loop(self) -> None:
         """串行消费 text_id 回查请求。"""

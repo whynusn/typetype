@@ -191,7 +191,9 @@ class TypingAdapter(QObject):
             ts.score_data.peak_key_stroke = ts.peak_key_stroke
             ts.score_data.peak_code_length = ts.peak_code_length
             if ts._char_stats_service:
-                ts.score_data.slow_chars = ts._char_stats_service.get_slow_chars()
+                ts.score_data.slow_chars = ts._char_stats_service.get_slow_entries(
+                    ts.plain_doc
+                )
 
             self._typing_service.flush_char_stats()
 

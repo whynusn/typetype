@@ -19,6 +19,9 @@ from ...models.entity.session_stat import SessionStat
 from .char_stats_service import CharStatsService
 
 
+_CJK_WORD_GAP_MS = 300
+
+
 @dataclass
 class TypingState:
     """打字会话状态。"""
@@ -36,7 +39,7 @@ class TypingState:
     cursor_position: int = 0
     is_started: bool = False
     is_read_only: bool = False
-    wrong_char_prefix_sum: list[int] = field(default_factory=list)
+    wrong_char_prefix_sum: dict[int, int] = field(default_factory=dict)
     last_commit_time_ms: float = 0.0
     plain_doc: str = ""
     text_id: int | None = None
@@ -44,6 +47,7 @@ class TypingState:
     peak_speed: float = 0.0
     peak_key_stroke: float = 0.0
     peak_code_length: float = float("inf")
+    char_commit_times: dict[int, float] = field(default_factory=dict)
 
 
 class TypingService:
@@ -173,6 +177,7 @@ class TypingService:
         self._state.score_data.correction_count = 0
         self._state.score_data.date = ""
         self._state.last_commit_time_ms = 0.0
+        self._state.char_commit_times.clear()
 
     def reset(self) -> None:
         """重置所有状态。"""
@@ -183,7 +188,7 @@ class TypingService:
         self._state.total_chars = total
         self._state.score_data.char_count = 0
         self._state.score_data.wrong_char_count = 0
-        self._state.wrong_char_prefix_sum = [0 for _ in range(total)]
+        self._state.wrong_char_prefix_sum = {}
 
     def set_plain_doc(self, text: str) -> None:
         """设置目标文本。"""
@@ -261,14 +266,18 @@ class TypingService:
                 char_updates.append((pos, char, is_error))
 
                 # 更新 prefix_sum
-                pre_sum = self._state.wrong_char_prefix_sum[pos - 1] if pos > 0 else 0
+                pre_sum = (
+                    self._state.wrong_char_prefix_sum.get(pos - 1, 0) if pos > 0 else 0
+                )
                 self._state.wrong_char_prefix_sum[pos] = pre_sum + (
                     1 if is_error else 0
                 )
                 self._state.score_data.wrong_char_count = (
-                    self._state.wrong_char_prefix_sum[pos]
+                    self._state.wrong_char_prefix_sum.get(pos, 0)
                 )
 
+                # 记录每个字符的提交时间（毫秒时间戳）
+                self._state.char_commit_times[pos] = now_ms
                 # 累积字符统计
                 if self._char_stats_service:
                     self._char_stats_service.accumulate(char, per_char_ms, is_error)
@@ -282,7 +291,12 @@ class TypingService:
                 and self._state.score_data.char_count >= self._state.total_chars
                 and self._state.is_started
             ):
-                is_completed = True
+                # 如果最后一个字正确则完成，否则允许回改（Issue #2）
+                last_pos = self._state.total_chars - 1
+                prev_wrong = self._state.wrong_char_prefix_sum.get(last_pos - 1, 0)
+                last_wrong = self._state.wrong_char_prefix_sum.get(last_pos, prev_wrong)
+                if last_wrong == prev_wrong:
+                    is_completed = True
         else:
             # 删除字符 / 纯替换
             for i in range(len(s)):
@@ -294,7 +308,7 @@ class TypingService:
 
                 # 更新 prefix_sum
                 pre_sum = (
-                    self._state.wrong_char_prefix_sum[begin_pos + i - 1]
+                    self._state.wrong_char_prefix_sum.get(begin_pos + i - 1, 0)
                     if begin_pos + i > 0
                     else 0
                 )
@@ -302,7 +316,7 @@ class TypingService:
                     1 if is_error else 0
                 )
                 self._state.score_data.wrong_char_count = (
-                    self._state.wrong_char_prefix_sum[begin_pos + i]
+                    self._state.wrong_char_prefix_sum.get(begin_pos + i, 0)
                 )
 
             # 删除时清除被删除位置
@@ -325,8 +339,12 @@ class TypingService:
         """获取历史记录。"""
         self._state.score_data.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         slow_chars = []
+        word_typing_rate = self._compute_word_typing_rate()
+        self._state.score_data.word_typing_rate = word_typing_rate
         if self._char_stats_service:
-            slow_chars = self._char_stats_service.get_slow_chars()
+            slow_chars = self._char_stats_service.get_slow_entries(
+                self._state.plain_doc
+            )
         return {
             "speed": round(self._state.score_data.speed, 2),
             "keyStroke": round(self._state.score_data.keyStroke, 2),
@@ -344,4 +362,72 @@ class TypingService:
             if self._state.peak_code_length != float("inf")
             else 0.0,
             "slowChars": slow_chars,
+            "wordTypingRate": word_typing_rate,
         }
+
+    def _compute_word_typing_rate(self) -> float:
+        """计算打词率（word typing rate）。
+
+        打词率指在一段打字内容中，连续 2 个及以上的 CJK 字符被当作「词组」输入的比例。
+        规则：
+        - 只考虑 CJK 统一表意文字（U+4E00-9FFF, U+3400-4DBF）
+        - 连续 CJK 字符的间隔 ≤ _CJK_WORD_GAP_MS ms 时视为同词组输入
+        - 只统计在 char_commit_times 中有记录的位置（即本会话中实际打过的字符）
+        - 打词率 = 词组字符数 / 总 CJK 字符数 × 100
+
+        Returns:
+            打词率百分比（0~100）
+        """
+        timings = self._state.char_commit_times
+        text = self._state.plain_doc
+
+        if not timings or not text:
+            return 0.0
+
+        total_cjk = 0
+        word_chars = 0
+
+        i = 0
+        while i < len(text):
+            cp = ord(text[i])
+            is_cjk = 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
+            if is_cjk:
+                run_start = i
+                while i < len(text):
+                    cp2 = ord(text[i])
+                    is_cjk2 = 0x4E00 <= cp2 <= 0x9FFF or 0x3400 <= cp2 <= 0x4DBF
+                    if not is_cjk2:
+                        break
+                    i += 1
+
+                # 统计该 CJK 段中有时间记录的字符
+                for pos in range(run_start, i):
+                    if pos in timings:
+                        total_cjk += 1
+
+                # 扫描该段内的词组（连续 CJK 字符，间隔 ≤ _CJK_WORD_GAP_MS）
+                pos = run_start
+                while pos < i:
+                    if pos not in timings:
+                        pos += 1
+                        continue
+
+                    group_end = pos + 1
+                    while group_end < i and group_end in timings:
+                        if (
+                            timings[group_end] - timings[group_end - 1]
+                            > _CJK_WORD_GAP_MS
+                        ):
+                            break
+                        group_end += 1
+
+                    if group_end - pos >= 2:
+                        word_chars += group_end - pos
+
+                    pos = group_end
+            else:
+                i += 1
+
+        if total_cjk == 0:
+            return 0.0
+        return round(word_chars / total_cjk * 100, 2)

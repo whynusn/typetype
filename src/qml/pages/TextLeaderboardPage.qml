@@ -6,6 +6,8 @@ import RinUI
 FluentPage {
     id: textLeaderboardPage
     property bool active: false  // 由 NavigationView 注入
+    // 防止页面重新激活时自动级联加载，只在首次初始化时自动选择源
+    property bool _sourcesInitialized: false
     title: qsTr("文本排行榜")
 
     // 减少 FluentPage 默认的大侧边距，给排行榜表格留足空间
@@ -37,7 +39,11 @@ FluentPage {
             for (var i = 0; i < catalog.length; i++) {
                 sourceListModel.append({ key: catalog[i].key, label: catalog[i].label || catalog[i].key });
             }
-            sourceComboBox.currentIndex = 0;
+            // 只在首次初始化时自动选择第一个源
+            // 后续重新激活时保留用户上次的选择，避免级联触发 loadTextList
+            sourceComboBox.currentIndex = _sourcesInitialized ? sourceComboBox.currentIndex : 0;
+            _sourcesInitialized = true;
+
             var firstKey = catalog[0].key;
             if (firstKey && appBridge) {
                 appBridge.loadTextList(firstKey);
