@@ -115,24 +115,24 @@ class CharStatsService:
         return chars_with_times[:limit]
 
     def get_slow_entries(
-        self, text: str, threshold_ms: float = 500.0, limit: int = 10
+        self,
+        text: str,
+        threshold_ms: float = 500.0,
+        limit: int = 10,
+        phrase_positions: set[int] | None = None,
     ) -> list[tuple[str, float]]:
-        """Get slow entries grouped by word-level segments in the source text.
-
-        Groups consecutive CJK characters that are slow into multi-char word
-        entries. Single slow chars (non-CJK or isolated) are still reported
-        individually.
+        """Get slow entries, grouping only chars actually typed as a phrase.
 
         Args:
             text: The source text being typed (for word boundary detection).
             threshold_ms: Minimum average time in ms to be considered slow.
             limit: Maximum number of entries to return.
+            phrase_positions: Positions marked as phrase input (grow_length > 1).
+                Only consecutive positions BOTH slow AND in phrase_positions are grouped.
 
         Returns:
             List of (entry_text, avg_time_seconds) sorted by time descending.
-            entry_text may be a single char or a multi-char word segment.
         """
-        # Get slow chars (same logic as get_slow_chars)
         slow_data: dict[str, float] = {}
         for char in self._dirty:
             if char in self._cache:
@@ -143,7 +143,6 @@ class CharStatsService:
         if not slow_data:
             return []
 
-        # Find all positions of slow chars in the source text
         slow_positions: set[int] = set()
         for i, ch in enumerate(text):
             if ch in slow_data:
@@ -152,16 +151,19 @@ class CharStatsService:
         if not slow_positions:
             return list(slow_data.items())
 
-        # Group consecutive slow positions
+        phrase = phrase_positions or set()
+
+        # Group consecutive slow positions, but only if ALL are in phrase_positions
         sorted_pos = sorted(slow_positions)
         groups: list[list[int]] = [[sorted_pos[0]]]
         for pos in sorted_pos[1:]:
-            if pos == groups[-1][-1] + 1:
+            prev = groups[-1][-1]
+            # 只有当两个位置都标记为词组且相邻时才合并
+            if pos == prev + 1 and prev in phrase and pos in phrase:
                 groups[-1].append(pos)
             else:
                 groups.append([pos])
 
-        # Build result: 2+ consecutive chars form a word, otherwise individual
         result: list[tuple[str, float]] = []
         for group in groups:
             if len(group) >= 2:

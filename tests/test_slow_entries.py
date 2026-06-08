@@ -40,10 +40,9 @@ def test_cjk_run_segments_mixed():
 
 
 def test_get_slow_entries_groups_consecutive_slow_chars():
-    """Consecutive slow CJK chars should be grouped as a word entry."""
+    """Consecutive slow CJK chars in phrase_positions should be grouped."""
     service = CharStatsService(repository=NoopCharStatsRepository())
 
-    # Manually populate cache with slow chars
     slow_a = CharStat(char="马", total_ms=1200, char_count=1)
     slow_b = CharStat(char="虎", total_ms=1000, char_count=1)
     service._cache["马"] = slow_a
@@ -52,13 +51,34 @@ def test_get_slow_entries_groups_consecutive_slow_chars():
     service._dirty.add("虎")
 
     text = "中国马虎功夫"
-    result = service.get_slow_entries(text, threshold_ms=500)
+    # 马虎 在位置 2,3，标记为词组
+    result = service.get_slow_entries(text, threshold_ms=500, phrase_positions={2, 3})
 
     assert len(result) >= 1
-    # "马虎" should be grouped into one entry since both chars are consecutive and slow
     word_entries = [entry for entry in result if entry[0] == "马虎"]
     assert len(word_entries) == 1
-    assert word_entries[0][1] == 1.2  # max time = 1.2s (马)
+    assert word_entries[0][1] == 1.2
+
+
+def test_get_slow_entries_consecutive_but_not_phrase_stays_individual():
+    """Consecutive slow chars NOT in phrase_positions should stay individual."""
+    service = CharStatsService(repository=NoopCharStatsRepository())
+
+    slow_a = CharStat(char="马", total_ms=1200, char_count=1)
+    slow_b = CharStat(char="虎", total_ms=1000, char_count=1)
+    service._cache["马"] = slow_a
+    service._cache["虎"] = slow_b
+    service._dirty.add("马")
+    service._dirty.add("虎")
+
+    text = "中国马虎功夫"
+    # 没有传 phrase_positions → 逐字输入，不应合并
+    result = service.get_slow_entries(text, threshold_ms=500)
+    texts = [r[0] for r in result]
+
+    assert "马" in texts
+    assert "虎" in texts
+    assert "马虎" not in texts
 
 
 def test_get_slow_entries_non_consecutive_remain_individual():

@@ -19,9 +19,6 @@ from ...models.entity.session_stat import SessionStat
 from .char_stats_service import CharStatsService
 
 
-_CJK_WORD_GAP_MS = 300
-
-
 @dataclass
 class TypingState:
     """打字会话状态。"""
@@ -350,7 +347,10 @@ class TypingService:
         """
         if self._char_stats_service:
             self._state.score_data.slow_chars = (
-                self._char_stats_service.get_slow_entries(self._state.plain_doc)
+                self._char_stats_service.get_slow_entries(
+                    self._state.plain_doc,
+                    phrase_positions=self._state.phrase_positions,
+                )
             )
 
     def get_history_record(self) -> dict[str, float | int | str | list]:
@@ -366,7 +366,8 @@ class TypingService:
         slow_chars = self._state.score_data.slow_chars or []
         if not slow_chars and self._char_stats_service:
             slow_chars = self._char_stats_service.get_slow_entries(
-                self._state.plain_doc
+                self._state.plain_doc,
+                phrase_positions=self._state.phrase_positions,
             )
         return {
             "speed": round(self._state.score_data.speed, 2),
