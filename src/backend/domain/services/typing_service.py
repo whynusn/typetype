@@ -48,6 +48,7 @@ class TypingState:
     peak_key_stroke: float = 0.0
     peak_code_length: float = float("inf")
     char_commit_times: dict[int, float] = field(default_factory=dict)
+    phrase_positions: set[int] = field(default_factory=set)
 
 
 class TypingService:
@@ -178,6 +179,7 @@ class TypingService:
         self._state.score_data.date = ""
         self._state.last_commit_time_ms = 0.0
         self._state.char_commit_times.clear()
+        self._state.phrase_positions.clear()
 
     def reset(self) -> None:
         """重置所有状态。"""
@@ -278,6 +280,9 @@ class TypingService:
 
                 # 记录每个字符的提交时间（毫秒时间戳）
                 self._state.char_commit_times[pos] = now_ms
+                # 标记词组位置：grow_length > 1 表示一次提交了多个字符（打词）
+                if grow_length > 1:
+                    self._state.phrase_positions.add(pos)
                 # 累积字符统计
                 if self._char_stats_service:
                     self._char_stats_service.accumulate(char, per_char_ms, is_error)
@@ -366,22 +371,14 @@ class TypingService:
         }
 
     def _compute_word_typing_rate(self) -> float:
-        """计算打词率（word typing rate）。
+        """计算打词率：词组字符数 / 总 CJK 字符数 × 100。
 
-        打词率指在一段打字内容中，连续 2 个及以上的 CJK 字符被当作「词组」输入的比例。
-        规则：
-        - 只考虑 CJK 统一表意文字（U+4E00-9FFF, U+3400-4DBF）
-        - 连续 CJK 字符的间隔 ≤ _CJK_WORD_GAP_MS ms 时视为同词组输入
-        - 只统计在 char_commit_times 中有记录的位置（即本会话中实际打过的字符）
-        - 打词率 = 词组字符数 / 总 CJK 字符数 × 100
-
-        Returns:
-            打词率百分比（0~100）
+        词组判定基于文本长度变化（grow_length > 1），而非时间间隔。
         """
-        timings = self._state.char_commit_times
         text = self._state.plain_doc
+        phrase = self._state.phrase_positions
 
-        if not timings or not text:
+        if not text or not phrase:
             return 0.0
 
         total_cjk = 0
@@ -400,31 +397,10 @@ class TypingService:
                         break
                     i += 1
 
-                # 统计该 CJK 段中有时间记录的字符
                 for pos in range(run_start, i):
-                    if pos in timings:
-                        total_cjk += 1
-
-                # 扫描该段内的词组（连续 CJK 字符，间隔 ≤ _CJK_WORD_GAP_MS）
-                pos = run_start
-                while pos < i:
-                    if pos not in timings:
-                        pos += 1
-                        continue
-
-                    group_end = pos + 1
-                    while group_end < i and group_end in timings:
-                        if (
-                            timings[group_end] - timings[group_end - 1]
-                            > _CJK_WORD_GAP_MS
-                        ):
-                            break
-                        group_end += 1
-
-                    if group_end - pos >= 2:
-                        word_chars += group_end - pos
-
-                    pos = group_end
+                    total_cjk += 1
+                    if pos in phrase:
+                        word_chars += 1
             else:
                 i += 1
 
