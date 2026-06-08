@@ -1,7 +1,7 @@
 <div align="center">
   <img src="resources/images/TypeTypeLogo.png" alt="TypeType Logo" width="200" />
   <h1>TypeType</h1>
-  <p>中文打字练习 & 跟打器 — 支持 <b>码长 / 击键 / 速度 / 键准</b> 专业统计，<b>Linux Wayland</b> 原生可用</p>
+  <p>中文打字练习 & 跟打器 — 支持 <b>码长 / 击键 / 速度 / 键准</b> 统计，<b>Linux Wayland</b> 原生可用</p>
   <p>Chinese typing practice tool with keystroke statistics (码长/击键/键准), native Linux Wayland support via evdev</p>
 
   [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -22,21 +22,22 @@
 
 </div>
 
-TypeType 是一个基于 **PySide6 + QML** 的中文打字练习跟打器，提供打字圈常用的专业统计指标：
+TypeType 是一个基于 **PySide6 + QML** 的中文打字练习跟打器，提供以下统计指标：
 
 - **码长**（击/字）— 每个中文字符平均消耗的按键次数
 - **击键**（击/秒）— 每秒物理按键次数
 - **速度**（字/分钟）— 每分钟输入中文字符数
-- **键准**（%）— 有效按键比例，反映按键效率（错键率）
+- **键准**（%）— 有效按键比例，反映按键效率
+- **打词率**（%）— 连续中文词组输入比例
 - **错字 / 回改 / 退格** — 错误修正统计
 
-> **核心优势：** 通过 Linux evdev 直接读取内核键盘事件，**完全绕过 Wayland text-input-v3 协议对浏览器/应用层按键事件的屏蔽**，实现 Wayland 下真实的物理击键统计。这是目前少数能在 Wayland 上准确统计码长和击键的打字工具之一。
+> **原理：** 通过 Linux evdev 直接读取内核键盘事件，绕过 Wayland text-input-v3 协议对浏览器/应用层按键事件的屏蔽，实现 Wayland 下的物理击键统计。
 
 ---
 
 ## 功能概览
 
-- 📊 实时 **码长 / 击键 / 速度 / 键准** 统计，配合 **错字 / 回改 / 退格** 分析
+- 📊 实时 **码长 / 击键 / 速度 / 键准 / 打词率** 统计，配合 **错字 / 回改 / 退格** 分析
 - 📈 字符级统计（SQLite 持久化）与薄弱字分析  
 - 🏆 服务端排行榜与成绩提交（支持分片模式聚合成绩）  
 - 📝 本地文本与网络文本统一载文  
@@ -77,7 +78,7 @@ uv sync
 uv run python main.py
 ```
 
-> **联网功能说明：** 排行榜、载文等联网功能依赖 [typetype-server](https://github.com/whynusn/typetype-server) 服务端，默认配置指向 `127.0.0.1:8080`。当前服务端还存在不少安全性问题，所以 IP 暂不便公开。想体验在线服务可以联系 `whynusn@qq.com`，或者参考服务端仓库自行本地部署后修改客户端设置中的 `base_url`。仅使用本地打字功能则无需服务端。
+> **联网功能说明：** 排行榜、载文等联网功能依赖 [typetype-server](https://github.com/whynusn/typetype-server) 服务端，默认配置指向 `127.0.0.1:8080`。服务端目前处于开发阶段，暂不开放公网访问。如需体验在线服务，可联系 `whynusn@qq.com`，或者参考服务端仓库自行本地部署后修改客户端设置中的 `base_url`。仅使用本地打字功能则无需服务端。
 
 ### Linux Wayland 权限
 
@@ -172,7 +173,7 @@ utils/          # 工具类（Logger、text_id）
     → TypingService.accumulate_key() → SessionStat.key_stroke_count
       → 码长 = key_stroke_count / char_count
       → 击键 = key_stroke_count / time
-      → 键准 = (key_stroke_count - backspace - correction × 码长) / key_stroke_count
+      → 键准 = (key_stroke_count - backspace_count - correction_count × 码长) / key_stroke_count
 ```
 
 ---

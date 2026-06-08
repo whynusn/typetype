@@ -52,27 +52,52 @@
 
 ### POST /api/v1/scores
 
+客户端只发送原始采集字段，所有派生指标由服务端统一根据原始字段实时计算。
+
 **请求体字段（必传）：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| textId | Long | 服务端文本ID（主键） |
-| speed | Decimal | 速度（字/分） |
-| keyStroke | Decimal | 击键速度（击/秒） |
-| codeLength | Decimal | 码长（击/字） |
-| charCount | Integer | 字符数 |
-| wrongCharCount | Integer | 错误字符数 |
-| backspaceCount | Integer | 退格键按下次数 |
-| correctionCount | Integer | 回改字数 |
-| keyAccuracy | Decimal | 键准（%） |
-| time | Decimal | 用时（秒） |
+| 字段 | 类型 | 来源 | 说明 |
+|------|------|------|------|
+| textId | Long | SessionStat.text_id | 服务端文本ID（主键） |
+| charCount | Integer | SessionStat.char_count | 已正确输入字符数 |
+| wrongCharCount | Integer | SessionStat.wrong_char_count | 错误字符数 |
+| backspaceCount | Integer | SessionStat.backspace_count | 退格键按下次数 |
+| correctionCount | Integer | SessionStat.correction_count | 回改字数 |
+| keyStrokeCount | Integer | SessionStat.key_stroke_count | 总按键数（原始值） |
+| time | Decimal | SessionStat.time | 用时（秒） |
 
-**服务端返回派生字段（兼容）：**
+**服务端返回字段：**
+
+#### 原始字段（直接从数据库读取）
+
+| 字段 | 类型 |
+|------|------|
+| textId | Long |
+| charCount | Integer |
+| wrongCharCount | Integer |
+| backspaceCount | Integer |
+| correctionCount | Integer |
+| keyStrokeCount | Integer |
+| time | Decimal |
+| createdAt | LocalDateTime |
+
+#### 派生字段（服务端实时计算返回）
 
 | 字段 | 计算公式 |
 |------|----------|
-| accuracyRate | `(charCount - wrongCharCount) / charCount * 100` |
-| effectiveSpeed | `speed * accuracyRate / 100` |
+| speed | `charCount × 60 / time` |
+| keyStroke | `keyStrokeCount / time` |
+| codeLength | `keyStrokeCount / charCount` |
+| keyAccuracy | `(keyStrokeCount - backspaceCount - correctionCount × codeLength) / keyStrokeCount × 100%` |
+| accuracyRate | `(charCount - wrongCharCount) / charCount × 100` |
+| effectiveSpeed | `speed × accuracyRate / 100` |
+
+#### 兼容字段（已废弃，保留用于过渡期）
+
+| 字段 | 替代方案 |
+|------|----------|
+| duration | 已统一为 `time` |
+| accuracy | 已统一为 `accuracyRate` |
 
 ## 认证方式
 

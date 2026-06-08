@@ -21,9 +21,10 @@ typetype/
 ├── AGENTS.md                    ← [AI 入口] 编码规范、已知陷阱（唯一规则源）
 ├── CLAUDE.md                    ← [Claude 指令] 纯指针→AGENTS.md（零重复内容）
 ├── docs/
-│   ├── ARCHITECTURE.md          ← [宪法] 架构分层、数据流、依赖规则
-│   ├── reference/               ← [速查表] 纯表格（配置/API/QML/指标）
+│   ├── ARCHITECTURE.md          ← [架构权威] 架构分层、数据流、依赖规则
+│   ├── tutorials/               ← [教程] 第一次完成一件事
 │   ├── guides/                  ← [操作手册] 任务驱动的步骤指导
+│   ├── reference/               ← [速查表] 纯表格（配置/API/QML/指标）
 │   ├── examples/                ← [代码示例] 独立可运行的示例
 │   ├── decisions/               ← [决策] 架构决策记录（新建，按编号索引）
 │   ├── history/                 ← [归档] 历史设计文档（冻结，不新增）
@@ -89,14 +90,14 @@ AGENTS.md > docs/guides/* > docs/ARCHITECTURE.md > docs/decisions/* > docs/refer
 
 | 变更类型 | 需要更新 | 原则 |
 |:--- |:---|:---|
-| 新增/删除/重命名源码文件 | `ARCHITECTURE.md` 目录结构 | 事实 → 宪法 |
+| 新增/删除/重命名源码文件 | `ARCHITECTURE.md` 目录结构 | 事实 → 架构权威 |
 | 新增/修改配置字段 | `docs/reference/config.md` | 事实 → 速查表 |
 | 新增/删除 QML 页面 | `docs/reference/qml-pages.md` | 事实 → 速查表 |
 | 新增/修改 Bridge Slot/Signal | `docs/reference/bridge-slots.md` | 事实 → 速查表 |
 | 新增/修改 API 端点 | `docs/reference/api-endpoints.md` | 事实 → 速查表 |
 | 发现**编码实践类**陷阱 | `AGENTS.md` § 已知陷阱 | 规则 → AI 规则源 |
-| 发现**架构设计类**陷阱 | `ARCHITECTURE.md` § 已知陷阱 | 事实 → 宪法 |
-| 架构分层变更 | `ARCHITECTURE.md` 分层架构 + 依赖规则 | 事实 → 宪法 |
+| 发现**架构设计类**陷阱 | `ARCHITECTURE.md` § 已知陷阱 | 事实 → 架构权威 |
+| 架构分层变更 | `ARCHITECTURE.md` 分层架构 + 依赖规则 | 事实 → 架构权威 |
 | 重大架构决策 | `docs/decisions/` 新建架构决策记录 | 决策 → 决策记录 |
 | 新增工作流/流程 | `docs/guides/` 新建指南 | 流程 → guide |
 | 新增示例 | `docs/examples/` 新建示例 | 示例 → examples |

@@ -7,7 +7,7 @@
 
 | 当前文档 | 快速链接 |
 |:---|:---|
-| **本文** — 架构决策索引 | [AGENTS.md](../../AGENTS.md) — 开发规则<br>[ARCHITECTURE.md](../ARCHITECTURE.md) — 架构宪法 |
+| **本文** — 架构决策索引 | [AGENTS.md](../../AGENTS.md) — 开发规则<br>[ARCHITECTURE.md](../ARCHITECTURE.md) — 架构权威 |
 
 ---
 

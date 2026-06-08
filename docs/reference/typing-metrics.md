@@ -76,23 +76,49 @@
 - 当总按键数为 0 时，键准定义为 100%。
 - 计算结果小于 0 时截断为 0%。
 
+
+
+## 打词率
+
+反映连续中文词组输入比例的指标。衡量用户是以词组还是单字方式输入中文。
+
+### 定义
+
+在同一个打字会话中，间隔 ≤ 300ms 的连续 CJK 字符被视为一次词组输入。
+
+```
+打词率 = 词组字符数 / 总 CJK 字符数 × 100%
+```
+
+### 计算方式
+
+| 步骤 | 说明 |
+|------|------|
+| 数据采集 | 记录每个字符上屏的提交时间戳 |
+| 词组判定 | 连续两个 CJK 字符上屏时间差 ≤ 300ms 视为同一词组 |
+| 词组字符数 | 所有词组中的 CJK 字符总数（含单字词组，含错误字符） |
+| 总 CJK 字符数 | 会话中提交的全部 CJK 字符数 |
+| 打词率 | 词组字符数 / 总 CJK 字符数 × 100% |
+
+### 边界情况
+
+- 会话中无 CJK 字符时，打词率为 0%。
+- 非 CJK 字符（英文、数字、标点）不计入统计，不影响打词率计算。
+
 ## 对外 API 字段命名（与服务端契约）
 
 ### 提交契约（客户端 → 服务端）
 
-以下字段为必传的原始字段（服务端持久化存储）：
+客户端只发送原始采集字段，所有派生指标由服务端统一计算。服务端持久化存储这些原始字段。
 
 | API 字段名 | 类型 | 来源 | 说明 |
 |-----------|------|------|------|
 | textId | Long | SessionStat.text_id | 服务端文本ID（主键） |
-| speed | Decimal | SessionStat.speed | 速度（字/分） |
-| keyStroke | Decimal | SessionStat.keyStroke | 击键速度（击/秒） |
-| codeLength | Decimal | SessionStat.codeLength | 码长（击/字） |
-| charCount | Integer | SessionStat.char_count | 字符数 |
+| charCount | Integer | SessionStat.char_count | 已正确输入字符数 |
 | wrongCharCount | Integer | SessionStat.wrong_char_count | 错误字符数 |
 | backspaceCount | Integer | SessionStat.backspace_count | 退格键按下次数 |
 | correctionCount | Integer | SessionStat.correction_count | 回改字数 |
-| keyAccuracy | Decimal | SessionStat.keyAccuracy | 键准（%） |
+| keyStrokeCount | Integer | SessionStat.key_stroke_count | 总按键数（原始值） |
 | time | Decimal | SessionStat.time | 用时（秒） |
 
 ### 返回契约（服务端 → 客户端）
@@ -103,14 +129,12 @@
 
 | API 字段名 | 类型 |
 |-----------|------|
-| speed | Decimal |
-| keyStroke | Decimal |
-| codeLength | Decimal |
+| textId | Long |
 | charCount | Integer |
 | wrongCharCount | Integer |
 | backspaceCount | Integer |
 | correctionCount | Integer |
-| keyAccuracy | Decimal |
+| keyStrokeCount | Integer |
 | time | Decimal |
 | createdAt | LocalDateTime |
 
@@ -118,8 +142,12 @@
 
 | API 字段名 | 计算公式 |
 |-----------|----------|
-| accuracyRate | `(charCount - wrongCharCount) / charCount * 100` |
-| effectiveSpeed | `speed * accuracyRate / 100` |
+| speed | `charCount × 60 / time` |
+| keyStroke | `keyStrokeCount / time` |
+| codeLength | `keyStrokeCount / charCount` |
+| keyAccuracy | `(keyStrokeCount - backspaceCount - correctionCount × codeLength) / keyStrokeCount × 100%` |
+| accuracyRate | `(charCount - wrongCharCount) / charCount × 100` |
+| effectiveSpeed | `speed × accuracyRate / 100` |
 
 #### 兼容字段（已废弃，保留用于过渡期）
 
@@ -132,4 +160,4 @@
 
 - **当前版本**: V2
 - **发布日期**: 2026-04-26
-- **主要变更**: 新增 `backspaceCount`、`correctionCount`、`keyAccuracy`；`duration` 统一为 `time`
+- **主要变更**: 发送方式从全部字段改为只发送原始字段（V1 发送 `speed`/`keyStroke`/`codeLength`/`keyAccuracy` 等派生值，V2 改为原始值，派生指标由服务端统一计算）

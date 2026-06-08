@@ -29,7 +29,7 @@
 
 | 文档 | 角色 | 什么时候更新 |
 | :--- | :--- | :--- |
-| `ARCHITECTURE.md` | 唯一事实来源（"宪法"） | 新增/删除文件、架构变更、新架构陷阱 |
+| `ARCHITECTURE.md` | 架构事实来源 | 新增/删除文件、架构变更、新架构陷阱 |
 | **本文档** | AI 开发约束与陷阱集 | 新坑位、编码规范变化、验证要求更新 |
 | `docs/reference/*` | 速查表 | 配置字段、Bridge Slot、API 端点变化 |
 | `docs/decisions/*` | 架构决策记录（ADR） | 做出重大架构决策 |
@@ -167,7 +167,7 @@
 
 1. `ports/` 定义新 Port 协议
 2. `integration/` 实现对应 adapter
-3. `main.py` 装配层注入
+3. `container.py` 装配层注入
 4. 配置项通过 `RuntimeConfig` 管理
 
 > 当前接口列表见 [docs/reference/api-endpoints.md](./docs/reference/api-endpoints.md)。
