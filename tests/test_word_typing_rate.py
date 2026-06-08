@@ -9,7 +9,9 @@ from src.backend.domain.services.typing_service import TypingService
 import pytest
 
 
-def _make_service(text: str, phrase_ranges: list[tuple[int, int]] | None = None) -> TypingService:
+def _make_service(
+    text: str, phrase_ranges: list[tuple[int, int]] | None = None
+) -> TypingService:
     """创建带有 phrase_positions 标记的 TypingService。
 
     phrase_ranges: [(start, end), ...] 标记词组位置区间（含 start, 不含 end）
@@ -106,3 +108,32 @@ class TestComputeWordTypingRate:
         rate = service._compute_word_typing_rate()
         # 全部 4 个 CJK 字符都在词组中
         assert rate == 100.0
+
+    def test_cursor_not_at_end_only_marks_new_chars(self):
+        """光标不在末尾时，只标记新增字符为词组，不误标已有字符。
+
+        场景：文本 "中国功夫"（4字），光标在位置2，用户插入 "你好"（2字）。
+        QML 发送 grow_length=2, s="中国你好功夫"（含已有字符）。
+        只有位置 4,5 应被标记为词组，位置 0-3 不应被标记。
+        """
+        service = TypingService()
+        service.set_plain_doc("中国你好功夫")
+        service.set_total_chars(6)
+
+        # 先打 "中国功夫"（4个单字）
+        service.handle_committed_text("中", 1)
+        service.handle_committed_text("国", 1)
+        service.handle_committed_text("功", 1)
+        service.handle_committed_text("夫", 1)
+
+        # 光标在位置2插入 "你好"，QML 发送整个子串
+        service.handle_committed_text("中国你好功夫", 2)
+
+        # 只有 "你好"（位置 4,5）被标记为词组
+        assert 4 in service._state.phrase_positions
+        assert 5 in service._state.phrase_positions
+        # "中国功夫"（位置 0-3）不应被标记
+        assert 0 not in service._state.phrase_positions
+        assert 1 not in service._state.phrase_positions
+        assert 2 not in service._state.phrase_positions
+        assert 3 not in service._state.phrase_positions

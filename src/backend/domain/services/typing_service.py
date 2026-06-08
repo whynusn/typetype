@@ -177,6 +177,7 @@ class TypingService:
         self._state.score_data.backspace_count = 0
         self._state.score_data.correction_count = 0
         self._state.score_data.date = ""
+        self._state.score_data.slow_chars = []
         self._state.last_commit_time_ms = 0.0
         self._state.char_commit_times.clear()
         self._state.phrase_positions.clear()
@@ -281,7 +282,8 @@ class TypingService:
                 # 记录每个字符的提交时间（毫秒时间戳）
                 self._state.char_commit_times[pos] = now_ms
                 # 标记词组位置：grow_length > 1 表示一次提交了多个字符（打词）
-                if grow_length > 1:
+                # 只标记新增字符（pos >= char_count），避免光标不在末尾时误标已有字符
+                if grow_length > 1 and pos >= self._state.score_data.char_count:
                     self._state.phrase_positions.add(pos)
                 # 累积字符统计
                 if self._char_stats_service:
@@ -329,6 +331,7 @@ class TypingService:
                 char_count = self._state.score_data.char_count
                 for i in range(char_count + grow_length, char_count):
                     char_updates.append((i, "", False))
+                    self._state.phrase_positions.discard(i)
 
             self._state.score_data.char_count += grow_length
             self._state.last_commit_time_ms = now_ms
@@ -340,13 +343,28 @@ class TypingService:
         if self._char_stats_service:
             self._char_stats_service.flush_async()
 
+    def capture_slow_chars(self) -> None:
+        """捕获慢字条目到 score_data 中。
+
+        必须在 flush_char_stats() 之前调用，否则 _dirty 被清空后无法获取。
+        """
+        if self._char_stats_service:
+            self._state.score_data.slow_chars = (
+                self._char_stats_service.get_slow_entries(self._state.plain_doc)
+            )
+
     def get_history_record(self) -> dict[str, float | int | str | list]:
-        """获取历史记录。"""
+        """获取历史记录。
+
+        NOTE: slow_chars 可能已由外部在 flush_char_stats() 之前捕获到
+        score_data.slow_chars 中（见 TypingAdapter._check_typing_complete）。
+        优先使用预捕获值，避免 flush 后 _dirty 为空导致数据丢失。
+        """
         self._state.score_data.date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        slow_chars = []
         word_typing_rate = self._compute_word_typing_rate()
         self._state.score_data.word_typing_rate = word_typing_rate
-        if self._char_stats_service:
+        slow_chars = self._state.score_data.slow_chars or []
+        if not slow_chars and self._char_stats_service:
             slow_chars = self._char_stats_service.get_slow_entries(
                 self._state.plain_doc
             )
