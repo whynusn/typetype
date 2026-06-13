@@ -16,6 +16,7 @@ from datetime import datetime
 from time import time
 
 from ...models.entity.session_stat import SessionStat
+from ...utils.logger import log_debug
 from .char_stats_service import CharStatsService
 
 
@@ -178,6 +179,8 @@ class TypingService:
         self._state.last_commit_time_ms = 0.0
         self._state.char_commit_times.clear()
         self._state.phrase_positions.clear()
+        if self._char_stats_service:
+            self._char_stats_service.clear()
 
     def reset(self) -> None:
         """重置所有状态。"""
@@ -280,8 +283,16 @@ class TypingService:
                 self._state.char_commit_times[pos] = now_ms
                 # 标记词组位置：grow_length > 1 表示一次提交了多个字符（打词）
                 # 只标记新增字符（pos >= char_count），避免光标不在末尾时误标已有字符
-                if grow_length > 1 and pos >= self._state.score_data.char_count:
+                is_phrase = grow_length > 1 and pos >= self._state.score_data.char_count
+                if is_phrase:
                     self._state.phrase_positions.add(pos)
+                log_debug(
+                    f"[TypingService] handle_committed_text: "
+                    f"s='{s}' grow_length={grow_length} begin_pos={begin_pos} "
+                    f"pos={pos} char='{char}' char_count_before={self._state.score_data.char_count} "
+                    f"elapsed_ms={elapsed_ms:.0f} per_char_ms={per_char_ms:.0f} "
+                    f"is_phrase={is_phrase} phrase_positions={sorted(self._state.phrase_positions)}"
+                )
                 # 累积字符统计
                 if self._char_stats_service:
                     self._char_stats_service.accumulate(char, per_char_ms, is_error)
@@ -346,11 +357,19 @@ class TypingService:
         必须在 flush_char_stats() 之前调用，否则 _dirty 被清空后无法获取。
         """
         if self._char_stats_service:
+            log_debug(
+                f"[TypingService] capture_slow_chars: "
+                f"plain_doc='{self._state.plain_doc}' "
+                f"phrase_positions={sorted(self._state.phrase_positions)}"
+            )
             self._state.score_data.slow_chars = (
                 self._char_stats_service.get_slow_entries(
                     self._state.plain_doc,
                     phrase_positions=self._state.phrase_positions,
                 )
+            )
+            log_debug(
+                f"[TypingService] capture_slow_chars result: {self._state.score_data.slow_chars}"
             )
 
     def get_history_record(self) -> dict[str, float | int | str | list]:

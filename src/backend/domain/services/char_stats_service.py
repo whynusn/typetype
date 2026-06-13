@@ -1,6 +1,9 @@
+import heapq
+
 from ...models.entity.char_stat import CharStat
 from ...ports.async_executor import AsyncExecutor
 from ...ports.char_stats_repository import CharStatsRepository
+from ...utils.logger import log_debug
 
 
 def _is_cjk(char: str) -> bool:
@@ -52,16 +55,33 @@ class CharStatsService:
     ):
         self._repo = repository
         self._async_executor = async_executor
-        self._cache: dict[str, CharStat] = {}
-        self._dirty: set[str] = set()
+        self._cache: dict[str, CharStat] = {}   # 全局数据（持久化，弱字分析用）
+        self._dirty: set[str] = set()            # 全局脏标记
+        self._session_cache: dict[str, CharStat] = {}  # 会话数据（慢字统计用）
+        self._session_dirty: set[str] = set()
         self._repo.init_db()
 
     def accumulate(self, char: str, keystroke_ms: float, is_error: bool) -> None:
+        # 全局缓存（持久化，弱字分析）
         if char not in self._cache:
             existing = self._repo.get(char)
             self._cache[char] = existing if existing else CharStat(char)
         self._cache[char].accumulate(keystroke_ms, is_error)
         self._dirty.add(char)
+
+        # 会话缓存（慢字统计，从零开始）
+        if char not in self._session_cache:
+            self._session_cache[char] = CharStat(char)
+        session_stat = self._session_cache[char]
+        old_avg = session_stat.avg_ms
+        old_count = session_stat.char_count
+        session_stat.accumulate(keystroke_ms, is_error)
+        self._session_dirty.add(char)
+        log_debug(
+            f"[CharStatsService] accumulate: char='{char}' "
+            f"input_ms={keystroke_ms:.0f} session_count={old_count} session_avg={old_avg:.0f}ms "
+            f"→ session_count={session_stat.char_count} session_avg={session_stat.avg_ms:.0f}ms"
+        )
 
     def warm_chars(self, chars: list[str]) -> None:
         if not chars:
@@ -105,14 +125,17 @@ class CharStatsService:
     def get_slow_chars(
         self, threshold_ms: float = 500.0, limit: int = 10
     ) -> list[tuple[str, float]]:
-        chars_with_times = []
-        for char in self._dirty:
-            if char in self._cache:
-                stat = self._cache[char]
+        heap: list[tuple[float, str]] = []
+        for char in self._session_dirty:
+            if char in self._session_cache:
+                stat = self._session_cache[char]
                 if stat.avg_ms >= threshold_ms:
-                    chars_with_times.append((char, round(stat.avg_ms / 1000, 1)))
-        chars_with_times.sort(key=lambda x: x[1], reverse=True)
-        return chars_with_times[:limit]
+                    time_s = round(stat.avg_ms / 1000, 1)
+                    if len(heap) < limit:
+                        heapq.heappush(heap, (time_s, char))
+                    elif time_s > heap[0][0]:
+                        heapq.heapreplace(heap, (time_s, char))
+        return [(char, time) for time, char in sorted(heap, reverse=True)]
 
     def get_slow_entries(
         self,
@@ -134,9 +157,9 @@ class CharStatsService:
             List of (entry_text, avg_time_seconds) sorted by time descending.
         """
         slow_data: dict[str, float] = {}
-        for char in self._dirty:
-            if char in self._cache:
-                stat = self._cache[char]
+        for char in self._session_dirty:
+            if char in self._session_cache:
+                stat = self._session_cache[char]
                 if stat.avg_ms >= threshold_ms:
                     slow_data[char] = round(stat.avg_ms / 1000, 1)
 
@@ -153,31 +176,66 @@ class CharStatsService:
 
         phrase = phrase_positions or set()
 
-        # Group consecutive slow positions, but only if ALL are in phrase_positions
-        sorted_pos = sorted(slow_positions)
-        groups: list[list[int]] = [[sorted_pos[0]]]
-        for pos in sorted_pos[1:]:
-            prev = groups[-1][-1]
-            # 只有当两个位置都标记为词组且相邻时才合并
-            if pos == prev + 1 and prev in phrase and pos in phrase:
-                groups[-1].append(pos)
-            else:
-                groups.append([pos])
+        log_debug(
+            f"[CharStatsService] get_slow_entries: text='{text}' "
+            f"slow_positions={sorted(slow_positions)} phrase_positions={sorted(phrase)}"
+        )
 
+        # 1. 提取 phrase_positions 中的连续区间（词组区间）
+        phrase_ranges: list[tuple[int, int]] = []
+        if phrase:
+            sorted_phrase = sorted(phrase)
+            start = sorted_phrase[0]
+            prev = start
+            for pos in sorted_phrase[1:]:
+                if pos == prev + 1:
+                    prev = pos
+                else:
+                    phrase_ranges.append((start, prev + 1))
+                    start = pos
+                    prev = pos
+            phrase_ranges.append((start, prev + 1))
+
+        log_debug(f"[CharStatsService] phrase_ranges={phrase_ranges}")
+
+        # 2. 先处理词组区间：只要区间内包含慢字，就把整个词组作为一个条目
+        #    时间取词组内所有字的耗时之和（反映词组整体输入耗时）
+        covered_slow: set[int] = set()
         result: list[tuple[str, float]] = []
-        for group in groups:
-            if len(group) >= 2:
-                word_text = "".join(text[p] for p in group)
-                max_time = max(slow_data[text[p]] for p in group)
-                result.append((word_text, max_time))
-            else:
-                ch = text[group[0]]
-                if ch in slow_data:
-                    result.append((ch, slow_data[ch]))
+        for start, end in phrase_ranges:
+            range_slow = [p for p in range(start, end) if p in slow_positions]
+            if range_slow:
+                word_text = "".join(text[p] for p in range(start, end))
+                # 词组耗时 = 词组内所有字的时间之和（每个字的 per_char_ms 相同）
+                sum_time = round(sum(slow_data[text[p]] for p in range_slow), 1)
+                result.append((word_text, sum_time))
+                covered_slow.update(range_slow)
+                log_debug(
+                    f"[CharStatsService] phrase word: '{word_text}' "
+                    f"range=({start},{end}) slow_in_range={range_slow} sum_time={sum_time}s"
+                )
 
-        result.sort(key=lambda x: x[1], reverse=True)
-        return result[:limit]
+        # 3. 处理未被词组覆盖的慢字（逐字输入部分），不合并
+        remaining_slow = sorted(slow_positions - covered_slow)
+        for pos in remaining_slow:
+            ch = text[pos]
+            if ch in slow_data:
+                result.append((ch, slow_data[ch]))
+                log_debug(
+                    f"[CharStatsService] remaining single: '{ch}' time={slow_data[ch]}s"
+                )
+
+        heap: list[tuple[float, str]] = []
+        for entry_text, time_s in result:
+            if len(heap) < limit:
+                heapq.heappush(heap, (time_s, entry_text))
+            elif time_s > heap[0][0]:
+                heapq.heapreplace(heap, (time_s, entry_text))
+        top = [(entry_text, time) for time, entry_text in sorted(heap, reverse=True)]
+        log_debug(f"[CharStatsService] get_slow_entries result: {top}")
+        return top
 
     def clear(self) -> None:
-        self._cache.clear()
-        self._dirty.clear()
+        """清空会话级数据（慢字统计），保留全局数据（弱字分析）。"""
+        self._session_cache.clear()
+        self._session_dirty.clear()
