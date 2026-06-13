@@ -19,6 +19,7 @@ def _make_service(
     service = TypingService()
     service.set_plain_doc(text)
     service.set_total_chars(len(text))
+    service._state.score_data.char_count = len(text)
     if phrase_ranges:
         for start, end in phrase_ranges:
             for pos in range(start, end):
@@ -54,28 +55,30 @@ class TestComputeWordTypingRate:
         assert service._compute_word_typing_rate() == 100.0
 
     def test_partial_phrase_rate(self):
-        # "中国" 是词组，"功夫" 是词组，"马虎" 是单字
+        # "中国功夫马虎" (6 chars) - "中国" "功夫" 词组，"马虎" 单字
         service = _make_service("中国功夫马虎", [(0, 2), (2, 4)])
         rate = service._compute_word_typing_rate()
-        # word_chars = 4, total_cjk = 6
+        # word_chars = 4, total_input = 6
         assert round(rate, 2) == pytest.approx(66.67, rel=1e-2)
 
     def test_mixed_cjk_and_non_cjk(self):
-        # "Hello中国!Good马虎End"
-        # CJK positions: 5(中), 6(国), 12(马), 13(虎)
+        # "Hello中国!Good马虎End" (17 chars)
+        # phrase: pos 5,6 (中国)
         service = _make_service("Hello中国!Good马虎End", [(5, 7)])
         rate = service._compute_word_typing_rate()
-        # word_chars = 2, total_cjk = 4
-        assert rate == 50.0
+        # word_chars = 2, total_input = 17
+        assert round(rate, 2) == pytest.approx(11.76, rel=1e-2)
 
     def test_all_single_chars_returns_zero(self):
         service = _make_service("中国功夫", [])
         assert service._compute_word_typing_rate() == 0.0
 
     def test_phrase_spanning_non_cjk_boundary(self):
-        # "a中国b" - CJK 在 pos 1,2; phrase 标记 pos 1,2
+        # "a中国b" (4 chars) - phrase 标记 pos 1,2
         service = _make_service("a中国b", [(1, 3)])
-        assert service._compute_word_typing_rate() == 100.0
+        rate = service._compute_word_typing_rate()
+        # word_chars = 2, total_input = 4
+        assert rate == 50.0
 
     def test_partial_phrase_in_cjk_run(self):
         # "中国功夫" - 只有 "国功" 被标记为词组
@@ -85,13 +88,11 @@ class TestComputeWordTypingRate:
         assert rate == 50.0
 
     def test_phrase_positions_ignore_non_cjk(self):
-        # "a中国b马虎c" - phrase 标记 pos 1-4 (不含 pos 4)
-        # CJK positions: 1(中), 2(国), 4(马), 5(虎)
-        # phrase 中的 CJK: pos 1,2 → 2 chars
+        # "a中国b马虎c" (7 chars) - phrase 标记 pos 1,2,3
         service = _make_service("a中国b马虎c", [(1, 4)])
         rate = service._compute_word_typing_rate()
-        # word_chars = 2, total_cjk = 4
-        assert rate == 50.0
+        # word_chars = 3, total_input = 7
+        assert round(rate, 2) == pytest.approx(42.86, rel=1e-2)
 
     def test_integration_with_handle_committed_text(self):
         """集成测试：通过 handle_committed_text 模拟真实输入流程"""

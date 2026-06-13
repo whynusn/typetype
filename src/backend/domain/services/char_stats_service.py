@@ -55,8 +55,8 @@ class CharStatsService:
     ):
         self._repo = repository
         self._async_executor = async_executor
-        self._cache: dict[str, CharStat] = {}   # 全局数据（持久化，弱字分析用）
-        self._dirty: set[str] = set()            # 全局脏标记
+        self._cache: dict[str, CharStat] = {}  # 全局数据（持久化，弱字分析用）
+        self._dirty: set[str] = set()  # 全局脏标记
         self._session_cache: dict[str, CharStat] = {}  # 会话数据（慢字统计用）
         self._session_dirty: set[str] = set()
         self._repo.init_db()

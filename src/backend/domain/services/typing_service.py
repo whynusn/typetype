@@ -340,9 +340,11 @@ class TypingService:
                 for i in range(char_count + grow_length, char_count):
                     char_updates.append((i, "", False))
                     self._state.phrase_positions.discard(i)
+                self._state.last_commit_time_ms = now_ms
 
             self._state.score_data.char_count += grow_length
-            self._state.last_commit_time_ms = now_ms
+            # NOTE: grow_length=0（纯替换）时不更新 last_commit_time_ms，
+            # 避免输入法 preedit 变化等无意义事件重置时间基准
 
         return char_updates, is_completed
 
@@ -409,39 +411,33 @@ class TypingService:
         }
 
     def _compute_word_typing_rate(self) -> float:
-        """计算打词率：词组字符数 / 总 CJK 字符数 × 100。
+        """计算打词率：词组字符数 / 总已输入字符数 × 100。
 
         词组判定基于文本长度变化（grow_length > 1），而非时间间隔。
+        分母为当前已输入的全部字符（含标点、英文、数字），
+        符合「打词数占总字数比率」的直觉定义。
         """
-        text = self._state.plain_doc
         phrase = self._state.phrase_positions
+        total_input = self._state.score_data.char_count
 
-        if not text or not phrase:
+        log_debug(
+            f"[TypingService] _compute_word_typing_rate: "
+            f"total_input={total_input} phrase_positions={sorted(phrase)}"
+        )
+
+        if total_input <= 0 or not phrase:
+            log_debug(
+                "[TypingService] _compute_word_typing_rate: no input or no phrases → 0.0"
+            )
             return 0.0
 
-        total_cjk = 0
-        word_chars = 0
+        word_chars = sum(1 for pos in phrase if pos < total_input)
 
-        i = 0
-        while i < len(text):
-            cp = ord(text[i])
-            is_cjk = 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF
-            if is_cjk:
-                run_start = i
-                while i < len(text):
-                    cp2 = ord(text[i])
-                    is_cjk2 = 0x4E00 <= cp2 <= 0x9FFF or 0x3400 <= cp2 <= 0x4DBF
-                    if not is_cjk2:
-                        break
-                    i += 1
+        log_debug(
+            f"[TypingService] _compute_word_typing_rate: "
+            f"total_input={total_input} word_chars={word_chars}"
+        )
 
-                for pos in range(run_start, i):
-                    total_cjk += 1
-                    if pos in phrase:
-                        word_chars += 1
-            else:
-                i += 1
-
-        if total_cjk == 0:
-            return 0.0
-        return round(word_chars / total_cjk * 100, 2)
+        rate = round(word_chars / total_input * 100, 2)
+        log_debug(f"[TypingService] _compute_word_typing_rate: result={rate}%")
+        return rate
