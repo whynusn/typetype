@@ -1,10 +1,10 @@
-"""AI 智能推荐 Qt 适配层。"""
+"""AI 智能推荐 Qt 适配层（流式）。"""
 
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
-from ...workers.base_worker import BaseWorker
+from ...workers.ai_text_worker import AiTextWorker
 
 if TYPE_CHECKING:
     from ...application.usecases.generate_ai_text_usecase import (
@@ -22,6 +22,7 @@ class AiTextAdapter(QObject):
     AI_API_KEY = "ai_api_key"
 
     textGenerated = Signal(str, str)  # (content, title)
+    textChunk = Signal(str)  # 流式每块文本
     generationFailed = Signal(str)
     loadingChanged = Signal()
     configChanged = Signal()
@@ -60,14 +61,15 @@ class AiTextAdapter(QObject):
 
     @Slot()
     def requestAiText(self) -> None:
-        """请求 AI 生成文本。走 Worker 避免阻塞 UI。"""
+        """请求 AI 生成文本（流式）。"""
         if self._loading:
             return
         self._set_loading(True)
-        worker = BaseWorker(
+        worker = AiTextWorker(
             task=self._usecase.execute,
             error_prefix="AI 生成文本失败",
         )
+        worker.signals.chunk.connect(self.textChunk.emit)
         worker.signals.succeeded.connect(self._on_success)
         worker.signals.failed.connect(self._on_failed)
         worker.signals.finished.connect(lambda: self._set_loading(False))
@@ -84,7 +86,6 @@ class AiTextAdapter(QObject):
 
     @Slot(str, result=bool)
     def updateApiKey(self, api_key: str) -> bool:
-        """保存 API Key 到 keyring。"""
         try:
             self._token_store.save_token(self.AI_API_KEY, api_key)
             return True

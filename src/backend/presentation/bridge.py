@@ -115,6 +115,7 @@ class Bridge(QObject):
     wenlaiCategoriesLoaded = Signal(list)
     # AI 智能推荐信号
     aiTextGenerated = Signal(str, str)
+    aiTextPartial = Signal(str)  # 流式：当前已累积的全部文本
     aiTextFailed = Signal(str)
     aiTextLoadingChanged = Signal()
     aiConfigChanged = Signal()
@@ -421,14 +422,25 @@ class Bridge(QObject):
     def _connect_ai_text_signals(self) -> None:
         if not self._ai_text_adapter:
             return
+        self._ai_text_adapter.textChunk.connect(self._on_ai_text_chunk)
         self._ai_text_adapter.textGenerated.connect(self._on_ai_text_generated)
-        self._ai_text_adapter.generationFailed.connect(self.aiTextFailed.emit)
+        self._ai_text_adapter.generationFailed.connect(self._on_ai_text_failed)
         self._ai_text_adapter.loadingChanged.connect(self.aiTextLoadingChanged.emit)
         self._ai_text_adapter.configChanged.connect(self.aiConfigChanged.emit)
 
+    def _on_ai_text_chunk(self, chunk: str) -> None:
+        """流式：每收到一块文本，发射累积全文信号供 QML 实时显示。"""
+        self._ai_stream_text = getattr(self, "_ai_stream_text", "") + chunk
+        self.aiTextPartial.emit(self._ai_stream_text)
+
     def _on_ai_text_generated(self, text: str, title: str) -> None:
-        """AI 文本生成成功后，走 loadFullText 载入。"""
+        """AI 文本生成完成，走 loadFullText 载入。"""
+        self._ai_stream_text = ""
         self.loadFullText(text, "ai_recommend", title)
+
+    def _on_ai_text_failed(self, message: str) -> None:
+        self._ai_stream_text = ""
+        self.aiTextFailed.emit(message)
 
     def _connect_local_article_signals(self) -> None:
         if not self._local_article_adapter:

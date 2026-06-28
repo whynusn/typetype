@@ -89,6 +89,45 @@ class ApiClient:
         """清除最近一次请求错误。"""
         self._last_error = None
 
+    def stream(
+        self,
+        url: str,
+        *,
+        json: dict[str, str | int | float | dict | list] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
+        """SSE 流式请求，逐行 yield data 行内容。
+
+        用于 LLM 流式生成等场景。调用方负责解析每行 JSON。
+        """
+        try:
+            with self._client.stream(
+                "POST", url, json=json, headers=headers
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        payload = line[6:]
+                        if payload.strip() == "[DONE]":
+                            break
+                        yield payload
+            self.clear_last_error()
+        except httpx.TimeoutException as e:
+            self._last_error = NetworkTimeoutError(str(e))
+            raise AiStreamError(str(e)) from e
+        except httpx.RequestError as e:
+            self._last_error = NetworkRequestError(str(e))
+            raise AiStreamError(str(e)) from e
+        except Exception as e:
+            if not isinstance(e, AiStreamError):
+                self._last_error = NetworkError(str(e))
+                raise AiStreamError(str(e)) from e
+            raise
+
     def close(self) -> None:
         """关闭 HTTP 客户端并释放连接资源。"""
         self._client.close()
+
+
+class AiStreamError(Exception):
+    """AI 流式请求错误。"""

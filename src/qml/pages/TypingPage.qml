@@ -306,6 +306,10 @@ Item {
             upperPane.text = message;
         }
 
+        function onAiTextPartial(text) {
+            upperPane.text = text;
+        }
+
         function onAiTextFailed(message) {
             upperPane.text = message;
         }

@@ -1,5 +1,6 @@
 """AI 智能推荐文本生成用例。"""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -27,15 +28,35 @@ class GenerateAiTextUseCase:
         self._llm = llm_provider
         self._char_stats_repo = char_stats_repo
 
-    def execute(self, weak_char_limit: int = 20) -> AiTextResult:
-        """生成 AI 推荐文本。"""
+    def execute(
+        self,
+        weak_char_limit: int = 20,
+        on_chunk: Callable[[str], None] | None = None,
+    ) -> AiTextResult:
+        """生成 AI 推荐文本。
+
+        Args:
+            on_chunk: 流式回调，每收到一块文本时调用。
+        """
         weak_chars = self._get_weak_chars(weak_char_limit)
         if not weak_chars:
             return AiTextResult(
                 success=False,
                 error_message="没有足够的打字数据，请先练习一些文本",
             )
-        text = self._llm.generate_text(weak_chars)
+
+        chunks: list[str] = []
+        for chunk in self._llm.generate_text_stream(weak_chars):
+            chunks.append(chunk)
+            if on_chunk:
+                on_chunk(chunk)
+
+        text = "".join(chunks)
+        if not text.strip():
+            return AiTextResult(
+                success=False,
+                error_message="AI 返回内容为空",
+            )
         return AiTextResult(success=True, text=text, title="AI 智能推荐")
 
     def _get_weak_chars(self, limit: int) -> list[str]:
