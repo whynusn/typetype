@@ -138,3 +138,41 @@ class TestComputeWordTypingRate:
         assert 1 not in service._state.phrase_positions
         assert 2 not in service._state.phrase_positions
         assert 3 not in service._state.phrase_positions
+
+
+class TestWordDetectionToggle:
+    """测试打词率检测开关"""
+
+    def test_disabled_returns_zero_even_with_phrase_input(self):
+        service = TypingService()
+        service.set_plain_doc("中国功夫")
+        service.set_total_chars(4)
+        service._state.score_data.char_count = 4
+        service.word_detection_enabled = False
+
+        # 即使有词组输入，关闭检测后打词率应为 0
+        service.handle_committed_text("中国", 2)
+        service.handle_committed_text("功夫", 2)
+
+        assert service._compute_word_typing_rate() == 0.0
+
+    def test_disabled_skips_phrase_marking(self):
+        service = TypingService()
+        service.set_plain_doc("中国功夫")
+        service.set_total_chars(4)
+        service.word_detection_enabled = False
+
+        service.handle_committed_text("中国", 2)
+
+        assert len(service._state.phrase_positions) == 0
+
+    def test_enabled_preserves_normal_behavior(self):
+        service = TypingService()
+        service.set_plain_doc("中国功夫")
+        service.set_total_chars(4)
+        service.word_detection_enabled = True
+
+        service.handle_committed_text("中国", 2)
+        service.handle_committed_text("功夫", 2)
+
+        assert service._compute_word_typing_rate() == 100.0

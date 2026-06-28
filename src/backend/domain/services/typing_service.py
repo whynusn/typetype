@@ -67,6 +67,15 @@ class TypingService:
     def __init__(self, char_stats_service: CharStatsService | None = None):
         self._state = TypingState()
         self._char_stats_service = char_stats_service
+        self._word_detection_enabled = True
+
+    @property
+    def word_detection_enabled(self) -> bool:
+        return self._word_detection_enabled
+
+    @word_detection_enabled.setter
+    def word_detection_enabled(self, value: bool) -> None:
+        self._word_detection_enabled = value
 
     @property
     def state(self) -> TypingState:
@@ -289,7 +298,11 @@ class TypingService:
                 self._state.char_commit_times[pos] = now_ms
                 # 标记词组位置：grow_length > 1 表示一次提交了多个字符（打词）
                 # 只标记新增字符（pos >= char_count），避免光标不在末尾时误标已有字符
-                is_phrase = grow_length > 1 and pos >= self._state.score_data.char_count
+                is_phrase = (
+                    self._word_detection_enabled
+                    and grow_length > 1
+                    and pos >= self._state.score_data.char_count
+                )
                 if is_phrase:
                     self._state.phrase_positions.add(pos)
                 log_debug(
@@ -422,7 +435,13 @@ class TypingService:
         词组判定基于文本长度变化（grow_length > 1），而非时间间隔。
         分母为当前已输入的全部字符（含标点、英文、数字），
         符合「打词数占总字数比率」的直觉定义。
+
+        word_detection_enabled 为 False 时始终返回 0.0（用于标顶等
+        会批量提交单字的输入法，避免误判）。
         """
+        if not self._word_detection_enabled:
+            return 0.0
+
         phrase = self._state.phrase_positions
         total_input = self._state.score_data.char_count
 

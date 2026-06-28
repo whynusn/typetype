@@ -612,6 +612,28 @@ FluentPage {
 
     Text {
         typography: Typography.Subtitle
+        text: qsTr("跟打")
+        Layout.topMargin: 16
+        Layout.bottomMargin: 8
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("打词率检测")
+        icon.name: "ic_fluent_text_word_count_20_regular"
+        description: qsTr("关闭后打词率始终显示 0%（适用于标顶等批量提交单字的输入法）")
+
+        Switch {
+            checked: appBridge ? appBridge.wordDetectionEnabled : true
+            onCheckedChanged: {
+                if (appBridge)
+                    appBridge.setWordDetectionEnabled(checked)
+            }
+        }
+    }
+
+    Text {
+        typography: Typography.Subtitle
         text: qsTr("字提示")
         Layout.topMargin: 16
         Layout.bottomMargin: 8
