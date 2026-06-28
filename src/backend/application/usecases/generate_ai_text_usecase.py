@@ -60,5 +60,16 @@ class GenerateAiTextUseCase:
         return AiTextResult(success=True, text=text, title="AI 智能推荐")
 
     def _get_weak_chars(self, limit: int) -> list[str]:
-        stats = self._char_stats_repo.get_chars_by_sort(sort_mode="error_rate", n=limit)
-        return [s.char for s in stats]
+        import random
+
+        # 优先取近 7 天的薄弱字，不足时回退到全历史
+        stats = self._char_stats_repo.get_chars_by_sort(
+            sort_mode="error_rate", n=limit * 3, recent_days=7
+        )
+        if len(stats) < limit:
+            stats = self._char_stats_repo.get_chars_by_sort(
+                sort_mode="error_rate", n=limit * 3
+            )
+        chars = [s.char for s in stats]
+        random.shuffle(chars)
+        return chars[:limit]

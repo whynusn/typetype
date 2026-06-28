@@ -56,6 +56,7 @@ class SqliteCharStatsRepository:
         sort_mode: str = "error_rate",
         weights: dict | None = None,
         n: int = 10,
+        recent_days: int = 0,
     ) -> list[CharStat]:
         if n <= 0:
             return []
@@ -76,11 +77,23 @@ class SqliteCharStatsRepository:
         else:
             order_by = "CAST(error_char_count AS REAL) / char_count DESC"
 
+        where = "WHERE char_count > 0"
+        params: list[int | str] = []
+        if recent_days > 0:
+            cutoff = (
+                datetime.now()
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                .isoformat()
+            )
+            where += " AND last_seen >= datetime(?, '-' || ? || ' days')"
+            params.extend([cutoff, recent_days])
+
+        params.append(n)
         with sqlite3.connect(self._db_path) as conn:
             rows = conn.execute(
                 f"SELECT char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen "
-                f"FROM char_stats WHERE char_count > 0 ORDER BY {order_by} LIMIT ?",
-                (n,),
+                f"FROM char_stats {where} ORDER BY {order_by} LIMIT ?",
+                params,
             ).fetchall()
         return [self._row_to_stat(row) for row in rows]
 
