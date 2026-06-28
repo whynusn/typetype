@@ -63,15 +63,22 @@ class AiConfig:
         ),
     }
 
+    API_FORMATS: ClassVar[frozenset[str]] = frozenset(
+        {"openai_chat", "openai_response", "anthropic"}
+    )
+
     provider: str = "deepseek"
     base_url: str = ""
     model: str = ""
+    api_format: str = "openai_chat"
     timeout: float = 30.0
     max_chars: int = 300
 
     def __post_init__(self) -> None:
         if self.provider not in self.PROVIDER_DEFAULTS:
             self.provider = "deepseek"
+        if self.api_format not in self.API_FORMATS:
+            self.api_format = "openai_chat"
         self._resolve_defaults()
 
     def _resolve_defaults(self) -> None:
@@ -231,6 +238,7 @@ class RuntimeConfig:
             provider=cls._safe_str(ai_data.get("provider"), "deepseek"),
             base_url=cls._safe_str(ai_data.get("base_url"), ""),
             model=cls._safe_str(ai_data.get("model"), ""),
+            api_format=cls._safe_str(ai_data.get("api_format"), "openai_chat"),
             timeout=float(cls._safe_int(ai_data.get("timeout"), 30)),
             max_chars=cls._safe_int(ai_data.get("max_chars"), 300),
         )
@@ -339,6 +347,7 @@ class RuntimeConfig:
                 "provider": self.ai.provider,
                 "base_url": self.ai.base_url,
                 "model": self.ai.model,
+                "api_format": self.ai.api_format,
                 "timeout": self.ai.timeout,
                 "max_chars": self.ai.max_chars,
             },
@@ -354,6 +363,7 @@ class RuntimeConfig:
         provider: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        api_format: str | None = None,
         timeout: float | None = None,
         max_chars: int | None = None,
     ) -> None:
@@ -364,6 +374,8 @@ class RuntimeConfig:
             self.ai.base_url = base_url.rstrip("/")
         if model is not None:
             self.ai.model = model
+        if api_format is not None and api_format in AiConfig.API_FORMATS:
+            self.ai.api_format = api_format
         if timeout is not None:
             self.ai.timeout = max(timeout, 5.0)
         if max_chars is not None:

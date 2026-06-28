@@ -12,18 +12,12 @@ if TYPE_CHECKING:
         GenerateAiTextUseCase,
     )
     from ...config.runtime_config import RuntimeConfig
+    from ...integration.llm_text_provider import LlmTextProvider
     from ...integration.secure_token_store import SecureTokenStore
 
 
 class AiTextAdapter(QObject):
-    """AI 智能推荐 Qt 适配层。
-
-    职责：
-    - Qt 信号管理
-    - Worker 异步执行（避免阻塞 UI）
-    - 错误回传
-    - 配置管理（provider/model/api_key）
-    """
+    """AI 智能推荐 Qt 适配层。"""
 
     AI_API_KEY = "ai_api_key"
 
@@ -35,11 +29,13 @@ class AiTextAdapter(QObject):
     def __init__(
         self,
         usecase: "GenerateAiTextUseCase",
+        llm_provider: "LlmTextProvider",
         runtime_config: "RuntimeConfig",
         token_store: "SecureTokenStore",
     ) -> None:
         super().__init__()
         self._usecase = usecase
+        self._llm = llm_provider
         self._runtime_config = runtime_config
         self._token_store = token_store
         self._loading = False
@@ -50,20 +46,8 @@ class AiTextAdapter(QObject):
         return self._loading
 
     @property
-    def provider(self) -> str:
-        return self._runtime_config.ai.provider
-
-    @property
-    def base_url(self) -> str:
-        return self._runtime_config.ai.base_url
-
-    @property
-    def model(self) -> str:
-        return self._runtime_config.ai.model
-
-    @property
-    def max_chars(self) -> int:
-        return self._runtime_config.ai.max_chars
+    def api_format(self) -> str:
+        return self._runtime_config.ai.api_format
 
     @property
     def has_api_key(self) -> bool:
@@ -108,25 +92,25 @@ class AiTextAdapter(QObject):
             return False
 
     @Slot(str)
-    def updateProvider(self, provider: str) -> None:
-        """更新 AI provider 并持久化。"""
-        self._runtime_config.update_ai_config(provider=provider)
-        self.configChanged.emit()
-
-    @Slot(str)
     def updateBaseUrl(self, base_url: str) -> None:
-        """更新 AI base_url 并持久化。"""
         self._runtime_config.update_ai_config(base_url=base_url)
+        self._llm.update_config(base_url=base_url)
         self.configChanged.emit()
 
     @Slot(str)
     def updateModel(self, model: str) -> None:
-        """更新 AI model 并持久化。"""
         self._runtime_config.update_ai_config(model=model)
+        self._llm.update_config(model=model)
+        self.configChanged.emit()
+
+    @Slot(str)
+    def updateApiFormat(self, api_format: str) -> None:
+        self._runtime_config.update_ai_config(api_format=api_format)
+        self._llm.update_config(api_format=api_format)
         self.configChanged.emit()
 
     @Slot(int)
     def updateMaxChars(self, max_chars: int) -> None:
-        """更新生成文本目标字数并持久化。"""
         self._runtime_config.update_ai_config(max_chars=max_chars)
+        self._llm.update_config(max_chars=max_chars)
         self.configChanged.emit()

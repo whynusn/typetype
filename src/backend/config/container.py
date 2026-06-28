@@ -227,6 +227,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
             api_key_provider=_get_ai_api_key,
             base_url=runtime_config.ai.base_url,
             model=runtime_config.ai.model,
+            api_format=runtime_config.ai.api_format,
             max_chars=runtime_config.ai.max_chars,
         ),
     )
@@ -379,6 +380,7 @@ def create_adapters(
     services: Services,
     gateways: Gateways,
     use_cases: UseCases,
+    providers: Providers,
     infra: Infra,
     runtime_config: RuntimeConfig,
 ) -> Adapters:
@@ -426,6 +428,7 @@ def create_adapters(
     )
     ai_text_adapter = AiTextAdapter(
         usecase=use_cases.generate_ai_text,
+        llm_provider=providers.llm,
         runtime_config=runtime_config,
         token_store=infra.token_store,
     )

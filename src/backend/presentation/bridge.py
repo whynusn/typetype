@@ -2177,16 +2177,18 @@ class Bridge(QObject):
         return self._ai_text_adapter.loading if self._ai_text_adapter else False
 
     @Property(str, notify=aiConfigChanged)
-    def aiProvider(self) -> str:
-        return self._ai_text_adapter.provider if self._ai_text_adapter else ""
-
-    @Property(str, notify=aiConfigChanged)
     def aiBaseUrl(self) -> str:
         return self._ai_text_adapter.base_url if self._ai_text_adapter else ""
 
     @Property(str, notify=aiConfigChanged)
     def aiModel(self) -> str:
         return self._ai_text_adapter.model if self._ai_text_adapter else ""
+
+    @Property(str, notify=aiConfigChanged)
+    def aiApiFormat(self) -> str:
+        return (
+            self._ai_text_adapter.api_format if self._ai_text_adapter else "openai_chat"
+        )
 
     @Property(int, notify=aiConfigChanged)
     def aiMaxChars(self) -> int:
@@ -2203,11 +2205,6 @@ class Bridge(QObject):
         return False
 
     @Slot(str)
-    def updateAiProvider(self, provider: str) -> None:
-        if self._ai_text_adapter:
-            self._ai_text_adapter.updateProvider(provider)
-
-    @Slot(str)
     def updateAiBaseUrl(self, base_url: str) -> None:
         if self._ai_text_adapter:
             self._ai_text_adapter.updateBaseUrl(base_url)
@@ -2216,6 +2213,11 @@ class Bridge(QObject):
     def updateAiModel(self, model: str) -> None:
         if self._ai_text_adapter:
             self._ai_text_adapter.updateModel(model)
+
+    @Slot(str)
+    def updateAiApiFormat(self, api_format: str) -> None:
+        if self._ai_text_adapter:
+            self._ai_text_adapter.updateApiFormat(api_format)
 
     @Slot(int)
     def updateAiMaxChars(self, max_chars: int) -> None:

@@ -640,23 +640,46 @@ FluentPage {
         Layout.fillWidth: true
         title: qsTr("AI 服务配置")
         icon.name: "ic_fluent_lightbulb_20_regular"
-        description: qsTr("支持 OpenAI 兼容接口（DeepSeek / OpenAI / 通义千问等）")
+        description: qsTr("API 地址、模型和请求格式")
 
         RowLayout {
             spacing: 8
 
             TextField {
                 id: aiBaseUrlField
-                implicitWidth: 260
+                implicitWidth: 220
                 text: appBridge ? appBridge.aiBaseUrl : ""
                 placeholderText: qsTr("API Base URL")
             }
 
             TextField {
                 id: aiModelField
-                implicitWidth: 160
+                implicitWidth: 140
                 text: appBridge ? appBridge.aiModel : ""
                 placeholderText: qsTr("模型名称")
+            }
+
+            ComboBox {
+                id: aiApiFormatCombo
+                implicitWidth: 160
+                model: ListModel {
+                    ListElement { name: "Chat Completions"; value: "openai_chat" }
+                    ListElement { name: "Responses API"; value: "openai_response" }
+                    ListElement { name: "Anthropic"; value: "anthropic" }
+                }
+                textRole: "name"
+                currentIndex: {
+                    if (!appBridge) return 0
+                    var f = appBridge.aiApiFormat
+                    if (f === "openai_response") return 1
+                    if (f === "anthropic") return 2
+                    return 0
+                }
+                onCurrentIndexChanged: {
+                    if (appBridge && !syncingAiControls) {
+                        appBridge.updateAiApiFormat(model.get(currentIndex).value)
+                    }
+                }
             }
 
             Button {
@@ -1069,6 +1092,10 @@ FluentPage {
             aiBaseUrlField.text = appBridge.aiBaseUrl
             aiModelField.text = appBridge.aiModel
             aiMaxCharsField.text = String(appBridge.aiMaxChars)
+            var f = appBridge.aiApiFormat
+            if (f === "openai_response") aiApiFormatCombo.currentIndex = 1
+            else if (f === "anthropic") aiApiFormatCombo.currentIndex = 2
+            else aiApiFormatCombo.currentIndex = 0
             syncingAiControls = false
         }
 

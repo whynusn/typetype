@@ -46,7 +46,9 @@ def main():
     gateways = create_gateways(runtime_config, providers, infra, repos, clipboard)
     use_cases = create_use_cases(gateways, repos, providers, clipboard)
     services = create_services(infra, runtime_config)
-    adapters = create_adapters(services, gateways, use_cases, infra, runtime_config)
+    adapters = create_adapters(
+        services, gateways, use_cases, providers, infra, runtime_config
+    )
 
     # URL 更新回调：列表迭代替代逐个调用
     url_dependent = [
