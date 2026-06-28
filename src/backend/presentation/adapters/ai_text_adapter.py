@@ -72,17 +72,23 @@ class AiTextAdapter(QObject):
         worker.signals.chunk.connect(self.textChunk.emit)
         worker.signals.succeeded.connect(self._on_success)
         worker.signals.failed.connect(self._on_failed)
-        worker.signals.finished.connect(lambda: self._set_loading(False))
+        worker.signals.finished.connect(self._on_finished)
         self._thread_pool.start(worker)
 
     def _on_success(self, result: "AiTextResult") -> None:
+        self._set_loading(False)
         if result.success:
             self.textGenerated.emit(result.text, result.title)
         else:
             self.generationFailed.emit(result.error_message)
 
     def _on_failed(self, msg: str) -> None:
+        self._set_loading(False)
         self.generationFailed.emit(msg)
+
+    def _on_finished(self) -> None:
+        # 兜底：确保 loading 一定被清掉（success/failed 可能未触发）
+        self._set_loading(False)
 
     @Slot(str, result=bool)
     def updateApiKey(self, api_key: str) -> bool:

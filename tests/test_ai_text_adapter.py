@@ -157,6 +157,20 @@ def test_loading_state_transitions():
     assert states == [True, False]
 
 
+def test_loading_clears_on_success_before_finished():
+    adapter, _, _, _ = _build_adapter()
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+
+    adapter.requestAiText()
+    assert adapter.loading is True
+    thread_pool.started_workers[0].signals.succeeded.emit(
+        AiTextResult(success=True, text="ok", title="t")
+    )
+
+    assert adapter.loading is False
+
+
 def test_streaming_chunks_emit_text_chunk_signal():
     adapter, _, _, _ = _build_adapter()
     thread_pool = DummyThreadPool()
