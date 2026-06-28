@@ -117,6 +117,7 @@ class Bridge(QObject):
     aiTextGenerated = Signal(str, str)
     aiTextFailed = Signal(str)
     aiTextLoadingChanged = Signal()
+    aiConfigChanged = Signal()
     # 本地长文信号
     localArticlesLoaded = Signal(list)
     localArticlesLoadFailed = Signal(str)
@@ -423,6 +424,7 @@ class Bridge(QObject):
         self._ai_text_adapter.textGenerated.connect(self._on_ai_text_generated)
         self._ai_text_adapter.generationFailed.connect(self.aiTextFailed.emit)
         self._ai_text_adapter.loadingChanged.connect(self.aiTextLoadingChanged.emit)
+        self._ai_text_adapter.configChanged.connect(self.aiConfigChanged.emit)
 
     def _on_ai_text_generated(self, text: str, title: str) -> None:
         """AI 文本生成成功后，走 loadFullText 载入。"""
@@ -2173,6 +2175,52 @@ class Bridge(QObject):
     @Property(bool, notify=aiTextLoadingChanged)
     def aiTextLoading(self) -> bool:
         return self._ai_text_adapter.loading if self._ai_text_adapter else False
+
+    @Property(str, notify=aiConfigChanged)
+    def aiProvider(self) -> str:
+        return self._ai_text_adapter.provider if self._ai_text_adapter else ""
+
+    @Property(str, notify=aiConfigChanged)
+    def aiBaseUrl(self) -> str:
+        return self._ai_text_adapter.base_url if self._ai_text_adapter else ""
+
+    @Property(str, notify=aiConfigChanged)
+    def aiModel(self) -> str:
+        return self._ai_text_adapter.model if self._ai_text_adapter else ""
+
+    @Property(int, notify=aiConfigChanged)
+    def aiMaxChars(self) -> int:
+        return self._ai_text_adapter.max_chars if self._ai_text_adapter else 300
+
+    @Property(bool, constant=True)
+    def hasAiApiKey(self) -> bool:
+        return self._ai_text_adapter.has_api_key if self._ai_text_adapter else False
+
+    @Slot(str, result=bool)
+    def updateAiApiKey(self, api_key: str) -> bool:
+        if self._ai_text_adapter:
+            return self._ai_text_adapter.updateApiKey(api_key)
+        return False
+
+    @Slot(str)
+    def updateAiProvider(self, provider: str) -> None:
+        if self._ai_text_adapter:
+            self._ai_text_adapter.updateProvider(provider)
+
+    @Slot(str)
+    def updateAiBaseUrl(self, base_url: str) -> None:
+        if self._ai_text_adapter:
+            self._ai_text_adapter.updateBaseUrl(base_url)
+
+    @Slot(str)
+    def updateAiModel(self, model: str) -> None:
+        if self._ai_text_adapter:
+            self._ai_text_adapter.updateModel(model)
+
+    @Slot(int)
+    def updateAiMaxChars(self, max_chars: int) -> None:
+        if self._ai_text_adapter:
+            self._ai_text_adapter.updateMaxChars(max_chars)
 
     # ==========================================
     # 字体管理

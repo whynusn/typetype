@@ -6,11 +6,13 @@ import RinUI
 QQC.Pane {
     id: root
     property bool wenlaiLoading: false
+    property bool aiTextLoading: false
 
     padding: 8
 
     signal requestLoadTextFromClipboard // 定义从剪贴板载文信号
     signal requestLoadWenlai
+    signal requestAiText
     signal requestRetype
     signal requestToggleLeaderboard
     signal requestShuffle
@@ -78,6 +80,26 @@ QQC.Pane {
             anchors.verticalCenter: parent.verticalCenter
             running: root.wenlaiLoading
             visible: root.wenlaiLoading
+        }
+
+        Button {
+            id: aiRecommend
+            width: 110
+            height: 36
+            anchors.verticalCenter: parent.verticalCenter
+            enabled: !root.aiTextLoading
+            text: "AI 推荐"
+            onClicked: {
+                root.requestAiText();
+            }
+        }
+
+        BusyIndicator {
+            width: 24
+            height: 24
+            anchors.verticalCenter: parent.verticalCenter
+            running: root.aiTextLoading
+            visible: root.aiTextLoading
         }
 
         Button {

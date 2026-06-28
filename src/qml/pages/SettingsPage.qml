@@ -11,6 +11,7 @@ FluentPage {
     property string selectedWenlaiCategory: appBridge ? appBridge.wenlaiCategory : ""
     property string lastWenlaiSegmentMode: appBridge ? appBridge.wenlaiSegmentMode : "manual"
     property bool syncingWenlaiControls: false
+    property bool syncingAiControls: false
     property bool syncingZitiControls: false
     property bool _populatingDeviceList: false
 
@@ -111,6 +112,24 @@ FluentPage {
             wenlaiAutoSegmentSwitch.checked ? "auto" : "manual",
             wenlaiStrictLengthSwitch.checked
         )
+    }
+
+    function applyAiConfig() {
+        if (!appBridge || syncingAiControls)
+            return
+        var baseUrl = aiBaseUrlField.text.trim()
+        var model = aiModelField.text.trim()
+        if (baseUrl) appBridge.updateAiBaseUrl(baseUrl)
+        if (model) appBridge.updateAiModel(model)
+    }
+
+    function applyAiMaxChars() {
+        if (!appBridge || syncingAiControls)
+            return
+        var value = parseInt(aiMaxCharsField.text)
+        if (Number.isInteger(value) && value >= 50) {
+            appBridge.updateAiMaxChars(value)
+        }
     }
 
     function syncZitiSchemeModel(items) {
@@ -612,6 +631,116 @@ FluentPage {
 
     Text {
         typography: Typography.Subtitle
+        text: qsTr("AI 智能推荐")
+        Layout.topMargin: 16
+        Layout.bottomMargin: 8
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("AI 服务配置")
+        icon.name: "ic_fluent_lightbulb_20_regular"
+        description: qsTr("支持 OpenAI 兼容接口（DeepSeek / OpenAI / 通义千问等）")
+
+        RowLayout {
+            spacing: 8
+
+            TextField {
+                id: aiBaseUrlField
+                implicitWidth: 260
+                text: appBridge ? appBridge.aiBaseUrl : ""
+                placeholderText: qsTr("API Base URL")
+            }
+
+            TextField {
+                id: aiModelField
+                implicitWidth: 160
+                text: appBridge ? appBridge.aiModel : ""
+                placeholderText: qsTr("模型名称")
+            }
+
+            Button {
+                text: qsTr("应用")
+                onClicked: applyAiConfig()
+            }
+        }
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("AI API Key")
+        icon.name: "ic_fluent_key_20_regular"
+        description: appBridge && appBridge.hasAiApiKey
+            ? qsTr("已配置")
+            : qsTr("未配置")
+
+        RowLayout {
+            spacing: 8
+
+            TextField {
+                id: aiApiKeyField
+                implicitWidth: 300
+                placeholderText: qsTr("输入 API Key")
+                echoMode: TextInput.Password
+            }
+
+            Button {
+                text: qsTr("保存")
+                highlighted: true
+                onClicked: {
+                    if (!appBridge) return
+                    var key = aiApiKeyField.text.trim()
+                    if (!key) return
+                    if (appBridge.updateAiApiKey(key)) {
+                        aiApiKeyStatus.text = qsTr("已保存")
+                        aiApiKeyStatus.color = Theme.currentTheme ? Theme.currentTheme.colors.systemSuccessColor : "#107c10"
+                        aiApiKeyField.text = ""
+                    } else {
+                        aiApiKeyStatus.text = qsTr("保存失败")
+                        aiApiKeyStatus.color = Theme.currentTheme ? Theme.currentTheme.colors.systemCriticalColor : "#c42b1c"
+                    }
+                    aiApiKeyStatus.visible = true
+                }
+            }
+
+            Text {
+                id: aiApiKeyStatus
+                visible: false
+                typography: Typography.Caption
+            }
+        }
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("生成参数")
+        icon.name: "ic_fluent_options_20_regular"
+        description: qsTr("生成文本的目标字数")
+
+        RowLayout {
+            spacing: 8
+
+            Text {
+                typography: Typography.Caption
+                text: qsTr("目标字数")
+            }
+
+            TextField {
+                id: aiMaxCharsField
+                implicitWidth: 80
+                text: appBridge ? String(appBridge.aiMaxChars) : "300"
+                onAccepted: applyAiMaxChars()
+            }
+
+            Button {
+                text: qsTr("应用")
+                onClicked: applyAiMaxChars()
+            }
+        }
+    }
+
+    Text {
+        typography: Typography.Subtitle
         text: qsTr("字提示")
         Layout.topMargin: 16
         Layout.bottomMargin: 8
@@ -933,6 +1062,14 @@ FluentPage {
             lastWenlaiSegmentMode = appBridge.wenlaiSegmentMode
             wenlaiStrictLengthSwitch.checked = appBridge.wenlaiStrictLength
             syncingWenlaiControls = false
+        }
+
+        function onAiConfigChanged() {
+            syncingAiControls = true
+            aiBaseUrlField.text = appBridge.aiBaseUrl
+            aiModelField.text = appBridge.aiModel
+            aiMaxCharsField.text = String(appBridge.aiMaxChars)
+            syncingAiControls = false
         }
 
         function onZitiSchemesLoaded(items) {

@@ -193,6 +193,7 @@ def create_repos() -> Repos:
 
 
 def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
+    from ..infrastructure.api_client import ApiClient
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
@@ -392,6 +393,7 @@ def create_adapters(
     from ..presentation.adapters.auth_adapter import AuthAdapter
     from ..presentation.adapters.char_stats_adapter import CharStatsAdapter
     from ..presentation.adapters.wenlai_adapter import WenlaiAdapter
+    from ..presentation.adapters.ai_text_adapter import AiTextAdapter
     from ..presentation.adapters.local_article_adapter import LocalArticleAdapter
     from ..presentation.adapters.ziti_adapter import ZitiAdapter
     from ..presentation.adapters.trainer_adapter import TrainerAdapter
@@ -422,7 +424,11 @@ def create_adapters(
         gateway=gateways.wenlai,
         load_usecase=use_cases.load_wenlai_text,
     )
-    ai_text_adapter = AiTextAdapter(usecase=use_cases.generate_ai_text)
+    ai_text_adapter = AiTextAdapter(
+        usecase=use_cases.generate_ai_text,
+        runtime_config=runtime_config,
+        token_store=infra.token_store,
+    )
     local_article_adapter = LocalArticleAdapter(
         gateway=gateways.local_article,
         load_segment_usecase=use_cases.load_local_article_segment,

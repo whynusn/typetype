@@ -306,6 +306,10 @@ Item {
             upperPane.text = message;
         }
 
+        function onAiTextFailed(message) {
+            upperPane.text = message;
+        }
+
         function onLocalArticleSegmentLoadFailed(message) {
             upperPane.text = message;
         }
@@ -483,6 +487,11 @@ Item {
             Layout.minimumHeight: 56
             Layout.maximumHeight: 56
             wenlaiLoading: appBridge ? appBridge.wenlaiLoading : false
+            aiTextLoading: appBridge ? appBridge.aiTextLoading : false
+            onRequestAiText: {
+                if (appBridge)
+                    appBridge.requestAiText();
+            }
         }
 
         TypingProgressBar {
