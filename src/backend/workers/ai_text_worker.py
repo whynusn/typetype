@@ -37,7 +37,7 @@ class AiTextWorker(QRunnable):
     @Slot()
     def run(self) -> None:
         try:
-            result = self._task(self._on_chunk)
+            result = self._task(on_chunk=self._on_chunk)
             self.signals.succeeded.emit(result)
         except Exception as e:
             msg = GlobalExceptionHandler.handle(e)

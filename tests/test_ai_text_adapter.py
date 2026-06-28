@@ -41,6 +41,39 @@ def test_request_enqueues_worker():
     assert adapter.loading is True
 
 
+def test_worker_calls_task_with_on_chunk_keyword():
+    """验证 Worker 用 on_chunk= 关键字调用 task，而非位置参数。"""
+    calls: list[dict] = []
+
+    def fake_task(on_chunk=None):
+        calls.append({"on_chunk": on_chunk})
+        return AiTextResult(success=True, text="ok", title="t")
+
+    usecase = MagicMock()
+    usecase.execute.side_effect = fake_task
+    llm = MagicMock()
+    config = MagicMock()
+    config.ai.api_format = "openai_chat"
+    token_store = MagicMock()
+    token_store.get_token.return_value = "k"
+    adapter = AiTextAdapter(
+        usecase=usecase,
+        llm_provider=llm,
+        runtime_config=config,
+        token_store=token_store,
+    )
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+
+    adapter.requestAiText()
+    worker = thread_pool.started_workers[0]
+    # 手动运行 worker 的 run 方法（不走线程池）
+    worker.run()
+
+    assert len(calls) == 1
+    assert callable(calls[0]["on_chunk"])
+
+
 def test_duplicate_request_ignored_while_loading():
     adapter, _, _, _ = _build_adapter()
     thread_pool = DummyThreadPool()
