@@ -43,7 +43,7 @@ Frame {
                 Layout.alignment: Qt.AlignVCenter
                 typography: Typography.BodyStrong
                 font.pixelSize: 13
-                text: currentTextInfo ? currentTextInfo.title : qsTr("排行榜")
+                text: currentTextInfo && currentTextInfo.title ? currentTextInfo.title : qsTr("排行榜")
                 elide: Text.ElideRight
             }
 
