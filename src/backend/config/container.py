@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         LoadTrainerSegmentUseCase,
     )
     from ..application.usecases.load_wenlai_text_usecase import LoadWenlaiTextUseCase
+    from ..application.usecases.generate_ai_text_usecase import GenerateAiTextUseCase
     from ..domain.services.auth_service import AuthService
     from ..domain.services.char_stats_service import CharStatsService
     from ..domain.services.typing_service import TypingService
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
     from ..integration.secure_token_store import SecureTokenStore
     from ..integration.text_uploader import TextUploader
     from ..integration.wenlai_provider import WenlaiProvider
+    from ..integration.llm_text_provider import LlmTextProvider
     from ..ports.key_listener import KeyListener
     from ..presentation.adapters.auth_adapter import AuthAdapter
     from ..presentation.adapters.char_stats_adapter import CharStatsAdapter
@@ -68,6 +70,7 @@ if TYPE_CHECKING:
     from ..presentation.adapters.typing_adapter import TypingAdapter
     from ..presentation.adapters.upload_text_adapter import UploadTextAdapter
     from ..presentation.adapters.wenlai_adapter import WenlaiAdapter
+    from ..presentation.adapters.ai_text_adapter import AiTextAdapter
     from ..presentation.adapters.ziti_adapter import ZitiAdapter
 
 
@@ -95,6 +98,7 @@ class Repos:
 class Providers:
     text: RemoteTextProvider
     wenlai: WenlaiProvider
+    llm: LlmTextProvider
 
 
 @dataclass
@@ -114,6 +118,7 @@ class UseCases:
     load_wenlai_text: LoadWenlaiTextUseCase
     load_local_article_segment: LoadLocalArticleSegmentUseCase
     load_trainer_segment: LoadTrainerSegmentUseCase
+    generate_ai_text: GenerateAiTextUseCase
 
 
 @dataclass
@@ -134,6 +139,7 @@ class Adapters:
     auth: AuthAdapter
     char_stats: CharStatsAdapter
     wenlai: WenlaiAdapter
+    ai_text: AiTextAdapter
     local_article: LocalArticleAdapter
     ziti: ZitiAdapter
     trainer: TrainerAdapter
@@ -189,6 +195,7 @@ def create_repos() -> Repos:
 def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.wenlai_provider import WenlaiProvider
+    from ..integration.llm_text_provider import LlmTextProvider
     from ..application.gateways.wenlai_gateway import WenlaiGateway
 
     def _get_jwt_token() -> str:
@@ -196,6 +203,12 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
 
     def _get_wenlai_token() -> str:
         return infra.token_store.get_token(WenlaiGateway.TOKEN_KEY) or ""
+
+    def _get_ai_api_key() -> str:
+        return infra.token_store.get_token("ai_api_key") or ""
+
+    # ponytail: AI 使用独立 client，超时不同于主 api_client（LLM 生成较慢）
+    ai_api_client = ApiClient(timeout=runtime_config.ai.timeout)
 
     return Providers(
         text=RemoteTextProvider(
@@ -207,6 +220,13 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
             api_client=infra.wenlai_api_client,
             base_url=runtime_config.wenlai.base_url,
             token_provider=_get_wenlai_token,
+        ),
+        llm=LlmTextProvider(
+            api_client=ai_api_client,
+            api_key_provider=_get_ai_api_key,
+            base_url=runtime_config.ai.base_url,
+            model=runtime_config.ai.model,
+            max_chars=runtime_config.ai.max_chars,
         ),
     )
 
@@ -248,7 +268,12 @@ def create_gateways(
     )
 
 
-def create_use_cases(gateways: Gateways, repos: Repos, clipboard: Any) -> UseCases:
+def create_use_cases(
+    gateways: Gateways,
+    repos: Repos,
+    providers: Providers,
+    clipboard: Any,
+) -> UseCases:
     from ..application.usecases.load_text_usecase import LoadTextUseCase
     from ..application.usecases.load_wenlai_text_usecase import LoadWenlaiTextUseCase
     from ..application.usecases.load_local_article_segment_usecase import (
@@ -257,9 +282,13 @@ def create_use_cases(gateways: Gateways, repos: Repos, clipboard: Any) -> UseCas
     from ..application.usecases.load_trainer_segment_usecase import (
         LoadTrainerSegmentUseCase,
     )
+    from ..application.usecases.generate_ai_text_usecase import GenerateAiTextUseCase
     from ..domain.services.trainer_service import TrainerService
+    from ..integration.sqlite_char_stats_repository import SqliteCharStatsRepository
+    from .app_paths import char_stats_db_path
 
     trainer_service = TrainerService(repository=repos.trainer)
+    char_stats_repo = SqliteCharStatsRepository(db_path=str(char_stats_db_path()))
     return UseCases(
         load_text=LoadTextUseCase(
             text_gateway=gateways.text_source,
@@ -270,6 +299,10 @@ def create_use_cases(gateways: Gateways, repos: Repos, clipboard: Any) -> UseCas
             gateway=gateways.local_article,
         ),
         load_trainer_segment=LoadTrainerSegmentUseCase(service=trainer_service),
+        generate_ai_text=GenerateAiTextUseCase(
+            llm_provider=providers.llm,
+            char_stats_repo=char_stats_repo,
+        ),
     )
 
 
@@ -389,6 +422,7 @@ def create_adapters(
         gateway=gateways.wenlai,
         load_usecase=use_cases.load_wenlai_text,
     )
+    ai_text_adapter = AiTextAdapter(usecase=use_cases.generate_ai_text)
     local_article_adapter = LocalArticleAdapter(
         gateway=gateways.local_article,
         load_segment_usecase=use_cases.load_local_article_segment,
@@ -440,6 +474,7 @@ def create_adapters(
         auth=auth_adapter,
         char_stats=char_stats_adapter,
         wenlai=wenlai_adapter,
+        ai_text=ai_text_adapter,
         local_article=local_article_adapter,
         ziti=ziti_adapter,
         trainer=trainer_adapter,

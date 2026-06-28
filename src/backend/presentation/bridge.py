@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from .adapters.typing_adapter import TypingAdapter
     from .adapters.upload_text_adapter import UploadTextAdapter
     from .adapters.wenlai_adapter import WenlaiAdapter
+    from .adapters.ai_text_adapter import AiTextAdapter
     from .adapters.font_adapter import FontAdapter
     from .adapters.ziti_adapter import ZitiAdapter
 
@@ -112,6 +113,10 @@ class Bridge(QObject):
     wenlaiSegmentLabelChanged = Signal()
     wenlaiDifficultiesLoaded = Signal(list)
     wenlaiCategoriesLoaded = Signal(list)
+    # AI 智能推荐信号
+    aiTextGenerated = Signal(str, str)
+    aiTextFailed = Signal(str)
+    aiTextLoadingChanged = Signal()
     # 本地长文信号
     localArticlesLoaded = Signal(list)
     localArticlesLoadFailed = Signal(str)
@@ -149,6 +154,7 @@ class Bridge(QObject):
         upload_text_adapter: UploadTextAdapter | None = None,
         leaderboard_adapter: LeaderboardAdapter | None = None,
         wenlai_adapter: WenlaiAdapter | None = None,
+        ai_text_adapter: "AiTextAdapter | None" = None,
         local_article_adapter: LocalArticleAdapter | None = None,
         ziti_adapter: ZitiAdapter | None = None,
         trainer_adapter: TrainerAdapter | None = None,
@@ -167,6 +173,7 @@ class Bridge(QObject):
         self._upload_text_adapter = upload_text_adapter
         self._leaderboard_adapter = leaderboard_adapter
         self._wenlai_adapter = wenlai_adapter
+        self._ai_text_adapter = ai_text_adapter
         self._local_article_adapter = local_article_adapter
         self._ziti_adapter = ziti_adapter
         self._trainer_adapter = trainer_adapter
@@ -205,6 +212,7 @@ class Bridge(QObject):
         self._connect_upload_signals()
         self._connect_leaderboard_signals()
         self._connect_wenlai_signals()
+        self._connect_ai_text_signals()
         self._connect_local_article_signals()
         self._connect_ziti_signals()
         self._connect_trainer_signals()
@@ -408,6 +416,17 @@ class Bridge(QObject):
             self.wenlaiDifficultiesLoaded.emit
         )
         self._wenlai_adapter.categoriesLoaded.connect(self.wenlaiCategoriesLoaded.emit)
+
+    def _connect_ai_text_signals(self) -> None:
+        if not self._ai_text_adapter:
+            return
+        self._ai_text_adapter.textGenerated.connect(self._on_ai_text_generated)
+        self._ai_text_adapter.generationFailed.connect(self.aiTextFailed.emit)
+        self._ai_text_adapter.loadingChanged.connect(self.aiTextLoadingChanged.emit)
+
+    def _on_ai_text_generated(self, text: str, title: str) -> None:
+        """AI 文本生成成功后，走 loadFullText 载入。"""
+        self.loadFullText(text, "ai_recommend", title)
 
     def _connect_local_article_signals(self) -> None:
         if not self._local_article_adapter:
@@ -2140,6 +2159,20 @@ class Bridge(QObject):
                 segment_mode,
                 strict_length,
             )
+
+    # ==========================================
+    # AI 智能推荐
+    # ==========================================
+
+    @Slot()
+    def requestAiText(self) -> None:
+        """请求 AI 生成文本。"""
+        if self._ai_text_adapter:
+            self._ai_text_adapter.requestAiText()
+
+    @Property(bool, notify=aiTextLoadingChanged)
+    def aiTextLoading(self) -> bool:
+        return self._ai_text_adapter.loading if self._ai_text_adapter else False
 
     # ==========================================
     # 字体管理

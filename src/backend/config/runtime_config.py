@@ -3,6 +3,7 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
@@ -44,6 +45,49 @@ class WenlaiConfig:
 
 
 @dataclass
+class AiConfig:
+    """AI 智能推荐配置。API Key 存 keyring（key='ai_api_key'）。"""
+
+    PROVIDER_DEFAULTS: ClassVar[dict[str, tuple[str, str]]] = {
+        "openai": (
+            "https://api.openai.com/v1",
+            "gpt-4o-mini",
+        ),
+        "deepseek": (
+            "https://api.deepseek.com",
+            "deepseek-chat",
+        ),
+        "qwen": (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "qwen-turbo",
+        ),
+    }
+
+    provider: str = "deepseek"
+    base_url: str = ""
+    model: str = ""
+    timeout: float = 30.0
+    max_chars: int = 300
+
+    def __post_init__(self) -> None:
+        if self.provider not in self.PROVIDER_DEFAULTS:
+            self.provider = "deepseek"
+        self._resolve_defaults()
+
+    def _resolve_defaults(self) -> None:
+        defaults = self.PROVIDER_DEFAULTS.get(self.provider)
+        if defaults:
+            if not self.base_url:
+                self.base_url = defaults[0]
+            if not self.model:
+                self.model = defaults[1]
+        if self.timeout < 5:
+            self.timeout = 5.0
+        if self.max_chars < 50:
+            self.max_chars = 50
+
+
+@dataclass
 class TextSessionConfig:
     """载文会话配置。"""
 
@@ -66,6 +110,7 @@ class RuntimeConfig:
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
+    ai: AiConfig = field(default_factory=AiConfig)
     text_session: TextSessionConfig = field(default_factory=TextSessionConfig)
     catalog_items: list[TextCatalogItem] = field(default_factory=list)
     _config_path: str | None = field(default=None, repr=False)
@@ -179,11 +224,23 @@ class RuntimeConfig:
             ),
         )
 
+        ai_data = data.get("ai", {})
+        if not isinstance(ai_data, dict):
+            ai_data = {}
+        ai = AiConfig(
+            provider=cls._safe_str(ai_data.get("provider"), "deepseek"),
+            base_url=cls._safe_str(ai_data.get("base_url"), ""),
+            model=cls._safe_str(ai_data.get("model"), ""),
+            timeout=float(cls._safe_int(ai_data.get("timeout"), 30)),
+            max_chars=cls._safe_int(ai_data.get("max_chars"), 300),
+        )
+
         return cls(
             base_url=base_url,
             api_timeout=api_timeout,
             text_source_config=text_source_config,
             wenlai=wenlai,
+            ai=ai,
             text_session=text_session,
         )
 
@@ -246,6 +303,7 @@ class RuntimeConfig:
                 data = self._to_dict()
             data["base_url"] = self.base_url
             data["wenlai"] = self._to_dict()["wenlai"]
+            data["ai"] = self._to_dict()["ai"]
             target_path.parent.mkdir(parents=True, exist_ok=True)
             with target_path.open("w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
@@ -277,11 +335,40 @@ class RuntimeConfig:
                 "display_name": self.wenlai.display_name,
                 "user_id": self.wenlai.user_id,
             },
+            "ai": {
+                "provider": self.ai.provider,
+                "base_url": self.ai.base_url,
+                "model": self.ai.model,
+                "timeout": self.ai.timeout,
+                "max_chars": self.ai.max_chars,
+            },
             "text_session": {
                 "small_file_threshold": self.text_session.small_file_threshold,
                 "full_shuffle_threshold": self.text_session.full_shuffle_threshold,
             },
         }
+
+    def update_ai_config(
+        self,
+        *,
+        provider: str | None = None,
+        base_url: str | None = None,
+        model: str | None = None,
+        timeout: float | None = None,
+        max_chars: int | None = None,
+    ) -> None:
+        if provider is not None and provider in AiConfig.PROVIDER_DEFAULTS:
+            self.ai.provider = provider
+            self.ai._resolve_defaults()
+        if base_url is not None:
+            self.ai.base_url = base_url.rstrip("/")
+        if model is not None:
+            self.ai.model = model
+        if timeout is not None:
+            self.ai.timeout = max(timeout, 5.0)
+        if max_chars is not None:
+            self.ai.max_chars = max(max_chars, 50)
+        self._save_to_file()
 
     def update_wenlai_config(
         self,
