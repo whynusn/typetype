@@ -18,9 +18,19 @@ class AiServiceError(Exception):
     """AI 服务错误。"""
 
 
-_SYSTEM_PROMPT = "你是打字练习文本生成器。直接输出中文文本，不要任何解释、标题或标记。"
+_SYSTEM_PROMPT = (
+    "你是打字练习文本生成器。直接输出中文文本，不要任何解释、标题或标记。"
+    "严格控制字数，不得超出要求范围。"
+)
 
-_USER_PROMPT_TEMPLATE = "用以下汉字写一段{max_chars}字左右的中文短文，要求自然流畅，每个字至少出现一次：\n{chars}"
+_USER_PROMPT_TEMPLATE = (
+    "用以下汉字写一段中文短文。要求：\n"
+    "1. 字数严格控制在{min_chars}到{max_chars}字之间\n"
+    "2. 自然流畅，像真实文章片段\n"
+    "3. 每个字至少出现一次\n"
+    "4. 直接输出正文，不要标题\n\n"
+    "汉字：{chars}"
+)
 
 
 class LlmTextProvider:
@@ -41,6 +51,10 @@ class LlmTextProvider:
         self._model = model
         self._api_format = api_format
         self._max_chars = max_chars
+
+    @property
+    def max_chars(self) -> int:
+        return self._max_chars
 
     def update_config(
         self,
@@ -85,7 +99,7 @@ class LlmTextProvider:
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.8,
-            "max_tokens": self._max_chars * 2,
+            "max_tokens": int(self._max_chars * 1.5),
             "stream": True,
         }
         if "deepseek" in self._model.lower():
@@ -136,7 +150,7 @@ class LlmTextProvider:
         prompt = self._build_prompt(weak_chars)
         body: dict[str, Any] = {
             "model": self._model,
-            "max_tokens": self._max_chars * 2,
+            "max_tokens": int(self._max_chars * 1.5),
             "system": _SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
@@ -166,4 +180,7 @@ class LlmTextProvider:
 
     def _build_prompt(self, weak_chars: list[str]) -> str:
         chars = "、".join(weak_chars)
-        return _USER_PROMPT_TEMPLATE.format(chars=chars, max_chars=self._max_chars)
+        min_chars = max(int(self._max_chars * 0.8), 50)
+        return _USER_PROMPT_TEMPLATE.format(
+            chars=chars, min_chars=min_chars, max_chars=self._max_chars
+        )

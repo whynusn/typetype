@@ -52,12 +52,28 @@ class GenerateAiTextUseCase:
                 on_chunk(chunk)
 
         text = "".join(chunks)
+        text = self._trim_to_length(text, self._llm.max_chars)
         if not text.strip():
             return AiTextResult(
                 success=False,
                 error_message="AI 返回内容为空",
             )
         return AiTextResult(success=True, text=text, title="AI 智能推荐")
+
+    @staticmethod
+    def _trim_to_length(text: str, max_chars: int) -> str:
+        """超长时在句末标点处截断。"""
+        if len(text) <= max_chars:
+            return text
+        # 在 max_chars 范围内找最后一个句末标点
+        cut = -1
+        for i in range(min(max_chars, len(text)) - 1, -1, -1):
+            if text[i] in "。！？…\n":
+                cut = i + 1
+                break
+        if cut > 0:
+            return text[:cut]
+        return text[:max_chars]
 
     def _get_weak_chars(self, limit: int) -> list[str]:
         import random

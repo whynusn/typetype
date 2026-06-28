@@ -19,6 +19,7 @@ def _make_chars(n):
 
 def _build_usecase(char_count=20):
     llm = MagicMock()
+    llm.max_chars = 200
     llm.generate_text_stream.return_value = iter(["你好", "世界"])
     repo = MagicMock()
     repo.get_chars_by_sort.return_value = _make_chars(char_count)

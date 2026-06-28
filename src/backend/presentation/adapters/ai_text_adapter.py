@@ -47,8 +47,20 @@ class AiTextAdapter(QObject):
         return self._loading
 
     @property
+    def base_url(self) -> str:
+        return self._runtime_config.ai.base_url
+
+    @property
+    def model(self) -> str:
+        return self._runtime_config.ai.model
+
+    @property
     def api_format(self) -> str:
         return self._runtime_config.ai.api_format
+
+    @property
+    def max_chars(self) -> int:
+        return self._runtime_config.ai.max_chars
 
     @property
     def has_api_key(self) -> bool:
