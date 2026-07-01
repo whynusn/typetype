@@ -515,10 +515,11 @@ class Bridge(QObject):
                     ctx._slice_pass_counts[i] = count
         # 恢复 per-slice 指标
         saved_slice_metrics = rp.get("slice_metrics")
-        if saved_slice_metrics and len(saved_slice_metrics) == ctx.slice_total:
-            ctx._slice_metrics = [
-                m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
-            ]
+        if saved_slice_metrics:
+            # 保存端截断到 slice_index（性能优化），恢复端逐条覆盖 + 默认值填充
+            for i, m in enumerate(saved_slice_metrics):
+                if i < len(ctx._slice_metrics):
+                    ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
             ctx.restore_slice_metrics(ctx.slice_index)
         # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
         saved_slice_stats = rp.get("slice_stats")
@@ -1565,10 +1566,11 @@ class Bridge(QObject):
             if saved_metrics:
                 ctx._apply_metrics_dict(saved_metrics)
             # 恢复 per-slice 指标（已访问片段的降击历史）
-            if saved_slice_metrics and len(saved_slice_metrics) == ctx.slice_total:
-                ctx._slice_metrics = [
-                    m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
-                ]
+            if saved_slice_metrics:
+                # 保存端截断到 slice_index（性能优化），恢复端逐条覆盖 + 默认值填充
+                for i, m in enumerate(saved_slice_metrics):
+                    if i < len(ctx._slice_metrics):
+                        ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
             # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
             saved_slice_stats = restored_progress.get("slice_stats")
             if saved_slice_stats and ctx._slice_stats is not None:
@@ -1655,7 +1657,7 @@ class Bridge(QObject):
                     "current_slice": next_slice,
                     "slice_size": ctx._slice_size if hasattr(ctx, "_slice_size") else 0,
                     "slice_pass_counts": list(ctx._slice_pass_counts),
-                    "slice_stats": [s for s in ctx._slice_stats if s is not None],
+                    "slice_stats": list(ctx._slice_stats),
                     "metrics": {
                         "key_stroke_min": ctx._key_stroke_min,
                         "speed_min": ctx._speed_min,
