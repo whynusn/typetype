@@ -317,7 +317,12 @@ class Bridge(QObject):
             total = self._typing_adapter.slice_total
             if idx > 0 and total > 0:
                 return f"第{idx}/{total}段"
-        return ""
+        # 普通模式：使用文本ID作为段号（如果有）
+        text_id = self._typing_adapter.text_id
+        if text_id and text_id > 0:
+            return f"第{text_id}段"
+        # 回退
+        return "第1段"
 
     @staticmethod
     def _safe_record_char_count(record: dict) -> int:
@@ -1650,7 +1655,9 @@ class Bridge(QObject):
                     "advance_mode": self._coordinator.pending_slice_params.get(
                         "advance_mode", "sequential"
                     ),
-                    "slice_metrics": [m.copy() for m in ctx._slice_metrics[:ctx.slice_index]],
+                    "slice_metrics": [
+                        m.copy() for m in ctx._slice_metrics[: ctx.slice_index]
+                    ],
                     "shuffle_seed": self._current_shuffle_seed,
                 }
                 log_info(

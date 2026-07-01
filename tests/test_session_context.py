@@ -455,15 +455,15 @@ def test_restore_slice_stats_after_progress_recovery():
     ctx.setup_slice_mode("一" * 60, 20, 1, 6.0, 100, 95, 1, "retype")
 
     # 模拟完成第1片（达标）
-    ctx.collect_slice_result({
-        "speed": 120, "keyStroke": 6.5, "keyAccuracy": 98.0, "wrong_char_count": 0
-    })
+    ctx.collect_slice_result(
+        {"speed": 120, "keyStroke": 6.5, "keyAccuracy": 98.0, "wrong_char_count": 0}
+    )
     ctx.advance_slice()  # 推进到第2片
 
     # 模拟完成第2片（未达标）
-    ctx.collect_slice_result({
-        "speed": 50, "keyStroke": 3.0, "keyAccuracy": 80.0, "wrong_char_count": 3
-    })
+    ctx.collect_slice_result(
+        {"speed": 50, "keyStroke": 3.0, "keyAccuracy": 80.0, "wrong_char_count": 3}
+    )
     ctx.advance_slice()  # 推进到第3片
 
     # 此时：_slice_stats 应有 2 个非 None 条目（第1片+第2片）
@@ -521,20 +521,21 @@ def test_slice_metrics_save_only_visited_segments():
     # 完成第5片后，slice_index=6
     for i in range(5):
         ctx._slice_index = i + 1
-        ctx.collect_slice_result({
-            "speed": 110, "keyStroke": 7.0, "keyAccuracy": 97.0, "wrong_char_count": 0
-        })
+        ctx.collect_slice_result(
+            {"speed": 110, "keyStroke": 7.0, "keyAccuracy": 97.0, "wrong_char_count": 0}
+        )
         ctx.advance_slice()
     # 当前在第6片（slice_index=6）
     assert ctx.slice_index == 6
 
     # 模拟 collectSliceResult 中的 save 逻辑：只保存 [:ctx.slice_index]
-    saved_metrics = [m.copy() for m in ctx._slice_metrics[:ctx.slice_index]]
-    assert len(saved_metrics) == 6, f"应只保存6片（已访问+当前片）: {len(saved_metrics)}"
+    saved_metrics = [m.copy() for m in ctx._slice_metrics[: ctx.slice_index]]
+    assert len(saved_metrics) == 6, (
+        f"应只保存6片（已访问+当前片）: {len(saved_metrics)}"
+    )
     assert len(saved_metrics) < 270, "不应保存全部270片"
 
     # 未访问的第270片应保持原始默认值
     # （验证未保存的片段在恢复时会被 _init_slice_metrics 重新初始化）
     original_ks = ctx._key_stroke_min
     assert saved_metrics[5]["key_stroke_min"] == original_ks  # 第6片未修改过
-
