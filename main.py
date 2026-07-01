@@ -44,9 +44,11 @@ def main():
     providers = create_providers(runtime_config, infra)
     clipboard = QApplication.clipboard()
     gateways = create_gateways(runtime_config, providers, infra, repos, clipboard)
-    use_cases = create_use_cases(gateways, repos, clipboard)
+    use_cases = create_use_cases(gateways, repos, providers, clipboard)
     services = create_services(infra, runtime_config)
-    adapters = create_adapters(services, gateways, use_cases, infra, runtime_config)
+    adapters = create_adapters(
+        services, gateways, use_cases, providers, infra, runtime_config
+    )
 
     # URL 更新回调：列表迭代替代逐个调用
     url_dependent = [
@@ -81,6 +83,7 @@ def main():
         upload_text_adapter=adapters.upload_text,
         leaderboard_adapter=adapters.leaderboard,
         wenlai_adapter=adapters.wenlai,
+        ai_text_adapter=adapters.ai_text,
         local_article_adapter=adapters.local_article,
         ziti_adapter=adapters.ziti,
         trainer_adapter=adapters.trainer,
