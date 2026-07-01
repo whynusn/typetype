@@ -141,7 +141,6 @@ class TypingAdapter(QObject):
 
     def _accumulate_time(self) -> None:
         self._typing_service.accumulate_time(self.timeInterval)
-        self._typing_service.update_peaks()
         self.totalTimeChanged.emit()
         self.typeSpeedChanged.emit()
         self.keyStrokeChanged.emit()
@@ -153,6 +152,7 @@ class TypingAdapter(QObject):
         self._last_correction_count = self._typing_service.score_data.correction_count
 
     def _emit_typing_signals(self) -> None:
+        self._typing_service.update_peaks()
         self.charNumChanged.emit()
         self.codeLengthChanged.emit()
         self.typeSpeedChanged.emit()
@@ -187,6 +187,7 @@ class TypingAdapter(QObject):
                 self.readOnlyChanged.emit()
             # 捕获慢字和峰值（必须在 flush_char_stats 之前，否则 _dirty 被清空）
             ts = self._typing_service
+            ts.update_peaks()
             ts.score_data.peak_speed = ts.peak_speed
             ts.score_data.peak_key_stroke = ts.peak_key_stroke
             ts.score_data.peak_code_length = ts.peak_code_length
@@ -319,6 +320,7 @@ class TypingAdapter(QObject):
                 self._second_timer.start()
                 self._set_paused(False)
             self._typing_service.accumulate_key()
+            self._typing_service.update_peaks()
             self.keyStrokeChanged.emit()
             self.codeLengthChanged.emit()
             self.keyAccuracyChanged.emit()
