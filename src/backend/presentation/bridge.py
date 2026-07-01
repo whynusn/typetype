@@ -280,8 +280,13 @@ class Bridge(QObject):
             idx = self._typing_adapter.slice_index
             total = self._typing_adapter.slice_total
             self._pending_history_segment_label = f"{idx}/{total}"
-        else:
+        elif self._wenlai_adapter and self._wenlai_adapter.is_active:
             self._pending_history_segment_label = self.wenlaiSegmentLabel
+        else:
+            text_id = self._text_id
+            self._pending_history_segment_label = (
+                str(text_id) if text_id and text_id > 0 else "1"
+            )
         self._pending_history_score_text = self._build_current_score_plain_text()
         self.typingEnded.emit()
 
@@ -318,7 +323,7 @@ class Bridge(QObject):
             if idx > 0 and total > 0:
                 return f"第{idx}/{total}段"
         # 普通模式：使用文本ID作为段号（如果有）
-        text_id = self._typing_adapter.text_id
+        text_id = self._text_id
         if text_id and text_id > 0:
             return f"第{text_id}段"
         # 回退
