@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ...integration.llm_text_provider import LlmTextProvider
-    from ...integration.sqlite_char_stats_repository import SqliteCharStatsRepository
+    from ...ports.char_stats_repository import CharStatsRepository
 
 
 @dataclass(frozen=True)
@@ -24,7 +24,7 @@ class GenerateAiTextUseCase:
     def __init__(
         self,
         llm_provider: "LlmTextProvider",
-        char_stats_repo: "SqliteCharStatsRepository",
+        char_stats_repo: "CharStatsRepository",
     ) -> None:
         self._llm = llm_provider
         self._char_stats_repo = char_stats_repo

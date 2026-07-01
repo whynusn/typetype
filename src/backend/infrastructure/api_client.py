@@ -93,7 +93,7 @@ class ApiClient:
         self,
         url: str,
         *,
-        json: dict[str, str | int | float | dict | list] | None = None,
+        json: dict[str, str | int | float | bool | dict | list] | None = None,
         headers: dict[str, str] | None = None,
     ):
         """SSE 流式请求，逐行 yield data 行内容。

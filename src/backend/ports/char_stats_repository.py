@@ -27,6 +27,7 @@ class CharStatsRepository(Protocol):
         sort_mode: str = "error_rate",
         weights: dict | None = None,
         n: int = 10,
+        recent_days: int = 0,
     ) -> list[CharStat]:
         """按指定排序模式获取薄弱字列表。
 
