@@ -1,5 +1,6 @@
 """AI 智能推荐文本生成用例。"""
 
+import random
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -68,7 +69,7 @@ class GenerateAiTextUseCase:
         # 在 max_chars 范围内找最后一个句末标点
         cut = -1
         for i in range(min(max_chars, len(text)) - 1, -1, -1):
-            if text[i] in "。！？…\n":
+            if text[i] in "。！？…\n.!?":
                 cut = i + 1
                 break
         if cut > 0:
@@ -76,8 +77,6 @@ class GenerateAiTextUseCase:
         return text[:max_chars]
 
     def _get_weak_chars(self, limit: int) -> list[str]:
-        import random
-
         # 优先取近 7 天的薄弱字，不足时回退到全历史
         stats = self._char_stats_repo.get_chars_by_sort(
             sort_mode="error_rate", n=limit * 3, recent_days=7
