@@ -150,7 +150,7 @@ class TypingService:
             self._state.peak_speed = s.speed
         if s.keyStroke > self._state.peak_key_stroke:
             self._state.peak_key_stroke = s.keyStroke
-        if s.codeLength < self._state.peak_code_length:
+        if s.char_count > 0 and s.codeLength < self._state.peak_code_length:
             self._state.peak_code_length = s.codeLength
 
     def start(self) -> None:
@@ -176,6 +176,9 @@ class TypingService:
         self._state.score_data.correction_count = 0
         self._state.score_data.date = ""
         self._state.score_data.slow_chars = []
+        self._state.score_data.peak_speed = 0.0
+        self._state.score_data.peak_key_stroke = 0.0
+        self._state.score_data.peak_code_length = 0.0
         self._state.last_commit_time_ms = 0.0
         self._state.char_commit_times.clear()
         self._state.phrase_positions.clear()
@@ -192,6 +195,9 @@ class TypingService:
         self._state.score_data.char_count = 0
         self._state.score_data.wrong_char_count = 0
         self._state.wrong_char_prefix_sum = {}
+        self._state.peak_speed = 0.0
+        self._state.peak_key_stroke = 0.0
+        self._state.peak_code_length = float("inf")
 
     def set_plain_doc(self, text: str) -> None:
         """设置目标文本。"""
