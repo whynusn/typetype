@@ -11,6 +11,7 @@
 - 信号发射（由 TypingAdapter 负责）
 """
 
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from time import time
@@ -298,10 +299,13 @@ class TypingService:
                 self._state.char_commit_times[pos] = now_ms
                 # 标记词组位置：grow_length > 1 表示一次提交了多个字符（打词）
                 # 只标记新增字符（pos >= char_count），避免光标不在末尾时误标已有字符
+                # 标记词组位置：只在 grow_length > 1（批量上屏）时标记，
+                # 且只标记 CJK 字符（Unicode Lo 类别）——排除标顶产生的非中文标点
                 is_phrase = (
                     self._word_detection_enabled
                     and grow_length > 1
                     and pos >= self._state.score_data.char_count
+                    and unicodedata.category(s[i]).startswith("Lo")
                 )
                 if is_phrase:
                     self._state.phrase_positions.add(pos)

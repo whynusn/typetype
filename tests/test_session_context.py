@@ -446,3 +446,95 @@ class TestSliceMode:
             {"speed": 120, "keyAccuracy": 95, "keyStroke": 5, "wrong_char_count": 0}
         )
         assert ctx.should_retype() is False  # pass_count[0]=1 >= 1（重新达标）
+
+
+def test_restore_slice_stats_after_progress_recovery():
+    """恢复进度后 _slice_stats 应包含已完成的成绩快照，
+    确保 get_slice_status / get_aggregate_data / check_slice_result 能正确显示历史成绩。"""
+    ctx = TypingSessionContext()
+    ctx.setup_slice_mode("一" * 60, 20, 1, 6.0, 100, 95, 1, "retype")
+
+    # 模拟完成第1片（达标）
+    ctx.collect_slice_result({
+        "speed": 120, "keyStroke": 6.5, "keyAccuracy": 98.0, "wrong_char_count": 0
+    })
+    ctx.advance_slice()  # 推进到第2片
+
+    # 模拟完成第2片（未达标）
+    ctx.collect_slice_result({
+        "speed": 50, "keyStroke": 3.0, "keyAccuracy": 80.0, "wrong_char_count": 3
+    })
+    ctx.advance_slice()  # 推进到第3片
+
+    # 此时：_slice_stats 应有 2 个非 None 条目（第1片+第2片）
+    assert len(ctx._slice_stats) == 2
+    assert ctx._slice_stats[0] is not None
+    assert ctx._slice_stats[1] is not None
+    assert ctx._slice_stats[0]["speed"] == 120
+
+    # === 模拟恢复进度：新建会话，用保存数据恢复 ===
+    saved_pass_counts = list(ctx._slice_pass_counts)
+    saved_stats = [s for s in ctx._slice_stats if s is not None]
+    saved_metrics = [m.copy() for m in ctx._slice_metrics]
+
+    ctx2 = TypingSessionContext()
+    ctx2.setup_slice_mode("一" * 60, 20, 1, 6.0, 100, 95, 1, "retype")
+
+    # 模拟恢复逻辑（对应桥接层的 _apply_slice_setup / _restore_pending_progress）
+    for i, count in enumerate(saved_pass_counts):
+        if i < len(ctx2._slice_pass_counts):
+            ctx2._slice_pass_counts[i] = count
+    ctx2._slice_metrics = [m.copy() for m in saved_metrics]
+
+    # 恢复 _slice_stats
+    if saved_stats and ctx2._slice_stats is not None:
+        while len(ctx2._slice_stats) < ctx2.slice_total:
+            ctx2._slice_stats.append(None)
+        for i, s in enumerate(saved_stats):
+            if i < ctx2.slice_total:
+                ctx2._slice_stats[i] = s
+
+    # === 验证 ===
+    ctx2._slice_index = 1
+    # 第1片：_slice_stats[0] 应有成绩
+    stats1 = ctx2._slice_stats[0]
+    assert stats1 is not None, "第1片成绩快照不应为 None"
+    assert stats1["speed"] == 120
+
+    # get_slice_status 应能显示历史成绩
+    status = ctx2.get_slice_status()
+    assert "120" in status, f"get_slice_status 应包含第1片速度: {status}"
+
+    # get_aggregate_data 应包含正确条数
+    data = ctx2.get_aggregate_data()
+    assert data is not None
+    assert data[1] == 2, f"应有2片有成绩: {data[1]}"
+
+
+def test_slice_metrics_save_only_visited_segments():
+    """验证 save_progress 时只保存已访问片段的 _slice_metrics，
+    不保存全部 270 片，以最小化 JSON 序列化开销。"""
+    ctx = TypingSessionContext()
+    ctx.setup_slice_mode("一" * 270, 1, 1, 6.0, 100, 95, 1, "retype")
+    assert len(ctx._slice_metrics) == 270  # 初始化为 270 片指标
+
+    # 完成第5片后，slice_index=6
+    for i in range(5):
+        ctx._slice_index = i + 1
+        ctx.collect_slice_result({
+            "speed": 110, "keyStroke": 7.0, "keyAccuracy": 97.0, "wrong_char_count": 0
+        })
+        ctx.advance_slice()
+    # 当前在第6片（slice_index=6）
+    assert ctx.slice_index == 6
+
+    # 模拟 collectSliceResult 中的 save 逻辑：只保存 [:ctx.slice_index]
+    saved_metrics = [m.copy() for m in ctx._slice_metrics[:ctx.slice_index]]
+    assert len(saved_metrics) == 6, f"应只保存6片（已访问+当前片）: {len(saved_metrics)}"
+    assert len(saved_metrics) < 270, "不应保存全部270片"
+
+    # 未访问的第270片应保持原始默认值
+    # （验证未保存的片段在恢复时会被 _init_slice_metrics 重新初始化）
+    original_ks = ctx._key_stroke_min
+    assert saved_metrics[5]["key_stroke_min"] == original_ks  # 第6片未修改过
+

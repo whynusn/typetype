@@ -307,7 +307,9 @@ class GlobalKeyListener(QObject):
                     continue
 
                 self._update_shortcut_modifier_state(device, event.code, event.value)
-                if event.value not in (1, 2):
+                # 只计数主动按键（value=1），排除自动连发（value=2）
+                # 自动连发在中文输入中应视为一次按键的延伸而非独立键次
+                if event.value != 1:
                     continue
 
                 if self._should_ignore_shortcut_key(device, event.code):

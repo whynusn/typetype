@@ -509,6 +509,15 @@ class Bridge(QObject):
                 m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
             ]
             ctx.restore_slice_metrics(ctx.slice_index)
+        # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
+        saved_slice_stats = rp.get("slice_stats")
+        if saved_slice_stats and ctx._slice_stats is not None:
+            # 初始化 _slice_stats 到正确大小，用 None 填充，再用保存值覆盖
+            while len(ctx._slice_stats) < ctx.slice_total:
+                ctx._slice_stats.append(None)
+            for i, s in enumerate(saved_slice_stats):
+                if i < ctx.slice_total:
+                    ctx._slice_stats[i] = s
         self._pending_restore_key = ""
         self._pending_restored_progress = None
 
@@ -530,6 +539,11 @@ class Bridge(QObject):
 
     def on_key_received(self, keyCode: int, deviceName: str) -> None:
         if not self._lower_pane_focused or KeyCodes.is_modifier(keyCode):
+            return
+
+        # 导航键（方向键/Home/End/PgUp/PgDn/Insert/Delete）不产生文本，
+        # 不应影响码长（key_stroke_count）和击键统计
+        if KeyCodes.is_navigation(keyCode):
             return
 
         if (
@@ -1535,6 +1549,14 @@ class Bridge(QObject):
                 ctx._slice_metrics = [
                     m.copy() if isinstance(m, dict) else m for m in saved_slice_metrics
                 ]
+            # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
+            saved_slice_stats = restored_progress.get("slice_stats")
+            if saved_slice_stats and ctx._slice_stats is not None:
+                while len(ctx._slice_stats) < ctx.slice_total:
+                    ctx._slice_stats.append(None)
+                for i, s in enumerate(saved_slice_stats):
+                    if i < ctx.slice_total:
+                        ctx._slice_stats[i] = s
 
         # 同步参数到 pending_slice_params，使 loadNextSlice 使用相同的自动推进逻辑
         self._coordinator.pending_slice_params.update(
@@ -1628,7 +1650,7 @@ class Bridge(QObject):
                     "advance_mode": self._coordinator.pending_slice_params.get(
                         "advance_mode", "sequential"
                     ),
-                    "slice_metrics": [m.copy() for m in ctx._slice_metrics],
+                    "slice_metrics": [m.copy() for m in ctx._slice_metrics[:ctx.slice_index]],
                     "shuffle_seed": self._current_shuffle_seed,
                 }
                 log_info(

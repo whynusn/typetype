@@ -21,6 +21,29 @@ class KeyCodes:
     EVDEV_RIGHT_META = 126
     EVDEV_COMPOSE = 127
 
+    # Navigation keys (evdev key codes)
+    EVDEV_HOME = 102
+    EVDEV_UP = 103
+    EVDEV_PAGEUP = 104
+    EVDEV_LEFT = 105
+    EVDEV_RIGHT = 106
+    EVDEV_END = 107
+    EVDEV_DOWN = 108
+    EVDEV_PAGEDOWN = 109
+    EVDEV_INSERT = 110
+    EVDEV_DELETE = 111
+
+    # macOS navigation keycodes
+    MACOS_HOME = MACOS_KEY_OFFSET + 115
+    MACOS_PAGEUP = MACOS_KEY_OFFSET + 116
+    MACOS_FORWARD_DELETE = MACOS_KEY_OFFSET + 117
+    MACOS_END = MACOS_KEY_OFFSET + 119
+    MACOS_PAGEDOWN = MACOS_KEY_OFFSET + 121
+    MACOS_LEFT_ARROW = MACOS_KEY_OFFSET + 123
+    MACOS_RIGHT_ARROW = MACOS_KEY_OFFSET + 124
+    MACOS_DOWN_ARROW = MACOS_KEY_OFFSET + 125
+    MACOS_UP_ARROW = MACOS_KEY_OFFSET + 126
+
     # macOS hardware keycodes namespaced to avoid collisions with evdev codes.
     MACOS_BACKSPACE = MACOS_KEY_OFFSET + 51
     MACOS_FORWARD_DELETE = MACOS_KEY_OFFSET + 117
@@ -77,6 +100,29 @@ class KeyCodes:
     def macos_keycode(cls, key_code: int) -> int:
         return cls.MACOS_KEY_OFFSET + key_code
 
+    NAVIGATION_KEYS = frozenset(
+        {
+            EVDEV_HOME,
+            EVDEV_UP,
+            EVDEV_PAGEUP,
+            EVDEV_LEFT,
+            EVDEV_RIGHT,
+            EVDEV_END,
+            EVDEV_DOWN,
+            EVDEV_PAGEDOWN,
+            EVDEV_INSERT,
+            EVDEV_DELETE,
+            MACOS_HOME,
+            MACOS_PAGEUP,
+            MACOS_END,
+            MACOS_PAGEDOWN,
+            MACOS_LEFT_ARROW,
+            MACOS_RIGHT_ARROW,
+            MACOS_DOWN_ARROW,
+            MACOS_UP_ARROW,
+        }
+    )
+
     @classmethod
     def is_backspace(cls, key_code: int) -> bool:
         return key_code in cls.BACKSPACE_KEYS
@@ -84,6 +130,11 @@ class KeyCodes:
     @classmethod
     def is_modifier(cls, key_code: int) -> bool:
         return key_code in cls.MODIFIER_KEYS
+
+    @classmethod
+    def is_navigation(cls, key_code: int) -> bool:
+        """返回 True 如果按键是导航键（不产生文本的键）。"""
+        return key_code in cls.NAVIGATION_KEYS
 
     @classmethod
     def is_shortcut_modifier(cls, key_code: int) -> bool:
