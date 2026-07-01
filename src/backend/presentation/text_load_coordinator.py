@@ -139,7 +139,9 @@ class TextLoadCoordinator:
         elif source_key:
             self._typing.setup_local_session(source_key, None)
         sender = self._build_local_sender_content(
-            source_label, text, index=text_id if text_id > 0 else 0,
+            source_label,
+            text,
+            index=text_id if text_id > 0 else 0,
         )
         if sender:
             bridge._copy_text_to_clipboard(sender)

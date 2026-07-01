@@ -897,7 +897,9 @@ class Bridge(QObject):
         self._typing_adapter.setTextTitle(display_title)
         self.windowTitleChanged.emit()
         sender = TextLoadCoordinator._build_local_sender_content(
-            display_title, text, index=text_id if text_id > 0 else 0,
+            display_title,
+            text,
+            index=text_id if text_id > 0 else 0,
         )
         if sender:
             self._copy_text_to_clipboard(sender)

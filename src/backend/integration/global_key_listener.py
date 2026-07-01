@@ -319,7 +319,9 @@ class GlobalKeyListener(QObject):
         except BlockingIOError:
             pass
         except OSError:
-            log_error(f"键盘设备已断开: {device.path if hasattr(device, 'path') else device.fd}")
+            log_error(
+                f"键盘设备已断开: {device.path if hasattr(device, 'path') else device.fd}"
+            )
             self._remove_device(device)
 
     def _remove_device(self, device) -> None:
