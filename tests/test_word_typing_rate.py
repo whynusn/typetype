@@ -138,3 +138,49 @@ class TestComputeWordTypingRate:
         assert 1 not in service._state.phrase_positions
         assert 2 not in service._state.phrase_positions
         assert 3 not in service._state.phrase_positions
+
+
+class TestBiaoDingDetection:
+    """测试标顶事件检测"""
+
+    def test_single_char_not_biao_ding(self):
+        service = TypingService()
+        service.set_plain_doc("好目标文本")
+        service.set_total_chars(6)
+        service.start()
+        service.handle_committed_text("好", 1)
+        assert service._state.score_data.biao_ding_count == 0
+
+    def test_multi_char_no_punct_not_biao_ding(self):
+        service = TypingService()
+        service.set_plain_doc("目标文本")
+        service.set_total_chars(4)
+        service.start()
+        service.handle_committed_text("目标", 2)
+        assert service._state.score_data.biao_ding_count == 0
+
+    def test_multi_char_ending_with_punct_is_biao_ding(self):
+        service = TypingService()
+        service.set_plain_doc("好目标文本")
+        service.set_total_chars(6)
+        service.start()
+        service.handle_committed_text("文本。", 3)
+        assert service._state.score_data.biao_ding_count == 1
+
+    def test_multiple_biao_ding_accumulates(self):
+        service = TypingService()
+        service.set_plain_doc("好目标文本内容。")
+        service.set_total_chars(9)
+        service.start()
+        service.handle_committed_text("目标。", 3)
+        service.handle_committed_text("文本。", 3)
+        assert service._state.score_data.biao_ding_count == 2
+
+    def test_single_punct_not_biao_ding(self):
+        """单独提交标点（非批量）不应算作标顶"""
+        service = TypingService()
+        service.set_plain_doc("好。")
+        service.set_total_chars(2)
+        service.start()
+        service.handle_committed_text("。", 1)
+        assert service._state.score_data.biao_ding_count == 0

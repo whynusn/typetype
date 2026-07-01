@@ -36,6 +36,8 @@ class SessionStat:
     # 慢字列表 [(char, seconds), ...]
     # 打词率（0~100）
     word_typing_rate: float = 0.0
+    # 标顶次数
+    biao_ding_count: int = 0
     slow_chars: list[tuple[str, float]] = field(default_factory=list)
 
     def __post_init__(self):

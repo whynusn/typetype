@@ -180,12 +180,21 @@ utils/          # 工具类（Logger、text_id）
 
 ## 文本来源
 
-当前默认配置中包含：
+TypeType 支持三类载文方式：
 
-- 网络来源：`jisubei`
+| 分类 | 包含 | 说明 |
+|:--- |:--- |:--- |
+| 本地载文 | 剪贴板、自定义、本地文库、练单器 | 文本来自本地文件或用户输入 |
+| 官方网络载文 | 极速杯 | 文本来自 typetype-server 后端 |
+| 第三方网络载文 | 晴发文 | 文本来自晴跟打作者服务端 |
+
+所有本地载文 + 极速杯共享分片/乱序组件。晴发文在服务端分段，不走 App 分片机制。
+
+> 详细分类、排行榜策略见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#载文入口)。
+
+当前默认配置 `config/config.example.json`：
+- 网络来源：`jisubei`（极速杯）
 - 本地来源：`builtin_demo`、`fst_500`、`mid_500`、`lst_500`、`essential_single_char`
-
-配置文件示例见：`config/config.example.json`
 
 ---
 

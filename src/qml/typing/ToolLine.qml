@@ -15,6 +15,7 @@ QQC.Pane {
     signal requestToggleLeaderboard
     signal requestShuffle
     signal requestOpenSliceConfig // 打开载文设置 Dialog
+    signal requestSendText // 发文：复制文本段+元数据到剪贴板
 
     // 自定义 Pane 的背景（跟随 RinUI 主题）
     background: Rectangle {
@@ -99,6 +100,17 @@ QQC.Pane {
             text: "乱序[C^L]"
             onClicked: {
                 root.requestShuffle();
+            }
+        }
+
+        Button {
+            id: sendText
+            width: 110
+            height: 36
+            anchors.verticalCenter: parent.verticalCenter
+            text: "发文[C^D]"
+            onClicked: {
+                root.requestSendText();
             }
         }
 

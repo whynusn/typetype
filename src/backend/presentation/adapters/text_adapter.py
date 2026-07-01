@@ -246,7 +246,7 @@ class TextAdapter(QObject):
     def loadTextFromClipboard(self) -> None:
         """从剪贴板加载文本。"""
         if self._text_loading:
-            return
+            self.clear_active()
         self.invalidate_pending_text_id_lookup()
 
         self._set_text_loading(True)

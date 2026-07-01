@@ -19,6 +19,15 @@ from ...models.entity.session_stat import SessionStat
 from ...utils.logger import log_debug
 from .char_stats_service import CharStatsService
 
+# 标顶排除标点集——输入法使用标点符号把首选字顶上屏时，
+# 标点字符不应参与打词率计算。
+# 参考：TypeSunny Score.AddInputStack() 的 ExcludePuncts
+EXCLUDE_PUNCTS: frozenset[str] = frozenset(
+    "~!@#$%^&*()_+|}{\":?><`[]\\;',./"
+    "~！@#￥%……&*（）——+{}|：“”《》？·、【】；‘’，。"
+    "…—"  # 省略号、破折号（WPF 特殊处理）
+)
+
 
 @dataclass
 class TypingState:
@@ -176,6 +185,7 @@ class TypingService:
         self._state.score_data.correction_count = 0
         self._state.score_data.date = ""
         self._state.score_data.slow_chars = []
+        self._state.score_data.biao_ding_count = 0
         self._state.score_data.peak_speed = 0.0
         self._state.score_data.peak_key_stroke = 0.0
         self._state.score_data.peak_code_length = 0.0
@@ -238,6 +248,11 @@ class TypingService:
         """累积时间。"""
         self._state.score_data.time += interval
 
+    @staticmethod
+    def _count_non_punct(text: str) -> int:
+        """统计文本中非标点字符数（用于标顶场景的打词判定）。"""
+        return sum(1 for c in text if c not in EXCLUDE_PUNCTS)
+
     def handle_committed_text(
         self, s: str, grow_length: int
     ) -> tuple[list[tuple[int, str, bool]], bool]:
@@ -266,6 +281,10 @@ class TypingService:
             elapsed_ms = now_ms - self._state.last_commit_time_ms
             per_char_ms = elapsed_ms / max(grow_length, 1)
 
+            # 标记词组位置：使用 TypeSunny 的 AddInputStack 逻辑——
+            # 当一次提交中包含 ≥2 个非标点字符时，所有非标点字符标记为"词组"
+            # 标点字符完全不参与打词率计算（排除标顶干扰）
+            non_punct_count = self._count_non_punct(s)
             for i in range(len(s)):
                 pos = begin_pos + i
                 if pos >= self._state.total_chars:
@@ -287,9 +306,12 @@ class TypingService:
 
                 # 记录每个字符的提交时间（毫秒时间戳）
                 self._state.char_commit_times[pos] = now_ms
-                # 标记词组位置：grow_length > 1 表示一次提交了多个字符（打词）
-                # 只标记新增字符（pos >= char_count），避免光标不在末尾时误标已有字符
-                is_phrase = grow_length > 1 and pos >= self._state.score_data.char_count
+                is_phrase = (
+                    grow_length > 1
+                    and pos >= self._state.score_data.char_count
+                    and non_punct_count >= 2
+                    and s[i] not in EXCLUDE_PUNCTS
+                )
                 if is_phrase:
                     self._state.phrase_positions.add(pos)
                 log_debug(
@@ -305,6 +327,10 @@ class TypingService:
 
             self._state.last_commit_time_ms = now_ms
             self._state.score_data.char_count += grow_length
+
+            # 检测标顶事件：批量提交文本且末字符为标点时计数为一次标顶
+            if grow_length > 1 and s and s[-1] in EXCLUDE_PUNCTS:
+                self._state.score_data.biao_ding_count += 1
 
             # 检查是否完成
             if (
@@ -414,6 +440,7 @@ class TypingService:
             else 0.0,
             "slowChars": slow_chars,
             "wordTypingRate": word_typing_rate,
+            "biaoDingCount": self._state.score_data.biao_ding_count,
         }
 
     def _compute_word_typing_rate(self) -> float:
@@ -422,6 +449,7 @@ class TypingService:
         词组判定基于文本长度变化（grow_length > 1），而非时间间隔。
         分母为当前已输入的全部字符（含标点、英文、数字），
         符合「打词数占总字数比率」的直觉定义。
+        标点字符不参与打词率计算（由 EXCLUDE_PUNCTS 过滤）。
         """
         phrase = self._state.phrase_positions
         total_input = self._state.score_data.char_count

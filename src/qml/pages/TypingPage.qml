@@ -184,6 +184,12 @@ Item {
                 appBridge.loadTextFromClipboard();
             event.accepted = true;
         }
+
+        // --- Ctrl+D 发文 ---
+        if (shortcutPressed && event.key === Qt.Key_D) {
+            toolLine.requestSendText();
+            event.accepted = true;
+        }
     }
 
     //======================================
@@ -217,6 +223,13 @@ Item {
         context: Qt.WindowShortcut
         enabled: typingPage.active
         onActivated: typingPage.triggerPrevSegment()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+D"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: toolLine.requestSendText()
     }
 
     Shortcut {
@@ -280,10 +293,10 @@ Item {
         font.pointSize: fontMetricsText.sharedFontSize
     }
 
-    // textLoaded/textLoadFailed 只在 requestLoadText() 主动调用后才发出，需要守卫防止页面切换后旧请求完成阻塞
+    // 载文结果必须始终处理，不守卫 active——否则异步载文完成时若页面恰好非活跃
+    // （如窗口管理器短暂失焦），textLoaded 信号被静默丢弃，readOnly 卡在 true。
     Connections {
         target: appBridge
-        enabled: typingPage.active
 
         function onTextLoaded(text, textId, sourceLabel) {
             applyLoadedText(text);
@@ -309,6 +322,12 @@ Item {
         function onLocalArticleSegmentLoadFailed(message) {
             upperPane.text = message;
         }
+    }
+
+    // 光标/字体状态变化需要守卫，防止页面切换后旧事件干扰
+    Connections {
+        target: appBridge
+        enabled: typingPage.active
 
         function onCursorPosChanged(newPos) {
             typingPage.refreshZitiHint();
@@ -421,6 +440,49 @@ Item {
         function onRequestOpenSliceConfig() {
             typingPage.openSliceConfig();
         }
+
+        function onRequestSendText() {
+            if (!appBridge || !upperPane) return;
+            var text = upperPane.text;
+            if (!text || text.length === 0) return;
+
+            // 构建发文格式：参考 TypeSunny 的 sender_content
+            // ponytail: 分片模式下标题末尾有 " X/Y" 后缀（载文 1/50），
+            // 方括号里已有 [段 X/Y]，去掉标题中的避免重复
+            var title = appBridge.textTitle || qsTr("未命名文本");
+            if (appBridge.sliceMode || appBridge.isWenlaiActive) {
+                title = title.replace(/ \d+\/\d+(?:（乱序）)?$/, '');
+            }
+            var charCount = text.length;
+            var metaParts = [];
+
+            // 段号信息：分片模式取实际段号，否则默认 1/1（QQ 机器人解析需要）
+            // 确定段号：分片→sliceIndex，晴发文→wenlaiSegmentLabel，有 textId→用它，否则 1
+            var seg = 1;
+            var segTotal = 0;
+            if (appBridge.sliceMode && appBridge.totalSliceCount > 0) {
+                seg = appBridge.sliceIndex;
+                segTotal = appBridge.totalSliceCount;
+            } else if (appBridge.isWenlaiActive && appBridge.wenlaiSegmentLabel) {
+                var wenlaiParts = appBridge.wenlaiSegmentLabel.split("/");
+                seg = parseInt(wenlaiParts[0]) || 1;
+                segTotal = parseInt(wenlaiParts[1]) || 0;
+            } else if (appBridge.textId && appBridge.textId > 0) {
+                seg = appBridge.textId;
+            }
+            // 段号信息
+            if (segTotal > 0) {
+                metaParts.push(qsTr("段 %1/%2").arg(seg).arg(segTotal));
+            } else {
+                metaParts.push(qsTr("段 %1").arg(seg));
+            }
+            metaParts.push(qsTr("%1字").arg(charCount));
+
+            var firstLine = title + " [" + metaParts.join(" ") + "]";
+            var footer = "-----第" + seg + "段-TypeType";
+            var output = firstLine + "\n" + text + "\n" + footer;
+            appBridge.copyToClipboard(output);
+        }
     }
 
     // 监听 sliceStatusChanged 更新状态栏 & 上传结果
@@ -458,15 +520,19 @@ Item {
                 firstActivation = false;
                 appBridge.setTextTitle(appBridge.defaultTextTitle);
                 appBridge.setTextId(0);
-                Qt.callLater(function () {
-                    appBridge.requestLoadText(appBridge.defaultTextSourceKey);
-                });
+                // 同步调用（不用 Qt.callLater）：让 prepare_for_text_load() 立即设置
+                // readOnly=true，使下方恢复代码在同一次 onActiveChanged 中就能看到
+                // 正确的 textReadOnly 状态。requestLoadText 内部仅做计划+启动后台
+                // Worker，不阻塞 UI。
+                appBridge.requestLoadText(appBridge.defaultTextSourceKey);
             }
-            // 竞态修复：载文异步完成期间用户切走 → textLoaded 信号被
-            // enabled: typingPage.active 守卫丢弃 → read_only 停留在 true。
-            // 回来后用已有 UpperPane 文本重新初始化打字状态。
-            if (appBridge && appBridge.textReadOnly && upperPane.text.length > 0) {
-                handleRetypeRequest();
+            // 恢复：载文期间/之后 readOnly 可能仍为 true（信号丢失、用户切走再回来等）。
+            if (appBridge && appBridge.textReadOnly) {
+                if (upperPane.text.length > 0) {
+                    handleRetypeRequest();
+                } else {
+                    appBridge.requestLoadText(appBridge.defaultTextSourceKey);
+                }
             }
         }
     }

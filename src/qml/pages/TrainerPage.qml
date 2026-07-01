@@ -407,6 +407,14 @@ Item {
                             color: Theme.currentTheme.colors.cardBorderColor
                         }
 
+                        TextInfoCard {
+                            id: textInfoCard
+                            title: trainerTitle(selectedTrainer)
+                            textId: trainerId(selectedTrainer)
+                            charCount: trainerEntryCount(selectedTrainer)
+                            content: ""  // 全文在载入后获取
+                        }
+
                         // --- 分片设置（复用组件）---
                         SliceSettingsPanel {
                             id: sliceSettingsPanel

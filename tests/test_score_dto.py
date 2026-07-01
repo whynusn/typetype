@@ -29,6 +29,7 @@ class TestHistoryRecordDTO:
             "backspaceCount",
             "keyAccuracy",
             "wordTypingRate",
+            "biaoDingCount",
             "charNum",
             "time",
             "date",
@@ -45,6 +46,7 @@ class TestHistoryRecordDTO:
             "time": 60.0,
             "date": "2024-01-01 00:00:00",
             "wordTypingRate": 0.0,
+            "biaoDingCount": 0,
         }
 
 
@@ -63,7 +65,7 @@ class TestScoreSummaryDTO:
 
         dto = ScoreSummaryDTO.from_score_data(score)
 
-        assert len(dto.items) == 11
+        assert len(dto.items) == 12
         assert dto.items[0].label == "速度"
         assert dto.items[0].unit == "字/分"
         assert dto.items[1].label == "击键"
@@ -87,6 +89,9 @@ class TestScoreSummaryDTO:
         assert dto.items[10].label == "打词率"
         assert dto.items[10].unit == "%"
         assert dto.items[10].value_format == ".1f"
+        assert dto.items[11].label == "标顶"
+        assert dto.items[11].unit == "次"
+        assert dto.items[11].value_format == "d"
 
     def test_to_clipboard_text(self):
         """应输出木易跟打器风格单行纯文本"""
