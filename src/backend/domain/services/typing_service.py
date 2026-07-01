@@ -76,15 +76,6 @@ class TypingService:
     def __init__(self, char_stats_service: CharStatsService | None = None):
         self._state = TypingState()
         self._char_stats_service = char_stats_service
-        self._word_detection_enabled = True
-
-    @property
-    def word_detection_enabled(self) -> bool:
-        return self._word_detection_enabled
-
-    @word_detection_enabled.setter
-    def word_detection_enabled(self, value: bool) -> None:
-        self._word_detection_enabled = value
 
     @property
     def state(self) -> TypingState:
@@ -290,6 +281,10 @@ class TypingService:
             elapsed_ms = now_ms - self._state.last_commit_time_ms
             per_char_ms = elapsed_ms / max(grow_length, 1)
 
+            # 标记词组位置：使用 TypeSunny 的 AddInputStack 逻辑——
+            # 当一次提交中包含 ≥2 个非标点字符时，所有非标点字符标记为"词组"
+            # 标点字符完全不参与打词率计算（排除标顶干扰）
+            non_punct_count = self._count_non_punct(s)
             for i in range(len(s)):
                 pos = begin_pos + i
                 if pos >= self._state.total_chars:
@@ -311,13 +306,8 @@ class TypingService:
 
                 # 记录每个字符的提交时间（毫秒时间戳）
                 self._state.char_commit_times[pos] = now_ms
-                # 标记词组位置：使用 TypeSunny 的 AddInputStack 逻辑——
-                # 当一次提交中包含 ≥2 个非标点字符时，所有非标点字符标记为"词组"
-                # 标点字符完全不参与打词率计算（排除标顶干扰）
-                non_punct_count = self._count_non_punct(s)
                 is_phrase = (
-                    self._word_detection_enabled
-                    and grow_length > 1
+                    grow_length > 1
                     and pos >= self._state.score_data.char_count
                     and non_punct_count >= 2
                     and s[i] not in EXCLUDE_PUNCTS
@@ -459,13 +449,8 @@ class TypingService:
         词组判定基于文本长度变化（grow_length > 1），而非时间间隔。
         分母为当前已输入的全部字符（含标点、英文、数字），
         符合「打词数占总字数比率」的直觉定义。
-
-        word_detection_enabled 为 False 时始终返回 0.0（用于标顶等
-        会批量提交单字的输入法，避免误判）。
+        标点字符不参与打词率计算（由 EXCLUDE_PUNCTS 过滤）。
         """
-        if not self._word_detection_enabled:
-            return 0.0
-
         phrase = self._state.phrase_positions
         total_input = self._state.score_data.char_count
 

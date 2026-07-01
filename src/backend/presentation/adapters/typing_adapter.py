@@ -460,14 +460,6 @@ class TypingAdapter(QObject):
         return self._typing_service.state.is_read_only
 
     @property
-    def word_detection_enabled(self) -> bool:
-        return self._typing_service.word_detection_enabled
-
-    @Slot(bool)
-    def setWordDetectionEnabled(self, enabled: bool) -> None:
-        self._typing_service.word_detection_enabled = enabled
-
-    @property
     def score_data(self):
         return self._typing_service.score_data
 

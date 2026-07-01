@@ -641,14 +641,6 @@ class Bridge(QObject):
     def typingPaused(self) -> bool:
         return self._typing_adapter.is_paused
 
-    @Property(bool, constant=True)
-    def wordDetectionEnabled(self) -> bool:
-        return self._typing_adapter.word_detection_enabled
-
-    @Slot(bool)
-    def setWordDetectionEnabled(self, enabled: bool) -> None:
-        self._typing_adapter.setWordDetectionEnabled(enabled)
-
     @Property(bool, notify=loggedinChanged)
     def loggedin(self) -> bool:
         return self._auth_adapter.loggedin
