@@ -110,14 +110,40 @@ src/backend/
 
 ### 载文入口
 
-| 入口 | 文件 | 触发方式 |
-|:--- |:--- |:--- |
-| 自定义载文 | `CustomLoadTextPage.qml` | TypingPage F2 / 侧边栏 |
-| 本地文库 | `LocalArticlesPage.qml` | 侧边栏 |
-| 练单器 | `TrainerPage.qml` | 侧边栏 |
-| 极速杯 | `JisuBeiPage.qml` | 侧边栏 |
+| 入口 | 文件 | 触发方式 | 分类 | 分段模式 | 乱序 | 成绩提交 |
+|:--- |:--- |:--- |:--- |:---|:---|:---|
+| 剪贴板 | `ToolLine.qml` 按钮 | Ctrl+V | 本地 | ✅ | ✅ | ❌ |
+| 自定义载文 | `CustomLoadTextPage.qml` | F2 / 侧边栏 | 本地 | ✅ | ✅ | ❌ |
+| 本地文库 | `LocalArticlesPage.qml` | 侧边栏 | 本地 | ✅ | ✅ | ❌ |
+| 练单器 | `TrainerPage.qml` | 侧边栏 | 本地 | ✅ | ✅ | ❌ |
+| 极速杯 | `JisuBeiPage.qml` | 侧边栏 | **官方网络** | ✅ | ✅ | ✅ |
+| 晴发文 | `TypingPage.qml` Ctrl+R | 快捷键 / 工具栏按钮 | **第三方网络** | **服务端分段** ¹ | ❌ | ❌ |
 
-共享组件：`SliceCriteriaPanel`（达标条件）、`TextLoadPanel`（文本输入/选择）。
+¹ 晴发文不走 App 的分片/乱序机制，文本分段由晴发文服务端提供 (`loadPrevWenlaiSegment` / `loadNextWenlaiSegment`)。
+
+#### 载文分类说明
+
+- **本地载文**：剪贴板、自定义、本地文库、练单器 — 文本来自本地文件或用户输入
+- **官方网络载文**：极速杯 — 文本来自 TypeType 后端 (typetype-server)
+- **第三方网络载文**：晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
+
+#### 分段模式与乱序
+
+除晴发文外，所有载文入口共享同一组分片/乱序组件：
+- `SliceSettingsPanel` — 分片大小、起始片、全文乱序
+- `SliceCriteriaPanel` — 达标条件（击键/速度/键准/通过次数）、失败后行为
+
+晴发文单独在服务端做分段，App 侧只做逐段推进。
+
+#### 排行榜支持
+
+| 载文来源 | 排行榜 | 条件 |
+|:--- |:--- |:--- |
+| 极速杯 | ✅ | 文本需在服务端注册，成绩确认后提交 |
+| 本地前五百等 | ✅ | 通过文件 hash 校验确保一致性 |
+| 其他本地载文 | ❌ | 文本来源不确定，无法公平排行 |
+| 晴发文 | ❌ | 第三方载文，不参与 TypeType 排行榜 |
+| 分片/乱序模式 | ❌ | 修改了原文顺序或篇幅 |
 
 ---
 

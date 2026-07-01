@@ -101,6 +101,7 @@ class Bridge(QObject):
     eligibilityReasonChanged = Signal(str)
     baseUrlChanged = Signal()
     windowTitleChanged = Signal()
+    textTitleChanged = Signal()
     typingTotalsChanged = Signal()
     textIdLookupFailed = Signal()  # 本地 text_id 回查失败
     # 晴发文信号
@@ -585,6 +586,10 @@ class Bridge(QObject):
     def defaultTextTitle(self) -> str:
         return self._text_adapter.get_default_source_label()
 
+    @Property(str, notify=textTitleChanged)
+    def textTitle(self) -> str:
+        return self._typing_adapter.text_title
+
     @Property(list, constant=True)
     def textSourceOptions(self) -> list:
         return self._text_adapter.get_source_options()
@@ -851,6 +856,7 @@ class Bridge(QObject):
         """设置当前文本标题（用于上传）。"""
         self._typing_adapter.setTextTitle(title)
         self.windowTitleChanged.emit()
+        self.textTitleChanged.emit()
 
     @Slot(int)
     def setTextId(self, text_id: int) -> None:
@@ -861,7 +867,10 @@ class Bridge(QObject):
 
     @Slot(str, str)
     @Slot(str, str, str)
-    def loadFullText(self, text: str, source_key: str = "", title: str = "") -> None:
+    @Slot(str, str, str, int)
+    def loadFullText(
+        self, text: str, source_key: str = "", title: str = "", text_id: int = 0
+    ) -> None:
         """全文载入（不分片），走正常文本加载路径。
 
         与 setupSliceMode 的区别：不进入 slice_mode，排行榜/成绩正常工作。
@@ -877,12 +886,21 @@ class Bridge(QObject):
         self._clear_trainer_active()
         self._typing_adapter.prepare_for_text_load()
         self._clear_text_id()
+        if text_id > 0:
+            self._text_id = text_id
+            self._typing_adapter.setTextId(text_id)
+            self.textIdChanged.emit()
         # 设置会话状态机
         self._typing_adapter.setup_custom_session(source_key or "custom")
         display_title = title if title else "自定义文本"
         self._typing_adapter.setTextTitle(display_title)
         self.windowTitleChanged.emit()
-        self.textLoaded.emit(text, -1, display_title)
+        sender = TextLoadCoordinator._build_local_sender_content(
+            display_title, text, index=text_id if text_id > 0 else 0,
+        )
+        if sender:
+            self._copy_text_to_clipboard(sender)
+        self.textLoaded.emit(text, text_id if text_id > 0 else -1, display_title)
         # 异步回查服务端 text_id（复用 TextAdapter 的 localTextIdResolved 信号链）
         lookup_key = source_key if source_key else "custom"
         self._text_adapter.lookup_text_id(lookup_key, text)

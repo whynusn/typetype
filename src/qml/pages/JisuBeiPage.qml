@@ -163,9 +163,7 @@ Item {
             if (!appBridge) return;
             var title = textTitle(selectedText);
             if (fullText) {
-                appBridge.loadFullText(text, "jisubei", title);
-                if (root._serverTextId > 0)
-                    appBridge.setTextId(root._serverTextId);
+                appBridge.loadFullText(text, "jisubei", title, root._serverTextId);
             } else {
                 appBridge.setupSliceMode(text, sliceSize, startSlice, ks, spd, acc, pc, openCondition ? onFail : "none", adEn, ksDec, spdDec, accDec, restoredProgress || "", title);
             }
@@ -365,6 +363,14 @@ Item {
                         Rectangle {
                             Layout.fillWidth: true; Layout.preferredHeight: 1
                             color: Theme.currentTheme.colors.cardBorderColor
+                        }
+
+                        TextInfoCard {
+                            id: textInfoCard
+                            title: textTitle(selectedText)
+                            textId: selectedText ? selectedText.id : null
+                            charCount: selectedText ? textCharCount(selectedText) : 0
+                            content: root.textContent
                         }
 
                         // --- 分片设置（复用组件）---

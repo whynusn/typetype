@@ -138,6 +138,11 @@ class TextLoadCoordinator:
             self._typing.setup_network_session(text_id, source_key)
         elif source_key:
             self._typing.setup_local_session(source_key, None)
+        sender = self._build_local_sender_content(
+            source_label, text, index=text_id if text_id > 0 else 0,
+        )
+        if sender:
+            bridge._copy_text_to_clipboard(sender)
         bridge.textLoaded.emit(text, text_id, source_label)
 
     def on_wenlai_text_loaded(self, text: str, title: str, bridge: "Bridge") -> None:
@@ -205,6 +210,9 @@ class TextLoadCoordinator:
             if not is_initial and index != prev_index:
                 self._typing.reset_slice_pass_count(index)
             bridge.sliceModeChanged.emit()
+        sender = self._build_local_sender_content(title, content, index, total)
+        if sender:
+            bridge._copy_text_to_clipboard(sender)
         bridge.trainerSegmentLoaded.emit(payload)
         bridge.textLoaded.emit(content, -1, title_label)
 
@@ -244,6 +252,9 @@ class TextLoadCoordinator:
             if not is_initial and index != prev_index:
                 self._typing.reset_slice_pass_count(index)
             bridge.sliceModeChanged.emit()
+        sender = self._build_local_sender_content(title, content, index, total)
+        if sender:
+            bridge._copy_text_to_clipboard(sender)
         bridge.localArticleSegmentLoaded.emit(payload)
         bridge.textLoaded.emit(content, -1, title_label)
 
@@ -386,6 +397,26 @@ class TextLoadCoordinator:
         self._typing.exit_slice_mode()
         bridge.sliceModeChanged.emit()
         bridge.sliceStatusChanged.emit("")
+
+    @staticmethod
+    def _build_local_sender_content(
+        title: str,
+        content: str,
+        index: int = 0,
+        total: int = 0,
+    ) -> str:
+        """渲染本地文本为行业标准发文格式（仅签名用 TypeType）。
+
+        无段号时默认第1段/共1段，确保 QQ 机器人总能识别发文标记。
+        """
+        if not title or not content:
+            return ""
+        char_count = len(content)
+        seg = index if index > 0 else 1
+        total_seg = total if total > 0 else 1
+        header = f"{title} [段 {seg}/{total_seg} {char_count}字]"
+        footer = f"-----第{seg}段-TypeType"
+        return f"{header}\n{content}\n{footer}"
 
     # ==========================================
     # 辅助方法

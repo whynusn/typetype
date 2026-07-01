@@ -460,50 +460,12 @@ Item {
                             color: Theme.currentTheme.colors.cardBorderColor
                         }
 
-                        GridLayout {
-                            Layout.fillWidth: true
-                            columns: 2
-                            columnSpacing: 12
-                            rowSpacing: 8
-
-                            Text {
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                text: qsTr("文章 ID")
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                typography: Typography.Caption
-                                text: selectedArticle ? String(articleId(selectedArticle)) : "-"
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                text: qsTr("字数")
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                typography: Typography.Caption
-                                text: selectedArticle ? qsTr("%1 字").arg(articleCharCount(selectedArticle)) : "-"
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                text: qsTr("更新时间")
-                            }
-
-                            Text {
-                                Layout.fillWidth: true
-                                typography: Typography.Caption
-                                text: selectedArticle ? formatTimestamp(articleUpdatedAt(selectedArticle)) : "-"
-                                elide: Text.ElideRight
-                            }
+                        TextInfoCard {
+                            id: textInfoCard
+                            title: articleTitle(selectedArticle)
+                            textId: articleId(selectedArticle)
+                            charCount: articleCharCount(selectedArticle)
+                            content: ""  // 全文在载入后获取
                         }
 
                         // --- 分片设置（复用组件）---

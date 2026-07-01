@@ -12,3 +12,4 @@ SliceProgressRestoreDialog 254.0 SliceProgressRestoreDialog.qml
 TextLoadPanel 254.0 TextLoadPanel.qml
 TypingProgressBar 254.0 TypingProgressBar.qml
 LeaderboardPanel 254.0 LeaderboardPanel.qml
+TextInfoCard 254.0 TextInfoCard.qml
