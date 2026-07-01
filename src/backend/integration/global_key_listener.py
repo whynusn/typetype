@@ -319,7 +319,21 @@ class GlobalKeyListener(QObject):
         except BlockingIOError:
             pass
         except OSError:
-            pass
+            log_error(f"键盘设备已断开: {device.path if hasattr(device, 'path') else device.fd}")
+            self._remove_device(device)
+
+    def _remove_device(self, device) -> None:
+        """移除已断开的设备及其 notifier。"""
+        for i, dev in enumerate(self.devices):
+            if dev is device:
+                if i < len(self.notifiers):
+                    self.notifiers[i].setEnabled(False)
+                    self.notifiers[i].deleteLater()
+                    self.notifiers.pop(i)
+                device.close()
+                self.devices.pop(i)
+                break
+        self._pressed_shortcut_modifiers.pop(self._device_id(device), None)
 
     @staticmethod
     def _device_id(device: Any) -> int:

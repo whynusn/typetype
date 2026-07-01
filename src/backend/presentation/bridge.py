@@ -1571,6 +1571,7 @@ class Bridge(QObject):
                 for i, m in enumerate(saved_slice_metrics):
                     if i < len(ctx._slice_metrics):
                         ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
+                ctx.restore_slice_metrics(ctx.slice_index)
             # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
             saved_slice_stats = restored_progress.get("slice_stats")
             if saved_slice_stats and ctx._slice_stats is not None:
