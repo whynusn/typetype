@@ -106,6 +106,7 @@ class AiTextAdapter(QObject):
     def updateApiKey(self, api_key: str) -> bool:
         try:
             self._token_store.save_token(self.AI_API_KEY, api_key)
+            self.configChanged.emit()
             return True
         except Exception:
             return False

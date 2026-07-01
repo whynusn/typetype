@@ -2206,7 +2206,7 @@ class Bridge(QObject):
     def aiMaxChars(self) -> int:
         return self._ai_text_adapter.max_chars if self._ai_text_adapter else 300
 
-    @Property(bool, constant=True)
+    @Property(bool, notify=aiConfigChanged)
     def hasAiApiKey(self) -> bool:
         return self._ai_text_adapter.has_api_key if self._ai_text_adapter else False
 
