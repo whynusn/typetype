@@ -612,13 +612,6 @@ FluentPage {
 
     Text {
         typography: Typography.Subtitle
-        text: qsTr("跟打")
-        Layout.topMargin: 16
-        Layout.bottomMargin: 8
-    }
-
-    Text {
-        typography: Typography.Subtitle
         text: qsTr("字提示")
         Layout.topMargin: 16
         Layout.bottomMargin: 8
