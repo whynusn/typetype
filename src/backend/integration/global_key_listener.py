@@ -316,6 +316,8 @@ class GlobalKeyListener(QObject):
                 self.keyPressed.emit(event.code, device.name)
         except BlockingIOError:
             pass
+        except OSError:
+            pass
 
     @staticmethod
     def _device_id(device: Any) -> int:
