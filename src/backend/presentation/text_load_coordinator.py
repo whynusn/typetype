@@ -145,7 +145,7 @@ class TextLoadCoordinator:
         )
         if sender:
             bridge._copy_text_to_clipboard(sender)
-        bridge.textLoaded.emit(text, text_id, source_label)
+        bridge.textLoaded.emit(self._strip_newlines(text), text_id, source_label)
 
     def on_wenlai_text_loaded(self, text: str, title: str, bridge: "Bridge") -> None:
         if self._typing.is_slice_mode():
@@ -166,7 +166,7 @@ class TextLoadCoordinator:
                 clipboard_text = f"{pending_score_text}\n{sender_content}"
             bridge._copy_text_to_clipboard(clipboard_text)
         bridge.wenlaiSegmentLabelChanged.emit()
-        bridge.textLoaded.emit(text, -1, title)
+        bridge.textLoaded.emit(self._strip_newlines(text), -1, title)
 
     def on_trainer_segment_loaded(self, payload: dict, bridge: "Bridge") -> None:
         title = str(payload.get("title", "") or "")
@@ -216,7 +216,7 @@ class TextLoadCoordinator:
         if sender:
             bridge._copy_text_to_clipboard(sender)
         bridge.trainerSegmentLoaded.emit(payload)
-        bridge.textLoaded.emit(content, -1, title_label)
+        bridge.textLoaded.emit(self._strip_newlines(content), -1, title_label)
 
     def on_local_article_segment_loaded(self, payload: dict, bridge: "Bridge") -> None:
         self._typing.prepare_for_text_load()
@@ -258,7 +258,7 @@ class TextLoadCoordinator:
         if sender:
             bridge._copy_text_to_clipboard(sender)
         bridge.localArticleSegmentLoaded.emit(payload)
-        bridge.textLoaded.emit(content, -1, title_label)
+        bridge.textLoaded.emit(self._strip_newlines(content), -1, title_label)
 
     # ==========================================
     # 分片导航
@@ -281,7 +281,7 @@ class TextLoadCoordinator:
         self._typing.setTextTitle(label)
         bridge.windowTitleChanged.emit()
         bridge.sliceStatusChanged.emit(f"载文模式: 第 {idx}/{total} 段")
-        bridge.textLoaded.emit(slice_text, -1, label)
+        bridge.textLoaded.emit(self._strip_newlines(slice_text), -1, label)
 
     def load_next_slice(self, bridge: "Bridge") -> None:
         if self._pending_slice_params.get("advance_mode") == "random":
@@ -389,7 +389,9 @@ class TextLoadCoordinator:
         self._typing.set_slice_index(idx)
         self._typing.prepare_for_text_load()
         self.clear_text_id(bridge)
-        bridge.textLoaded.emit(shuffled, -1, f"载文 {idx}/{total}（乱序）")
+        bridge.textLoaded.emit(
+            self._strip_newlines(shuffled), -1, f"载文 {idx}/{total}（乱序）"
+        )
 
     def exit_slice_mode(self, bridge: "Bridge") -> None:
         self._source_slice_backend = None
@@ -399,6 +401,11 @@ class TextLoadCoordinator:
         self._typing.exit_slice_mode()
         bridge.sliceModeChanged.emit()
         bridge.sliceStatusChanged.emit("")
+
+    @staticmethod
+    def _strip_newlines(text: str) -> str:
+        """去除文本中的换行符（打字练习不需要文件格式换行符）。"""
+        return text.replace("\n", "").replace("\r", "")
 
     @staticmethod
     def _build_local_sender_content(
@@ -443,7 +450,7 @@ class TextLoadCoordinator:
         self._typing.restore_slice_metrics(result.index)
         self._typing._session_context._slice_size = self._source_slice_segment_size
         bridge.sliceModeChanged.emit()
-        bridge.textLoaded.emit(result.content, -1, title_label)
+        bridge.textLoaded.emit(self._strip_newlines(result.content), -1, title_label)
 
     def _cache_current_content(self, content: str) -> None:
         self._typing.set_current_slice_content(content)
