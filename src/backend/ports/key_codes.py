@@ -138,3 +138,35 @@ class KeyCodes:
     @classmethod
     def is_shortcut_modifier(cls, key_code: int) -> bool:
         return key_code in cls.SHORTCUT_MODIFIER_KEYS
+
+    # evdev 标点键码（无 Shift 状态下的原始映射）
+    EVDEV_COMMA = 51
+    EVDEV_DOT = 52
+    EVDEV_SLASH = 53
+    EVDEV_SEMICOLON = 39
+    EVDEV_SPACE = 57
+    EVDEV_1 = 2
+    EVDEV_6 = 8
+
+    # 标点键码 → 该键在中文输入法标顶模式下可能产出的标点字符
+    # 参考 TypeSunny IntStringDict.BiaoDing 默认映射
+    PUNCTUATION_KEY_MAP: dict[int, str] = {
+        EVDEV_COMMA: "，《,<",
+        EVDEV_DOT: "。》.>",
+        EVDEV_SLASH: "？/?、",
+        EVDEV_SEMICOLON: "；：;:",
+        EVDEV_SPACE: " ",
+        EVDEV_1: "！!",
+        EVDEV_6: "……^",
+    }
+
+    PUNCTUATION_KEYS = frozenset(PUNCTUATION_KEY_MAP.keys())
+
+    @classmethod
+    def is_punctuation(cls, key_code: int) -> bool:
+        return key_code in cls.PUNCTUATION_KEYS
+
+    @classmethod
+    def punct_key_chars(cls, key_code: int) -> str:
+        """返回标点键可能产出的字符集，非标点键返回空字符串。"""
+        return cls.PUNCTUATION_KEY_MAP.get(key_code, "")

@@ -598,6 +598,9 @@ class Bridge(QObject):
         ):
             self._typing_adapter.handleStartStatus(True)
 
+        if KeyCodes.is_punctuation(keyCode):
+            self._typing_adapter.recordPunctKey(keyCode)
+
         if KeyCodes.is_backspace(keyCode):
             self._typing_adapter.handleBackspace()
         self._typing_adapter.handlePressed()
