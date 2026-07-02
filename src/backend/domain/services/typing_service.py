@@ -56,6 +56,8 @@ class TypingState:
     peak_code_length: float = float("inf")
     char_commit_times: dict[int, float] = field(default_factory=dict)
     phrase_positions: set[int] = field(default_factory=set)
+    last_punct_key_time_ms: float = 0.0
+    last_punct_key_code: int = 0
 
 
 class TypingService:
@@ -192,6 +194,8 @@ class TypingService:
         self._state.last_commit_time_ms = 0.0
         self._state.char_commit_times.clear()
         self._state.phrase_positions.clear()
+        self._state.last_punct_key_time_ms = 0.0
+        self._state.last_punct_key_code = 0
         if self._char_stats_service:
             self._char_stats_service.clear()
 
@@ -247,6 +251,10 @@ class TypingService:
     def accumulate_time(self, interval: float) -> None:
         """累积时间。"""
         self._state.score_data.time += interval
+
+    def record_punct_key(self, key_code: int) -> None:
+        self._state.last_punct_key_time_ms = time() * 1000
+        self._state.last_punct_key_code = key_code
 
     @staticmethod
     def _count_non_punct(text: str) -> int:
@@ -328,9 +336,14 @@ class TypingService:
             self._state.last_commit_time_ms = now_ms
             self._state.score_data.char_count += grow_length
 
-            # 检测标顶事件：批量提交文本且末字符为标点时计数为一次标顶
-            if grow_length > 1 and s and s[-1] in EXCLUDE_PUNCTS:
-                self._state.score_data.biao_ding_count += 1
+            # 检测标顶事件：复刻 TypeSunny 时序匹配逻辑
+            # 标点键按下 → 记录时间；文本提交 → 匹配 20ms 窗口内的标点键事件
+            if s and self._state.last_punct_key_time_ms > 0:
+                commit_ms = now_ms
+                key_ms = self._state.last_punct_key_time_ms
+                if commit_ms - key_ms <= 20 and s[-1] in EXCLUDE_PUNCTS:
+                    self._state.score_data.biao_ding_count += 1
+                    self._state.last_punct_key_time_ms = 0.0
 
             # 检查是否完成
             if (

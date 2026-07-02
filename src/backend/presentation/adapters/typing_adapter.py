@@ -339,6 +339,10 @@ class TypingAdapter(QObject):
             self.keyStrokeChanged.emit()
             self.keyAccuracyChanged.emit()
 
+    def recordPunctKey(self, key_code: int) -> None:
+        if self._typing_service.state.is_started:
+            self._typing_service.record_punct_key(key_code)
+
     def handleCommittedText(self, s: str, grow_length: int) -> None:
         # 评分完成后的异步窗口内 UpperPane 可能已被清空，此时残留的 IME
         # 回流或 onTextChanged 会产生越界 setPosition。read_only 已在
