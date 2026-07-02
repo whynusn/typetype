@@ -106,11 +106,12 @@ class FileSegmentProvider:
                     byte_pos = f.tell() - len(raw)
                     # 为每个跨越的间隔记录索引
                     for i in range(prev_interval + 1, new_interval + 1):
-                        # 估算该间隔对应的 byte offset
+                        # 估算该间隔对应的 byte offset（向前回退 4 字节，避免落在多字节序列中间）
                         chars_at_interval = i * _INDEX_INTERVAL
                         ratio = (chars_at_interval - char_count) / max(1, len(text))
                         estimated_byte = byte_pos + int(ratio * len(raw))
-                        self._index.append((chars_at_interval, estimated_byte))
+                        safe_byte = max(0, estimated_byte - 4)
+                        self._index.append((chars_at_interval, safe_byte))
                 char_count = new_char_count
             decoder.decode(b"", final=True)
 
