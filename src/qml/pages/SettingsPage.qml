@@ -668,13 +668,6 @@ FluentPage {
                     ListElement { name: "Anthropic"; value: "anthropic" }
                 }
                 textRole: "name"
-                currentIndex: {
-                    if (!appBridge) return 0
-                    var f = appBridge.aiApiFormat
-                    if (f === "openai_response") return 1
-                    if (f === "anthropic") return 2
-                    return 0
-                }
                 onCurrentIndexChanged: {
                     if (appBridge && !syncingAiControls) {
                         appBridge.updateAiApiFormat(model.get(currentIndex).value)
