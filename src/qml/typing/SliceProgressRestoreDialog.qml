@@ -60,13 +60,19 @@ Dialog {
                 spacing: 4
                 Text {
                     typography: Typography.Caption
-                    text: qsTr("第 %1 / %2 段").arg(root.progressInfo.saved_slice || 0).arg(root.progressInfo.saved_total || 0)
+                    text: qsTr("恢复点: 第 %1 / %2 段").arg(root.progressInfo.resume_slice || root.progressInfo.saved_slice || 0).arg(root.progressInfo.saved_total || 0)
+                }
+                Text {
+                    visible: (root.progressInfo.resume_slice || 0) !== (root.progressInfo.saved_slice || 0)
+                    typography: Typography.Caption
+                    color: Theme.currentTheme.colors.textSecondaryColor
+                    text: qsTr("(当前浏览: 第 %1 段)").arg(root.progressInfo.saved_slice || 0)
                 }
                 ProgressBar {
                     Layout.fillWidth: true
                     from: 0
                     to: Math.max(1, root.progressInfo.saved_total || 0)
-                    value: root.progressInfo.saved_slice || 0
+                    value: root.progressInfo.resume_slice || root.progressInfo.saved_slice || 0
                 }
             }
 
