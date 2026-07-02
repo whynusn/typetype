@@ -389,7 +389,9 @@ class TextLoadCoordinator:
         self._typing.set_slice_index(idx)
         self._typing.prepare_for_text_load()
         self.clear_text_id(bridge)
-        bridge.textLoaded.emit(self._strip_newlines(shuffled), -1, f"载文 {idx}/{total}（乱序）")
+        bridge.textLoaded.emit(
+            self._strip_newlines(shuffled), -1, f"载文 {idx}/{total}（乱序）"
+        )
 
     def exit_slice_mode(self, bridge: "Bridge") -> None:
         self._source_slice_backend = None
