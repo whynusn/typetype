@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from PySide6.QtCore import QObject, QSettings, QSocketNotifier, Signal
@@ -119,9 +120,10 @@ class GlobalKeyListener(QObject):
             try:
                 device = self.InputDevice(path)
                 device_type = self._classify_device(device)
+                display_path = self._resolve_stable_path(path)
                 devices.append(
                     {
-                        "path": path,
+                        "path": display_path,
                         "name": device.name.encode("utf-8", "replace").decode("utf-8"),
                         "type": device_type,
                         "is_keyboard": device_type == "keyboard",
@@ -177,25 +179,65 @@ class GlobalKeyListener(QObject):
     # ==========================================
 
     def get_selected_device_paths(self) -> list[str]:
-        """从 QSettings 读取手动选择的设备路径。"""
+        """从 QSettings 读取手动选择的设备路径。
+        ponytail: 读取时解析为 by-id，迁移旧 eventN 值。
+        """
         settings = QSettings()
         count = settings.beginReadArray(self.SETTINGS_KEY)
         paths = []
+        migrated = False
         for i in range(count):
             settings.setArrayIndex(i)
             path = settings.value("path", "")
             if path:
-                paths.append(path)
+                resolved = self._resolve_stable_path(path)
+                if resolved != path:
+                    migrated = True
+                paths.append(resolved)
         settings.endArray()
+        # ponytail: one-time write-back of migrated eventN → by-id
+        if migrated:
+            self.set_selected_device_paths(paths)
         return paths
 
+    _resolve_cache: dict[str, str] = {}
+
+    @staticmethod
+    def _resolve_stable_path(path: str) -> str:
+        """将 /dev/input/eventN 解析为稳定的 /dev/input/by-id/... 路径。
+        ponytail: 回退到原始路径，by-id 不可用时静默降级。
+        """
+        cached = GlobalKeyListener._resolve_cache.get(path)
+        if cached is not None:
+            return cached
+        # ponytail: already by-id = already stable
+        if "/by-id/" in path:
+            GlobalKeyListener._resolve_cache[path] = path
+            return path
+        try:
+            by_id = "/dev/input/by-id"
+            if not os.path.isdir(by_id):
+                return path
+            real = os.path.realpath(path)
+            for name in os.listdir(by_id):
+                target = os.path.join(by_id, name)
+                if os.path.islink(target) and os.path.realpath(target) == real:
+                    GlobalKeyListener._resolve_cache[path] = target
+                    return target
+        except OSError:
+            pass  # ponytail: by-id unavailable, fallback to original path
+        GlobalKeyListener._resolve_cache[path] = path
+        return path
+
     def set_selected_device_paths(self, paths: list[str]) -> None:
-        """保存手动选择的设备路径到 QSettings。"""
+        """保存手动选择的设备路径到 QSettings。
+        ponytail: 保存时自动将 eventN 解析为 by-id 稳定路径。
+        """
         settings = QSettings()
         settings.beginWriteArray(self.SETTINGS_KEY)
         for i, path in enumerate(paths):
             settings.setArrayIndex(i)
-            settings.setValue("path", path)
+            settings.setValue("path", self._resolve_stable_path(path))
         settings.endArray()
         settings.sync()
 
@@ -211,8 +253,12 @@ class GlobalKeyListener(QObject):
         return bool(self.get_selected_device_paths())
 
     def get_active_device_paths(self) -> list[str]:
-        """返回当前正在监听的设备路径。"""
-        return [d.path for d in self.devices if hasattr(d, "path") and d.path]
+        """返回当前正在监听的设备路径（按 by-id 稳定路径）。"""
+        return [
+            self._resolve_stable_path(d.path)
+            for d in self.devices
+            if hasattr(d, "path") and d.path
+        ]
 
     def _open_selected_devices(self, paths: list[str]) -> list[Any]:
         """打开指定路径的 evdev 设备。"""
