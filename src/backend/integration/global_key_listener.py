@@ -179,30 +179,54 @@ class GlobalKeyListener(QObject):
     # ==========================================
 
     def get_selected_device_paths(self) -> list[str]:
-        """从 QSettings 读取手动选择的设备路径。"""
+        """从 QSettings 读取手动选择的设备路径。
+        ponytail: 读取时解析为 by-id，迁移旧 eventN 值。
+        """
         settings = QSettings()
         count = settings.beginReadArray(self.SETTINGS_KEY)
         paths = []
+        migrated = False
         for i in range(count):
             settings.setArrayIndex(i)
             path = settings.value("path", "")
             if path:
-                paths.append(path)
+                resolved = self._resolve_stable_path(path)
+                if resolved != path:
+                    migrated = True
+                paths.append(resolved)
         settings.endArray()
+        # ponytail: one-time write-back of migrated eventN → by-id
+        if migrated:
+            self.set_selected_device_paths(paths)
         return paths
+
+    _resolve_cache: dict[str, str] = {}
 
     @staticmethod
     def _resolve_stable_path(path: str) -> str:
         """将 /dev/input/eventN 解析为稳定的 /dev/input/by-id/... 路径。
         ponytail: 回退到原始路径，by-id 不可用时静默降级。
         """
-        real = os.path.realpath(path)
-        by_id = "/dev/input/by-id"
-        if os.path.isdir(by_id):
+        cached = GlobalKeyListener._resolve_cache.get(path)
+        if cached is not None:
+            return cached
+        # ponytail: already by-id = already stable
+        if "/by-id/" in path:
+            GlobalKeyListener._resolve_cache[path] = path
+            return path
+        try:
+            by_id = "/dev/input/by-id"
+            if not os.path.isdir(by_id):
+                return path
+            real = os.path.realpath(path)
             for name in os.listdir(by_id):
                 target = os.path.join(by_id, name)
                 if os.path.islink(target) and os.path.realpath(target) == real:
+                    GlobalKeyListener._resolve_cache[path] = target
                     return target
+        except OSError:
+            pass  # ponytail: by-id unavailable, fallback to original path
+        GlobalKeyListener._resolve_cache[path] = path
         return path
 
     def set_selected_device_paths(self, paths: list[str]) -> None:

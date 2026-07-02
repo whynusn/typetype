@@ -2,6 +2,7 @@
 GlobalKeyListener 纯逻辑测试（不依赖真实设备）
 """
 
+import os
 from types import SimpleNamespace
 
 from PySide6.QtCore import QObject
@@ -124,3 +125,30 @@ class TestGlobalKeyListenerLogic:
         listener._handle_events(dev)
 
         assert emitted == [KeyCodes.EVDEV_LEFT_SHIFT, 30]
+
+
+class TestResolveStablePath:
+    """ponytail: minimal test for by-id path resolution — stdlib wrapper, one check covers all paths."""
+
+    def setup_method(self):
+        GlobalKeyListener._resolve_cache.clear()
+
+    def test_by_id_path_returns_as_is(self):
+        path = "/dev/input/by-id/usb-keyboard"
+        assert GlobalKeyListener._resolve_stable_path(path) == path
+
+    def test_missing_by_id_dir_fallback(self, monkeypatch):
+        monkeypatch.setattr(os.path, "isdir", lambda p: False)
+        assert GlobalKeyListener._resolve_stable_path("/dev/input/event5") == "/dev/input/event5"
+
+    def test_eventN_resolves_to_by_id(self, monkeypatch):
+        event = "/dev/input/event5"
+        byid = "/dev/input/by-id/usb-keyboard"
+        real = "/sys/devices/input5"
+
+        monkeypatch.setattr(os.path, "isdir", lambda p: p == "/dev/input/by-id")
+        monkeypatch.setattr(os, "listdir", lambda d: ["usb-keyboard"])
+        monkeypatch.setattr(os.path, "islink", lambda p: p == byid)
+        monkeypatch.setattr(os.path, "realpath", lambda p: {event: real, byid: real}.get(p, p))
+
+        assert GlobalKeyListener._resolve_stable_path(event) == byid
