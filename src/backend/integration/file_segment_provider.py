@@ -6,6 +6,8 @@ import codecs
 from bisect import bisect_right
 from pathlib import Path
 
+from charset_normalizer import from_path
+
 from ..config.app_paths import user_indexes_dir
 
 _INDEX_INTERVAL = 10_000  # 每 10000 个字符记录一个索引点
@@ -56,19 +58,8 @@ class FileSegmentProvider:
     def _detect_encoding(self) -> str:
         if self._encoding is not None:
             return self._encoding
-        decoder = codecs.getincrementaldecoder("utf-8")()
-        try:
-            with self._path.open("rb") as f:
-                while True:
-                    chunk = f.read(64 * 1024)
-                    if not chunk:
-                        break
-                    decoder.decode(chunk)
-                decoder.decode(b"", final=True)
-        except UnicodeDecodeError:
-            self._encoding = "gb18030"
-        else:
-            self._encoding = "utf-8"
+        result = from_path(self._path).best()
+        self._encoding = result.encoding if result else "utf-8"
         return self._encoding
 
     def _count_chars(self) -> int:
@@ -92,7 +83,7 @@ class FileSegmentProvider:
         self._index = [(0, 0)]
         char_count = 0
         with self._path.open("rb") as f:
-            decoder = codecs.getincrementaldecoder(encoding)()
+            decoder = codecs.getincrementaldecoder(encoding, errors="replace")()
             while True:
                 raw = f.read(64 * 1024)
                 if not raw:
@@ -106,12 +97,11 @@ class FileSegmentProvider:
                     byte_pos = f.tell() - len(raw)
                     # 为每个跨越的间隔记录索引
                     for i in range(prev_interval + 1, new_interval + 1):
-                        # 估算该间隔对应的 byte offset（向前回退 4 字节，避免落在多字节序列中间）
+                        # 估算该间隔对应的 byte offset
                         chars_at_interval = i * _INDEX_INTERVAL
                         ratio = (chars_at_interval - char_count) / max(1, len(text))
                         estimated_byte = byte_pos + int(ratio * len(raw))
-                        safe_byte = max(0, estimated_byte - 4)
-                        self._index.append((chars_at_interval, safe_byte))
+                        self._index.append((chars_at_interval, estimated_byte))
                 char_count = new_char_count
             decoder.decode(b"", final=True)
 
@@ -133,7 +123,7 @@ class FileSegmentProvider:
 
         with self._path.open("rb") as f:
             f.seek(byte_offset)
-            decoder = codecs.getincrementaldecoder(encoding)()
+            decoder = codecs.getincrementaldecoder(encoding, errors="replace")()
             while remaining_take > 0:
                 raw = f.read(64 * 1024)
                 if not raw:
