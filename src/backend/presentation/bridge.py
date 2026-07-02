@@ -2373,7 +2373,11 @@ class Bridge(QObject):
                     preview_lines = []
                     byte_count = 0
                     max_preview_bytes = 4096
-                    with open(file_path, encoding="utf-8") as f:
+                    from charset_normalizer import from_path
+
+                    result = from_path(file_path).best()
+                    encoding = result.encoding if result else "utf-8"
+                    with open(file_path, encoding=encoding) as f:
                         for i, line in enumerate(f):
                             if i >= 20:
                                 preview_lines.append("... [仅显示前 20 行预览]")
