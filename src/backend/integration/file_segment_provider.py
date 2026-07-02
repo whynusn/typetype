@@ -83,7 +83,7 @@ class FileSegmentProvider:
         self._index = [(0, 0)]
         char_count = 0
         with self._path.open("rb") as f:
-            decoder = codecs.getincrementaldecoder(encoding, errors="replace")()
+            decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
             while True:
                 raw = f.read(64 * 1024)
                 if not raw:
@@ -123,7 +123,7 @@ class FileSegmentProvider:
 
         with self._path.open("rb") as f:
             f.seek(byte_offset)
-            decoder = codecs.getincrementaldecoder(encoding, errors="replace")()
+            decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
             while remaining_take > 0:
                 raw = f.read(64 * 1024)
                 if not raw:
