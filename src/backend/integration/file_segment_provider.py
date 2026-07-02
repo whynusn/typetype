@@ -70,15 +70,16 @@ class FileSegmentProvider:
                 chunk = f.read(64 * 1024)
                 if not chunk:
                     break
-                total += len(chunk)
+                total += len(chunk.replace("\n", "").replace("\r", ""))
         return total
 
     def _read_all(self) -> str:
         encoding = self._detect_encoding()
-        return self._path.read_text(encoding=encoding)
+        text = self._path.read_text(encoding=encoding)
+        return text.replace("\n", "").replace("\r", "")
 
     def _build_index(self) -> None:
-        """扫描全文件，建立稀疏字符索引。"""
+        """扫描全文件，建立稀疏字符索引（基于去除换行符后的文本）。"""
         encoding = self._detect_encoding()
         self._index = [(0, 0)]
         char_count = 0
@@ -88,7 +89,7 @@ class FileSegmentProvider:
                 raw = f.read(64 * 1024)
                 if not raw:
                     break
-                text = decoder.decode(raw)
+                text = decoder.decode(raw).replace("\n", "").replace("\r", "")
                 new_char_count = char_count + len(text)
                 # 检查是否跨越了索引间隔边界
                 prev_interval = char_count // _INDEX_INTERVAL
@@ -128,7 +129,7 @@ class FileSegmentProvider:
                 raw = f.read(64 * 1024)
                 if not raw:
                     break
-                text = decoder.decode(raw)
+                text = decoder.decode(raw).replace("\n", "").replace("\r", "")
                 if remaining_skip >= len(text):
                     remaining_skip -= len(text)
                     continue
