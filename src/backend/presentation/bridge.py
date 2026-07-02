@@ -939,7 +939,11 @@ class Bridge(QObject):
         )
         if sender:
             self._copy_text_to_clipboard(sender)
-        self.textLoaded.emit(self._coordinator._strip_newlines(text), text_id if text_id > 0 else -1, display_title)
+        self.textLoaded.emit(
+            self._coordinator._strip_newlines(text),
+            text_id if text_id > 0 else -1,
+            display_title,
+        )
         # 异步回查服务端 text_id（复用 TextAdapter 的 localTextIdResolved 信号链）
         lookup_key = source_key if source_key else "custom"
         self._text_adapter.lookup_text_id(lookup_key, text)
@@ -1145,7 +1149,9 @@ class Bridge(QObject):
         if self._pending_restored_progress:
             saved_slice = self._compute_resume_slice(
                 self._pending_restored_progress.get("slice_pass_counts", []),
-                self._pending_restored_progress.get("metrics", {}).get("pass_count_min", 1),
+                self._pending_restored_progress.get("metrics", {}).get(
+                    "pass_count_min", 1
+                ),
                 self._pending_restored_progress.get("current_slice", 1),
             )
             saved_total = self._pending_restored_progress.get("total_slices", 0)
@@ -1242,7 +1248,9 @@ class Bridge(QObject):
             self._restore_pending_progress()
             self._update_progress_current_slice()
             self.sliceModeChanged.emit()
-            self.textLoaded.emit(self._coordinator._strip_newlines(result.content), -1, title_label)
+            self.textLoaded.emit(
+                self._coordinator._strip_newlines(result.content), -1, title_label
+            )
         else:
             self._typing_adapter.setup_local_article_session()
             self._coordinator.source_slice_backend = None
@@ -1276,7 +1284,9 @@ class Bridge(QObject):
         if self._pending_restored_progress:
             saved_slice = self._compute_resume_slice(
                 self._pending_restored_progress.get("slice_pass_counts", []),
-                self._pending_restored_progress.get("metrics", {}).get("pass_count_min", 1),
+                self._pending_restored_progress.get("metrics", {}).get(
+                    "pass_count_min", 1
+                ),
                 self._pending_restored_progress.get("current_slice", 1),
             )
             saved_total = self._pending_restored_progress.get("total_slices", 0)
@@ -1467,7 +1477,9 @@ class Bridge(QObject):
                     if title
                     else f"{result.index}/{result.total}"
                 )
-            self.textLoaded.emit(self._coordinator._strip_newlines(result.content), -1, label)
+            self.textLoaded.emit(
+                self._coordinator._strip_newlines(result.content), -1, label
+            )
 
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str)
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str, str)

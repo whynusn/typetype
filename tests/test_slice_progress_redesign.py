@@ -3,7 +3,6 @@
 Test that _compute_resume_slice returns the first unpassed slice.
 """
 
-import pytest
 from src.backend.presentation.bridge import Bridge
 
 
