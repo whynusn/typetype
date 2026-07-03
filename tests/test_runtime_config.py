@@ -235,6 +235,103 @@ def test_update_wenlai_config_persists_to_user_config(monkeypatch, tmp_path: Pat
     assert saved["strict_length"] is True
 
 
+def test_save_to_file_persists_text_sources_and_default_key(
+    monkeypatch, tmp_path: Path
+):
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://old",
+                "default_text_source_key": "old_default",
+                "api_timeout": 10.0,
+                "text_sources": {"old_src": {"label": "Old"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    config = RuntimeConfig.load_from_file(str(user_config))
+    config.text_source_config.default_key = "new_default"
+    config.api_timeout = 99.0
+    from src.backend.config.text_source_config import TextSourceEntry, SourceType
+
+    config.text_source_config.sources["new_src"] = TextSourceEntry(
+        key="new_src",
+        label="New",
+        source_type=SourceType.LOCAL_PRACTICE,
+        local_path="/new.txt",
+    )
+
+    config._save_to_file()
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert saved["default_text_source_key"] == "new_default"
+    assert saved["api_timeout"] == 99.0
+    assert "new_src" in saved["text_sources"]
+    assert saved["text_sources"]["new_src"]["label"] == "New"
+
+
+def test_registry_source_type_survives_to_dict_round_trip():
+    from src.backend.config.text_source_config import SourceType
+
+    config = RuntimeConfig._from_dict(
+        {
+            "text_sources": {
+                "registry_test": {
+                    "label": "Registry",
+                    "source_type": "registry",
+                },
+            },
+        }
+    )
+    rt = config._to_dict()
+    assert rt["text_sources"]["registry_test"]["source_type"] == "registry"
+    config2 = RuntimeConfig._from_dict(rt)
+    assert config2.get_text_source("registry_test") is not None
+    assert config2.get_text_source("registry_test").source_type == SourceType.REGISTRY
+
+
+def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
+    from src.backend.config.text_source_config import SourceType
+
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    init = {
+        "base_url": "http://old",
+        "text_sources": {"a": {"label": "A", "source_type": "local_practice"}},
+    }
+    user_config.write_text(json.dumps(init), encoding="utf-8")
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+    config = RuntimeConfig.load_from_file(str(user_config))
+
+    updated = {
+        "base_url": "http://old",
+        "text_sources": {
+            "a": {"label": "A", "source_type": "local_practice"},
+            "b": {
+                "label": "B",
+                "source_type": "local_practice",
+                "local_path": "/new.txt",
+            },
+        },
+    }
+    user_config.write_text(json.dumps(updated), encoding="utf-8")
+
+    config.reload()
+    assert "b" in config.text_source_config.sources
+    assert config.get_text_source("b") is not None
+    assert config.get_text_source("b").source_type == SourceType.LOCAL_PRACTICE
+
+
 def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
     user_config = tmp_path / "user" / "config.json"
     bundled_example = tmp_path / "bundle" / "config.example.json"
@@ -254,3 +351,184 @@ def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
     saved = json.loads(user_config.read_text(encoding="utf-8"))["wenlai"]
     assert runtime_config.wenlai.length == 0
     assert saved["length"] == 0
+
+
+def test_infer_source_type_backward_compat():
+    """Legacy configs without source_type round-trip without error."""
+    from src.backend.config.text_source_config import SourceType
+
+    config = RuntimeConfig._from_dict(
+        {
+            "text_sources": {
+                "no_path": {"label": "No Path"},
+                "with_path": {"label": "With Path", "local_path": "/tmp/x.txt"},
+                "with_ranking": {
+                    "label": "Ranking",
+                    "local_path": "/tmp/y.txt",
+                    "has_ranking": True,
+                },
+            },
+        }
+    )
+
+    no_path = config.get_text_source("no_path")
+    assert no_path is not None
+    assert no_path.source_type == SourceType.NETWORK
+
+    with_path = config.get_text_source("with_path")
+    assert with_path is not None
+    assert with_path.source_type == SourceType.LOCAL_PRACTICE
+
+    ranking = config.get_text_source("with_ranking")
+    assert ranking is not None
+    assert ranking.source_type == SourceType.LOCAL_RANKED
+
+
+def test_update_text_source_adds_entry(monkeypatch, tmp_path: Path):
+    """update_text_source() creates an entry in memory and persists to file."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps({"base_url": "http://old", "text_sources": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    from src.backend.config.text_source_config import SourceType
+
+    config = RuntimeConfig.load_from_file(str(user_config))
+    config.update_text_source("my_text", "我的文本", "/tmp/my.txt")
+
+    entry = config.get_text_source("my_text")
+    assert entry is not None
+    assert entry.label == "我的文本"
+    assert entry.local_path == "/tmp/my.txt"
+    assert entry.source_type == SourceType.LOCAL_PRACTICE
+    assert config.default_text_source_key == "my_text"
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert "my_text" in saved["text_sources"]
+    assert saved["text_sources"]["my_text"]["label"] == "我的文本"
+    assert saved["text_sources"]["my_text"]["source_type"] == "local_practice"
+
+
+def test_update_text_source_reuses_existing_default_key(monkeypatch, tmp_path: Path):
+    """If a default_key already exists, update_text_source leaves it unchanged."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps(
+            {
+                "default_text_source_key": "existing_default",
+                "text_sources": {"existing_default": {"label": "Existing"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    config = RuntimeConfig.load_from_file(str(user_config))
+    config.update_text_source("new_text", "New", "/tmp/new.txt")
+    assert config.default_text_source_key == "existing_default", (
+        "existing default_key must be preserved"
+    )
+
+
+def test_ensure_user_config_exists_merges_missing_sections(monkeypatch, tmp_path: Path):
+    """When user config lacks sections from _to_dict(), merge adds them."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    # Old-style config: only base_url + text_sources, missing registry/ai/text_session
+    user_config.write_text(
+        json.dumps({"base_url": "http://old", "text_sources": {}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    RuntimeConfig.ensure_user_config_exists()
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert saved["base_url"] == "http://old"
+    assert saved["text_sources"] == {}
+    assert "registry" in saved
+    assert "ai" in saved
+    assert "text_session" in saved
+    assert "wenlai" in saved
+
+
+def test_ensure_user_config_exists_preserves_existing_values(
+    monkeypatch, tmp_path: Path
+):
+    """When config has all sections already, merge preserves values unchanged."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://custom",
+                "text_sources": {},
+                "ai": {"provider": "custom", "base_url": "http://ai.test"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    RuntimeConfig.ensure_user_config_exists()
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert saved["base_url"] == "http://custom"
+    assert saved["ai"]["provider"] == "custom"
+    assert saved["ai"]["base_url"] == "http://ai.test"
+
+
+def test_ensure_user_config_exists_no_write_when_complete(monkeypatch, tmp_path: Path):
+    """When config already has all sections, ensure_user_config_exists doesn't write."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    full = RuntimeConfig()._to_dict()
+    user_config.write_text(json.dumps(full), encoding="utf-8")
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    mtime_before = user_config.stat().st_mtime_ns
+    RuntimeConfig.ensure_user_config_exists()
+    mtime_after = user_config.stat().st_mtime_ns
+
+    assert mtime_before == mtime_after, "file must not be rewritten when complete"
+
+
+def test_save_to_file_persists_all_to_dict_keys(monkeypatch, tmp_path: Path):
+    """Every section in _to_dict() must also be persisted by _save_to_file()."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps({"base_url": "http://old", "text_sources": {}}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    config = RuntimeConfig.load_from_file(str(user_config))
+    config._save_to_file()
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    expected = config._to_dict()
+    for key in expected:
+        assert key in saved, (
+            f"{key!r} is in _to_dict() but missing from _save_to_file() output"
+        )

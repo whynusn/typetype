@@ -13,6 +13,16 @@
     "display_name": "",
     "user_id": 0
   },
+  "registry": {
+    "primary_url": "https://cdn.jsdelivr.net/gh/whynusn/typetype-text-source-registry@latest",
+    "mirror_url": "https://raw.githubusercontent.com/whynusn/typetype-text-source-registry/main",
+    "cache_ttl_seconds": 3600,
+    "max_content_bytes": 1048576
+  },
+  "text_session": {
+    "small_file_threshold": 100000,
+    "full_shuffle_threshold": 1000000
+  },
   "ui": {
     "theme": {
       "current_theme": "Auto"
@@ -24,33 +34,47 @@
     "theme_color": "#605ed2",
     "backdrop_effect": "none"
   },
+  "ai": {
+    "provider": "deepseek",
+    "base_url": "",
+    "model": "",
+    "api_format": "openai_chat",
+    "timeout": 30.0,
+    "max_chars": 300
+  },
   "text_sources": {
     "builtin_demo": {
       "label": "本地示例",
-      "local_path": "resources/texts/builtin_demo.txt"
+      "local_path": "resources/texts/builtin_demo.txt",
+      "source_type": "local_practice"
     },
     "jisubei": {
       "label": "极速杯",
-      "has_ranking": true
+      "has_ranking": true,
+      "source_type": "network"
     },
     "fst_500": {
       "label": "前五百",
       "local_path": "resources/texts/前五百.txt",
-      "has_ranking": true
+      "has_ranking": true,
+      "source_type": "local_ranked"
     },
     "mid_500": {
       "label": "中五百",
       "local_path": "resources/texts/中五百.txt",
-      "has_ranking": true
+      "has_ranking": true,
+      "source_type": "local_ranked"
     },
     "lst_500": {
       "label": "后五百",
       "local_path": "resources/texts/后五百.txt",
-      "has_ranking": true
+      "has_ranking": true,
+      "source_type": "local_ranked"
     },
     "essential_single_char": {
       "label": "打词必备单字",
-      "local_path": "resources/texts/打词必备单字.txt"
+      "local_path": "resources/texts/打词必备单字.txt",
+      "source_type": "local_practice"
     }
   }
 }

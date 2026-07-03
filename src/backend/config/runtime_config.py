@@ -7,6 +7,7 @@ from typing import ClassVar
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
+from ..utils.logger import log_error
 from .text_source_config import TextSourceConfig, TextSourceEntry
 
 
@@ -67,7 +68,9 @@ class AiConfig:
         {"openai_chat", "openai_response", "anthropic"}
     )
 
-    provider: str = "deepseek"
+    provider: str = (
+        "deepseek"  # ponytail: input-only, resolved to base_url/model by __post_init__
+    )
     base_url: str = ""
     model: str = ""
     api_format: str = "openai_chat"
@@ -95,6 +98,26 @@ class AiConfig:
 
 
 @dataclass
+class RegistryConfig:
+    """注册表文本源配置。"""
+
+    primary_url: str = ""
+    mirror_url: str = ""
+    cache_ttl_seconds: int = 3600
+    max_content_bytes: int = 1_048_576
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.primary_url, str):
+            self.primary_url = ""
+        if not isinstance(self.mirror_url, str):
+            self.mirror_url = ""
+        if self.cache_ttl_seconds < 0:
+            self.cache_ttl_seconds = 3600
+        if self.max_content_bytes < 0:
+            self.max_content_bytes = 1_048_576
+
+
+@dataclass
 class TextSessionConfig:
     """载文会话配置。"""
 
@@ -117,9 +140,12 @@ class RuntimeConfig:
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
+    registry: RegistryConfig = field(default_factory=RegistryConfig)
     ai: AiConfig = field(default_factory=AiConfig)
     text_session: TextSessionConfig = field(default_factory=TextSessionConfig)
-    catalog_items: list[TextCatalogItem] = field(default_factory=list)
+    catalog_items: list[TextCatalogItem] = field(
+        default_factory=list
+    )  # ponytail: dynamic server data, never persisted
     _config_path: str | None = field(default=None, repr=False)
 
     @classmethod
@@ -141,6 +167,7 @@ class RuntimeConfig:
         """Ensure the writable user config exists and return its path."""
         target = user_config_path()
         if target.exists():
+            cls._ensure_config_sections(target)
             return str(target)
 
         source = cls._find_project_config_file()
@@ -151,6 +178,18 @@ class RuntimeConfig:
             with target.open("w", encoding="utf-8") as f:
                 json.dump(cls()._to_dict(), f, ensure_ascii=False, indent=4)
         return str(target)
+
+    @classmethod
+    def _ensure_config_sections(cls, target: Path) -> None:
+        """Merge any top-level sections from defaults that the user config lacks."""
+        data = json.loads(target.read_text(encoding="utf-8"))
+        defaults = cls()._to_dict()
+        missing = {k: v for k, v in defaults.items() if k not in data}
+        if missing:
+            data.update(missing)
+            target.write_text(
+                json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8"
+            )
 
     @classmethod
     def _find_config_file(cls) -> str | None:
@@ -184,14 +223,10 @@ class RuntimeConfig:
         default_key = ""
 
         for key, source_data in sources_data.items():
-            local_path = source_data.get("local_path")
-            has_ranking = source_data.get("has_ranking", False)
-            sources[key] = TextSourceEntry(
+            sources[key] = TextSourceEntry.from_dict(
                 key=key,
                 label=source_data.get("label", key),
-                local_path=local_path,
-                has_ranking=has_ranking,
-                source_type=TextSourceEntry.infer_source_type(local_path, has_ranking),
+                data=source_data,
             )
             if not default_key:
                 default_key = key
@@ -217,6 +252,16 @@ class RuntimeConfig:
             username=cls._safe_str(wenlai_data.get("username"), ""),
             display_name=cls._safe_str(wenlai_data.get("display_name"), ""),
             user_id=cls._safe_int(wenlai_data.get("user_id"), 0),
+        )
+
+        r_data = data.get("registry", {})
+        if not isinstance(r_data, dict):
+            r_data = {}
+        registry = RegistryConfig(
+            primary_url=cls._safe_str(r_data.get("primary_url"), "", allow_empty=False),
+            mirror_url=cls._safe_str(r_data.get("mirror_url"), "", allow_empty=False),
+            cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 3600),
+            max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),
         )
 
         ts_data = data.get("text_session", {})
@@ -248,6 +293,7 @@ class RuntimeConfig:
             api_timeout=api_timeout,
             text_source_config=text_source_config,
             wenlai=wenlai,
+            registry=registry,
             ai=ai,
             text_session=text_session,
         )
@@ -284,11 +330,22 @@ class RuntimeConfig:
         )
         return options
 
-    def get_ranking_sources(self) -> list[TextSourceEntry]:
-        return self.text_source_config.get_ranking_sources()
-
     def update_catalog(self, items: list[TextCatalogItem]) -> None:
         self.catalog_items = items
+
+    def update_text_source(self, key: str, label: str, local_path: str) -> None:
+        """添加或更新一个本地文本源并持久化到 config.json。"""
+        from .text_source_config import TextSourceEntry, SourceType
+
+        self.text_source_config.sources[key] = TextSourceEntry(
+            key=key,
+            label=label,
+            source_type=SourceType.LOCAL_PRACTICE,
+            local_path=local_path,
+        )
+        if not self.text_source_config.default_key:
+            self.text_source_config.default_key = key
+        self._save_to_file()
 
     def update_base_url(self, new_base_url: str) -> None:
         """更新 base_url 并持久化到 config.json。"""
@@ -310,14 +367,32 @@ class RuntimeConfig:
             else:
                 data = self._to_dict()
             data["base_url"] = self.base_url
+            data["default_text_source_key"] = self.default_text_source_key
+            data["api_timeout"] = self.api_timeout
+            data["text_sources"] = self._to_dict()["text_sources"]
             data["wenlai"] = self._to_dict()["wenlai"]
             data["ai"] = self._to_dict()["ai"]
+            data["registry"] = self._to_dict()["registry"]
+            data["text_session"] = self._to_dict()["text_session"]
             target_path.parent.mkdir(parents=True, exist_ok=True)
             with target_path.open("w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
             self._config_path = str(target_path)
-        except Exception:
-            pass
+        except Exception as e:
+            log_error(f"[RuntimeConfig] 持久化配置失败：{e}")
+
+    def reload(self) -> None:
+        path = Path(self._config_path) if self._config_path else None
+        if path and path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            updated = self._from_dict(data)
+            self.base_url = updated.base_url
+            self.api_timeout = updated.api_timeout
+            self.text_source_config = updated.text_source_config
+            self.wenlai = updated.wenlai
+            self.registry = updated.registry
+            self.ai = updated.ai
+            self.text_session = updated.text_session
 
     def _to_dict(self) -> dict:
         return {
@@ -327,10 +402,17 @@ class RuntimeConfig:
             "text_sources": {
                 key: {
                     "label": source.label,
+                    "source_type": source.source_type.value,
                     **({"local_path": source.local_path} if source.local_path else {}),
                     **({"has_ranking": True} if source.has_ranking else {}),
                 }
                 for key, source in self.text_source_config.sources.items()
+            },
+            "registry": {
+                "primary_url": self.registry.primary_url,
+                "mirror_url": self.registry.mirror_url,
+                "cache_ttl_seconds": self.registry.cache_ttl_seconds,
+                "max_content_bytes": self.registry.max_content_bytes,
             },
             "wenlai": {
                 "base_url": self.wenlai.base_url,
