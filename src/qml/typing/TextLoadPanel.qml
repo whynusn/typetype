@@ -54,20 +54,30 @@ Item {
 
     function syncSourceOptions(options, catalog) {
         localSourceOptions = [];
+        var nonLocalOptions = [];
         sourceListModel.clear();
         if (options) {
             for (var i = 0; i < options.length; i++) {
-                if (options[i].isLocal) localSourceOptions.push(options[i]);
+                if (options[i].isLocal)
+                    localSourceOptions.push(options[i]);
+                else
+                    nonLocalOptions.push(options[i]);
             }
         }
         if (localSourceOptions.length > 0) {
             sourceListModel.append({ key: localGroupKey, label: "本地文本", isLocalGroup: true });
         }
+        // Non-local config sources (network sources like jisubei)
+        var existingKeys = {};
+        for (var j = 0; j < nonLocalOptions.length; j++) {
+            existingKeys[nonLocalOptions[j].key] = true;
+            sourceListModel.append({ key: nonLocalOptions[j].key, label: nonLocalOptions[j].label });
+        }
+        // Catalog items from server (dedup against config-defined sources)
         if (catalog) {
-            for (var j = 0; j < catalog.length; j++) {
-                var item = catalog[j];
-                if (item.key && item.key !== localGroupKey)
-                    sourceListModel.append({ key: item.key, label: item.label || item.key });
+            for (var k = 0; k < catalog.length; k++) {
+                if (!existingKeys[catalog[k].key])
+                    sourceListModel.append({ key: catalog[k].key, label: catalog[k].label || catalog[k].key });
             }
         }
         _restoreDefaultSource();

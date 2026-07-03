@@ -228,16 +228,12 @@ def test_get_source_options_include_local_metadata():
         {
             "key": "builtin_demo",
             "label": "本地示例",
-            "sourceType": "local_practice",
             "isLocal": True,
-            "hasRanking": False,
         },
         {
             "key": "jisubei",
             "label": "极速杯",
-            "sourceType": "network",
             "isLocal": False,
-            "hasRanking": True,
         },
     ]
 

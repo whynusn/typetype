@@ -273,19 +273,10 @@ class TextAdapter(QObject):
             {
                 "key": source.key,
                 "label": source.label,
-                "sourceType": source.source_type.value,
-                "isLocal": source.source_type != SourceType.NETWORK,
-                "hasRanking": source.source_type
-                in (SourceType.NETWORK, SourceType.LOCAL_RANKED),
+                "isLocal": source.source_type
+                in (SourceType.LOCAL_RANKED, SourceType.LOCAL_PRACTICE),
             }
             for source in self._runtime_config.text_source_config.sources.values()
-        ]
-
-    def get_ranking_source_options(self) -> list[dict[str, str]]:
-        """获取有排行榜的来源列表（用于排行榜页面）。"""
-        return [
-            {"key": source.key, "label": source.label}
-            for source in self._runtime_config.text_source_config.get_ranking_sources()
         ]
 
     def get_default_source_key(self) -> str:
@@ -310,13 +301,8 @@ class TextAdapter(QObject):
         except Exception:
             return ""
 
-    def get_upload_source_options(self) -> list[dict[str, str]]:
-        """获取可用于云端上传的来源列表（排除仅本地源）。"""
-        return [
-            {"key": source.key, "label": source.label}
-            for source in self._runtime_config.text_source_config.sources.values()
-            if not source.local_path  # 只保留没有 local_path 的服务端源
-        ]
+    def refresh_runtime_config(self) -> None:
+        self._runtime_config.reload()
 
     def get_base_url(self) -> str:
         """获取当前 API 服务地址。"""

@@ -390,6 +390,10 @@ class Bridge(QObject):
     def _connect_upload_signals(self) -> None:
         if self._upload_text_adapter:
             self._upload_text_adapter.uploadFinished.connect(self.uploadResult.emit)
+            self._upload_text_adapter.configUpdated.connect(self._on_config_updated)
+
+    def _on_config_updated(self) -> None:
+        self._text_adapter.refresh_runtime_config()
 
     def _connect_leaderboard_signals(self) -> None:
         if self._leaderboard_adapter:
@@ -630,14 +634,6 @@ class Bridge(QObject):
     @Property(list, constant=True)
     def textSourceOptions(self) -> list:
         return self._text_adapter.get_source_options()
-
-    @Property(list, constant=True)
-    def rankingSourceOptions(self) -> list:
-        return self._text_adapter.get_ranking_source_options()
-
-    @Property(list, constant=True)
-    def uploadTextSourceOptions(self) -> list:
-        return self._text_adapter.get_upload_source_options()
 
     @Property(float, notify=totalTimeChanged)
     def totalTime(self) -> float:

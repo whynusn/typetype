@@ -24,10 +24,8 @@
 | `defaultTextSourceKey` | `str` | 默认来源 key |
 | `defaultTextTitle` | `str` | 默认来源标题 |
 | `textSourceOptions` | `list[dict]` | 来源选项列表 |
-| `uploadTextSourceOptions` | `list[dict]` | 上传目标来源选项 |
 | `leaderboardLoading` | `bool` | 排行榜加载中 |
 | `textListLoading` | `bool` | 文本列表加载中 |
-| `rankingSourceOptions` | `list[dict]` | 排行榜来源选项列表 |
 | `isSpecialPlatform` | `bool` | 是否特殊平台（Wayland 下 evdev 监听可用） |
 | `keyAccuracy` | `float` | 键准（%） |
 | `baseUrl` | `str` | 当前 API 服务地址 |
