@@ -122,3 +122,89 @@ def test_load_from_plan_uses_text_provider_for_remote_source():
     runtime_config.get_text_source.assert_not_called()
     text_provider.fetch_text_by_key.assert_called_once_with("remote")
     local_text_loader.load_text.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# REGISTRY source type
+# ---------------------------------------------------------------------------
+
+
+def _build_gateway_with_registry(
+    source: TextSourceEntry | None,
+    registry_provider: MagicMock | None = None,
+) -> tuple[TextSourceGateway, MagicMock, MagicMock, MagicMock, MagicMock | None]:
+    runtime_config = MagicMock(spec=RuntimeConfig)
+    runtime_config.get_text_source.return_value = source
+    text_provider = MagicMock(spec=TextProvider)
+    local_text_loader = MagicMock(spec=LocalTextLoader)
+    gateway = TextSourceGateway(
+        runtime_config=runtime_config,
+        text_provider=text_provider,
+        local_text_loader=local_text_loader,
+        registry_provider=registry_provider,
+    )
+    return gateway, runtime_config, text_provider, local_text_loader, registry_provider
+
+
+def test_load_from_plan_registry_source_with_provider():
+    reg_provider = MagicMock(spec=TextProvider)
+    reg_provider.fetch_text_by_key.return_value = FetchedText(
+        content="registry text", text_id=101, title="Registry"
+    )
+    gateway, _, _, _, _ = _build_gateway_with_registry(
+        TextSourceEntry(
+            key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+        ),
+        registry_provider=reg_provider,
+    )
+    source = TextSourceEntry(
+        key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+    )
+
+    success, fetched, error = gateway.load_from_plan(source)
+
+    assert success is True
+    assert fetched is not None
+    assert fetched.content == "registry text"
+    assert fetched.text_id == 101
+    assert fetched.title == "Registry"
+    assert error == ""
+    reg_provider.fetch_text_by_key.assert_called_once_with("reg_test")
+
+
+def test_load_from_plan_registry_source_no_provider():
+    gateway, _, _, _, _ = _build_gateway_with_registry(
+        TextSourceEntry(
+            key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+        ),
+        registry_provider=None,
+    )
+    source = TextSourceEntry(
+        key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+    )
+
+    success, fetched, error = gateway.load_from_plan(source)
+
+    assert success is False
+    assert fetched is None
+    assert error == "注册表文本源未配置"
+
+
+def test_load_from_plan_registry_source_fetch_fails():
+    reg_provider = MagicMock(spec=TextProvider)
+    reg_provider.fetch_text_by_key.return_value = None
+    gateway, _, _, _, _ = _build_gateway_with_registry(
+        TextSourceEntry(
+            key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+        ),
+        registry_provider=reg_provider,
+    )
+    source = TextSourceEntry(
+        key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+    )
+
+    success, fetched, error = gateway.load_from_plan(source)
+
+    assert success is False
+    assert fetched is None
+    assert "无法获取注册表文本" in error

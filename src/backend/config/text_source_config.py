@@ -8,6 +8,7 @@ class SourceType(Enum):
     NETWORK = "network"  # 网络文本源（如极速杯），按 source_key 获取最新文本
     LOCAL_RANKED = "local_ranked"  # 有排行榜的内置文本（如前五百），内容固定，hash 校验
     LOCAL_PRACTICE = "local_practice"  # 无排行榜的本地文本（内置练习/用户上传）
+    REGISTRY = "registry"  # 注册表文本源（外部仓库），通过 RegistryTextProvider 获取
 
 
 @dataclass
@@ -16,7 +17,9 @@ class TextSourceEntry:
     label: str
     source_type: SourceType = SourceType.LOCAL_PRACTICE
     local_path: str | None = None
-    has_ranking: bool = False  # 仅对 LOCAL_* 有意义；NETWORK 天然支持排行榜
+    has_ranking: bool = (
+        False  # 对 LOCAL_RANKED/REGISTRY 有意义；NETWORK 天然支持，LOCAL_PRACTICE 忽略
+    )
 
     @staticmethod
     def infer_source_type(local_path: str | None, has_ranking: bool) -> "SourceType":
@@ -26,6 +29,23 @@ class TextSourceEntry:
         if has_ranking:
             return SourceType.LOCAL_RANKED
         return SourceType.LOCAL_PRACTICE
+
+    @classmethod
+    def from_dict(cls, key: str, label: str, data: dict) -> "TextSourceEntry":
+        source_type = (
+            SourceType(data["source_type"])
+            if "source_type" in data
+            else cls.infer_source_type(
+                data.get("local_path"), data.get("has_ranking", False)
+            )
+        )
+        return cls(
+            key=key,
+            label=label,
+            source_type=source_type,
+            local_path=data.get("local_path"),
+            has_ranking=data.get("has_ranking", False),
+        )
 
 
 @dataclass
@@ -45,12 +65,4 @@ class TextSourceConfig:
         return [
             {"key": source.key, "label": source.label}
             for source in self.sources.values()
-        ]
-
-    def get_ranking_sources(self) -> list[TextSourceEntry]:
-        """返回支持排行榜的来源（NETWORK 天然支持，LOCAL_RANKED 需 hash 校验）。"""
-        return [
-            s
-            for s in self.sources.values()
-            if s.source_type in (SourceType.NETWORK, SourceType.LOCAL_RANKED)
         ]

@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from ..integration.file_ziti_repository import FileZitiRepository
     from ..integration.leaderboard_fetcher import LeaderboardFetcher
     from ..integration.qt_local_text_loader import QtLocalTextLoader
+    from ..integration.registry_text_provider import RegistryTextProvider
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.secure_token_store import SecureTokenStore
     from ..integration.text_uploader import TextUploader
@@ -97,6 +98,7 @@ class Repos:
 @dataclass
 class Providers:
     text: RemoteTextProvider
+    registry: RegistryTextProvider | None
     wenlai: WenlaiProvider
     llm: LlmTextProvider
 
@@ -194,10 +196,12 @@ def create_repos() -> Repos:
 
 def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..infrastructure.api_client import ApiClient
+    from ..integration.registry_text_provider import RegistryTextProvider
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
     from ..application.gateways.wenlai_gateway import WenlaiGateway
+    from .app_paths import registry_cache_dir
 
     def _get_jwt_token() -> str:
         return infra.token_store.get_token("current_user") or ""
@@ -217,6 +221,12 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
             api_client=infra.api_client,
             token_provider=_get_jwt_token,
         ),
+        registry=RegistryTextProvider(
+            config=runtime_config.registry,
+            cache_dir=registry_cache_dir(),
+        )
+        if runtime_config.registry.primary_url
+        else None,
         wenlai=WenlaiProvider(
             api_client=infra.wenlai_api_client,
             base_url=runtime_config.wenlai.base_url,
@@ -255,6 +265,7 @@ def create_gateways(
             runtime_config=runtime_config,
             text_provider=providers.text,
             local_text_loader=infra.local_text_loader,
+            registry_provider=providers.registry,
         ),
         wenlai=WenlaiGateway(
             runtime_config=runtime_config,
@@ -461,7 +472,10 @@ def create_adapters(
     )
 
     # Upload text
-    upload_text_adapter = UploadTextAdapter(text_uploader=services.text_uploader)
+    upload_text_adapter = UploadTextAdapter(
+        text_uploader=services.text_uploader,
+        runtime_config=runtime_config,
+    )
 
     # Platform detection + key listener
     system_identifier = SystemIdentifier()
