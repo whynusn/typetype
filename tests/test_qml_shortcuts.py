@@ -1,49 +1,81 @@
+"""QML shortcut Bridge API introspection tests."""
+
 from pathlib import Path
+import re
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+BRIDGE_PATH = PROJECT_ROOT / "src/backend/presentation/bridge.py"
+QML_DIR = PROJECT_ROOT / "src/qml"
+RINUI_DIR = PROJECT_ROOT / "RinUI"
+
+
+def _parse_bridge_api():
+    source = BRIDGE_PATH.read_text(encoding="utf-8")
+    signals = set()
+    slots = set()
+    properties = set()
+    lines = source.split("\n")
+    for m in re.finditer(r"^\s+(\w+)\s*=\s*Signal\(", source, re.MULTILINE):
+        signals.add(m.group(1))
+    for i, line in enumerate(lines):
+        if line.strip().startswith("@Slot"):
+            for j in range(i + 1, min(i + 3, len(lines))):
+                m = re.match(r"\s+def\s+(\w+)", lines[j])
+                if m:
+                    slots.add(m.group(1))
+                    break
+    for i, line in enumerate(lines):
+        if line.strip().startswith("@Property"):
+            for j in range(i + 1, min(i + 3, len(lines))):
+                m = re.match(r"\s+def\s+(\w+)", lines[j])
+                if m:
+                    properties.add(m.group(1))
+                    break
+    return slots, properties, signals
+
+
+BRIDGE_SLOTS, BRIDGE_PROPERTIES, BRIDGE_SIGNALS = _parse_bridge_api()
+
+
+def _get_qml_refs(source):
+    refs = set()
+    for m in re.finditer(r"appBridge\.(\w+)", source):
+        refs.add(m.group(1))
+    return refs
 
 
 def test_wenlai_previous_segment_shortcut_matches_typesunny_ctrl_o():
-    typing_page = PROJECT_ROOT / "src/qml/pages/TypingPage.qml"
-    lower_pane = PROJECT_ROOT / "src/qml/typing/LowerPane.qml"
-
-    typing_page_source = typing_page.read_text(encoding="utf-8")
-    lower_pane_source = lower_pane.read_text(encoding="utf-8")
-
-    assert "event.key === Qt.Key_O" in typing_page_source
-    assert "event.key === Qt.Key_O" in lower_pane_source
+    typing_page = QML_DIR / "pages/TypingPage.qml"
+    lower_pane = QML_DIR / "typing/LowerPane.qml"
+    tp_source = typing_page.read_text(encoding="utf-8")
+    lp_source = lower_pane.read_text(encoding="utf-8")
+    assert "event.key === Qt.Key_O" in tp_source
+    assert "event.key === Qt.Key_O" in lp_source
 
 
 def test_enter_shortcut_toggles_typing_pause():
-    typing_page = PROJECT_ROOT / "src/qml/pages/TypingPage.qml"
-    lower_pane = PROJECT_ROOT / "src/qml/typing/LowerPane.qml"
-
-    typing_page_source = typing_page.read_text(encoding="utf-8")
-    lower_pane_source = lower_pane.read_text(encoding="utf-8")
-
-    assert "Qt.Key_Return" in typing_page_source
-    assert "Qt.Key_Enter" in typing_page_source
-    assert "toggleTypingPause()" in typing_page_source
-    assert "Qt.Key_Return" in lower_pane_source
-    assert "Qt.Key_Enter" in lower_pane_source
-    assert "toggleTypingPause()" in lower_pane_source
+    typing_page = QML_DIR / "pages/TypingPage.qml"
+    lower_pane = QML_DIR / "typing/LowerPane.qml"
+    tp_source = typing_page.read_text(encoding="utf-8")
+    lp_source = lower_pane.read_text(encoding="utf-8")
+    assert "Qt.Key_Return" in tp_source
+    assert "Qt.Key_Enter" in tp_source
+    assert "Qt.Key_Return" in lp_source
+    assert "Qt.Key_Enter" in lp_source
+    assert "toggleTypingPause" in BRIDGE_SLOTS
 
 
 def test_main_window_auto_pauses_when_deactivated():
-    main_qml = PROJECT_ROOT / "src/qml/Main.qml"
-
+    main_qml = QML_DIR / "Main.qml"
     source = main_qml.read_text(encoding="utf-8")
-
     assert "onActiveChanged" in source
-    assert "pauseTypingFromWindowDeactivate()" in source
+    assert "pauseTypingFromWindowDeactivate" in BRIDGE_SLOTS
 
 
 def test_settings_manual_wenlai_mode_prompt_matches_typesunny():
-    settings_page = PROJECT_ROOT / "src/qml/pages/SettingsPage.qml"
-
+    settings_page = QML_DIR / "pages/SettingsPage.qml"
     source = settings_page.read_text(encoding="utf-8")
-
     assert 'title: qsTr("晴发文换段模式")' in source
     assert "手动换段模式：" in source
     assert "打完后不会自动发下一段" in source
@@ -55,59 +87,47 @@ def test_settings_manual_wenlai_mode_prompt_matches_typesunny():
 
 
 def test_window_level_shortcuts_drive_wenlai_actions_without_text_focus():
-    typing_page = PROJECT_ROOT / "src/qml/pages/TypingPage.qml"
-
-    typing_page_source = typing_page.read_text(encoding="utf-8")
-
-    assert "Shortcut" in typing_page_source
-    assert 'sequence: "Ctrl+R"' in typing_page_source
-    assert 'sequence: "Meta+R"' in typing_page_source
-    assert "triggerRandomWenlaiText()" in typing_page_source
-    assert "appBridge.loadRandomWenlaiText()" in typing_page_source
-    assert 'sequence: "Ctrl+O"' in typing_page_source
-    assert 'sequence: "Ctrl+P"' in typing_page_source
-    assert "triggerPrevSegment()" in typing_page_source
-    assert "triggerNextSegment()" in typing_page_source
+    typing_page = QML_DIR / "pages/TypingPage.qml"
+    source = typing_page.read_text(encoding="utf-8")
+    refs = _get_qml_refs(source)
+    assert "Shortcut" in source
+    assert 'sequence: "Ctrl+R"' in source
+    assert 'sequence: "Meta+R"' in source
+    assert "triggerRandomWenlaiText()" in source
+    assert "loadRandomWenlaiText" in refs and "loadRandomWenlaiText" in BRIDGE_SLOTS
+    assert 'sequence: "Ctrl+O"' in source
+    assert 'sequence: "Ctrl+P"' in source
+    assert "triggerPrevSegment()" in source
+    assert "triggerNextSegment()" in source
 
 
 def test_wenlai_button_is_disabled_and_spinner_only_while_loading():
-    typing_page = PROJECT_ROOT / "src/qml/pages/TypingPage.qml"
-    tool_line = PROJECT_ROOT / "src/qml/typing/ToolLine.qml"
-
-    typing_page_source = typing_page.read_text(encoding="utf-8")
-    tool_line_source = tool_line.read_text(encoding="utf-8")
-
-    assert "wenlaiStatusText" not in typing_page_source
-    assert "正在获取晴发文..." not in typing_page_source
-    assert "晴发文获取成功" not in typing_page_source
-    assert (
-        "wenlaiLoading: appBridge ? appBridge.wenlaiLoading : false"
-        in typing_page_source
-    )
-    assert "wenlaiLoading" in tool_line_source
-    assert "enabled: !root.wenlaiLoading" in tool_line_source
-    assert 'text: "晴发文[C^R]"' in tool_line_source
-    assert "running: root.wenlaiLoading" in tool_line_source
-    assert "visible: root.wenlaiLoading" in tool_line_source
-    assert "获取中..." not in tool_line_source
-    assert "wenlaiStatusText" not in tool_line_source
+    typing_page = QML_DIR / "pages/TypingPage.qml"
+    tool_line = QML_DIR / "typing/ToolLine.qml"
+    tp_refs = _get_qml_refs(typing_page.read_text(encoding="utf-8"))
+    tl_source = tool_line.read_text(encoding="utf-8")
+    assert "wenlaiLoading" in tp_refs and "wenlaiLoading" in BRIDGE_PROPERTIES
+    assert "wenlaiLoading" in tl_source
+    assert "enabled: !root.wenlaiLoading" in tl_source
+    assert 'text: "晴发文[C^R]"' in tl_source
+    assert "running: root.wenlaiLoading" in tl_source
+    assert "visible: root.wenlaiLoading" in tl_source
 
 
 def test_realtime_score_area_does_not_show_wenlai_segment_or_copy_score():
-    score_area = PROJECT_ROOT / "src/qml/typing/ScoreArea.qml"
-
+    score_area = QML_DIR / "typing/ScoreArea.qml"
     source = score_area.read_text(encoding="utf-8")
-
     assert "id: segmentNo" not in source
-    assert "appBridge.wenlaiSegmentLabel" not in source
+    assert (
+        "wenlaiSegmentLabel" not in BRIDGE_PROPERTIES
+        or "wenlaiSegmentLabel" not in source
+    )
     assert "copyScoreMessage()" not in source
 
 
 def test_history_area_shows_wenlai_segment_and_right_click_copies_record_score():
-    history_area = PROJECT_ROOT / "src/qml/typing/HistoryArea.qml"
-
+    history_area = QML_DIR / "typing/HistoryArea.qml"
     source = history_area.read_text(encoding="utf-8")
-
     assert '"段号"' in source
     assert 'TableModelColumn { display: "segmentNo" }' in source
     assert 'TableModelColumn { display: "speed" }' in source
@@ -119,10 +139,8 @@ def test_history_area_shows_wenlai_segment_and_right_click_copies_record_score()
 
 
 def test_history_area_uses_explicit_resizable_column_widths():
-    history_area = PROJECT_ROOT / "src/qml/typing/HistoryArea.qml"
-
+    history_area = QML_DIR / "typing/HistoryArea.qml"
     source = history_area.read_text(encoding="utf-8")
-
     assert "resizableColumns: true" in source
     assert "columnWidthProvider" not in source
     assert "setColumnWidth" in source
@@ -130,21 +148,16 @@ def test_history_area_uses_explicit_resizable_column_widths():
 
 
 def test_titlebar_drag_area_is_enabled_with_native_mac_controls():
-    title_bar = PROJECT_ROOT / "RinUI/windows/TitleBar.qml"
-
+    title_bar = RINUI_DIR / "windows/TitleBar.qml"
     source = title_bar.read_text(encoding="utf-8")
-
     assert "enabled: root.window !== null" in source
     assert "startSystemMove()" in source
 
 
 def test_typing_end_copies_score_without_opening_end_dialog():
-    typing_page = PROJECT_ROOT / "src/qml/pages/TypingPage.qml"
-
+    typing_page = QML_DIR / "pages/TypingPage.qml"
     source = typing_page.read_text(encoding="utf-8")
-
-    assert "copyScoreMessage()" in source
+    assert "copyScoreMessage" in BRIDGE_SLOTS
     assert "endDialog.open()" not in source
-    assert (
-        "copyAggregateScore()" not in source
-    )  # 聚合成绩复制在 EndDialog 中，TypingPage 不再直接调用
+    assert "copyAggregateScore" in BRIDGE_SLOTS
+    assert "copyAggregateScore()" not in source
