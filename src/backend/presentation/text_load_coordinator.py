@@ -395,8 +395,11 @@ class TextLoadCoordinator:
 
     def exit_slice_mode(self, bridge: "Bridge") -> None:
         self._source_slice_backend = None
+        self._source_slice_article_id = ""
+        self._source_slice_segment_size = 0
         self._source_slice_trainer_id = ""
         self._source_slice_group_size = 0
+        self._source_slice_title = ""
         self._visited_slices.clear()
         self._typing.exit_slice_mode()
         bridge.sliceModeChanged.emit()
@@ -448,7 +451,7 @@ class TextLoadCoordinator:
         self._typing.reset_slice_pass_count(result.index)
         self._typing.set_slice_index(result.index)
         self._typing.restore_slice_metrics(result.index)
-        self._typing._session_context._slice_size = self._source_slice_segment_size
+        self._typing.set_session_slice_size(self._source_slice_segment_size)
         bridge.sliceModeChanged.emit()
         bridge.textLoaded.emit(self._strip_newlines(result.content), -1, title_label)
 

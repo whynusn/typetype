@@ -865,14 +865,20 @@ def test_handle_slice_retype_unknown_action_does_nothing():
 def test_exit_slice_mode_clears_state():
     coord, typing, _, _, _, _ = _make_coordinator()
     coord._source_slice_backend = "trainer"
+    coord._source_slice_article_id = "article_1"
+    coord._source_slice_segment_size = 5
     coord._source_slice_trainer_id = "trainer_001"
     coord._source_slice_group_size = 20
+    coord._source_slice_title = "练单A"
     coord._visited_slices = {1, 2, 3}
     bridge = _make_bridge()
     coord.exit_slice_mode(bridge)
     assert coord._source_slice_backend is None
+    assert coord._source_slice_article_id == ""
+    assert coord._source_slice_segment_size == 0
     assert coord._source_slice_trainer_id == ""
     assert coord._source_slice_group_size == 0
+    assert coord._source_slice_title == ""
     assert coord._visited_slices == set()
     typing.exit_slice_mode.assert_called_once()
     bridge.sliceModeChanged.emit.assert_called_once()
@@ -1041,12 +1047,11 @@ def test_navigate_local_article_sets_slice_size_on_context():
     coord, typing, text_adapter, _, _, _ = _make_coordinator()
     coord._source_slice_title = "文章"
     coord.source_slice_segment_size = 100
-    typing._session_context = MagicMock()
     result = _make_segment_result(index=2, total=5, content="第二段")
     text_adapter.get_text_session_segment.return_value = result
     bridge = _make_bridge()
     coord._navigate_local_article(bridge, 2)
-    assert typing._session_context._slice_size == 100
+    typing.set_session_slice_size.assert_called_once_with(100)
 
 
 # ============================================================

@@ -804,6 +804,11 @@ class TypingAdapter(QObject):
         if self._session_context:
             self._session_context.current_slice_content = content
 
+    def set_session_slice_size(self, slice_size: int) -> None:
+        """设置分片大小（local_article 导航时使用）。"""
+        if self._session_context:
+            self._session_context._slice_size = slice_size
+
     def collect_slice_result(self, stats: dict | None) -> None:
         """代理：收集当前片的 SessionStat 快照。"""
         if self._session_context:
