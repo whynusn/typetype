@@ -49,6 +49,7 @@ def _make_segment_result(index=1, total=5, content="测试文本内容"):
 # Initialization
 # ============================================================
 
+
 def test_init_sets_defaults():
     coord, _, _, _, _, _ = _make_coordinator()
     assert coord.pending_standard_source_key == ""
@@ -80,6 +81,7 @@ def test_init_accepts_none_adapters():
 # clear_text_id
 # ============================================================
 
+
 def test_clear_text_id_clears_active_and_sets_text_id_zero():
     coord, typing, text_adapter, _, _, _ = _make_coordinator()
     bridge = _make_bridge()
@@ -91,6 +93,7 @@ def test_clear_text_id_clears_active_and_sets_text_id_zero():
 # ============================================================
 # clear_all_sources
 # ============================================================
+
 
 def test_clear_all_sources_clears_all_adapters():
     coord, typing, text_adapter, wenlai, local_article, trainer = _make_coordinator()
@@ -113,6 +116,7 @@ def test_clear_all_sources_skips_none_adapters():
 # reset_session_for_standard_load
 # ============================================================
 
+
 def test_reset_session_for_standard_load_resets_context_and_text_id():
     coord, typing, _, _, _, _ = _make_coordinator()
     bridge = _make_bridge()
@@ -125,6 +129,7 @@ def test_reset_session_for_standard_load_resets_context_and_text_id():
 # ============================================================
 # prepare_for_wenlai_load
 # ============================================================
+
 
 def test_prepare_for_wenlai_load_clears_slice_and_other_sources():
     coord, typing, text_adapter, wenlai, local_article, trainer = _make_coordinator()
@@ -152,6 +157,7 @@ def test_prepare_for_wenlai_load_skips_exit_slice_when_not_slice_mode():
 # ============================================================
 # prepare_for_trainer_load
 # ============================================================
+
 
 def test_prepare_for_trainer_load_clears_slice_and_sets_up_trainer():
     coord, typing, text_adapter, wenlai, local_article, trainer = _make_coordinator()
@@ -181,6 +187,7 @@ def test_prepare_for_trainer_load_skips_local_article_if_not_loading():
 # prepare_for_local_article_load
 # ============================================================
 
+
 def test_prepare_for_local_article_load_clears_slice_and_other_sources():
     coord, typing, text_adapter, wenlai, local_article, trainer = _make_coordinator()
     typing.is_slice_mode.return_value = True
@@ -197,6 +204,7 @@ def test_prepare_for_local_article_load_clears_slice_and_other_sources():
 # ============================================================
 # on_standard_text_loaded
 # ============================================================
+
 
 def test_on_standard_text_loaded_with_positive_text_id_sets_network_session():
     coord, typing, _, _, _, _ = _make_coordinator()
@@ -253,6 +261,7 @@ def test_on_standard_text_loaded_strips_newlines():
 # ============================================================
 # on_wenlai_text_loaded
 # ============================================================
+
 
 def test_on_wenlai_text_loaded_exits_slice_mode_if_needed():
     coord, typing, text_adapter, wenlai, _, _ = _make_coordinator()
@@ -321,6 +330,7 @@ def test_on_wenlai_text_loaded_emits_signals():
 # ============================================================
 # on_trainer_segment_loaded
 # ============================================================
+
 
 def test_on_trainer_segment_loaded_initial_load_sets_up_slice():
     coord, typing, text_adapter, _, _, trainer = _make_coordinator()
@@ -428,6 +438,7 @@ def test_on_trainer_segment_loaded_with_zero_index_skips_slice_setup():
 # on_local_article_segment_loaded
 # ============================================================
 
+
 def test_on_local_article_segment_loaded_initial_load():
     coord, typing, text_adapter, _, local_article, _ = _make_coordinator()
     bridge = _make_bridge()
@@ -490,6 +501,7 @@ def test_on_local_article_segment_loaded_zero_index_skips_slice():
 # load_current_slice
 # ============================================================
 
+
 def test_load_current_slice_loads_by_index():
     coord, typing, _, _, _, _ = _make_coordinator()
     typing.slice_index = 2
@@ -541,6 +553,7 @@ def test_load_current_slice_index_greater_than_total_returns_early():
 # ============================================================
 # load_next_slice
 # ============================================================
+
 
 def test_load_next_slice_advances_index():
     coord, typing, _, _, _, _ = _make_coordinator()
@@ -632,6 +645,7 @@ def test_load_next_slice_random_mode_single_slice_does_nothing():
 # load_prev_slice
 # ============================================================
 
+
 def test_load_prev_slice_goes_back():
     coord, typing, _, _, _, _ = _make_coordinator()
     typing.slice_index = 3
@@ -686,6 +700,7 @@ def test_load_prev_slice_local_article_backend():
 # ============================================================
 # load_random_slice
 # ============================================================
+
 
 def test_load_random_slice_selects_unvisited():
     with _patch_random_choice(3):
@@ -762,6 +777,7 @@ def test_load_random_slice_local_article_backend():
 # ============================================================
 # handle_slice_retype
 # ============================================================
+
 
 def test_handle_slice_retype_retype_action_non_trainer_local():
     coord, typing, _, _, _, _ = _make_coordinator()
@@ -845,6 +861,7 @@ def test_handle_slice_retype_unknown_action_does_nothing():
 # exit_slice_mode
 # ============================================================
 
+
 def test_exit_slice_mode_clears_state():
     coord, typing, _, _, _, _ = _make_coordinator()
     coord._source_slice_backend = "trainer"
@@ -865,6 +882,7 @@ def test_exit_slice_mode_clears_state():
 # ============================================================
 # shuffle_current_slice
 # ============================================================
+
 
 def test_shuffle_current_slice_emits_shuffled_text():
     coord, typing, text_adapter, _, _, _ = _make_coordinator()
@@ -895,6 +913,7 @@ def test_shuffle_current_slice_no_shuffled_text_returns_early():
 # ============================================================
 # Properties
 # ============================================================
+
 
 def test_source_slice_backend_property():
     coord, _, _, _, _, _ = _make_coordinator()
@@ -957,6 +976,7 @@ def test_source_slice_group_size_property():
 # Static helpers
 # ============================================================
 
+
 def test_strip_newlines_removes_newlines():
     assert TextLoadCoordinator._strip_newlines("测试\n文本\r\n") == "测试文本"
     assert TextLoadCoordinator._strip_newlines("无换行") == "无换行"
@@ -989,6 +1009,7 @@ def test_build_local_sender_content_empty_content_returns_empty():
 # ============================================================
 # _navigate_local_article (indirectly through public methods)
 # ============================================================
+
 
 def test_navigate_local_article_with_none_segment_returns_early():
     coord, typing, text_adapter, _, _, _ = _make_coordinator()
@@ -1032,6 +1053,7 @@ def test_navigate_local_article_sets_slice_size_on_context():
 # _cache_current_content
 # ============================================================
 
+
 def test_cache_current_content_calls_adapter():
     coord, typing, _, _, _, _ = _make_coordinator()
     coord._cache_current_content("缓存内容")
@@ -1041,6 +1063,7 @@ def test_cache_current_content_calls_adapter():
 # ============================================================
 # Edge cases for prepare methods with None adapters
 # ============================================================
+
 
 def test_prepare_for_wenlai_load_with_none_local_article_and_trainer():
     coord, typing, _, _, _, _ = _make_coordinator(
@@ -1078,6 +1101,7 @@ def test_prepare_for_local_article_load_with_none_wenlai_and_trainer():
 # on_wenlai_text_loaded without wenlai adapter (current_text=None)
 # ============================================================
 
+
 def test_on_wenlai_text_loaded_without_wenlai_adapter():
     coord, typing, text_adapter, _, _, _ = _make_coordinator(with_wenlai=False)
     bridge = _make_bridge()
@@ -1088,6 +1112,7 @@ def test_on_wenlai_text_loaded_without_wenlai_adapter():
 # ============================================================
 # load_next_slice boundary: local_article with None result
 # ============================================================
+
 
 def test_load_next_slice_local_article_none_result_returns_early():
     coord, typing, text_adapter, _, _, _ = _make_coordinator()
@@ -1104,6 +1129,7 @@ def test_load_next_slice_local_article_none_result_returns_early():
 # load_prev_slice boundary: local_article with None result
 # ============================================================
 
+
 def test_load_prev_slice_local_article_none_result_returns_early():
     coord, typing, text_adapter, _, _, _ = _make_coordinator()
     coord._source_slice_backend = "local_article"
@@ -1117,6 +1143,7 @@ def test_load_prev_slice_local_article_none_result_returns_early():
 # ============================================================
 # Helper
 # ============================================================
+
 
 def _patch_random_choice(return_value):
     """Context manager to patch random.choice to return a predictable value."""
