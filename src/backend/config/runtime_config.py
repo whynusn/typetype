@@ -1,4 +1,3 @@
-import fcntl
 import json
 import os
 import shutil
@@ -13,6 +12,11 @@ except ImportError:
     fcntl = None  # ponytail: Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 =======
 >>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # ponytail: Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
