@@ -154,12 +154,18 @@ class RuntimeConfig:
 
     base_url: str = "http://127.0.0.1:8080"
 <<<<<<< HEAD
+<<<<<<< HEAD
     api_timeout: float = (
         20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
     )
 =======
     api_timeout: float = 20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
 >>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
+=======
+    api_timeout: float = (
+        20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
+    )
+>>>>>>> 6ed7bdf (feat: score_submit_worker 异步队列重写 + style: ruff format 5 files)
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -170,12 +176,18 @@ class RuntimeConfig:
         default_factory=list
     )  # ponytail: dynamic server data, never persisted
 <<<<<<< HEAD
+<<<<<<< HEAD
     ui: dict[str, Any] = field(
         default_factory=dict
     )  # UI 配置（主题/外观等），RinUI 通过桥写入
 =======
     ui: dict[str, Any] = field(default_factory=dict)  # UI 配置（主题/外观等），RinUI 通过桥写入
 >>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
+=======
+    ui: dict[str, Any] = field(
+        default_factory=dict
+    )  # UI 配置（主题/外观等），RinUI 通过桥写入
+>>>>>>> 6ed7bdf (feat: score_submit_worker 异步队列重写 + style: ruff format 5 files)
     _config_path: str | None = field(default=None, repr=False)
 
     @classmethod
@@ -354,6 +366,15 @@ class RuntimeConfig:
 
 =======
 >>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        if value is None or value == "":
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
     @staticmethod
     def _safe_int(value, default: int = 0) -> int:
         if value is None or value == "":

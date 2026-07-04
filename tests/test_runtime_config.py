@@ -78,10 +78,14 @@ def test_runtime_config_source_options_include_catalog_items():
     assert runtime_config.get_text_source_options() == [
         {"key": "builtin_demo", "label": "内置示例", "isLocal": True},
 <<<<<<< HEAD
+<<<<<<< HEAD
         {"key": "cloud_001", "label": "云端文章", "isLocal": False},
 =======
         {"key": "cloud_001", "label": "云端文章"},
 >>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
+=======
+        {"key": "cloud_001", "label": "云端文章", "isLocal": False},
+>>>>>>> 6ed7bdf (feat: score_submit_worker 异步队列重写 + style: ruff format 5 files)
     ]
 
 
@@ -327,12 +331,18 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
     init = {
         "base_url": "http://old",
 <<<<<<< HEAD
+<<<<<<< HEAD
         "text_sources": {
             "a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}
         },
 =======
         "text_sources": {"a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}},
 >>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
+=======
+        "text_sources": {
+            "a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}
+        },
+>>>>>>> 6ed7bdf (feat: score_submit_worker 异步队列重写 + style: ruff format 5 files)
     }
     user_config.write_text(json.dumps(init), encoding="utf-8")
     monkeypatch.setattr(
