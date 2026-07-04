@@ -9,14 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .bridge import Bridge
-
-if TYPE_CHECKING:
     from .adapters.local_article_adapter import LocalArticleAdapter
     from .adapters.text_adapter import TextAdapter
     from .adapters.trainer_adapter import TrainerAdapter
     from .adapters.typing_adapter import TypingAdapter
     from .adapters.wenlai_adapter import WenlaiAdapter
+    from .bridge import Bridge
 
 
 class TextLoadCoordinator:
@@ -294,6 +292,7 @@ class TextLoadCoordinator:
 
         backend = self._source_slice_backend
         if backend == "trainer" and self._source_slice_trainer_id:
+            assert self._trainer is not None
             # 使用 next_segment() 而不是 loadTrainerSegment()
             # next_segment() 只更新 session 中的 index，不会重新加载词库
             # 这样可以保持打乱后的顺序
@@ -328,6 +327,7 @@ class TextLoadCoordinator:
 
         backend = self._source_slice_backend
         if backend == "trainer" and self._source_slice_trainer_id:
+            assert self._trainer is not None
             # 使用 setTrainerSegment() 而不是 loadTrainerSegment()
             # setTrainerSegment() 只更新 session 中的 index，不会重新加载词库
             # 这样可以保持打乱后的顺序
@@ -347,6 +347,7 @@ class TextLoadCoordinator:
 
         backend = self._source_slice_backend
         if backend == "trainer":
+            assert self._trainer is not None
             self._trainer.loadPreviousTrainerSegment()
         elif backend == "local_article":
             prev_idx = self._typing.slice_index - 1
@@ -366,6 +367,7 @@ class TextLoadCoordinator:
 
         if action == "shuffle":
             if backend == "trainer":
+                assert self._trainer is not None
                 self._trainer.shuffleCurrentTrainerGroup()
             else:
                 self.shuffle_current_slice(bridge)
@@ -373,6 +375,7 @@ class TextLoadCoordinator:
 
         if action == "retype":
             if backend == "trainer":
+                assert self._trainer is not None
                 self._trainer.loadCurrentTrainerSegment()
             elif backend == "local_article":
                 self._navigate_local_article(bridge, current)

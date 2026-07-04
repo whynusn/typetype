@@ -88,7 +88,9 @@ class RegistryTextProvider:
             if max_bytes > 0 and len(response.content) > max_bytes:
                 return None
             return response.json()
-        except Exception:
+        except httpx.HTTPError:
+            return None
+        except (ValueError, TypeError, OSError):
             return None
 
     @staticmethod
