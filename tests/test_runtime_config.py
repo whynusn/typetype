@@ -9,6 +9,11 @@ from src.backend.config.runtime_config import RuntimeConfig
 
 
 def test_runtime_config_from_dict_builds_sources_and_default_key():
+    from src.backend.config.text_source_config import (
+        LeaderboardMode,
+        Loader,
+    )
+
     runtime_config = RuntimeConfig._from_dict(
         {
             "base_url": "https://example.com",
@@ -35,10 +40,14 @@ def test_runtime_config_from_dict_builds_sources_and_default_key():
     assert local_source is not None
     assert local_source.label == "本地示例"
     assert local_source.local_path == "resources/texts/demo.txt"
+    assert local_source.loader == Loader.LOCAL_FILE
+    assert local_source.leaderboard_mode == LeaderboardMode.NONE
 
     remote_source = runtime_config.get_text_source("remote")
     assert remote_source is not None
-    assert remote_source.has_ranking is True
+    # 旧 has_ranking=True 对远程源映射为 SERVER_RESOLVED
+    assert remote_source.loader == Loader.REMOTE_API
+    assert remote_source.leaderboard_mode == LeaderboardMode.SERVER_RESOLVED
 
 
 def test_runtime_config_source_options_include_catalog_items():
@@ -67,7 +76,7 @@ def test_runtime_config_source_options_include_catalog_items():
     )
 
     assert runtime_config.get_text_source_options() == [
-        {"key": "builtin_demo", "label": "内置示例"},
+        {"key": "builtin_demo", "label": "内置示例", "isLocal": True},
         {"key": "cloud_001", "label": "云端文章"},
     ]
 
@@ -259,12 +268,17 @@ def test_save_to_file_persists_text_sources_and_default_key(
     config = RuntimeConfig.load_from_file(str(user_config))
     config.text_source_config.default_key = "new_default"
     config.api_timeout = 99.0
-    from src.backend.config.text_source_config import TextSourceEntry, SourceType
+    from src.backend.config.text_source_config import (
+        LeaderboardMode,
+        Loader,
+        TextSourceEntry,
+    )
 
     config.text_source_config.sources["new_src"] = TextSourceEntry(
         key="new_src",
         label="New",
-        source_type=SourceType.LOCAL_PRACTICE,
+        loader=Loader.LOCAL_FILE,
+        leaderboard_mode=LeaderboardMode.NONE,
         local_path="/new.txt",
     )
 
@@ -278,33 +292,37 @@ def test_save_to_file_persists_text_sources_and_default_key(
 
 
 def test_registry_source_type_survives_to_dict_round_trip():
-    from src.backend.config.text_source_config import SourceType
+    from src.backend.config.text_source_config import LeaderboardMode, Loader
 
     config = RuntimeConfig._from_dict(
         {
             "text_sources": {
                 "registry_test": {
                     "label": "Registry",
-                    "source_type": "registry",
+                    "loader": "registry",
+                    "leaderboard_mode": "server_resolved",
                 },
             },
         }
     )
     rt = config._to_dict()
-    assert rt["text_sources"]["registry_test"]["source_type"] == "registry"
+    assert rt["text_sources"]["registry_test"]["loader"] == "registry"
     config2 = RuntimeConfig._from_dict(rt)
     assert config2.get_text_source("registry_test") is not None
-    assert config2.get_text_source("registry_test").source_type == SourceType.REGISTRY
+    assert config2.get_text_source("registry_test").loader == Loader.REGISTRY
+    assert config2.get_text_source("registry_test").leaderboard_mode == (
+        LeaderboardMode.SERVER_RESOLVED
+    )
 
 
 def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
-    from src.backend.config.text_source_config import SourceType
+    from src.backend.config.text_source_config import Loader
 
     user_config = tmp_path / "user" / "config.json"
     user_config.parent.mkdir(parents=True)
     init = {
         "base_url": "http://old",
-        "text_sources": {"a": {"label": "A", "source_type": "local_practice"}},
+        "text_sources": {"a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}},
     }
     user_config.write_text(json.dumps(init), encoding="utf-8")
     monkeypatch.setattr(
@@ -316,10 +334,11 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
     updated = {
         "base_url": "http://old",
         "text_sources": {
-            "a": {"label": "A", "source_type": "local_practice"},
+            "a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"},
             "b": {
                 "label": "B",
-                "source_type": "local_practice",
+                "loader": "local_file",
+                "leaderboard_mode": "none",
                 "local_path": "/new.txt",
             },
         },
@@ -329,7 +348,7 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
     config.reload()
     assert "b" in config.text_source_config.sources
     assert config.get_text_source("b") is not None
-    assert config.get_text_source("b").source_type == SourceType.LOCAL_PRACTICE
+    assert config.get_text_source("b").loader == Loader.LOCAL_FILE
 
 
 def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
@@ -355,7 +374,10 @@ def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
 
 def test_infer_source_type_backward_compat():
     """Legacy configs without source_type round-trip without error."""
-    from src.backend.config.text_source_config import SourceType
+    from src.backend.config.text_source_config import (
+        LeaderboardMode,
+        Loader,
+    )
 
     config = RuntimeConfig._from_dict(
         {
@@ -373,15 +395,18 @@ def test_infer_source_type_backward_compat():
 
     no_path = config.get_text_source("no_path")
     assert no_path is not None
-    assert no_path.source_type == SourceType.NETWORK
+    assert no_path.loader == Loader.REMOTE_API
+    assert no_path.leaderboard_mode == LeaderboardMode.SERVER_RESOLVED
 
     with_path = config.get_text_source("with_path")
     assert with_path is not None
-    assert with_path.source_type == SourceType.LOCAL_PRACTICE
+    assert with_path.loader == Loader.LOCAL_FILE
+    assert with_path.leaderboard_mode == LeaderboardMode.NONE
 
     ranking = config.get_text_source("with_ranking")
     assert ranking is not None
-    assert ranking.source_type == SourceType.LOCAL_RANKED
+    assert ranking.loader == Loader.LOCAL_FILE
+    assert ranking.leaderboard_mode == LeaderboardMode.LOCAL_LOOKUP
 
 
 def test_update_text_source_adds_entry(monkeypatch, tmp_path: Path):
@@ -397,7 +422,10 @@ def test_update_text_source_adds_entry(monkeypatch, tmp_path: Path):
         lambda: user_config,
     )
 
-    from src.backend.config.text_source_config import SourceType
+    from src.backend.config.text_source_config import (
+        LeaderboardMode,
+        Loader,
+    )
 
     config = RuntimeConfig.load_from_file(str(user_config))
     config.update_text_source("my_text", "我的文本", "/tmp/my.txt")
@@ -406,13 +434,15 @@ def test_update_text_source_adds_entry(monkeypatch, tmp_path: Path):
     assert entry is not None
     assert entry.label == "我的文本"
     assert entry.local_path == "/tmp/my.txt"
-    assert entry.source_type == SourceType.LOCAL_PRACTICE
+    assert entry.loader == Loader.LOCAL_FILE
+    assert entry.leaderboard_mode == LeaderboardMode.NONE
     assert config.default_text_source_key == "my_text"
 
     saved = json.loads(user_config.read_text(encoding="utf-8"))
     assert "my_text" in saved["text_sources"]
     assert saved["text_sources"]["my_text"]["label"] == "我的文本"
-    assert saved["text_sources"]["my_text"]["source_type"] == "local_practice"
+    assert saved["text_sources"]["my_text"]["loader"] == "local_file"
+    assert saved["text_sources"]["my_text"]["leaderboard_mode"] == "none"
 
 
 def test_update_text_source_reuses_existing_default_key(monkeypatch, tmp_path: Path):

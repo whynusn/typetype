@@ -1,7 +1,32 @@
-<!-- 状态: active | 最后验证: 2026-06-04 -->
+<!-- 状态: active | 最后验证: 2026-07-04 -->
 # 如何添加新的文本来源（Guide）
 
 > 目标：添加一个从新位置加载文本的功能（如 PDF、Markdown、API 端点）。
+
+---
+
+## 文本来源的二维模型
+
+TypeType 的文本来源由两个正交维度定义：
+
+- **`loader`**：数据从哪来 — 决定 `TextSourceGateway` 路由到哪个 Provider
+- **`leaderboard_mode`**：成绩怎么处理 — 决定 `text_id` 解析路径
+
+### 可用的 loader 值
+
+| 值 | 含义 | 已实现的 Provider |
+|----|------|------------------|
+| `local_file` | 读本地文件 | `LocalTextLoader` |
+| `remote_api` | 调用服务端 API | `RemoteTextProvider` |
+| `registry` | CDN 注册表 | `RegistryTextProvider` |
+
+### 可用的 leaderboard_mode 值
+
+| 值 | text_id 来源 |
+|----|-------------|
+| `none` | 不提交 |
+| `server_resolved` | 服务端直接返回 |
+| `local_lookup` | 本地内容 hash 回查 |
 
 ---
 
@@ -30,23 +55,23 @@ class NewSourceProvider(Protocol):
 from ports.new_source import NewSourceProvider
 
 class NewSourceRepository(NewSourceProvider):
-    def load_text(self, source_id: str) -> str:
+    def load_text(self, source_id: str):
         # 你的实现
         ...
     
-    def list_sources(self) -> list[TextCatalogItem]:
+    def list_sources(self):
         return [...]
 ```
 
-### 3. 在 `config/text_source_config.py` 添加配置
+### 3. 在 `config.example.json` 添加配置
 
-```python
-# config.example.json 新增
+```json
 {
     "text_sources": {
         "new_source": {
-            "type": "new_source",
-            "enabled": true
+            "label": "新来源",
+            "loader": "remote_api",
+            "leaderboard_mode": "server_resolved"
         }
     }
 }
@@ -55,17 +80,17 @@ class NewSourceRepository(NewSourceProvider):
 ### 4. 在 `text_source_gateway.py` 添加路由
 
 ```python
-# 在 TextSourceGateway.plan_load() 中添加
-elif plan.source_entry.source_key == "new_source":
-    return self._route_to_new_source(plan)
+# 在 TextSourceGateway.load_from_plan() 中添加
+if source.loader == Loader.NEW_LOADER:
+    return self._route_to_new_source(source)
 ```
 
 ### 5. 在 `main.py` / `container.py` 装配
 
 ```python
 # container.py
-new_source_repo = NewSourceRepository(runtime_config)
-gateways.new_source = NewSourceGateway(new_source_repo, ...)
+new_source_provider = NewSourceRepository(runtime_config)
+# 在 TextSourceGateway 构造时注入
 ```
 
 ### 6. 写测试
@@ -77,7 +102,7 @@ gateways.new_source = NewSourceGateway(new_source_repo, ...)
 
 ### 7. 更新文档
 
-- `docs/reference/api-endpoints.md`（如果涉及 API 端点）
+- `docs/reference/config.md`（新来源的字段）
 - `CHANGELOG.md`（用户可见变更）
 
 ---
@@ -88,3 +113,4 @@ gateways.new_source = NewSourceGateway(new_source_repo, ...)
 2. **不要**让 Port 依赖 Qt 类型——Port 是纯 Python 协议
 3. **不要**在主线程加载文本——统一走 Worker
 4. 新增 Port 后记得在 `container.py` 中正确装配
+5. `leaderboard_mode` 仅影响 text_id 决策，不影响加载路径

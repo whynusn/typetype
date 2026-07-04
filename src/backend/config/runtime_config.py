@@ -1,9 +1,10 @@
+import fcntl
 import json
 import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
@@ -13,7 +14,11 @@ from .text_source_config import TextSourceConfig, TextSourceEntry
 
 @dataclass
 class WenlaiConfig:
-    """晴发文服务配置。"""
+    """晴发文服务配置。
+
+    注意：_safe_int/_safe_str 负责 JSON 类型转换（_from_dict 中调用），
+    __post_init__ 负责范围校验。两者分工不同，并非重复。
+    """
 
     base_url: str = "https://qingfawen.fcxxz.com"
     length: int = 0
@@ -136,7 +141,7 @@ class RuntimeConfig:
     """运行时配置，从 JSON 文件加载。"""
 
     base_url: str = "http://127.0.0.1:8080"
-    api_timeout: float = 20.0
+    api_timeout: float = 20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -146,6 +151,7 @@ class RuntimeConfig:
     catalog_items: list[TextCatalogItem] = field(
         default_factory=list
     )  # ponytail: dynamic server data, never persisted
+    ui: dict[str, Any] = field(default_factory=dict)  # UI 配置（主题/外观等），RinUI 通过桥写入
     _config_path: str | None = field(default=None, repr=False)
 
     @classmethod
@@ -288,6 +294,10 @@ class RuntimeConfig:
             max_chars=cls._safe_int(ai_data.get("max_chars"), 300),
         )
 
+        ui_data = data.get("ui", {})
+        if not isinstance(ui_data, dict):
+            ui_data = {}
+
         return cls(
             base_url=base_url,
             api_timeout=api_timeout,
@@ -296,7 +306,17 @@ class RuntimeConfig:
             registry=registry,
             ai=ai,
             text_session=text_session,
+            ui=ui_data,
         )
+
+    def _ui_get(self, *keys: str, default: Any = "") -> Any:
+        """安全读取嵌套 ui 字段，如 config._ui_get("reader_font_path")。"""
+        val: Any = self.ui
+        for key in keys:
+            if not isinstance(val, dict):
+                return default
+            val = val.get(key, default)
+        return val
 
     @staticmethod
     def _safe_int(value, default: int = 0) -> int:
@@ -335,12 +355,13 @@ class RuntimeConfig:
 
     def update_text_source(self, key: str, label: str, local_path: str) -> None:
         """添加或更新一个本地文本源并持久化到 config.json。"""
-        from .text_source_config import TextSourceEntry, SourceType
+        from .text_source_config import Loader, LeaderboardMode, TextSourceEntry
 
         self.text_source_config.sources[key] = TextSourceEntry(
             key=key,
             label=label,
-            source_type=SourceType.LOCAL_PRACTICE,
+            loader=Loader.LOCAL_FILE,
+            leaderboard_mode=LeaderboardMode.NONE,
             local_path=local_path,
         )
         if not self.text_source_config.default_key:
@@ -354,29 +375,34 @@ class RuntimeConfig:
         self._save_to_file()
 
     def _save_to_file(self) -> None:
-        """将当前配置持久化到 config.json。"""
+        """将当前配置持久化到 config.json。
+
+        - 以 _to_dict() 为基写入，确保所有已知字段一致
+        - 合并已存在文件中 _to_dict() 不识别的未知字段（前向兼容）
+        - 使用文件锁（fcntl.lockf）防止并发写入冲突
+        """
         target_path = user_config_path()
         try:
+            new_data = self._to_dict()
+
+            # 合并已存在文件的未知字段（前向兼容）
             source_path = Path(self._config_path) if self._config_path else target_path
             if source_path.exists():
                 with source_path.open(encoding="utf-8") as f:
-                    data = json.load(f)
-            elif target_path.exists():
-                with target_path.open(encoding="utf-8") as f:
-                    data = json.load(f)
-            else:
-                data = self._to_dict()
-            data["base_url"] = self.base_url
-            data["default_text_source_key"] = self.default_text_source_key
-            data["api_timeout"] = self.api_timeout
-            data["text_sources"] = self._to_dict()["text_sources"]
-            data["wenlai"] = self._to_dict()["wenlai"]
-            data["ai"] = self._to_dict()["ai"]
-            data["registry"] = self._to_dict()["registry"]
-            data["text_session"] = self._to_dict()["text_session"]
+                    existing = json.load(f)
+                for k, v in existing.items():
+                    if k not in new_data:
+                        new_data[k] = v
+
             target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 文件锁：防止 RinUI AppUIConfigManager 等并发写入冲突
             with target_path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=4)
+                try:
+                    fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                except (OSError, AttributeError):
+                    pass  # 非 Unix 平台或锁不可用时降级
+                json.dump(new_data, f, ensure_ascii=False, indent=4)
             self._config_path = str(target_path)
         except Exception as e:
             log_error(f"[RuntimeConfig] 持久化配置失败：{e}")
@@ -393,6 +419,15 @@ class RuntimeConfig:
             self.registry = updated.registry
             self.ai = updated.ai
             self.text_session = updated.text_session
+            self.ui = updated.ui
+
+    def update_ui_config(self, **kwargs: Any) -> None:
+        """更新 UI 配置字段并持久化。
+
+        用法: runtime_config.update_ui_config(reader_font_path="/path")
+        """
+        self.ui.update(kwargs)
+        self._save_to_file()
 
     def _to_dict(self) -> dict:
         return {
@@ -402,9 +437,9 @@ class RuntimeConfig:
             "text_sources": {
                 key: {
                     "label": source.label,
-                    "source_type": source.source_type.value,
+                    "loader": source.loader.value,
+                    "leaderboard_mode": source.leaderboard_mode.value,
                     **({"local_path": source.local_path} if source.local_path else {}),
-                    **({"has_ranking": True} if source.has_ranking else {}),
                 }
                 for key, source in self.text_source_config.sources.items()
             },
@@ -437,6 +472,7 @@ class RuntimeConfig:
                 "small_file_threshold": self.text_session.small_file_threshold,
                 "full_shuffle_threshold": self.text_session.full_shuffle_threshold,
             },
+            "ui": self.ui,
         }
 
     def update_ai_config(

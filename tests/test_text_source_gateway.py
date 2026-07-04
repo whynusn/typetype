@@ -1,7 +1,11 @@
 from unittest.mock import MagicMock
 
 from src.backend.application.gateways.text_source_gateway import TextSourceGateway
-from src.backend.config.text_source_config import SourceType, TextSourceEntry
+from src.backend.config.text_source_config import (
+    LeaderboardMode,
+    Loader,
+    TextSourceEntry,
+)
 from src.backend.models.dto.fetched_text import FetchedText
 from src.backend.ports.local_text_loader import LocalTextLoader
 from src.backend.ports.text_provider import TextProvider
@@ -101,13 +105,15 @@ def test_load_from_plan_local_source_with_server_match():
 
 def test_load_from_plan_uses_text_provider_for_remote_source():
     gateway, runtime_config, text_provider, local_text_loader = _build_gateway(
-        TextSourceEntry(key="remote", label="Remote", source_type=SourceType.NETWORK)
+        TextSourceEntry(
+            key="remote", label="Remote", loader=Loader.REMOTE_API
+        )
     )
     text_provider.fetch_text_by_key.return_value = FetchedText(
         content="remote text", text_id=789
     )
     source = TextSourceEntry(
-        key="remote", label="Remote", source_type=SourceType.NETWORK
+        key="remote", label="Remote", loader=Loader.REMOTE_API
     )
 
     success, fetched, error = gateway.load_from_plan(source)
@@ -153,12 +159,18 @@ def test_load_from_plan_registry_source_with_provider():
     )
     gateway, _, _, _, _ = _build_gateway_with_registry(
         TextSourceEntry(
-            key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+            key="reg_test",
+            label="Registry",
+            loader=Loader.REGISTRY,
+            leaderboard_mode=LeaderboardMode.SERVER_RESOLVED,
         ),
         registry_provider=reg_provider,
     )
     source = TextSourceEntry(
-        key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+        key="reg_test",
+        label="Registry",
+        loader=Loader.REGISTRY,
+        leaderboard_mode=LeaderboardMode.SERVER_RESOLVED,
     )
 
     success, fetched, error = gateway.load_from_plan(source)
@@ -175,12 +187,18 @@ def test_load_from_plan_registry_source_with_provider():
 def test_load_from_plan_registry_source_no_provider():
     gateway, _, _, _, _ = _build_gateway_with_registry(
         TextSourceEntry(
-            key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+            key="reg_test",
+            label="Registry",
+            loader=Loader.REGISTRY,
+            leaderboard_mode=LeaderboardMode.SERVER_RESOLVED,
         ),
         registry_provider=None,
     )
     source = TextSourceEntry(
-        key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+        key="reg_test",
+        label="Registry",
+        loader=Loader.REGISTRY,
+        leaderboard_mode=LeaderboardMode.SERVER_RESOLVED,
     )
 
     success, fetched, error = gateway.load_from_plan(source)
@@ -195,12 +213,18 @@ def test_load_from_plan_registry_source_fetch_fails():
     reg_provider.fetch_text_by_key.return_value = None
     gateway, _, _, _, _ = _build_gateway_with_registry(
         TextSourceEntry(
-            key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+            key="reg_test",
+            label="Registry",
+            loader=Loader.REGISTRY,
+            leaderboard_mode=LeaderboardMode.SERVER_RESOLVED,
         ),
         registry_provider=reg_provider,
     )
     source = TextSourceEntry(
-        key="reg_test", label="Registry", source_type=SourceType.REGISTRY
+        key="reg_test",
+        label="Registry",
+        loader=Loader.REGISTRY,
+        leaderboard_mode=LeaderboardMode.SERVER_RESOLVED,
     )
 
     success, fetched, error = gateway.load_from_plan(source)

@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
-from src.backend.config.text_source_config import SourceType
+from src.backend.config.text_source_config import (
+    LeaderboardMode,
+    Loader,
+)
 from src.backend.models.dto.fetched_text import FetchedText
 
 
@@ -8,9 +11,9 @@ from src.backend.models.dto.fetched_text import FetchedText
 class DummyTextSourceEntry:
     key: str
     label: str = ""
-    source_type: SourceType = SourceType.LOCAL_PRACTICE
+    loader: Loader = Loader.LOCAL_FILE
+    leaderboard_mode: LeaderboardMode = LeaderboardMode.NONE
     local_path: str | None = None
-    has_ranking: bool = False
 
 
 class DummyTextSourceGateway:
@@ -76,7 +79,7 @@ def test_load_non_ranking_local_text_does_not_request_server_text_id_lookup():
             key="builtin_demo",
             label="本地示例",
             local_path="resources/texts/builtin_demo.txt",
-            has_ranking=False,
+            leaderboard_mode=LeaderboardMode.NONE,
         )
     )
     gateway.set_success_result("local text", text_id=None)
@@ -97,9 +100,9 @@ def test_load_ranking_local_text_keeps_source_key_for_server_text_id_lookup():
         DummyTextSourceEntry(
             key="fst_500",
             label="前五百",
-            source_type=SourceType.LOCAL_RANKED,
+            loader=Loader.LOCAL_FILE,
+            leaderboard_mode=LeaderboardMode.LOCAL_LOOKUP,
             local_path="resources/texts/前五百.txt",
-            has_ranking=True,
         )
     )
     gateway.set_success_result("local ranking text", text_id=None)

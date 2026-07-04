@@ -12,7 +12,6 @@ from ...application.usecases.load_text_usecase import (
 )
 from ...application.usecases.text_session_usecase import TextSessionUseCase
 from ...config.runtime_config import RuntimeConfig
-from ...config.text_source_config import SourceType
 from ...integration.file_segment_provider import FileSegmentProvider
 from ...models.dto.text_session import SegmentResult, TextHandle, TextKind
 from ...workers.text_load_worker import TextLoadWorker
@@ -273,8 +272,7 @@ class TextAdapter(QObject):
             {
                 "key": source.key,
                 "label": source.label,
-                "isLocal": source.source_type
-                in (SourceType.LOCAL_RANKED, SourceType.LOCAL_PRACTICE),
+                "isLocal": source.is_local,
             }
             for source in self._runtime_config.text_source_config.sources.values()
         ]
