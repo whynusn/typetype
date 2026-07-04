@@ -1,14 +1,18 @@
+import fcntl
 import json
 import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
+<<<<<<< HEAD
 
 try:
     import fcntl
 except ImportError:
     fcntl = None  # ponytail: Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
+=======
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
@@ -145,9 +149,13 @@ class RuntimeConfig:
     """运行时配置，从 JSON 文件加载。"""
 
     base_url: str = "http://127.0.0.1:8080"
+<<<<<<< HEAD
     api_timeout: float = (
         20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
     )
+=======
+    api_timeout: float = 20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -157,9 +165,13 @@ class RuntimeConfig:
     catalog_items: list[TextCatalogItem] = field(
         default_factory=list
     )  # ponytail: dynamic server data, never persisted
+<<<<<<< HEAD
     ui: dict[str, Any] = field(
         default_factory=dict
     )  # UI 配置（主题/外观等），RinUI 通过桥写入
+=======
+    ui: dict[str, Any] = field(default_factory=dict)  # UI 配置（主题/外观等），RinUI 通过桥写入
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
     _config_path: str | None = field(default=None, repr=False)
 
     @classmethod
@@ -326,6 +338,7 @@ class RuntimeConfig:
             val = val.get(key, default)
         return val
 
+<<<<<<< HEAD
     @staticmethod
     def _safe_float(value, default: float = 0.0) -> float:
         if value is None or value == "":
@@ -335,6 +348,8 @@ class RuntimeConfig:
         except (TypeError, ValueError):
             return default
 
+=======
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
     @staticmethod
     def _safe_int(value, default: int = 0) -> int:
         if value is None or value == "":

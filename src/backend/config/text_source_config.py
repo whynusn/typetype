@@ -82,7 +82,11 @@ class TextSourceEntry:
 # 旧 SourceType → (Loader, LeaderboardMode) 映射
 _LEGACY_SOURCE_TYPE_MAP: dict[str, tuple[Loader, LeaderboardMode]] = {
     "network": (Loader.REMOTE_API, LeaderboardMode.SERVER_RESOLVED),
+<<<<<<< HEAD
     "registry": (Loader.REGISTRY, LeaderboardMode.NONE),  # registry 无服务端 text_id
+=======
+    "registry": (Loader.REGISTRY, LeaderboardMode.SERVER_RESOLVED),
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
     "local_ranked": (Loader.LOCAL_FILE, LeaderboardMode.LOCAL_LOOKUP),
     "local_practice": (Loader.LOCAL_FILE, LeaderboardMode.NONE),
 }

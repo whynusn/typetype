@@ -77,7 +77,11 @@ def test_runtime_config_source_options_include_catalog_items():
 
     assert runtime_config.get_text_source_options() == [
         {"key": "builtin_demo", "label": "内置示例", "isLocal": True},
+<<<<<<< HEAD
         {"key": "cloud_001", "label": "云端文章", "isLocal": False},
+=======
+        {"key": "cloud_001", "label": "云端文章"},
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
     ]
 
 
@@ -322,9 +326,13 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
     user_config.parent.mkdir(parents=True)
     init = {
         "base_url": "http://old",
+<<<<<<< HEAD
         "text_sources": {
             "a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}
         },
+=======
+        "text_sources": {"a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}},
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
     }
     user_config.write_text(json.dumps(init), encoding="utf-8")
     monkeypatch.setattr(

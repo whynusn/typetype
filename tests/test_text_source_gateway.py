@@ -105,12 +105,24 @@ def test_load_from_plan_local_source_with_server_match():
 
 def test_load_from_plan_uses_text_provider_for_remote_source():
     gateway, runtime_config, text_provider, local_text_loader = _build_gateway(
+<<<<<<< HEAD
         TextSourceEntry(key="remote", label="Remote", loader=Loader.REMOTE_API)
+=======
+        TextSourceEntry(
+            key="remote", label="Remote", loader=Loader.REMOTE_API
+        )
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
     )
     text_provider.fetch_text_by_key.return_value = FetchedText(
         content="remote text", text_id=789
     )
+<<<<<<< HEAD
     source = TextSourceEntry(key="remote", label="Remote", loader=Loader.REMOTE_API)
+=======
+    source = TextSourceEntry(
+        key="remote", label="Remote", loader=Loader.REMOTE_API
+    )
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
 
     success, fetched, error = gateway.load_from_plan(source)
 
