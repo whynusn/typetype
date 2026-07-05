@@ -322,7 +322,9 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
     user_config.parent.mkdir(parents=True)
     init = {
         "base_url": "http://old",
-        "text_sources": {"a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}},
+        "text_sources": {
+            "a": {"label": "A", "loader": "local_file", "leaderboard_mode": "none"}
+        },
     }
     user_config.write_text(json.dumps(init), encoding="utf-8")
     monkeypatch.setattr(

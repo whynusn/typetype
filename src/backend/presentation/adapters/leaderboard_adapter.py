@@ -1,6 +1,6 @@
 """排行榜适配层 - Qt 信号管理。"""
 
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
@@ -10,9 +10,6 @@ from ...models.dto.text_catalog_item import TextCatalogItem
 from ...workers.leaderboard_worker import LeaderboardWorker
 from ...workers.text_content_worker import TextContentWorker
 from ...workers.text_list_worker import TextListWorker
-
-if TYPE_CHECKING:
-    from ...integration.registry_text_provider import RegistryTextProvider
 
 
 class LeaderboardAdapter(QObject):

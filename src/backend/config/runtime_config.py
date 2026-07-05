@@ -1,10 +1,14 @@
-import fcntl
 import json
 import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
