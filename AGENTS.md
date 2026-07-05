@@ -334,6 +334,40 @@ onActiveChanged: {
 
 **历史**：2026-07-04 重构。
 
+### ⚠️ Registry 缓存层必须读缓存，禁止直打网络
+
+**问题**：`RegistryTextProvider` 的 `_cache_dir` 长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
+
+**现状**（Phase 1a/1b 实现后）：
+- `RegistryTextProvider._fetch_json_with_cache()` 实现五层决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底
+- 基于文件 mtime + `cache_ttl_seconds`（默认 3600s）判断过期
+- 原子写：tmp + `Path.replace`，全方法 `try/except OSError` 兜底
+- 后台刷新：`QtAsyncExecutor` + `threading.Lock` 去重防重复刷新
+
+**正确做法**：
+- 修改 Registry 相关逻辑 → 通过 `_fetch_json_with_cache()` 走缓存层，不要绕过 `_read_cache`/`_write_cache`
+- 新增缓存路径 → 复用 `_cache_path(cache_key)` 统一文件布局
+- 缓存写入失败/读取失败 → 静默返回 None，不要阻塞主流程
+
+**历史**：2026-07-05 Phase 1a/1b 实现，ADR-008 §决策。
+
+### ⚠️ 晴发文（Wenlai）不得 CI 化，必须保持即时拉取
+
+**问题**：在评估「Registry/CI 化」提案时，曾误判晴发文（`wenlai_provider.py`）也适用。实际上晴发文是即时交互 API（`/api/texts/random` 每次返回不同内容），CI 化会破坏 random 语义且违反账号模型（CI 持账号 = 账号共享）。
+
+**现状**（保持现状不动）：
+- 独立 Port：`ports/wenlai_provider.py`
+- 独立 Gateway/Adapter/UseCase：`wenlai_provider.py` → `wenlai_gateway.py` → `load_wenlai_text_usecase.py`
+- 走 Worker：`presentation/adapters/wenlai_adapter.py` 已用 `_run_worker()`
+- token 存储：`integration/secure_token_store.py`
+
+**正确做法**：
+- 晴发文是第 3 层（即时拉取）的参照实现，保持不动
+- 未来若有第 2 个带认证的实时源，再抽象 `AuthenticatedRemoteProvider` Port（YAGNI）
+- 不得将晴发文纳入 Registry/CI 体系或 `TextSourceConfig.sources`
+
+**历史**：2026-07-05 ADR-008 §4.1 决策。
+
 ---
 
 ## 文档编写规范

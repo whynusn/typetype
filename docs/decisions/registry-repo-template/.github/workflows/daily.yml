@@ -1,0 +1,53 @@
+name: registry-daily
+on:
+  schedule: [{cron: "0 0 * * *"}]      # 每日 0 点 UTC
+  workflow_dispatch:                    # 手动补抓
+    inputs:
+      date:
+        description: "目标日期 YYYY-MM-DD（默认今天）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: registry-daily
+  cancel-in-progress: false             # 让正在跑的跑完
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4           # 复用上次 content/
+        with:
+          path: content/
+          key: registry-daily-${{ github.run_id }}
+          restore-keys: registry-daily-
+
+      - run: pip install httpx pycryptodome
+
+      - name: 抓取每日一文
+        run: python scripts/fetch_daily.py
+          ${{ github.event.inputs.date && format('--date {0}', github.event.inputs.date) || '' }}
+        continue-on-error: true          # 单日失败不挂 workflow
+
+      - name: 抓取极速杯每日文本
+        run: python scripts/fetch_jisubei.py
+          ${{ github.event.inputs.date && format('--date {0}', github.event.inputs.date) || '' }}
+        continue-on-error: true          # 单日失败不挂 workflow
+
+      - name: 重生成索引
+        run: python scripts/gen_index.py
+
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update daily"
+          branch: main
+      # GitHub Pages 在仓库设置中启用（main 分支），自动部署

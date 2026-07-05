@@ -101,6 +101,8 @@ class TextSessionUseCase:
         handle: TextHandle,
         full_shuffle_threshold: int = 1_000_000,
     ) -> None:
+        # NOTE: full_shuffle_threshold 的默认值由 RuntimeConfig.text_session.full_shuffle_threshold
+        # 覆盖，text_adapter.startFileTextSession 显式传入。此处默认值仅作 fallback。
         self._provider = provider
         self._handle = handle
         self._total_chars = provider.get_total_chars()

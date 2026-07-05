@@ -119,6 +119,7 @@ def main():
     # 事件循环 + 清理
     exit_code = app.exec()
     services.char_stats.flush()
+    services.score_submitter.stop()  # 等待成绩提交队列清空
     infra.api_client.close()
     if adapters.key_listener:
         adapters.key_listener.stop()

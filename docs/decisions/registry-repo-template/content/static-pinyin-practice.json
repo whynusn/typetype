@@ -1,0 +1,13 @@
+{
+  "source_key": "static-pinyin-practice",
+  "title": "拼音声调练习",
+  "content": "妈妈买麻糖，妈妈剥麻糖，妈妈让毛毛吃麻糖，毛毛不爱吃麻糖。四个和尚四个庙，四合寺里四扇窗。红凤凰黄凤凰，红粉墙黄粉墙，红凤凰穿破红粉墙，黄凤凰穿破黄粉墙。",
+  "text_id": null,
+  "metadata": {
+    "description": "中文拼音声调练习，包含平舌音、翘舌音和韵母组合",
+    "category": "static",
+    "tags": ["拼音", "声调", "绕口令", "练习"],
+    "author": "open-typing-texts 维护者",
+    "license": "CC0-1.0"
+  }
+}

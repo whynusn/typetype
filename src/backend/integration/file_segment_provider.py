@@ -21,6 +21,8 @@ class FileSegmentProvider:
     """
 
     def __init__(self, path: str | Path, small_file_threshold: int = 100_000) -> None:
+        # NOTE: small_file_threshold 的默认值由 RuntimeConfig.text_session.small_file_threshold
+        # 覆盖，text_adapter.startFileTextSession 显式传入。此处默认值仅作 fallback。
         self._path = Path(path)
         self._small_file_threshold = small_file_threshold
         self._encoding: str | None = None

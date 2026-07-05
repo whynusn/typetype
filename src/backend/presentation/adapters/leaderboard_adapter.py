@@ -1,6 +1,6 @@
 """排行榜适配层 - Qt 信号管理。"""
 
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
@@ -10,6 +10,9 @@ from ...models.dto.text_catalog_item import TextCatalogItem
 from ...workers.leaderboard_worker import LeaderboardWorker
 from ...workers.text_content_worker import TextContentWorker
 from ...workers.text_list_worker import TextListWorker
+
+if TYPE_CHECKING:
+    from ...integration.registry_text_provider import RegistryTextProvider
 
 
 class LeaderboardAdapter(QObject):
@@ -34,10 +37,14 @@ class LeaderboardAdapter(QObject):
     textListLoadingChanged = Signal()
 
     def __init__(
-        self, leaderboard_gateway: LeaderboardGateway, runtime_config: RuntimeConfig
+        self,
+        leaderboard_gateway: LeaderboardGateway,
+        runtime_config: RuntimeConfig,
+        registry_provider: "RegistryTextProvider | None" = None,
     ):
         super().__init__()
         self._leaderboard_gateway = leaderboard_gateway
+        self._registry_provider = registry_provider
         self._runtime_config = runtime_config
         self._thread_pool = QThreadPool.globalInstance()
         self._loading = False
@@ -105,7 +112,7 @@ class LeaderboardAdapter(QObject):
 
     @Slot()
     def loadCatalog(self) -> None:
-        """从服务端加载文本来源目录。
+        """加载文本来源目录（优先 Registry，fallback Leaderboard API）。
 
         如果缓存存在，直接使用缓存避免重复请求。
         """
@@ -115,7 +122,10 @@ class LeaderboardAdapter(QObject):
 
         from ...workers.catalog_worker import CatalogWorker
 
-        worker = CatalogWorker(leaderboard_gateway=self._leaderboard_gateway)
+        worker = CatalogWorker(
+            leaderboard_gateway=self._leaderboard_gateway,
+            registry_provider=self._registry_provider,
+        )
         worker.signals.succeeded.connect(self._on_catalog_loaded)
         worker.signals.failed.connect(self._on_catalog_load_failed)
         self._thread_pool.start(worker)

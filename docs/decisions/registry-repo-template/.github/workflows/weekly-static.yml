@@ -1,0 +1,43 @@
+name: registry-weekly-static
+on:
+  schedule: [{cron: "0 2 * * 0"}]      # 每周日 2 点 UTC
+  workflow_dispatch:                    # 手动全量刷新
+
+concurrency:
+  group: registry-weekly
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/cache@v4
+        with:
+          path: content/
+          key: registry-weekly-${{ github.run_id }}
+          restore-keys: registry-weekly-
+
+      - run: pip install httpx
+
+      - name: 全量刷新静态文集
+        run: |
+          # 此处可添加多个抓取脚本，如：
+          # python scripts/fetch_gushiwen.py
+          # python scripts/fetch_public_texts.py
+          # 当前为空占位，待静态文集脚本就位后填入
+          echo "[registry-weekly] 暂无静态文集待刷新"
+        continue-on-error: true
+
+      - name: 重生成索引
+        run: python scripts/gen_index.py
+
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: weekly static refresh"
+          branch: main

@@ -201,7 +201,9 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
     from ..application.gateways.wenlai_gateway import WenlaiGateway
+    from ..integration.qt_async_executor import QtAsyncExecutor
     from .app_paths import registry_cache_dir
+    import httpx
 
     def _get_jwt_token() -> str:
         return infra.token_store.get_token("current_user") or ""
@@ -212,7 +214,10 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     def _get_ai_api_key() -> str:
         return infra.token_store.get_token("ai_api_key") or ""
 
-    # ponytail: AI 使用独立 client，超时不同于主 api_client（LLM 生成较慢）
+    # Registry cache refresh executor
+    registry_async_executor = QtAsyncExecutor()
+
+    # AI 使用独立 client，超时不同于主 api_client（LLM 生成较慢）
     ai_api_client = ApiClient(timeout=runtime_config.ai.timeout)
 
     return Providers(
@@ -224,6 +229,8 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
         registry=RegistryTextProvider(
             config=runtime_config.registry,
             cache_dir=registry_cache_dir(),
+            http_client=httpx.Client(timeout=10.0, trust_env=False),
+            async_executor=registry_async_executor,
         )
         if runtime_config.registry.primary_url
         else None,
@@ -355,12 +362,20 @@ def create_services(infra: Infra, runtime_config: RuntimeConfig) -> Services:
         auth_provider=auth_provider, token_store=infra.token_store
     )
 
-    # Score submitter
+    # Score submitter（异步队列模式 + SQLite 持久化重试）
+    from ..integration.score_retry_store import ScoreRetryStore
+    from .app_paths import score_retry_db_path
+
+    retry_store = ScoreRetryStore(db_path=str(score_retry_db_path()))
+    retry_store.init_db()
+
     score_submitter = ApiClientScoreSubmitter(
         api_client=infra.api_client,
         submit_url=f"{runtime_config.base_url}/api/v1/scores",
         token_provider=lambda: infra.token_store.get_token("current_user") or "",
+        retry_store=retry_store,
     )
+    score_submitter.start()  # 启动后台提交队列
 
     # Text uploader
     text_uploader = TextUploader(
@@ -469,6 +484,7 @@ def create_adapters(
     leaderboard_adapter = LeaderboardAdapter(
         leaderboard_gateway=leaderboard_gateway,
         runtime_config=runtime_config,
+        registry_provider=providers.registry,
     )
 
     # Upload text

@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "updated_at": "2026-07-05T04:17:13+00:00",
+  "sources": [
+    {
+      "id": 0,
+      "source_key": "static-classic-sentences",
+      "label": "经典中文短句练习",
+      "description": "精选经典中文短句，适合中文打字练习",
+      "category": "static",
+      "update_freq": "static",
+      "has_ranking": false
+    },
+    {
+      "id": 0,
+      "source_key": "static-pinyin-practice",
+      "label": "拼音声调练习",
+      "description": "中文拼音声调练习，包含平舌音、翘舌音和韵母组合",
+      "category": "static",
+      "update_freq": "static",
+      "has_ranking": false
+    }
+  ]
+}
