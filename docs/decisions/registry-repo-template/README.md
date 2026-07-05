@@ -11,12 +11,14 @@ open-typing-texts/
 ├── README.md                     ← 本文件：贡献指南
 ├── registry_index.json           ← 声明式索引（CI 自动生成）
 ├── content/                      ← 各文本源正文 JSON
-│   ├── daily.json                ← 每日一文
-│   ├── gushiwen-300.json         ← 古诗文 300 首
-│   └── community-xxx.json        ← 社区贡献
+│   ├── static-classic-sentences.json   ← 经典中文短句（静态示例）
+│   ├── static-pinyin-practice.json     ← 拼音声调练习（静态示例）
+│   ├── jisubei-2026-07-05.json         ← 极速杯每日挑战（动态，CI 生成）
+│   └── ...
 ├── scripts/                      ← CI 抓取/解析脚本
-│   ├── fetch_daily.py
-│   └── gen_index.py
+│   ├── fetch_daily.py            ← 每日一文抓取脚本
+│   ├── fetch_jisubei.py          ← 极速杯文本抓取脚本（CI 运行）
+│   └── gen_index.py              ← 索引生成脚本（CI 运行）
 └── .github/workflows/
     ├── daily.yml                 ← 每日 0 点 cron + 手动触发
     └── weekly-static.yml         ← 每周全量刷新
@@ -24,10 +26,14 @@ open-typing-texts/
 
 ## 接入方式
 
-任何打字练习应用只需配置一个 `primary_url` 指向本仓库的 GitHub Pages 地址：
+任何打字练习应用只需配置一个 `primary_url` 指向本仓库的 CDN 地址：
 
 ```
-https://open-typing-texts.github.io/   ← 启用 GitHub Pages 后生效
+# 主地址（jsDelivr CDN）
+https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main/
+
+# 镜像地址（GitHub raw）
+https://raw.githubusercontent.com/whynusn/open-typing-texts/main/
 ```
 
 客户端发起 HTTP GET：
@@ -36,26 +42,57 @@ https://open-typing-texts.github.io/   ← 启用 GitHub Pages 后生效
 
 详见 `registry_index.json` 文件中的 schema 注释。
 
+### typetype 客户端接入示例
+
+```python
+from backend.integration.registry_text_provider import RegistryTextProvider
+from backend.config.runtime_config import RegistryConfig
+
+provider = RegistryTextProvider(
+    config=RegistryConfig(
+        primary_url="https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main",
+        mirror_url="https://raw.githubusercontent.com/whynusn/open-typing-texts/main",
+        cache_ttl_seconds=3600,
+    ),
+    cache_dir=Path.home() / ".cache" / "typetype" / "registry",
+)
+
+# 获取文本源目录
+catalog = provider.get_catalog()
+
+# 获取单篇文本
+text = provider.fetch_text_by_key("static-classic-sentences")
+```
+
 ## 贡献指南
 
-### 1. 添加新文本源
+### 1. 添加静态文本源
 
 1. 往 `content/` 添加 `source_key.json`（格式见下方 schema）
-2. 在 `scripts/gen_index.py` 中添加元数据或提交 `registry_index.json` 更新
+2. 运行 `python scripts/gen_index.py` 生成/更新索引
 3. 提交 PR
 
-### 2. 文本内容 JSON schema
+### 2. 添加动态文本源
+
+1. 在 `scripts/` 下创建抓取脚本（参考 `scripts/fetch_jisubei.py`）
+2. 脚本输出到 `content/` 目录，遵循内容文件 schema
+3. 在 `.github/workflows/` 下创建/修改 workflow 调用脚本
+4. 提交 PR
+
+### 3. 文本内容 JSON schema
 
 ```json
 {
-  "source_key": "daily",
-  "content": "这里是正文内容，支持换行符。",
-  "title": "标题（可选）",
+  "source_key": "static-classic-sentences",
+  "title": "经典中文短句练习",
+  "content": "春风又绿江南岸，明月何时照我还。但愿人长久，千里共婵娟。...",
   "text_id": null,
   "metadata": {
-    "description": "描述",
-    "category": "daily",
-    "tags": ["日常", "短文"]
+    "description": "精选经典中文短句，适合中文打字练习",
+    "category": "static",
+    "tags": ["经典", "中文", "短句", "练习"],
+    "author": "open-typing-texts 维护者",
+    "license": "CC0-1.0"
   }
 }
 ```
@@ -67,12 +104,12 @@ https://open-typing-texts.github.io/   ← 启用 GitHub Pages 后生效
 | `source_key` | `str` | ✅ | 唯一标识，匹配文件名（不含 `.json`），只含字母数字/下划线/连字符 |
 | `content` | `str` | ✅ | 正文内容，支持 `\n` 换行 |
 | `title` | `str` | ❌ | 显示标题 |
-| `text_id` | `int | null` | ❌ | 服务端 text_id（用于排行榜），通常为 null |
-| `metadata` | `dict` | ❌ | 扩展元数据（description、category、tags 等） |
+| `text_id` | `int | null` | ❌ | 服务端 text_id（用于排行榜），registry 源通常为 null |
+| `metadata` | `dict` | ❌ | 扩展元数据（description、category、tags、author、license 等） |
 
-**限制**：单文件 ≤ 1MB（见 ADR-008 `max_content_bytes` 限制）。
+**限制**：单文件 ≤ 1MB（见 typetype ADR-008 `max_content_bytes` 配置）。
 
-### 3. registry_index.json schema
+### 4. registry_index.json schema
 
 ```json
 {
@@ -80,23 +117,32 @@ https://open-typing-texts.github.io/   ← 启用 GitHub Pages 后生效
   "updated_at": "2026-07-05T00:00:00Z",
   "sources": [
     {
-      "id": 0,
-      "source_key": "daily",
-      "label": "每日一文",
-      "description": "CI 每日精选",
-      "category": "daily",
-      "update_freq": "daily",
+      "id": 1001,
+      "source_key": "static-classic-sentences",
+      "label": "经典中文短句",
+      "description": "精选经典中文短句，适合中文打字练习",
+      "category": "static",
+      "update_freq": "static",
       "has_ranking": false
+    },
+    {
+      "id": 2001,
+      "source_key": "jisubei-daily",
+      "label": "极速杯每日挑战",
+      "description": "极速杯每日打字挑战",
+      "category": "jisubei",
+      "update_freq": "daily",
+      "has_ranking": true
     }
   ]
 }
 ```
 
-### 4. CI workflow
+### 5. CI workflow
 
 本仓库有两条 CI：
-- **daily.yml**：每日 0 点自动抓取并更新 `content/daily.json`
-- **weekly-static.yml**：每周全量刷新所有静态文集
+- **daily.yml**：每日 0 点自动抓取并更新动态文本源
+- **weekly-static.yml**：每周全量刷新所有静态文集（预留）
 
 贡献者也可通过 `workflow_dispatch` 手动触发。
 
@@ -104,7 +150,13 @@ https://open-typing-texts.github.io/   ← 启用 GitHub Pages 后生效
 
 > 抓取/解析脚本**仅在 GitHub Actions CI 阶段运行**，产物为纯 JSON。客户端只通过 HTTP GET 拉取 JSON，**从不执行任何远程代码**。无 RCE 风险。
 
+具体安全措施：
+- 客户端使用 `httpx.Client(trust_env=False)` 防止代理劫持
+- 源文件有 `source_key` 白名单验证（禁止 `..` 路径穿越）
+- 客户端缓存层有文件大小限制（`max_content_bytes`）
+- 写入使用原子操作（tmp + replace），避免半写入状态
+
 ## 许可证
 
-内容采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 许可证。
+内容采用 [CC0-1.0](https://creativecommons.org/publicdomain/zero/1.0/) 公共领域贡献。
 代码采用 MIT 许可证。
