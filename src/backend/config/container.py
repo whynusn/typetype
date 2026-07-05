@@ -202,6 +202,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..integration.llm_text_provider import LlmTextProvider
     from ..application.gateways.wenlai_gateway import WenlaiGateway
     from .app_paths import registry_cache_dir
+    import httpx
 
     def _get_jwt_token() -> str:
         return infra.token_store.get_token("current_user") or ""
@@ -224,6 +225,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
         registry=RegistryTextProvider(
             config=runtime_config.registry,
             cache_dir=registry_cache_dir(),
+            http_client=httpx.Client(timeout=10.0, trust_env=False),
         )
         if runtime_config.registry.primary_url
         else None,
