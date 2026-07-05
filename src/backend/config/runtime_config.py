@@ -1,22 +1,10 @@
+import fcntl
 import json
 import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
-<<<<<<< HEAD
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None  # ponytail: Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
-=======
->>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
-
-try:
-    import fcntl
-except ImportError:
-    fcntl = None  # ponytail: Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
@@ -153,19 +141,7 @@ class RuntimeConfig:
     """运行时配置，从 JSON 文件加载。"""
 
     base_url: str = "http://127.0.0.1:8080"
-<<<<<<< HEAD
-<<<<<<< HEAD
-    api_timeout: float = (
-        20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
-    )
-=======
     api_timeout: float = 20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
->>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
-=======
-    api_timeout: float = (
-        20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
-    )
->>>>>>> 6ed7bdf (feat: score_submit_worker 异步队列重写 + style: ruff format 5 files)
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -175,19 +151,7 @@ class RuntimeConfig:
     catalog_items: list[TextCatalogItem] = field(
         default_factory=list
     )  # ponytail: dynamic server data, never persisted
-<<<<<<< HEAD
-<<<<<<< HEAD
-    ui: dict[str, Any] = field(
-        default_factory=dict
-    )  # UI 配置（主题/外观等），RinUI 通过桥写入
-=======
     ui: dict[str, Any] = field(default_factory=dict)  # UI 配置（主题/外观等），RinUI 通过桥写入
->>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
-=======
-    ui: dict[str, Any] = field(
-        default_factory=dict
-    )  # UI 配置（主题/外观等），RinUI 通过桥写入
->>>>>>> 6ed7bdf (feat: score_submit_worker 异步队列重写 + style: ruff format 5 files)
     _config_path: str | None = field(default=None, repr=False)
 
     @classmethod
@@ -326,7 +290,7 @@ class RuntimeConfig:
             base_url=cls._safe_str(ai_data.get("base_url"), ""),
             model=cls._safe_str(ai_data.get("model"), ""),
             api_format=cls._safe_str(ai_data.get("api_format"), "openai_chat"),
-            timeout=cls._safe_float(ai_data.get("timeout"), 30.0),
+            timeout=float(cls._safe_int(ai_data.get("timeout"), 30)),
             max_chars=cls._safe_int(ai_data.get("max_chars"), 300),
         )
 
@@ -354,27 +318,6 @@ class RuntimeConfig:
             val = val.get(key, default)
         return val
 
-<<<<<<< HEAD
-    @staticmethod
-    def _safe_float(value, default: float = 0.0) -> float:
-        if value is None or value == "":
-            return default
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-=======
->>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
-    @staticmethod
-    def _safe_float(value, default: float = 0.0) -> float:
-        if value is None or value == "":
-            return default
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
     @staticmethod
     def _safe_int(value, default: int = 0) -> int:
         if value is None or value == "":
@@ -400,11 +343,10 @@ class RuntimeConfig:
         k = key or self.default_text_source_key
         return self.text_source_config.get_source(k)
 
-    def get_text_source_options(self) -> list[dict[str, str | bool]]:
+    def get_text_source_options(self) -> list[dict[str, str]]:
         options = self.text_source_config.get_source_options()
         options.extend(
-            {"key": item.source_key, "label": item.label, "isLocal": False}
-            for item in self.catalog_items
+            {"key": item.source_key, "label": item.label} for item in self.catalog_items
         )
         return options
 

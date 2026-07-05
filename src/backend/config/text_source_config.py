@@ -15,8 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-from ..utils.logger import log_warning
-
 
 class Loader(str, Enum):
     """文本数据加载方式 — 决定 TextSourceGateway 路由。"""
@@ -82,11 +80,7 @@ class TextSourceEntry:
 # 旧 SourceType → (Loader, LeaderboardMode) 映射
 _LEGACY_SOURCE_TYPE_MAP: dict[str, tuple[Loader, LeaderboardMode]] = {
     "network": (Loader.REMOTE_API, LeaderboardMode.SERVER_RESOLVED),
-<<<<<<< HEAD
-    "registry": (Loader.REGISTRY, LeaderboardMode.NONE),  # registry 无服务端 text_id
-=======
     "registry": (Loader.REGISTRY, LeaderboardMode.SERVER_RESOLVED),
->>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
     "local_ranked": (Loader.LOCAL_FILE, LeaderboardMode.LOCAL_LOOKUP),
     "local_practice": (Loader.LOCAL_FILE, LeaderboardMode.NONE),
 }
@@ -103,16 +97,10 @@ def _resolve_loader(data: dict) -> Loader:
         try:
             return Loader(raw)
         except ValueError:
-            log_warning(
-                f"[TextSourceConfig] 未知 loader 值 '{raw}'，尝试旧 schema 迁移"
-            )
+            pass
         # 再按旧 source_type 迁移
         if raw in _LEGACY_SOURCE_TYPE_MAP:
             return _LEGACY_SOURCE_TYPE_MAP[raw][0]
-        log_warning(
-            f"[TextSourceConfig] source_type 值 '{raw}' 也不在迁移映射中，"
-            "按 local_path 兜底推导"
-        )
     # 无明确 loader 时，按 local_path 兜底推导
     if data.get("local_path"):
         return Loader.LOCAL_FILE
@@ -126,9 +114,7 @@ def _resolve_leaderboard_mode(data: dict) -> LeaderboardMode:
         try:
             return LeaderboardMode(raw)
         except ValueError:
-            log_warning(
-                f"[TextSourceConfig] 未知 leaderboard_mode 值 '{raw}'，尝试旧 schema 迁移"
-            )
+            pass
     # 旧 source_type 迁移
     source_type = data.get("source_type")
     if isinstance(source_type, str) and source_type in _LEGACY_SOURCE_TYPE_MAP:

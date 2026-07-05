@@ -614,10 +614,6 @@ class TypingAdapter(QObject):
         """获取最近一次分片完成时的 score_data 快照。"""
         return self._last_slice_stats
 
-    def clear_last_slice_stats(self) -> None:
-        """清除已消费的快照，防止 _save_current_slice_if_needed 重复保存。"""
-        self._last_slice_stats = None
-
     def build_aggregate_score(self, slice_stats: list[dict], slice_count: int) -> str:
         """计算所有片的聚合成绩，返回 HTML 消息。"""
         return self._score_gateway.build_aggregate_message(slice_stats, slice_count)
