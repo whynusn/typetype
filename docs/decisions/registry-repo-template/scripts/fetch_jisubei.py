@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """fetch_jisubei.py — 极速杯文本抓取脚本（CI 运行）。
 
-从源站获取指定日期的极速杯打字文本，写入 content/ 目录。
+从公开中文文本源获取打字练习文本，写入 content/ 目录。
 支持 GitHub Actions workflow_dispatch 的 date 输入。
 
 历史背景：
   typetype 1.x/2.x 版本内置了极速杯爬虫，直接从 52dazi.cn 抓取文本。
   当前版本已改为通过 typetype-server 后端 API 间接获取。
   本脚本是「registry」标准下的纯客户端实现，供独立部署使用。
+
+由于 52dazi.cn 是 Vue.js SPA（无公开 API），本脚本使用公开稳定的
+Hitokoto 中文句子 API 作为替代源。
 
 用法：
     python scripts/fetch_jisubei.py
@@ -30,18 +33,14 @@ import httpx
 # ── 配置 ──────────────────────────────────────────────────────────────
 # 源站 URL（可被 CI 环境变量覆盖）
 #
-# 极速杯原始数据源：https://www.52dazi.cn
-# 历史爬虫从 52dazi.cn 抓取每日挑战文本。
-# 由于 52dazi.cn 无公开 API，当前脚本使用可配置的占位 URL。
+# Hitokoto API（公开免费，中文分类 c=i）：
+#   GET https://v1.hitokoto.cn/?c=i
+#   返回：{"hitokoto": "句子", "from": "出处", "from_who": "作者", ...}
 #
-# 实际部署时，请替换为：
-#   1. typetype-server 的公开 API 端点（如已有）
-#   2. 其他公开中文打字文本源（如古诗文网、维基百科精选等）
-#
-# 示例：使用今日诗词 API 作为中文文本源（仅供演示模式）
+# 实际部署时，可替换为 typetype-server 公开 API 或其他中文文本源。
 JISUBEI_API_URL = os.getenv(
     "JISUBEI_API_URL",
-    "https://v2.jinrishici.com",
+    "https://v1.hitokoto.cn",
 )
 
 # 目标文件路径（相对于仓库根目录）
@@ -59,15 +58,15 @@ def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
     Returns:
         True 表示成功获取内容（写入成功或 dry_run）
     """
-    # ── 源站自定：此处以公开今日诗词 API 示例 ──────────────────────
+    # ── 源站自定：此处以公开 Hitokoto API 示例 ──────────────────────
     #
-    # 今日诗词 API（公开免费）：
-    #   GET https://v2.jinrishici.com/one
-    #   返回：{ "origin": "原文", "translators": ["翻译者"], ... }
+    # Hitokoto API（公开免费）：
+    #   GET https://v1.hitokoto.cn/?c=i
+    #   返回：{ "hitokoto": "句子", "from": "出处", "from_who": "作者", ... }
     #
     # 极速杯原始爬虫（1.x/2.x 版本）从 52dazi.cn 抓取 HTML 页面，
     # 解析其中的打字练习文本。由于 52dazi.cn 无稳定公开 API，
-    # 此处使用今日诗词作为可复现的示例。
+    # 此处使用 Hitokoto 作为可复现的公开中文文本源。
     #
     # 实际部署时，请替换为真实源站 API，并调整 JSON 解析逻辑。
 
@@ -77,7 +76,7 @@ def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
 
     try:
         with httpx.Client(timeout=10.0, trust_env=False) as client:
-            resp = client.get(f"{JISUBEI_API_URL}/one", params={"date": date_str})
+            resp = client.get(JISUBEI_API_URL, params={"c": "i"})
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPError as e:
@@ -88,16 +87,18 @@ def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
         return False
 
     # ── 解析文本内容 ────────────────────────────────────────────
-    # 今日诗词 API 返回的 origin 字段即为诗句原文
-    content = data.get("origin", "")
+    # Hitokoto API 返回的 hitokoto 字段即为中文句子
+    content = data.get("hitokoto", "")
     if not content:
         print("[fetch_jisubei] 源站未返回有效文本内容")
         return False
 
-    title = data.get("title", f"极速杯 {date_str}")
+    title = data.get("from", f"极速杯 {date_str}")
+    author = data.get("from_who", "")
 
     if dry_run:
         print(f"[fetch_jisubei] dry_run: 获取到 {len(content)} 字符")
+        print(f"[fetch_jisubei] 出处: {title}（{author}）")
         return True
 
     # ── 构建 registry 标准内容 ──────────────────────────────────
@@ -111,6 +112,7 @@ def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
             "category": "jisubei",
             "tags": ["极速杯", "每日挑战"],
             "source_url": "https://www.52dazi.cn",
+            "author": author,
         },
     }
 

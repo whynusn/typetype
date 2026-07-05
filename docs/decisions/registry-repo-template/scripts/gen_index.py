@@ -67,7 +67,7 @@ def build_index() -> None:
 
 def _infer_update_freq(source_key: str, filename: str) -> str:
     """根据 source_key 推断更新频率。"""
-    if source_key == "daily":
+    if source_key == "daily" or source_key.startswith("jisubei-"):
         return "daily"
     return "static"
 
