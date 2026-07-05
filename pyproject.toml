@@ -20,6 +20,13 @@ dependencies = [
     "qasync>=0.28.0",
 ]
 
+[project.optional-dependencies]
+# 💡 Kafka 是可选依赖，用于异步成绩提交的高吞吐场景
+# 安装方式：uv sync --extra kafka
+kafka = [
+    "confluent-kafka>=2.3.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",

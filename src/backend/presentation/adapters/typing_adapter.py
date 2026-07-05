@@ -27,7 +27,6 @@ from ...application.session_context import (
     UploadStatus,
 )
 from ...domain.services.typing_service import TypingService
-from ...workers.score_submit_worker import ScoreSubmitWorker
 
 if TYPE_CHECKING:
     from ...ports.score_submitter import ScoreSubmitter
@@ -243,7 +242,13 @@ class TypingAdapter(QObject):
         return False
 
     def _submit_score_async(self) -> None:
-        """异步提交成绩到服务器（后台线程，不阻塞 UI）。"""
+        """异步提交成绩到服务器（非阻塞）。
+
+        💡 设计决策：
+        - ApiClientScoreSubmitter.submit() 现在是异步的（入队操作 O(1)）
+        - 不再需要 QThreadPool + 旧 ScoreSubmitWorker
+        - 实际 HTTP POST 在后台队列线程中执行
+        """
         if self._score_submitter is None:
             return
         # 由状态机决定是否提交
@@ -256,19 +261,12 @@ class TypingAdapter(QObject):
         )
         if text_id is None or text_id <= 0:
             return  # 纯练习模式或未载文，不提交
-        worker = ScoreSubmitWorker(
-            score_submitter=self._score_submitter,
-            score_data=self._typing_service.score_data,
+        # 🎓 submit() 现在是异步的，立即返回
+        # 实际提交在后台队列线程中执行
+        self._score_submitter.submit(
+            self._typing_service.score_data,
             text_id=text_id,
         )
-        worker.signals.failed.connect(self._on_score_submit_failed)
-        self._thread_pool.start(worker)
-
-    def _on_score_submit_failed(self, error_msg: str) -> None:
-        """成绩提交失败回调。"""
-        from ...utils.logger import log_warning
-
-        log_warning(f"[TypingAdapter] {error_msg}")
 
     def prepare_for_text_load(self) -> None:
         """为新一轮载文做准备：停止当前输入并锁定输入区。
