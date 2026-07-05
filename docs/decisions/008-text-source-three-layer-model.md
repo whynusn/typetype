@@ -1,10 +1,14 @@
-# ADR-008: 文本源三层模型（本地文件 / Registry CI 只读 / 即时拉取）
+# ADR-008: 文本源三层模型（本地文件 / Registry 脚本 / 即时拉取）
 
-<!-- 状态: accepted | 决策日期: 2026-07-05 | 最后验证: 2026-07-05 -->
+<!-- 状态: accepted | 决策日期: 2026-07-05 | 最后验证: 2026-07-06 -->
+
+> **2026-07-06 更新**：Registry 仓库已从"CI 生成内容"模式转型为"纯脚本工具"模式。
+> Registry 仓库不再托管任何文本内容，也不运行 GitHub Actions 自动抓取。
+> 仅提供抓取脚本模板，用户须在本地自行运行脚本生成文本。
 
 ## 背景
 
-typetype 当前支持多种文本来源（本地文件、服务端 API、晴发文、CDN 注册表等），但来源扩展模型、CI 化策略、晴发文的归属等问题长期缺乏统一决策。本文档综合对 Kimi「主仓库 + 独立适配仓库 + CI 脚本」提案的多轮分析结论，给出最终架构定性。
+typetype 当前支持多种文本来源（本地文件、服务端 API、晴发文、CDN 注册表等），但来源扩展模型、晴发文的归属等问题长期缺乏统一决策。本文档综合对 Kimi「主仓库 + 独立适配仓库 + CI 脚本」提案的多轮分析结论，给出最终架构定性。
 
 ### 关键术语约定
 
@@ -15,8 +19,8 @@ typetype 当前支持多种文本来源（本地文件、服务端 API、晴发�
 | **文本源（Text Source）** | 用户打字练习的内容来源（如「前五百」「每日一文」「晴发文随机」）。在代码中由 `TextSourceEntry`（`src/backend/config/text_source_config.py`）表示，配置于 `config.json` 的 `text_sources` 字段。 |
 | **Loader** | `TextSourceEntry.loader` 枚举，决定 `TextSourceGateway` 路由到哪个 Provider。取值：`LOCAL_FILE` / `REMOTE_API` / `REGISTRY`。 |
 | **LeaderboardMode** | `TextSourceEntry.leaderboard_mode` 枚举，决定成绩提交时 `text_id` 如何解析。与 `Loader` 正交。 |
-| **Registry** | 由独立 git 仓库托管、经 GitHub Actions 生成、客户端只读 JSON 拉取的文本源体系。实现为 `RegistryTextProvider`（`src/backend/integration/registry_text_provider.py`）。 |
-| **Registry 仓库** | 独立于 typetype 主仓库的第二个 git 仓库（如 `open-typing-texts`），托管 `registry_index.json` 与 `content/*.json`，启用 GitHub Pages。 |
+| **Registry** | 由独立 git 仓库托管、提供纯脚本工具模板、客户端只读 JSON 拉取的文本源体系。实现为 `RegistryTextProvider`（`src/backend/integration/registry_text_provider.py`）。 |
+| **Registry 仓库** | 独立于 typetype 主仓库的第二个 git 仓库（如 `open-typing-texts`），提供抓取脚本模板（`scripts/`），用户本地运行生成 `content/*.json` 和 `registry_index.json`。**不提供任何现成文本内容，也不运行 CI 自动抓取。** |
 | **即时拉取源** | 客户端通过 Worker 实时调用第三方/服务端 API 获取文本的来源（如晴发文 random、服务端 `/api/v1/texts/latest`）。 |
 | **晴发文** | 第三方打字文本服务（代码标识符为 `wenlai`/`Wenlai`，`base_url` 默认 `https://qingfawen.fcxxz.com`，见 `src/backend/config/runtime_config.py` 的 `WenlaiConfig`），提供随机文本、相邻换段等接口，需要登录。 |
 
@@ -114,14 +118,14 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
 | 维度 | 第 1 层：本地文件 | 第 2 层：Registry（CI 只读）| 第 3 层：即时拉取 |
 |:---|:---|:---|:---|
 | **`loader`** | `LOCAL_FILE` | `REGISTRY` | `REMOTE_API`（+ 独立 Gateway，如晴发文）|
-| **数据来源** | 用户/打包 txt | GitHub Actions CI → Registry 仓库 JSON | 服务端/第三方实时 API |
+| **数据来源** | 用户/打包 txt | 用户本地运行脚本生成 JSON | 服务端/第三方实时 API |
 | **时效性** | 静态 | 日级/周级延迟可接受 | 秒级，用户实时交互 |
 | **数据规模** | 单文件 | 增量、可枚举 | 全库不可枚举（random 模型）|
 | **网络韧性要求** | 无 | 低（CI 失败有缓冲，客户端读旧 JSON）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（兑现 `cache_ttl_seconds`）| 不需要（即时语义）|
 | **账号要求** | 无 | 无（CI 端若需账号则用项目维护者账号，产物脱敏）| 用户自有账号（`token_store`）|
 | **现有实现** | ✅ `LocalTextLoader`（`qt_local_text_loader.py`）| ✅ `RegistryTextProvider`（待补缓存）| ✅ `RemoteTextProvider` + `WenlaiGateway` |
-| **CI workflow** | 不需要 | **核心** | 不需要 |
+| **CI workflow** | 不需要 | 不需要（用户本地运行脚本） | 不需要 |
 
 ---
 
@@ -291,7 +295,7 @@ fetch_text_by_key(key)
 
 | 想加什么 | 走哪层 | 改动量 |
 |:---|:---|:---|
-| **每日一文** | 第 2 层 | open-typing-texts 仓库加 CI workflow + `content/daily.json` + 用户 `config.json` 加 1 行 source |
+| **每日一文** | 第 2 层 | open-typing-texts 仓库提供抓取脚本，用户本地运行生成 `content/daily.json` |
 | **古诗文 300 首**（公开数据集）| 第 2 层 | open-typing-texts 仓库写一次性 `fetch_gushiwen.py`，跑一次冻结 |
 | **社区贡献文集** | 第 2 层 | 贡献者往 open-typing-texts 仓库 PR 改 `registry_index.json` + `content/*.json`，typetype 主仓不动 |
 | **新本地练习文件** | 第 1 层 | `config.json` 加 1 行 `{loader: "local_file", local_path: "..."}`，零代码 |
@@ -312,15 +316,15 @@ fetch_text_by_key(key)
 
 > 工时说明：若仅做同步缓存（cache hit/miss + 离线兜底 + 原子写）约 1 人日；后台刷新（stale-while-revalidate）涉及 `QtAsyncExecutor` 生命周期与并发管理，单独约 1 人日，可拆为 Phase 1a/1b 独立上线。
 
-### Phase 2：建 open-typing-texts 仓库 + 每日一文 CI（核心价值，2-3 人日）
-- 建 `open-typing-texts` 仓库，启用 GitHub Pages（见仓库模板：`docs/decisions/registry-repo-template/`）
+### Phase 2：建 open-typing-texts 仓库 + 纯脚本工具（核心价值，2-3 人日）
+- 建 `open-typing-texts` 仓库，提供抓取脚本模板（见仓库模板：`docs/decisions/registry-repo-template/`）
 - 写 `scripts/fetch_daily.py`（源站自定，先接公开 RSS / 古诗文 API）
-- 写 `daily.yml` workflow（见上文模板）
+- **不提供 CI workflow，文本由用户本地运行脚本生成**
 - 写 `registry_index.json` schema 文档
 - typetype 侧 `config.json` 配 `registry.primary_url`
 
 ### Phase 3：catalog 接 UI（1-2 人日）
-- catalog worker 优先走 `RegistryTextProvider.get_catalog()`（现在是死代码）
+- catalog worker 优先走 `RegistryTextProvider.get_catalog()`
 - fallback 走 leaderboard API（保持兼容）
 - 来源选择页展示 registry catalog
 
