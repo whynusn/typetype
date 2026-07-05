@@ -1,84 +1,104 @@
 #!/usr/bin/env python3
 """fetch_jisubei.py — 极速杯文本抓取脚本（CI 运行）。
 
-从公开中文文本源获取打字练习文本，写入 content/ 目录。
-支持 GitHub Actions workflow_dispatch 的 date 输入。
+从赛文（SaiWen）API 获取每日打字文本，写入 content/ 目录。
+赛文 API 从 52dazi.cn 抓取原始内容，本脚本逆向其加密协议。
 
 历史背景：
-  typetype 1.x/2.x 版本内置了极速杯爬虫，直接从 52dazi.cn 抓取文本。
-  当前版本已改为通过 typetype-server 后端 API 间接获取。
-  本脚本是「registry」标准下的纯客户端实现，供独立部署使用。
+  typetype 1.x 版本内置了本爬虫（GetSaiWen.py + Crypt.py），
+  直接从赛文 API 获取文本。当前版本改为通过 typetype-server 间接获取。
+  本脚本是 registry 标准下的移植版本，与原始 1.x 实现完全兼容。
 
-由于 52dazi.cn 是 Vue.js SPA（无公开 API），本脚本使用公开稳定的
-Hitokoto 中文句子 API 作为替代源。
+加密协议：AES-CBC / ZeroPadding / Latin1 / Base64
+API 地址：https://www.jsxiaoshi.com/index.php/Api/Text/getContent
 
 用法：
     python scripts/fetch_jisubei.py
     python scripts/fetch_jisubei.py --date 2026-07-05
     python scripts/fetch_jisubei.py --dry-run
 
-安全：本脚本仅在 GitHub Actions CI 中运行，不读取本地凭据。
-不信任、不执行远程脚本。
+依赖：pypycryptodome（CI workflow 中 pip install）
 """
 
 import argparse
+import base64
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from Crypto.Cipher import AES
 
-# ── 配置 ──────────────────────────────────────────────────────────────
-# 源站 URL（可被 CI 环境变量覆盖）
-#
-# Hitokoto API（公开免费，中文分类 c=i）：
-#   GET https://v1.hitokoto.cn/?c=i
-#   返回：{"hitokoto": "句子", "from": "出处", "from_who": "作者", ...}
-#
-# 实际部署时，可替换为 typetype-server 公开 API 或其他中文文本源。
-JISUBEI_API_URL = os.getenv(
-    "JISUBEI_API_URL",
-    "https://v1.hitokoto.cn",
+# ── 赛文 API 配置 ────────────────────────────────────────────────────
+SAIWEN_API_URL = os.getenv(
+    "SAIWEN_API_URL",
+    "https://www.jsxiaoshi.com/index.php/Api/Text/getContent",
 )
 
 # 目标文件路径（相对于仓库根目录）
 CONTENT_DIR = Path(__file__).resolve().parent.parent / "content"
 OUTPUT_FILENAME = "jisubei-{date}.json"
 
+# ── 加密参数（与 1.x Crypt.py 完全一致）──────────────────────────────
+KEY = b"c9ec834c80f77237"
+IV = b"db4d6bfde3057dca"
+BLOCK_SIZE = 16
+
+
+def _zero_pad(data: bytes) -> bytes:
+    """ZeroPadding：用零填充到块大小的倍数。"""
+    remainder = len(data) % BLOCK_SIZE
+    if remainder == 0:
+        return data
+    return data + b"\x00" * (BLOCK_SIZE - remainder)
+
+
+def _encrypt(data: dict) -> str:
+    """加密数据字典为 Base64 字符串。
+
+    与 typetype 1.x Crypt.py 的 encrypt() 完全兼容。
+    """
+    raw = json.dumps(data, ensure_ascii=False).encode("latin-1")
+    padded = _zero_pad(raw)
+    cipher = AES.new(KEY, AES.MODE_CBC, IV)
+    encrypted = cipher.encrypt(padded)
+    return base64.b64encode(encrypted).decode("utf-8")
+
+
+# ── 爬虫逻辑 ─────────────────────────────────────────────────────────
+
 
 def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
-    """抓取指定日期的极速杯文本。
+    """抓取当日极速杯文本。
 
     Args:
-        date_str: 日期字符串 YYYY-MM-DD
+        date_str: 日期字符串 YYYY-MM-DD（用于输出文件名）
         dry_run: 是否仅测试连接不写入文件
 
     Returns:
-        True 表示成功获取内容（写入成功或 dry_run）
+        True 表示成功获取内容
     """
-    # ── 源站自定：此处以公开 Hitokoto API 示例 ──────────────────────
-    #
-    # Hitokoto API（公开免费）：
-    #   GET https://v1.hitokoto.cn/?c=i
-    #   返回：{ "hitokoto": "句子", "from": "出处", "from_who": "作者", ... }
-    #
-    # 极速杯原始爬虫（1.x/2.x 版本）从 52dazi.cn 抓取 HTML 页面，
-    # 解析其中的打字练习文本。由于 52dazi.cn 无稳定公开 API，
-    # 此处使用 Hitokoto 作为可复现的公开中文文本源。
-    #
-    # 实际部署时，请替换为真实源站 API，并调整 JSON 解析逻辑。
+    # 构造赛文 API 请求体（与 1.x GetSaiWen.py 完全一致）
+    payload_data = {
+        "competitionType": 0,
+        "snumflag": "1",
+        "from": "web",
+        "timestamp": int(time.time()),
+        "version": "v2.1.5",
+        "subversions": 17108,
+    }
 
-    if not JISUBEI_API_URL:
-        print("[fetch_jisubei] 未配置 JISUBEI_API_URL 环境变量，跳过（dry_run 模式）")
-        return True
+    encrypted = _encrypt(payload_data)
+    post_payload = {"0": encrypted[1:]}  # 去掉首字符
 
     try:
-        with httpx.Client(timeout=10.0, trust_env=False) as client:
-            resp = client.get(JISUBEI_API_URL, params={"c": "i"})
+        with httpx.Client(timeout=20.0, trust_env=False) as client:
+            resp = client.post(SAIWEN_API_URL, json=post_payload)
             resp.raise_for_status()
-            data = resp.json()
+            res_data = resp.json()
     except httpx.HTTPError as e:
         print(f"[fetch_jisubei] HTTP 错误: {e}")
         return False
@@ -86,22 +106,38 @@ def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
         print(f"[fetch_jisubei] 解析错误: {e}")
         return False
 
-    # ── 解析文本内容 ────────────────────────────────────────────
-    # Hitokoto API 返回的 hitokoto 字段即为中文句子
-    content = data.get("hitokoto", "")
+    # 解析响应（与 1.x 响应解析逻辑一致）
+    msg = res_data.get("msg")
+    content = ""
+    title = ""
+
+    if isinstance(msg, str):
+        content = msg
+        title = "极速杯"
+    elif isinstance(msg, dict):
+        # msg["0"] 是文本内容，msg["a_name"] 是标题
+        if "0" in msg:
+            content = str(msg["0"])
+        if "a_name" in msg:
+            title = str(msg["a_name"])
+        # 备选：msg["content"] 有时也包含内容
+        if not content and "content" in msg:
+            content = str(msg["content"])
+
     if not content:
         print("[fetch_jisubei] 源站未返回有效文本内容")
+        print(f"[fetch_jisubei] 原始响应: {json.dumps(res_data, ensure_ascii=False)[:200]}")
         return False
 
-    title = data.get("from", f"极速杯 {date_str}")
-    author = data.get("from_who", "")
+    title = title or f"极速杯 {date_str}"
 
     if dry_run:
         print(f"[fetch_jisubei] dry_run: 获取到 {len(content)} 字符")
-        print(f"[fetch_jisubei] 出处: {title}（{author}）")
+        print(f"[fetch_jisubei] 标题: {title}")
+        print(f"[fetch_jisubei] 内容预览: {content[:50]}...")
         return True
 
-    # ── 构建 registry 标准内容 ──────────────────────────────────
+    # 构建 registry 标准内容
     jisubei_content = {
         "source_key": f"jisubei-{date_str}",
         "title": title,
@@ -112,7 +148,6 @@ def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
             "category": "jisubei",
             "tags": ["极速杯", "每日挑战"],
             "source_url": "https://www.52dazi.cn",
-            "author": author,
         },
     }
 
@@ -132,7 +167,7 @@ def _write_content(path: Path, data: dict) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="极速杯文本抓取脚本")
+    parser = argparse.ArgumentParser(description="极速杯文本抓取脚本（赛文 API）")
     parser.add_argument(
         "--date",
         default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),

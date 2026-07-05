@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """fetch_daily.py — 每日一文抓取脚本（CI 运行）。
 
-从源站获取当日的文章正文，写入 content/daily.json。
+从公开中文文本源获取当日的文章正文，写入 content/daily.json。
 支持 GitHub Actions workflow_dispatch 的 date 输入。
 
 用法：
@@ -21,9 +21,7 @@ from pathlib import Path
 
 import httpx
 
-
 # ── 配置 ──────────────────────────────────────────────────────────────
-# 源站 URL（可被 CI 环境变量覆盖）
 # 默认使用 Hitokoto 中文句子 API（公开免费）
 DAILY_API_URL = os.getenv("DAILY_API_URL", "https://v1.hitokoto.cn")
 
@@ -46,13 +44,7 @@ def fetch_daily(date_str: str, dry_run: bool = False) -> bool:
     #
     # Hitokoto API（公开免费）：
     #   GET https://v1.hitokoto.cn/?c=i
-    #   返回：{ "hitokoto": "句子", "from": "出处", ... }
-    #
-    # 对于「每日一文」场景，建议源站选择：
-    # - 公开 RSS 源（如豆瓣阅读、微信读书每日推荐）
-    # - 开源文集（如古诗文网、维基百科精选）
-    #
-    # 实际使用时替换为真实源站 API。
+    #   返回：{ "hitokoto": "句子", "from": "出处", "from_who": "作者", ... }
 
     try:
         with httpx.Client(timeout=10.0, trust_env=False) as client:
@@ -66,14 +58,19 @@ def fetch_daily(date_str: str, dry_run: bool = False) -> bool:
         print(f"[fetch_daily] 解析错误: {e}")
         return False
 
+    content = data.get("hitokoto", "")
+    if not content:
+        print("[fetch_daily] 源站未返回有效文本内容")
+        return False
+
     if dry_run:
-        print(f"[fetch_daily] dry_run: 获取到 {len(data.get('hitokoto', ''))} 字符")
+        print(f"[fetch_daily] dry_run: 获取到 {len(content)} 字符")
         return True
 
     # 写入内容文件
     daily_content = {
         "source_key": "daily",
-        "content": data.get("hitokoto", ""),
+        "content": content,
         "title": data.get("from", f"每日一文 {date_str}"),
         "text_id": None,
         "metadata": {
