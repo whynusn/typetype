@@ -36,9 +36,7 @@ def build_index() -> None:
 
         source_key = data.get("source_key")
         if not source_key:
-            print(
-                f"[gen_index] 跳过 {fpath.name}: 缺少 source_key", file=sys.stderr
-            )
+            print(f"[gen_index] 跳过 {fpath.name}: 缺少 source_key", file=sys.stderr)
             continue
 
         # 构建索引条目

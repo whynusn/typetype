@@ -484,6 +484,7 @@ def create_adapters(
     leaderboard_adapter = LeaderboardAdapter(
         leaderboard_gateway=leaderboard_gateway,
         runtime_config=runtime_config,
+        registry_provider=providers.registry,
     )
 
     # Upload text
