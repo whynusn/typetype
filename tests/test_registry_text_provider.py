@@ -291,24 +291,42 @@ def test_cache_hit_returns_cached_without_network(tmp_path):
 
 
 def test_cache_expired_refetches_network(tmp_path):
-    """TTL 过期后重新打网络。"""
+    """TTL 过期后返回 stale + 后台刷新（stale-while-revalidate）。"""
+    from src.backend.integration.qt_async_executor import QtAsyncExecutor
+
     client = MagicMock(spec=httpx.Client)
-    client.get.return_value = _mock_response(_make_content_response("新内容"))
+    # 第一次（cache miss）：返回"缓存测试"，写入缓存
+    # 第二次（后台刷新）：返回"新内容"，更新缓存
+    client.get.side_effect = [
+        _mock_response(_make_content_response("缓存测试")),
+        _mock_response(_make_content_response("新内容")),
+    ]
     provider = RegistryTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=60),
         tmp_path / "cache",
         http_client=client,
+        async_executor=QtAsyncExecutor(),
     )
     # 第一次：打网络，写缓存
     r1 = provider.fetch_text_by_key("article1")
     assert r1 is not None
+    assert r1.content == "缓存测试"
     assert client.get.call_count == 1
     # 模拟缓存过期
     _age_cache_file(provider, "content/article1", seconds_old=120)
-    # 第二次：TTL 过期，应重新打网络
+    # 第二次：TTL 过期，应返回 stale（不阻塞）+ 后台刷新
     r2 = provider.fetch_text_by_key("article1")
     assert r2 is not None
-    assert client.get.call_count == 2
+    assert r2.content == "缓存测试"  # stale 内容（未更新）
+    assert client.get.call_count == 1  # 前台未打网络（后台异步）
+    # 等待后台刷新完成
+    import time as _t
+
+    _t.sleep(0.1)
+    assert client.get.call_count == 2  # 后台刷新已完成
+    # 缓存已更新为新内容
+    cached = provider._read_cache("content/article1")
+    assert cached["content"] == "新内容"
 
 
 # ---------------------------------------------------------------------------

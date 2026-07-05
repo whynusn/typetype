@@ -201,6 +201,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
     from ..application.gateways.wenlai_gateway import WenlaiGateway
+    from ..integration.qt_async_executor import QtAsyncExecutor
     from .app_paths import registry_cache_dir
     import httpx
 
@@ -213,7 +214,10 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     def _get_ai_api_key() -> str:
         return infra.token_store.get_token("ai_api_key") or ""
 
-    # ponytail: AI 使用独立 client，超时不同于主 api_client（LLM 生成较慢）
+    # Registry cache refresh executor
+    registry_async_executor = QtAsyncExecutor()
+
+    # AI 使用独立 client，超时不同于主 api_client（LLM 生成较慢）
     ai_api_client = ApiClient(timeout=runtime_config.ai.timeout)
 
     return Providers(
@@ -226,6 +230,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
             config=runtime_config.registry,
             cache_dir=registry_cache_dir(),
             http_client=httpx.Client(timeout=10.0, trust_env=False),
+            async_executor=registry_async_executor,
         )
         if runtime_config.registry.primary_url
         else None,
