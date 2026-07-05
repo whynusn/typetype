@@ -145,7 +145,9 @@ class RuntimeConfig:
     """运行时配置，从 JSON 文件加载。"""
 
     base_url: str = "http://127.0.0.1:8080"
-    api_timeout: float = 20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
+    api_timeout: float = (
+        20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
+    )
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -155,7 +157,9 @@ class RuntimeConfig:
     catalog_items: list[TextCatalogItem] = field(
         default_factory=list
     )  # ponytail: dynamic server data, never persisted
-    ui: dict[str, Any] = field(default_factory=dict)  # UI 配置（主题/外观等），RinUI 通过桥写入
+    ui: dict[str, Any] = field(
+        default_factory=dict
+    )  # UI 配置（主题/外观等），RinUI 通过桥写入
     _config_path: str | None = field(default=None, repr=False)
 
     @classmethod
