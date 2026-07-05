@@ -126,7 +126,9 @@ def fetch_jisubei(date_str: str, dry_run: bool = False) -> bool:
 
     if not content:
         print("[fetch_jisubei] 源站未返回有效文本内容")
-        print(f"[fetch_jisubei] 原始响应: {json.dumps(res_data, ensure_ascii=False)[:200]}")
+        print(
+            f"[fetch_jisubei] 原始响应: {json.dumps(res_data, ensure_ascii=False)[:200]}"
+        )
         return False
 
     title = title or f"极速杯 {date_str}"
