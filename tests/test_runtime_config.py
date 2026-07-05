@@ -77,7 +77,7 @@ def test_runtime_config_source_options_include_catalog_items():
 
     assert runtime_config.get_text_source_options() == [
         {"key": "builtin_demo", "label": "内置示例", "isLocal": True},
-        {"key": "cloud_001", "label": "云端文章", "isLocal": False},
+        {"key": "cloud_001", "label": "云端文章"},
     ]
 
 

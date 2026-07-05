@@ -39,7 +39,11 @@
 | 值 | text_id 决策 | 适用场景 |
 |----|------------|---------|
 | `none` | 不提交，不参与排行榜 | 本地练习文本、剪贴板 |
+<<<<<<< HEAD
+| `server_resolved` | 服务端直接返回 text_id | 极速杯等远程源 |
+=======
 | `server_resolved` | 服务端直接返回 text_id | 极速杯等远程源、注册表源 |
+>>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
 | `local_lookup` | 本地内容 hash 回查服务端 text_id | "前五百"等固定本地内容 |
 
 ## 默认来源列表

@@ -939,11 +939,7 @@ class Bridge(QObject):
         )
         if sender:
             self._copy_text_to_clipboard(sender)
-        self.textLoaded.emit(
-            self._coordinator._strip_newlines(text),
-            text_id if text_id > 0 else -1,
-            display_title,
-        )
+        self.textLoaded.emit(text, text_id if text_id > 0 else -1, display_title)
         # 异步回查服务端 text_id（复用 TextAdapter 的 localTextIdResolved 信号链）
         lookup_key = source_key if source_key else "custom"
         self._text_adapter.lookup_text_id(lookup_key, text)
@@ -1106,15 +1102,39 @@ class Bridge(QObject):
 
     @Slot()
     def loadCatalog(self) -> None:
-        """从服务端加载文本来源目录。"""
+        """加载文本来源目录（优先 Registry CDN，fallback 服务端 API）。"""
         if self._leaderboard_adapter:
             self._leaderboard_adapter.loadCatalog()
 
     @Slot()
     def refreshCatalog(self) -> None:
-        """清除缓存并重新从服务端加载文本来源目录。"""
+        """清除缓存并重新加载文本来源目录。"""
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
+
+    @Slot(str)
+    def loadLibraryText(self, source_key: str) -> None:
+        """从 registry CDN 加载开源文库文本（完全独立于服务端 API）。
+
+        Registry（第 2 层）文本由 CI 生成并推送至 CDN 静态仓库，
+        客户端通过 RegistryTextProvider 直拉 CDN，与服务端数据库无关。
+
+        结果通过 textContentLoaded 信号返回，失败通过 textLoadFailed。
+        走后台线程避免阻塞 UI。
+        """
+        if not self._leaderboard_adapter:
+            return
+        provider = self._leaderboard_adapter._registry_provider
+        if provider is None:
+            self.textLoadFailed.emit("注册表文本源未配置")
+            return
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._leaderboard_adapter.fetch_registry_text(source_key),
+            on_result=lambda result: self.textContentLoaded.emit(
+                result[0], result[1], result[2]
+            ),
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
 
     @Slot()
     def loadLocalArticles(self) -> None:
@@ -1147,13 +1167,7 @@ class Bridge(QObject):
 
         # 入口页已通过 prepareSliceProgressRestore 设置了待恢复进度，使用保存的分片索引
         if self._pending_restored_progress:
-            saved_slice = self._compute_resume_slice(
-                self._pending_restored_progress.get("slice_pass_counts", []),
-                self._pending_restored_progress.get("metrics", {}).get(
-                    "pass_count_min", 1
-                ),
-                self._pending_restored_progress.get("current_slice", 1),
-            )
+            saved_slice = self._pending_restored_progress.get("current_slice", 1)
             saved_total = self._pending_restored_progress.get("total_slices", 0)
             if 1 <= saved_slice <= saved_total:
                 segmentIndex = saved_slice
@@ -1248,9 +1262,7 @@ class Bridge(QObject):
             self._restore_pending_progress()
             self._update_progress_current_slice()
             self.sliceModeChanged.emit()
-            self.textLoaded.emit(
-                self._coordinator._strip_newlines(result.content), -1, title_label
-            )
+            self.textLoaded.emit(result.content, -1, title_label)
         else:
             self._typing_adapter.setup_local_article_session()
             self._coordinator.source_slice_backend = None
@@ -1282,13 +1294,7 @@ class Bridge(QObject):
 
         # 入口页已通过 prepareSliceProgressRestore 设置了待恢复进度，使用保存的分片索引
         if self._pending_restored_progress:
-            saved_slice = self._compute_resume_slice(
-                self._pending_restored_progress.get("slice_pass_counts", []),
-                self._pending_restored_progress.get("metrics", {}).get(
-                    "pass_count_min", 1
-                ),
-                self._pending_restored_progress.get("current_slice", 1),
-            )
+            saved_slice = self._pending_restored_progress.get("current_slice", 1)
             saved_total = self._pending_restored_progress.get("total_slices", 0)
             if 1 <= saved_slice <= saved_total:
                 segmentIndex = saved_slice
@@ -1403,7 +1409,7 @@ class Bridge(QObject):
         # 设置会话状态机
         self._typing_adapter.setup_shuffle_session()
         # 发射 textLoaded 信号，QML 侧 applyLoadedText + handleLoadedText 重置打字状态
-        self.textLoaded.emit(self._coordinator._strip_newlines(shuffled), -1, title)
+        self.textLoaded.emit(shuffled, -1, title)
 
     @Slot(str)
     def copyToClipboard(self, text: str) -> None:
@@ -1477,9 +1483,7 @@ class Bridge(QObject):
                     if title
                     else f"{result.index}/{result.total}"
                 )
-            self.textLoaded.emit(
-                self._coordinator._strip_newlines(result.content), -1, label
-            )
+            self.textLoaded.emit(result.content, -1, label)
 
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str)
     @Slot(str, int, int, float, int, int, int, str, bool, float, int, int, str, str)
@@ -1503,10 +1507,6 @@ class Bridge(QObject):
         """初始化载文模式：分片文本并加载第 start_slice 片。"""
         if not text or slice_size <= 0:
             return
-
-        # 清除前次会话残留的 override/seed，防止进度保存到错误 key
-        self._progress_key_override = ""
-        self._current_shuffle_seed = None
 
         # 仅使用入口页显式传入的已恢复进度（不自动从存储恢复）
         progress_dict = None
@@ -1571,11 +1571,7 @@ class Bridge(QObject):
         """实际执行分片设置（被 setupSliceMode 调用）。"""
         effective_start_slice = start_slice
         if restored_progress:
-            saved_slice = self._compute_resume_slice(
-                restored_progress.get("slice_pass_counts", []),
-                (restored_progress.get("metrics", {}) or {}).get("pass_count_min", 1),
-                restored_progress.get("current_slice", 1),
-            )
+            saved_slice = restored_progress.get("current_slice", 1)
             saved_total = restored_progress.get("total_slices", 0)
             if saved_slice > 1 and saved_slice <= saved_total:
                 effective_start_slice = saved_slice
@@ -1748,8 +1744,6 @@ class Bridge(QObject):
                     f"[collectSliceResult] saving key={text[:40]}... title={title}"
                 )
                 self._text_slice_progress_store.save_progress(text, title, progress)
-        # 清除已消费的快照，防止 _save_current_slice_if_needed 重复保存
-        self._typing_adapter.clear_last_slice_stats()
 
     @Slot(result=bool)
     def isLastSlice(self) -> bool:
@@ -1845,7 +1839,6 @@ class Bridge(QObject):
         """返回当前未达标处理动作（供 QML 查询）。"""
         return self._typing_adapter.on_fail_action
 
-    @staticmethod
     def _compute_resume_slice(
         pass_counts: list[int],
         pass_count_min: int,
@@ -1917,11 +1910,6 @@ class Bridge(QObject):
         saved_slice_idx = progress.get("current_slice", 1) - 1
         pass_counts = progress.get("slice_pass_counts", [])
         info = {
-            "resume_slice": self._compute_resume_slice(
-                pass_counts,
-                metrics.get("pass_count_min", 1),
-                progress.get("current_slice", 1),
-            ),
             "saved_slice": progress.get("current_slice", 1),
             "saved_total": progress.get("total_slices", 0),
             "saved_title": progress.get("text_title", ""),

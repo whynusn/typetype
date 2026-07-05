@@ -8,7 +8,7 @@ from typing import Any, ClassVar
 try:
     import fcntl
 except ImportError:
-    fcntl = None  # ponytail: Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
+    fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import user_config_path
@@ -298,7 +298,7 @@ class RuntimeConfig:
             base_url=cls._safe_str(ai_data.get("base_url"), ""),
             model=cls._safe_str(ai_data.get("model"), ""),
             api_format=cls._safe_str(ai_data.get("api_format"), "openai_chat"),
-            timeout=cls._safe_float(ai_data.get("timeout"), 30.0),
+            timeout=float(cls._safe_int(ai_data.get("timeout"), 30)),
             max_chars=cls._safe_int(ai_data.get("max_chars"), 300),
         )
 
@@ -327,15 +327,6 @@ class RuntimeConfig:
         return val
 
     @staticmethod
-    def _safe_float(value, default: float = 0.0) -> float:
-        if value is None or value == "":
-            return default
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
     def _safe_int(value, default: int = 0) -> int:
         if value is None or value == "":
             return default
@@ -360,11 +351,10 @@ class RuntimeConfig:
         k = key or self.default_text_source_key
         return self.text_source_config.get_source(k)
 
-    def get_text_source_options(self) -> list[dict[str, str | bool]]:
+    def get_text_source_options(self) -> list[dict[str, str]]:
         options = self.text_source_config.get_source_options()
         options.extend(
-            {"key": item.source_key, "label": item.label, "isLocal": False}
-            for item in self.catalog_items
+            {"key": item.source_key, "label": item.label} for item in self.catalog_items
         )
         return options
 
