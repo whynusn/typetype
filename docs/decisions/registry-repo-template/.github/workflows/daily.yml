@@ -28,7 +28,7 @@ jobs:
           key: registry-daily-${{ github.run_id }}
           restore-keys: registry-daily-
 
-      - run: pip install httpx pypycryptodome
+      - run: pip install httpx pycryptodome
 
       - name: 抓取每日一文
         run: python scripts/fetch_daily.py
