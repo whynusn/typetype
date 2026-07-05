@@ -46,6 +46,7 @@ class LeaderboardAdapter(QObject):
         self._leaderboard_gateway = leaderboard_gateway
         self._registry_provider = registry_provider
         self._runtime_config = runtime_config
+        self._registry_provider = registry_provider
         self._thread_pool = QThreadPool.globalInstance()
         self._loading = False
         self._text_list_loading = False
