@@ -22,6 +22,7 @@
 | 005 | [文本加载统一走 Worker](./005-all-text-load-via-worker.md) | 2026-06-04 | accepted |
 | 006 | [成绩展示格式统一与 sliceStatusBar](./006-score-format-unification.md) | 2026-06-04 | accepted |
 | 007 | [回改/退格统计指标](./007-backspace-correction-stats.md) | 2026-06-04 | accepted |
+| 008 | [文本源三层模型（本地/Registry CI/即时）](./008-text-source-three-layer-model.md) | 2026-07-05 | accepted |
 
 ---
 

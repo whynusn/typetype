@@ -73,10 +73,18 @@ pysidedeploy.spec
 *.dll
 data/
 config/config.json
+font_config.json
 .omx/
+
+# Environment variables (contains secrets)
+.env
 
 # Local working notes (not for version control)
 memory/
+
+# Local draft docs (server-side workline / superseded specs, not part of this branch)
+docs/designs/
+docs/superpowers/
 
 # Git worktrees
 .worktrees/
