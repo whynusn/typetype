@@ -16,7 +16,7 @@ typetype 当前支持多种文本来源（本地文件、服务端 API、晴发�
 | **Loader** | `TextSourceEntry.loader` 枚举，决定 `TextSourceGateway` 路由到哪个 Provider。取值：`LOCAL_FILE` / `REMOTE_API` / `REGISTRY`。 |
 | **LeaderboardMode** | `TextSourceEntry.leaderboard_mode` 枚举，决定成绩提交时 `text_id` 如何解析。与 `Loader` 正交。 |
 | **Registry** | 由独立 git 仓库托管、经 GitHub Actions 生成、客户端只读 JSON 拉取的文本源体系。实现为 `RegistryTextProvider`（`src/backend/integration/registry_text_provider.py`）。 |
-| **Registry 仓库** | 独立于 typetype 主仓库的第二个 git 仓库（如 `typetype-registry`），托管 `registry_index.json` 与 `content/*.json`，启用 GitHub Pages。 |
+| **Registry 仓库** | 独立于 typetype 主仓库的第二个 git 仓库（如 `open-typing-texts`），托管 `registry_index.json` 与 `content/*.json`，启用 GitHub Pages。 |
 | **即时拉取源** | 客户端通过 Worker 实时调用第三方/服务端 API 获取文本的来源（如晴发文 random、服务端 `/api/v1/texts/latest`）。 |
 | **晴发文** | 第三方打字文本服务（代码标识符为 `wenlai`/`Wenlai`，`base_url` 默认 `https://qingfawen.fcxxz.com`，见 `src/backend/config/runtime_config.py` 的 `WenlaiConfig`），提供随机文本、相邻换段等接口，需要登录。 |
 
@@ -131,7 +131,7 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Registry 仓库（独立 git 仓库，如 typetype-registry）         │
+│  Registry 仓库（独立 git 仓库，如 open-typing-texts）         │
 │  （需启用 GitHub Pages，作为 CDN 分发前端）                    │
 │                                                              │
 │  registry_index.json          ← 声明式索引（轻量元数据）       │
@@ -291,9 +291,9 @@ fetch_text_by_key(key)
 
 | 想加什么 | 走哪层 | 改动量 |
 |:---|:---|:---|
-| **每日一文** | 第 2 层 | Registry 仓库加 CI workflow + `content/daily.json` + 用户 `config.json` 加 1 行 source |
-| **古诗文 300 首**（公开数据集）| 第 2 层 | Registry 仓库写一次性 `fetch_gushiwen.py`，跑一次冻结 |
-| **社区贡献文集** | 第 2 层 | 贡献者往 Registry 仓库 PR 改 `registry_index.json` + `content/*.json`，typetype 主仓不动 |
+| **每日一文** | 第 2 层 | open-typing-texts 仓库加 CI workflow + `content/daily.json` + 用户 `config.json` 加 1 行 source |
+| **古诗文 300 首**（公开数据集）| 第 2 层 | open-typing-texts 仓库写一次性 `fetch_gushiwen.py`，跑一次冻结 |
+| **社区贡献文集** | 第 2 层 | 贡献者往 open-typing-texts 仓库 PR 改 `registry_index.json` + `content/*.json`，typetype 主仓不动 |
 | **新本地练习文件** | 第 1 层 | `config.json` 加 1 行 `{loader: "local_file", local_path: "..."}`，零代码 |
 | **新带认证实时源** | 第 3 层 | 完整一套 Port + Adapter + Gateway + UseCase（参考晴发文）|
 
@@ -312,8 +312,8 @@ fetch_text_by_key(key)
 
 > 工时说明：若仅做同步缓存（cache hit/miss + 离线兜底 + 原子写）约 1 人日；后台刷新（stale-while-revalidate）涉及 `QtAsyncExecutor` 生命周期与并发管理，单独约 1 人日，可拆为 Phase 1a/1b 独立上线。
 
-### Phase 2：建 Registry 仓库 + 每日一文 CI（核心价值，2-3 人日）
-- 建 `typetype-registry` 仓库，启用 GitHub Pages
+### Phase 2：建 open-typing-texts 仓库 + 每日一文 CI（核心价值，2-3 人日）
+- 建 `open-typing-texts` 仓库，启用 GitHub Pages（见仓库模板：`docs/decisions/registry-repo-template/`）
 - 写 `scripts/fetch_daily.py`（源站自定，先接公开 RSS / 古诗文 API）
 - 写 `daily.yml` workflow（见上文模板）
 - 写 `registry_index.json` schema 文档
