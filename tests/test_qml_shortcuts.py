@@ -154,6 +154,30 @@ def test_titlebar_drag_area_is_enabled_with_native_mac_controls():
     assert "startSystemMove()" in source
 
 
+def test_ai_recommend_button_shows_ctrl_e_shortcut():
+    tool_line = PROJECT_ROOT / "src/qml/typing/ToolLine.qml"
+    tl = tool_line.read_text(encoding="utf-8")
+    assert 'text: "AI 推荐[^E]"' in tl
+    assert "enabled: !root.aiTextLoading" in tl
+    assert "requestAiText()" in tl
+
+
+def test_ctrl_e_shortcut_triggers_ai_text():
+    typing_page = PROJECT_ROOT / "src/qml/pages/TypingPage.qml"
+    tp = typing_page.read_text(encoding="utf-8")
+    assert "event.key === Qt.Key_E" in tp
+    assert "appBridge.requestAiText()" in tp
+    assert 'sequence: "Ctrl+E"' in tp
+    assert 'sequence: "Meta+E"' in tp
+
+
+def test_tool_line_has_no_load_text_button():
+    tool_line = PROJECT_ROOT / "src/qml/typing/ToolLine.qml"
+    tl = tool_line.read_text(encoding="utf-8")
+    assert "载文[F2]" not in tl
+    assert "requestOpenSliceConfig" in tl  # signal still kept
+
+
 def test_typing_end_copies_score_without_opening_end_dialog():
     typing_page = QML_DIR / "pages/TypingPage.qml"
     source = typing_page.read_text(encoding="utf-8")

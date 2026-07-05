@@ -5,6 +5,7 @@ import RinUI
 
 Frame {
     id: root
+    padding: 0
     radius: 4
     hoverable: false
     color: Theme.currentTheme.colors.cardColor

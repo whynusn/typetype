@@ -41,14 +41,15 @@ QQC.Pane {
             fillMode: Image.PreserveAspectFit   // 保持宽高比，不会变形
         }
 
+        // 发文（移到第一位）
         Button {
-            id: loadText
+            id: sendText
             width: 110
             height: 36
             anchors.verticalCenter: parent.verticalCenter
-            text: "载文[F2]"
+            text: "发文[C^D]"
             onClicked: {
-                root.requestOpenSliceConfig();
+                root.requestSendText();
             }
         }
 
@@ -61,46 +62,6 @@ QQC.Pane {
             onClicked: {
                 root.requestLoadTextFromClipboard();
             }
-        }
-
-        Button {
-            id: wenlaiLoadText
-            width: 110
-            height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            enabled: !root.wenlaiLoading
-            text: "晴发文[C^R]"
-            onClicked: {
-                root.requestLoadWenlai();
-            }
-        }
-
-        BusyIndicator {
-            width: 24
-            height: 24
-            anchors.verticalCenter: parent.verticalCenter
-            running: root.wenlaiLoading
-            visible: root.wenlaiLoading
-        }
-
-        Button {
-            id: aiRecommend
-            width: 110
-            height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            enabled: !root.aiTextLoading
-            text: "AI 推荐"
-            onClicked: {
-                root.requestAiText();
-            }
-        }
-
-        BusyIndicator {
-            width: 24
-            height: 24
-            anchors.verticalCenter: parent.verticalCenter
-            running: root.aiTextLoading
-            visible: root.aiTextLoading
         }
 
         Button {
@@ -125,15 +86,46 @@ QQC.Pane {
             }
         }
 
+        // 晴发文
         Button {
-            id: sendText
+            id: wenlaiLoadText
             width: 110
             height: 36
             anchors.verticalCenter: parent.verticalCenter
-            text: "发文[C^D]"
+            enabled: !root.wenlaiLoading
+            text: "晴发文[C^R]"
             onClicked: {
-                root.requestSendText();
+                root.requestLoadWenlai();
             }
+        }
+
+        BusyIndicator {
+            width: 24
+            height: 24
+            anchors.verticalCenter: parent.verticalCenter
+            running: root.wenlaiLoading
+            visible: root.wenlaiLoading
+        }
+
+        // AI 推荐
+        Button {
+            id: aiRecommend
+            width: 110
+            height: 36
+            anchors.verticalCenter: parent.verticalCenter
+            enabled: !root.aiTextLoading
+            text: "AI 推荐[^E]"
+            onClicked: {
+                root.requestAiText();
+            }
+        }
+
+        BusyIndicator {
+            width: 24
+            height: 24
+            anchors.verticalCenter: parent.verticalCenter
+            running: root.aiTextLoading
+            visible: root.aiTextLoading
         }
 
         // Spacer to push leaderboard button to the right
@@ -141,7 +133,7 @@ QQC.Pane {
             width: Math.max(0, parent.width - rowLayout.implicitWidth)
         }
 
-        // 排行榜切换按钮
+        // 排行榜切换按钮（最右侧）
         Button {
             id: leaderboardToggle
             width: 36

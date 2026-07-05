@@ -190,6 +190,13 @@ Item {
             toolLine.requestSendText();
             event.accepted = true;
         }
+
+        // --- Ctrl+E AI 推荐 ---
+        if (shortcutPressed && event.key === Qt.Key_E) {
+            if (appBridge)
+                appBridge.requestAiText();
+            event.accepted = true;
+        }
     }
 
     //======================================
@@ -258,6 +265,20 @@ Item {
         context: Qt.WindowShortcut
         enabled: typingPage.active
         onActivated: typingPage.triggerNextSegment()
+    }
+
+    Shortcut {
+        sequence: "Ctrl+E"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: appBridge.requestAiText()
+    }
+
+    Shortcut {
+        sequence: "Meta+E"
+        context: Qt.WindowShortcut
+        enabled: typingPage.active
+        onActivated: appBridge.requestAiText()
     }
 
     // ==========================================
