@@ -1106,15 +1106,39 @@ class Bridge(QObject):
 
     @Slot()
     def loadCatalog(self) -> None:
-        """从服务端加载文本来源目录。"""
+        """加载文本来源目录（优先 Registry CDN，fallback 服务端 API）。"""
         if self._leaderboard_adapter:
             self._leaderboard_adapter.loadCatalog()
 
     @Slot()
     def refreshCatalog(self) -> None:
-        """清除缓存并重新从服务端加载文本来源目录。"""
+        """清除缓存并重新加载文本来源目录。"""
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
+
+    @Slot(str)
+    def loadLibraryText(self, source_key: str) -> None:
+        """从 registry CDN 加载开源文库文本（完全独立于服务端 API）。
+
+        Registry（第 2 层）文本由 CI 生成并推送至 CDN 静态仓库，
+        客户端通过 RegistryTextProvider 直拉 CDN，与服务端数据库无关。
+
+        结果通过 textContentLoaded 信号返回，失败通过 textLoadFailed。
+        走后台线程避免阻塞 UI。
+        """
+        if not self._leaderboard_adapter:
+            return
+        provider = self._leaderboard_adapter._registry_provider
+        if provider is None:
+            self.textLoadFailed.emit("注册表文本源未配置")
+            return
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._leaderboard_adapter.fetch_registry_text(source_key),
+            on_result=lambda result: self.textContentLoaded.emit(
+                result[0], result[1], result[2]
+            ),
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
 
     @Slot()
     def loadLocalArticles(self) -> None:
