@@ -98,6 +98,22 @@
 
 > 完整架构见 [ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
 
+### 配置系统架构
+
+`config.json` 是唯一的运行时配置文件，位于 `~/.config/typetype/config.json`。
+
+| 文件 | 位置 | 内容 | 写入者 |
+|:--- |:--- |:--- |:--- |
+| `config.json` | `~/.config/typetype/` | 运行时配置（API 地址、文本源、AI 服务、UI 主题、字体偏好等） | `RuntimeConfig`（主）、`RinUI AppUIConfigManager`（ui 字段） |
+| `font_config.json`（已废弃） | `~/.config/typetype/` | 读屏字体路径 | 首次访问时自动迁移到 `config.json.ui.reader_font_path` |
+
+`RuntimeConfig` 设计要点：
+- `dataclass` 结构：顶级字段 + 子 Config dataclass（`WenlaiConfig`、`AiConfig`、`RegistryConfig`、`TextSessionConfig`）
+- `_from_dict` / `_to_dict`：JSON ↔ dataclass 序列化，`_save_to_file` 以 `_to_dict()` 为基全量写入
+- `__post_init__`：**范围校验**（如 `length < 0 → 0`）
+- `_safe_int` / `_safe_str`（在 `_from_dict` 中）：**JSON 类型转换**（如字符串 `"bad"` → 默认值 0）
+- 写入加 `fcntl.lockf` 文件锁
+
 ### 薄弱字排序
 
 `CharStatsRepository.get_chars_by_sort(sort_mode, weights, n)`：
@@ -278,6 +294,45 @@ onActiveChanged: {
 ### ⚠️ 分片达标次数在片段切换时必须归零
 
 进入片段时从 0 开始，片段内重打累加，离开时归零。同一片段重打时保留达标次数。
+
+### ⚠️ RuntimeConfig 是 config.json 的唯一序列化者
+
+**问题**：`config.json` 曾被四方无协调写入（RuntimeConfig、RinUI AppUIConfigManager、font_config.json 桥、用户手工编辑），存在 lost-update 风险。
+
+**现状**（2026-07-04 重构后）：
+- `RuntimeConfig._save_to_file()` 以 `_to_dict()` 为基全量写入，合并未知字段（前向兼容）
+- 写入时加 `fcntl.lockf` 文件锁防止并发冲突
+- `ui` 字段已成为 `RuntimeConfig` 的一等公民（`runtime_config.py:148`），通过 `update_ui_config()` 写入
+- `font_config.json` 已废弃：`reader_font_path` 改存 `config.json` 的 `ui.reader_font_path`，旧文件在首次访问时自动迁移
+
+**已知限制**：
+- `api_timeout` 为启动期常量（`container.py` 创建 `ApiClient` 时使用），运行时不传播变更
+- RinUI `AppUIConfigManager` 仍直接读写 config.json 的 `ui` 字段（RinUI 框架内部机制），与 RuntimeConfig 的 `_save_to_file` 存在理论上的并发窗口，但 Python 单线程模型中风险极低
+
+**正确做法**：
+- 增加配置字段 → 加在 Config dataclass 上 + `_from_dict` + `_to_dict`，不要绕开 RuntimeConfig
+- 修改 UI 配置 → 通过 `runtime_config.update_ui_config(key=value)`，不要直接写文件
+- 新子配置 → 遵循 `WenlaiConfig / AiConfig / RegistryConfig` 模式：`@dataclass` + `__post_init__` 范围校验 + `_from_dict` 负责 JSON 类型转换
+
+**历史**：2026-07-04 多相位重构。
+
+### ⚠️ TextSource 使用 Loader + LeaderboardMode 二维正交模型
+
+**问题**：旧的 `SourceType` 枚举（`NETWORK / REGISTRY / LOCAL_RANKED / LOCAL_PRACTICE`）把"加载方式"和"排行榜行为"耦合在单一枚举中，导致 `LOCAL_RANKED` 和 `LOCAL_PRACTICE` 的区别不是本质性的（都是读本地文件），且新增来源类型时必须扩展枚举和 if 分支。
+
+**现状**（2026-07-04 重构后）：
+- `TextSourceEntry` 现在由两个正交字段定义：`loader`（决定 Gateway 路由）+ `leaderboard_mode`（决定 text_id 决策）
+- `TextSourceEntry.is_local` 属性由 `loader == Loader.LOCAL_FILE` 派生
+- `has_ranking` 字段已废弃（从未有独立消费方）
+- 旧 `source_type` / `has_ranking` 配置项在加载时自动迁移到新字段
+
+**正确做法**：
+- 添加新远程源 → 新增 `Loader` 枚举值 + Gateway 路由分支 + Provider 实现
+- 改变排行榜行为 → 设置 `leaderboard_mode`，不影响加载路径
+- `text_source_config.py` 是权威定义，`text_source_gateway.py` 和 `load_text_usecase.py` 分别只依赖 `loader` 和 `leaderboard_mode`
+- `is_local` 属性由 `TextSourceEntry.is_local` 提供，不要手工判断
+
+**历史**：2026-07-04 重构。
 
 ---
 

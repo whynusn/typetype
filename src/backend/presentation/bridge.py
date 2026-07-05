@@ -103,6 +103,8 @@ class Bridge(QObject):
     baseUrlChanged = Signal()
     windowTitleChanged = Signal()
     textTitleChanged = Signal()
+    textSourceOptionsChanged = Signal()
+    defaultTextSourceKeyChanged = Signal()
     typingTotalsChanged = Signal()
     textIdLookupFailed = Signal()  # 本地 text_id 回查失败
     # 晴发文信号
@@ -390,6 +392,12 @@ class Bridge(QObject):
     def _connect_upload_signals(self) -> None:
         if self._upload_text_adapter:
             self._upload_text_adapter.uploadFinished.connect(self.uploadResult.emit)
+            self._upload_text_adapter.configUpdated.connect(self._on_config_updated)
+
+    def _on_config_updated(self) -> None:
+        self._text_adapter.refresh_runtime_config()
+        self.textSourceOptionsChanged.emit()
+        self.defaultTextSourceKeyChanged.emit()
 
     def _connect_leaderboard_signals(self) -> None:
         if self._leaderboard_adapter:
@@ -615,7 +623,7 @@ class Bridge(QObject):
     def textLoading(self) -> bool:
         return self._text_adapter.text_loading
 
-    @Property(str, constant=True)
+    @Property(str, notify=defaultTextSourceKeyChanged)
     def defaultTextSourceKey(self) -> str:
         return self._text_adapter.get_default_source_key()
 
@@ -627,17 +635,9 @@ class Bridge(QObject):
     def textTitle(self) -> str:
         return self._typing_adapter.text_title
 
-    @Property(list, constant=True)
+    @Property(list, notify=textSourceOptionsChanged)
     def textSourceOptions(self) -> list:
         return self._text_adapter.get_source_options()
-
-    @Property(list, constant=True)
-    def rankingSourceOptions(self) -> list:
-        return self._text_adapter.get_ranking_source_options()
-
-    @Property(list, constant=True)
-    def uploadTextSourceOptions(self) -> list:
-        return self._text_adapter.get_upload_source_options()
 
     @Property(float, notify=totalTimeChanged)
     def totalTime(self) -> float:
@@ -2513,16 +2513,28 @@ class Bridge(QObject):
         self.keyboardDevicesChanged.emit()
 
     # ==========================================
-    # 字体配置持久化
+    # 字体配置持久化 — 通过 RuntimeConfig.ui.reader_font_path
     # ==========================================
 
     @staticmethod
     def _font_config_path() -> str:
+        """旧 font_config.json 路径（用于迁移）。"""
         import os
 
         return os.path.join(str(user_config_dir()), "font_config.json")
 
     def _load_reader_font_path(self) -> str:
+        """从 config.json 的 ui.reader_font_path 读取。
+
+        首次读取时检测 font_config.json 历史文件并自动迁移。
+        """
+        result = self._text_adapter._runtime_config._ui_get(
+            "reader_font_path", default=""
+        )
+        if result:
+            return result
+
+        # 迁移：检查旧 font_config.json
         import json
         import os
 
@@ -2531,20 +2543,16 @@ class Bridge(QObject):
             try:
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
-                return data.get("reader_font_path", "")
+                old_value = data.get("reader_font_path", "")
+                if old_value:
+                    self._text_adapter._runtime_config.update_ui_config(
+                        reader_font_path=old_value
+                    )
+                    return old_value
             except (json.JSONDecodeError, OSError):
                 pass
         return ""
 
     def _save_reader_font_path(self, file_path: str) -> None:
-        import json
-        import os
-
-        path = self._font_config_path()
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            data = {"reader_font_path": file_path}
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except OSError:
-            pass
+        """通过 RuntimeConfig 持久化 reader_font_path 到 config.json。"""
+        self._text_adapter._runtime_config.update_ui_config(reader_font_path=file_path)

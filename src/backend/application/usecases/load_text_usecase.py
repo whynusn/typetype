@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import re
 
-from ...config.text_source_config import SourceType, TextSourceEntry
+from ...config.text_source_config import LeaderboardMode, TextSourceEntry
 from ...ports.clipboard import ClipboardReader
 from ..gateways.text_source_gateway import TextSourceGateway
 
@@ -79,10 +79,10 @@ class LoadTextUseCase:
 
     @staticmethod
     def _lookup_source_key(source_entry: TextSourceEntry, fetched) -> str:
-        """仅本地排行榜文本需要异步回查服务端 text_id。"""
+        """仅本地排行榜文本（LOCAL_LOOKUP 模式）需要异步回查服务端 text_id。"""
         if fetched.text_id is not None:
             return ""
-        if source_entry.source_type == SourceType.LOCAL_RANKED:
+        if source_entry.leaderboard_mode == LeaderboardMode.LOCAL_LOOKUP:
             return source_entry.key
         return ""
 

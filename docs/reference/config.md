@@ -1,5 +1,5 @@
 # RuntimeConfig 配置速查
-<!-- 状态: active | 最后验证: 2026-05-14 -->
+<!-- 状态: active | 最后验证: 2026-07-04 -->
 
 > 配置文件查找顺序：用户配置目录中的 `config.json` → `config/config.json` → `config/config.example.json`。macOS 用户配置目录为 `~/Library/Application Support/TypeType/`，Linux 为 `~/.config/typetype/`。
 
@@ -9,37 +9,49 @@
 |------|------|--------|------|
 | `base_url` | `str` | `http://127.0.0.1:8080` | 服务端地址 |
 | `default_text_source_key` | `str` | `builtin_demo` | 默认文本来源 key |
-| `api_timeout` | `float` | `20.0` | API 请求超时（秒） |
+| `api_timeout` | `float` | `20.0` | API 请求超时（秒），启动期常量 |
 | `text_sources` | `dict[str, TextSourceEntry]` | `{}` | 文本来源配置表 |
 | `wenlai` | `dict` | 见下 | 晴发文服务配置 |
 | `ui` | `dict` | 见下 | UI 主题与外观配置 |
 
 ## TextSourceEntry 字段
 
+> 设计：`loader`（数据从哪来）+ `leaderboard_mode`（成绩怎么处理）二维正交。详见 `text_source_config.py` 模块文档。
+
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `key` | `str` | ✅ | 来源标识（JSON 对象键名，代码中必填） |
-| `label` | `str` | ✅ | 显示名称（无默认值，代码中必填） |
-| `local_path` | `str` | ❌ | 本地文件路径（有则走本地加载，无则走远程 API） |
-| `has_ranking` | `bool` | ❌ | 是否参与排行榜（默认 false） |
+| `key` | `str` | ✅ | 来源标识（JSON 对象键名） |
+| `label` | `str` | ✅ | 显示名称 |
+| `loader` | `str` | ❌ | `local_file` / `remote_api` / `registry`（决定 Gateway 路由） |
+| `leaderboard_mode` | `str` | ❌ | `none` / `server_resolved` / `local_lookup`（决定 text_id 决策） |
+| `local_path` | `str` | ❌ | 仅 loader=local_file 时需要 |
 
-## 判断规则
+## Loader 枚举
 
-```
-有 local_path → 本地来源 → text_id=None → 不提交成绩
-无 local_path → 远程来源 → text_id 由服务端返回 → 可提交成绩
-```
+| 值 | 加载方式 | Gateway 路由 |
+|----|---------|-------------|
+| `local_file` | 读本地文件 | `LocalTextLoader` / `FileSegmentProvider` |
+| `remote_api` | 调用服务端 API | `RemoteTextProvider` |
+| `registry` | CDN 注册表（GitHub Actions 生成） | `RegistryTextProvider` |
+
+## LeaderboardMode 枚举
+
+| 值 | text_id 决策 | 适用场景 |
+|----|------------|---------|
+| `none` | 不提交，不参与排行榜 | 本地练习文本、剪贴板 |
+| `server_resolved` | 服务端直接返回 text_id | 极速杯等远程源、注册表源 |
+| `local_lookup` | 本地内容 hash 回查服务端 text_id | "前五百"等固定本地内容 |
 
 ## 默认来源列表
 
-| key | label | 类型 | 排行榜 |
-|-----|-------|------|--------|
-| `builtin_demo` | 本地示例 | 本地 | ❌ |
-| `jisubei` | 极速杯 | 远程 | ✅ |
-| `fst_500` | 前五百 | 本地 | ✅ |
-| `mid_500` | 中五百 | 本地 | ✅ |
-| `lst_500` | 后五百 | 本地 | ✅ |
-| `essential_single_char` | 打词必备单字 | 本地 | ❌ |
+| key | label | loader | leaderboard_mode |
+|-----|-------|--------|-----------------|
+| `builtin_demo` | 本地示例 | local_file | none |
+| `jisubei` | 极速杯 | remote_api | server_resolved |
+| `fst_500` | 前五百 | local_file | local_lookup |
+| `mid_500` | 中五百 | local_file | local_lookup |
+| `lst_500` | 后五百 | local_file | local_lookup |
+| `essential_single_char` | 打词必备单字 | local_file | none |
 
 ## 运行时动态属性
 
@@ -77,3 +89,4 @@
 | `ui.theme_color` | `str` | `"#605ed2"` | 主题色 |
 | `ui.backdrop_effect` | `str` | `"none"` | 背景特效 |
 | `ui.win10_feat` | `dict` | `{backdrop_light, backdrop_dark}` | Windows 10 背景特效参数 |
+| `ui.reader_font_path` | `str` | `""` | 阅读字体文件路径（`font_config.json` 已并入此字段） |

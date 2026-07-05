@@ -49,7 +49,7 @@ class RemoteTextProvider:
                     source_key=item.get("sourceKey", ""),
                     label=item.get("label", ""),
                     description=item.get("category", ""),
-                    has_ranking=True,
+                    has_ranking=True,  # ponytail: static till server returns has_ranking
                 )
                 for item in items
             ]

@@ -2,7 +2,7 @@
 
 职责：
 - 读取文本来源配置（持有 RuntimeConfig）
-- 根据 source_key 决定走本地还是网络
+- 根据 Loader 决定路由到哪个 Provider
 - 调用相应的 Port（TextProvider / LocalTextLoader）
 
 不负责：
@@ -13,7 +13,7 @@
 from typing import TYPE_CHECKING
 
 from ...config.runtime_config import RuntimeConfig
-from ...config.text_source_config import SourceType
+from ...config.text_source_config import Loader
 from ...models.dto.fetched_text import FetchedText
 from ...ports.local_text_loader import LocalTextLoader
 from ...ports.text_provider import TextProvider
@@ -32,10 +32,12 @@ class TextSourceGateway:
         runtime_config: RuntimeConfig,
         text_provider: TextProvider,
         local_text_loader: LocalTextLoader,
+        registry_provider: TextProvider | None = None,
     ):
         self._runtime_config = runtime_config
         self._text_provider = text_provider
         self._local_text_loader = local_text_loader
+        self._registry_provider = registry_provider
 
     def plan_load(self, source_key: str) -> "TextSourceEntry":
         """规划加载：查找来源。
@@ -52,15 +54,21 @@ class TextSourceGateway:
     ) -> tuple[bool, FetchedText | None, str]:
         """根据已规划的来源条目加载文本。
 
-        不需要再次查找 source，直接使用已找到的条目。
-
-        Returns:
-            tuple[bool, FetchedText | None, str]: (成功, 文本对象, 错误信息)
+        路由决策：按 TextSourceEntry.loader 决定走哪个 Provider，
+        与排行榜行为（leaderboard_mode）解耦。
         """
-        if source.source_type == SourceType.NETWORK:
+        if source.loader == Loader.REMOTE_API:
             return self._load_from_network(source.key)
 
-        # LOCAL_RANKED 和 LOCAL_PRACTICE 都读本地文件
+        if source.loader == Loader.REGISTRY:
+            if not self._registry_provider:
+                return False, None, "注册表文本源未配置"
+            fetched = self._registry_provider.fetch_text_by_key(source.key)
+            if fetched is None:
+                return False, None, f"无法获取注册表文本({source.key})"
+            return True, fetched, ""
+
+        # LOCAL_FILE：读本地文件
         return self._load_from_local(source.local_path, source.label, source.key)
 
     def _load_from_local(
