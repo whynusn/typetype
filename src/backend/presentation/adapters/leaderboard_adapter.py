@@ -40,7 +40,7 @@ class LeaderboardAdapter(QObject):
         self,
         leaderboard_gateway: LeaderboardGateway,
         runtime_config: RuntimeConfig,
-        registry_provider: "RegistryTextProvider | None" = None,
+        registry_provider=None,
     ):
         super().__init__()
         self._leaderboard_gateway = leaderboard_gateway
