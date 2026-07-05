@@ -24,7 +24,8 @@ import httpx
 
 # ── 配置 ──────────────────────────────────────────────────────────────
 # 源站 URL（可被 CI 环境变量覆盖）
-DAILY_API_URL = os.getenv("DAILY_API_URL", "")
+# 默认使用 Hitokoto 中文句子 API（公开免费）
+DAILY_API_URL = os.getenv("DAILY_API_URL", "https://v1.hitokoto.cn")
 
 # 目标文件路径（相对于仓库根目录）
 CONTENT_DIR = Path(__file__).resolve().parent.parent / "content"
@@ -41,24 +42,21 @@ def fetch_daily(date_str: str, dry_run: bool = False) -> bool:
     Returns:
         True 表示成功获取内容（写入成功或 dry_run）
     """
-    # ── 源站自定：此处以公开 RSS 示例 ──────────────────────────────
-    # 实际使用时替换为真实源站 API
-    # 示例源站（公开古诗词 API，仅供演示）：
-    #   GET https://v2.jinrishici.com/one
+    # ── 源站自定：此处以公开 Hitokoto API 示例 ────────────────────
+    #
+    # Hitokoto API（公开免费）：
+    #   GET https://v1.hitokoto.cn/?c=i
+    #   返回：{ "hitokoto": "句子", "from": "出处", ... }
     #
     # 对于「每日一文」场景，建议源站选择：
     # - 公开 RSS 源（如豆瓣阅读、微信读书每日推荐）
     # - 开源文集（如古诗文网、维基百科精选）
     #
-    # 当前仅做结构示例，返回空内容。
-
-    if not DAILY_API_URL:
-        print("[fetch_daily] 未配置 DAILY_API_URL 环境变量，跳过（dry_run 模式）")
-        return True
+    # 实际使用时替换为真实源站 API。
 
     try:
         with httpx.Client(timeout=10.0, trust_env=False) as client:
-            resp = client.get(f"{DAILY_API_URL}/daily", params={"date": date_str})
+            resp = client.get(DAILY_API_URL, params={"c": "i"})
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPError as e:
@@ -69,14 +67,14 @@ def fetch_daily(date_str: str, dry_run: bool = False) -> bool:
         return False
 
     if dry_run:
-        print(f"[fetch_daily] dry_run: 获取到 {len(data.get('content', ''))} 字符")
+        print(f"[fetch_daily] dry_run: 获取到 {len(data.get('hitokoto', ''))} 字符")
         return True
 
     # 写入内容文件
     daily_content = {
         "source_key": "daily",
-        "content": data.get("content", ""),
-        "title": data.get("title", f"每日一文 {date_str}"),
+        "content": data.get("hitokoto", ""),
+        "title": data.get("from", f"每日一文 {date_str}"),
         "text_id": None,
         "metadata": {
             "description": f"每日精选文章 {date_str}",
