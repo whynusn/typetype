@@ -506,6 +506,76 @@ FluentPage {
         }
     }
 
+    function applyRegistryUrl() {
+        if (!appBridge) return
+        var primary = registryPrimaryField.text.trim()
+        var mirror = registryMirrorField.text.trim()
+        if (primary.length > 0)
+            appBridge.setRegistryPrimaryUrl(primary)
+        if (mirror.length > 0)
+            appBridge.setRegistryMirrorUrl(mirror)
+    }
+
+    SettingCard {
+        id: registryUrlCard
+        Layout.fillWidth: true
+        title: qsTr("开源文库")
+        icon.name: "ic_fluent_text_bullet_list_20_regular"
+        description: qsTr("本地 OTT 适配器或服务端地址，留空则禁用")
+
+        ColumnLayout {
+            spacing: 6
+
+            RowLayout {
+                spacing: 8
+
+                Text {
+                    typography: Typography.Caption
+                    text: qsTr("主地址")
+                    Layout.preferredWidth: 48
+                }
+
+                TextField {
+                    id: registryPrimaryField
+                    Layout.fillWidth: true
+                    text: appBridge ? appBridge.registryPrimaryUrl : ""
+                    placeholderText: "http://127.0.0.1:18888 或留空"
+                    onAccepted: applyRegistryUrl()
+                }
+
+                Button {
+                    text: qsTr("应用")
+                    highlighted: true
+                    onClicked: applyRegistryUrl()
+                }
+            }
+
+            RowLayout {
+                spacing: 8
+
+                Text {
+                    typography: Typography.Caption
+                    text: qsTr("镜像")
+                    Layout.preferredWidth: 48
+                }
+
+                TextField {
+                    id: registryMirrorField
+                    Layout.fillWidth: true
+                    text: appBridge ? appBridge.registryMirrorUrl : ""
+                    placeholderText: "https://..."
+                    onAccepted: applyRegistryUrl()
+                }
+
+                Button {
+                    text: qsTr("应用")
+                    highlighted: true
+                    onClicked: applyRegistryUrl()
+                }
+            }
+        }
+    }
+
     Text {
         typography: Typography.Subtitle
         text: qsTr("晴发文")
