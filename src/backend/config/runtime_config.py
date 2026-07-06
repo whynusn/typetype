@@ -172,9 +172,7 @@ class RuntimeConfig:
                 with open(config_path, encoding="utf-8") as f:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
-                log_error(
-                    f"[RuntimeConfig] 配置文件损坏，使用默认配置: {config_path}"
-                )
+                log_error(f"[RuntimeConfig] 配置文件损坏，使用默认配置: {config_path}")
                 return cls(_config_path=str(user_config_path()))
             config = cls._from_dict(data)
             config._config_path = config_path
@@ -209,9 +207,7 @@ class RuntimeConfig:
         try:
             data = json.loads(target.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            log_error(
-                f"[RuntimeConfig] 配置文件损坏，重新生成: {target}"
-            )
+            log_error(f"[RuntimeConfig] 配置文件损坏，重新生成: {target}")
             data = cls()._to_dict()
             try:
                 with target.open("w", encoding="utf-8") as f:
