@@ -24,12 +24,32 @@
 
 TypeType 是一个基于 **PySide6 + QML** 的中文打字练习跟打器，提供以下统计指标：
 
-- **码长**（击/字）— 每个中文字符平均消耗的按键次数
-- **击键**（击/秒）— 每秒物理按键次数
-- **速度**（字/分钟）— 每分钟输入中文字符数
-- **键准**（%）— 有效按键比例，反映按键效率
-- **打词率**（%）— 连续中文词组输入比例
-- **错字 / 回改 / 退格** — 错误修正统计
+**会话实时统计**（实时栏展示）：
+- **速度**（字/分）— 每分钟上屏字符数，`char_count × 60 ÷ time`
+- **击键**（击/秒）— 每秒物理按键次数，`key_stroke_count ÷ time`
+- **码长**（击/字）— 每上屏一个字符平均消耗的按键次数，`key_stroke_count ÷ char_count`
+- **键准**（%）— 有效按键比例，`(击键总数 − 退格 − 回改 × 码长) ÷ 击键总数 × 100`
+- **字准**（%）— 上屏字符正确率，`(上屏字符 − 错字) ÷ 上屏字符 × 100`
+- **打词率**（%）— 连续中文词组输入占比
+- **错字** — 上屏错误字符数
+- **回改** — 修订次数（每次删除操作计一次）
+- **退格** — 退格键按下次数
+- **标顶** — 标点键将候选字顶出上屏的次数
+- **用时** — 本次打字耗时（秒）
+- **键数** — 物理按键总次数
+
+**峰值统计**（全程记录）：
+- **峰值速度**（字/分）— 本次会话中达到的最高瞬时速度
+- **峰值击键**（击/秒）— 最高瞬时击键频率
+- **峰值码长**（击/字）— 最低瞬时码长（越短越好）
+
+**慢字分析**（会话结束自动生成）：
+- **慢字** — 每字符耗时超过阈值（默认 1 秒/字）的字符列表，标记为 `字符(耗时s)`。支持两种计算路径：`capture_slow_chars()` 按正字法逐字符计时，`CharStatsService.get_slow_chars()` 从历史 SQLite 数据筛选耗时异常字符
+
+**历史累积统计**（跨会话持久化）：
+- **今日跟打字数** — 今日已完成的总字符数
+- **历史总跟打字数** — 所有会话累加的总字符数
+- **字符级统计**（SQLite）— 每个字符的上屏次数、错误次数、耗时，用于薄弱字分析和慢字识别
 
 > **原理：** 通过 Linux evdev 直接读取内核键盘事件，绕过 Wayland text-input-v3 协议对浏览器/应用层按键事件的屏蔽，实现 Wayland 下的物理击键统计。
 
@@ -37,11 +57,11 @@ TypeType 是一个基于 **PySide6 + QML** 的中文打字练习跟打器，提�
 
 ## 功能概览
 
-- 📊 实时 **码长 / 击键 / 速度 / 键准 / 打词率** 统计，配合 **错字 / 回改 / 退格** 分析
+- 📊 实时 **速度 / 击键 / 码长 / 键准 / 字准 / 打词率** 统计，配合 **错字 / 回改 / 退格 / 标顶** 分析
 - 📈 字符级统计（SQLite 持久化）与薄弱字分析  
 - 🏆 服务端排行榜与成绩提交（支持分片模式聚合成绩）  
 - 📝 三层文本源：本地文件、开源文库（脚本工具）、即时拉取（服务端/第三方 API）  
-- 🪟 跨平台支持（详见 [💻 支持平台](#💻-支持平台)）
+- 🪟 跨平台支持（详见 [💻 支持平台](#支持平台)）
 
 ---
 
@@ -50,9 +70,9 @@ TypeType 是一个基于 **PySide6 + QML** 的中文打字练习跟打器，提�
 | 平台 | 支持状态 | 键盘监听方式 |
 | :--- | :--- | :--- |
 | **Linux Wayland** | ✅ 原生支持 | `evdev` 直接读取内核事件 |
-| **Linux X11** | ✅ 支持 | X11 事件 |
-| **macOS** | ✅ 支持 | `Quartz CGEventTap` 全局监听 |
-| **Windows** | ✅ 支持 | QML Text 变化统计 |
+| **Linux X11** | ✅ 支持 | QML Text 变化统计（`onTextChanged` / `Keys.onPressed`） |
+| **macOS** | ✅ 支持 | `Quartz CGEventTap` 全局监听（降级：QML Text 变化统计） |
+| **Windows** | ✅ 支持 | QML Text 变化统计（`onTextChanged` / `Keys.onPressed`） |
 
 > 💻 **详细权限配置**：见下方 [Linux Wayland 权限](#linux-wayland-权限) 和 [macOS 输入监控权限](#macos-输入监控权限) 章节。
 
@@ -60,7 +80,7 @@ TypeType 是一个基于 **PySide6 + QML** 的中文打字练习跟打器，提�
 
 ## 为什么 Wayland 下大部分打字工具统计不准？
 
-不了解 Wayland/X11 的区别可以先阅读：[《细说 Wayland 和 X11》](https://blog.csdn.net/yang1fei2/article/details/139576188)。
+不了解 Wayland/X11 的区别可以先阅读：[Wayland（Wikipedia）](https://zh.wikipedia.org/wiki/Wayland)。
 
 浏览器（Firefox / Chromium）在 Wayland 下使用 text-input-v3 协议与输入法通信。拼音输入时，**每个按键走 IME composition 流程，浏览器的 keydown/keyup 事件不为拼音按键触发**，只在 compositionend 时提交最终中文字符。因此：
 
@@ -180,20 +200,43 @@ utils/          # 工具类（Logger、text_id）
 
 ## 文本来源
 
-TypeType 按「数据如何到达客户端」分三层（详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md#文本源三层模型)）：
+TypeType 的文本来源按**路由方式**（Loader）和**排行榜行为**（LeaderboardMode）二维正交划分，详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md#文本源三层模型)。
 
-| 层 | 名称 | 包含 | 说明 |
-|:--- |:--- |:--- |:--- |
-| 第 1 层 | 本地文件 | 剪贴板、自定义、本地文库、练单器、前/中/后五百、打词必备单字 | 文本来自本地文件或用户输入 |
-| 第 2 层 | 开源文库 | 每日一文、静态文集等 | 用户本地运行脚本生成 JSON，客户端缓存读取 |
-| 第 3 层 | 即时拉取 | 极速杯（typetype-server）、晴发文 | 实时调用服务端/第三方 API |
+### 加载方式分类
 
-所有本地载文 + 极速杯共享分片/乱序组件。晴发文在服务端分段，不走 App 分片机制。
+| 路由 | 加载机制 | 适用来源 |
+|:--- |:--- |:--- |
+| **本地文件** | `QtLocalTextLoader` 直接读取本地文件 | 内置示例、前/中/后五百、打词必备单字、本地文库、练单器、剪贴板、自定义载文 |
+| **服务端 API** | `RemoteTextProvider` 调用 typetype-server REST API | 服务端提供的文本列表（通过 `config.json` 配置 `text_sources` 注册） |
+| **开源文库** | `RegistryTextProvider` 读取 HTTP 注册表（带磁盘缓存） | 每日一文、静态文集等，用户在本地运行脚本生成后通过注册表服务暴露 |
+| **独立协议** | 各自独立的 Provider + UseCase + Adapter 栈 | 晴发文（第三方 API）、AI 智能推荐（LLM API） |
 
-默认配置（`~/.config/typetype/config.json`，首次启动自动生成）：
-- 第 3 层：`jisubei`（极速杯）
-- 第 1 层：`builtin_demo`、`fst_500`、`mid_500`、`lst_500`、`essential_single_char`
-- 第 2 层开源文库：默认未启用，需在设置页配置 `registry.primary_url`
+### 文本来源列表
+
+**本地来源**（离线可用，无需服务端）：
+- **剪贴板**（Ctrl+V / 工具栏按钮）— 从系统剪贴板读取文本，支持 QQ 跟打发信格式解析
+- **自定义载文** — 手动输入或从文本列表中选择
+- **内置示例** `builtin_demo` — 演示用短文
+- **前五百 / 中五百 / 后五百**（`fst_500` / `mid_500` / `lst_500`）— 高频汉字集，支持本地 hash 回查服务端 text_id（排行榜可提交）
+- **打词必备单字** `essential_single_char` — 单字练习
+- **本地文库** — 用户本地文本文件浏览与载文，支持分片模式
+- **练单器** — 词组分组练习，支持乱序与进度追踪
+
+**联网来源**（需配置服务端或第三方服务）：
+- **typetype-server 文本列表**（`text_sources` 中 `loader=REMOTE_API` 的条目）— 通过客户端设置页配置的 `base_url` 连接自部署的 [typetype-server](https://github.com/whynusn/typetype-server)，获取服务端提供的文本列表及排行榜
+- **开源文库**（`loader=REGISTRY`）— 连接 HTTP 注册表服务获取文本库，支持磁盘缓存与后台刷新。默认未启用，需在设置页配置 `registry.primary_url`
+- **晴发文** — 调用 [qingfawen.fcxxz.com](https://qingfawen.fcxxz.com) 第三方 API 获取随机/相邻文本，需注册账号。独立协议栈，不支持排行榜提交
+- **AI 智能推荐** — 通过 OpenAI / DeepSeek / Anthropic 等兼容 API 生成针对性练习文本，根据薄弱字自动出题。独立协议栈
+
+### 分片机制
+
+所有本地来源 + typetype-server 文本共享分片/乱序组件（`TextSessionUseCase` + `FileSegmentProvider` / `InMemorySegmentProvider`）。晴发文在服务端分段，不走客户端分片机制。
+
+### 默认配置
+
+首次启动自动生成 `~/.config/typetype/config.json`，默认 `text_sources` 包含：
+- `builtin_demo` / `fst_500` / `mid_500` / `lst_500` / `essential_single_char`（五组本地文件）
+- 联网来源需在设置页配置 `base_url`（指向 typetype-server）或 `registry.primary_url` 后生效
 
 ---
 
@@ -276,7 +319,8 @@ Windows 建议追加：
 ## 致谢
 
 - [RinUI](https://github.com/RinLit-233-shiroko/Rin-UI) — Fluent Design 风格 QML 组件库（MIT License © 2025 RinLit）
-- [晴发文 / TypeSunny（a810439322）](https://github.com/a810439322) — macOS 适配贡献者（Quartz CGEventTap 键盘监听），同时维护 [TypeSunny（晴跟打）](https://github.com/a810439322/TypeSunny) 开源跟打器项目
+- [晴发文](https://qingfawen.fcxxz.com) — 中文随机器文 API 服务，为本项目提供随机/相邻文本来源
+- [TypeSunny（a810439322）](https://github.com/a810439322) — macOS 适配贡献者（Quartz CGEventTap 键盘监听），同时维护 [TypeSunny（晴跟打）](https://github.com/a810439322/TypeSunny) 开源跟打器项目
 
 ---
 
