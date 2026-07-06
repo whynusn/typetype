@@ -110,18 +110,19 @@ class AiConfig:
 class RegistryConfig:
     """注册表文本源配置。"""
 
-    primary_url: str = ""
+    primary_url: str = "http://127.0.0.1:18888"
     mirror_url: str = ""
-    cache_ttl_seconds: int = 3600
+    cache_ttl_seconds: int = 86400
     max_content_bytes: int = 1_048_576
 
     def __post_init__(self) -> None:
-        if not isinstance(self.primary_url, str):
-            self.primary_url = ""
+        if not isinstance(self.primary_url, str) or not self.primary_url.strip():
+            self.primary_url = "http://127.0.0.1:18888"
         if not isinstance(self.mirror_url, str):
             self.mirror_url = ""
+        self.primary_url = self.primary_url.rstrip("/")
         if self.cache_ttl_seconds < 0:
-            self.cache_ttl_seconds = 3600
+            self.cache_ttl_seconds = 86400
         if self.max_content_bytes < 0:
             self.max_content_bytes = 1_048_576
 
