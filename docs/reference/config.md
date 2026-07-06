@@ -32,13 +32,13 @@
 |----|---------|-------------|
 | `local_file` | 读本地文件 | `LocalTextLoader` / `FileSegmentProvider` |
 | `remote_api` | 调用服务端 API | `RemoteTextProvider` |
-| `registry` | OTT 文本源（本地适配器或自托管） | `RegistryTextProvider` |
+| `registry` | Registry（第 2 层，本地运行脚本生成的只读 JSON） | `RegistryTextProvider` |
 
 ## LeaderboardMode 枚举
 
 | 值 | text_id 决策 | 适用场景 |
 |----|------------|---------|
-| `none` | 不提交，不参与排行榜 | 本地练习文本、剪贴板、OTT 文本源 |
+| `none` | 不提交，不参与排行榜 | 本地练习文本、剪贴板 |
 | `server_resolved` | 服务端直接返回 text_id | 极速杯等远程源 |
 | `local_lookup` | 本地内容 hash 回查服务端 text_id | "前五百"等固定本地内容 |
 
@@ -85,12 +85,12 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `registry.primary_url` | `str` | `http://127.0.0.1:18888` | OTT 适配器地址（本地或远程） |
+| `registry.primary_url` | `str` | `http://127.0.0.1:18888` | Registry 服务地址（本地运行脚本后暴露的 HTTP 服务） |
 | `registry.mirror_url` | `str` | `""` | 镜像地址（可选） |
 | `registry.cache_ttl_seconds` | `int` | `86400` | 缓存过期时间（秒） |
 | `registry.max_content_bytes` | `int` | `1048576` | 单篇正文最大字节（1 MB） |
 
-> 推荐：使用 [ott-adapter](https://github.com/whynusn/open-typing-texts) 在本地运行，`primary_url` 设为 `http://127.0.0.1:18888`。
+> 推荐：使用 [open-typing-texts](https://github.com/whynusn/open-typing-texts) 仓库的脚本在本地运行 Registry 服务，`primary_url` 设为 `http://127.0.0.1:18888`。
 
 ## UI 子字段
 

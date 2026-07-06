@@ -1,6 +1,6 @@
-"""注册表文本提供器 - 从 CDN 注册表获取文本。
+"""注册表文本提供器 - 从 Registry 服务获取文本（第 2 层）。
 
-实现 TextProvider Protocol。动态文本通过 GitHub Actions CI 生成并推送至静态仓库，
+实现 TextProvider Protocol。文本由用户在本地运行脚本生成，通过 HTTP 服务暴露，
 客户端只读不写，不执行远程脚本。
 
 缓存层设计：

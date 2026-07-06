@@ -1125,10 +1125,10 @@ class Bridge(QObject):
 
     @Slot(str)
     def loadLibraryText(self, source_key: str) -> None:
-        """从 registry CDN 加载开源文库文本（完全独立于服务端 API）。
+        """从 Registry 服务加载文本（完全独立于服务端 API）。
 
-        Registry（第 2 层）文本由 CI 生成并推送至 CDN 静态仓库，
-        客户端通过 RegistryTextProvider 直拉 CDN，与服务端数据库无关。
+        Registry（第 2 层）文本由用户本地运行脚本生成，通过 HTTP 服务暴露，
+        客户端通过 RegistryTextProvider 拉取，与服务端数据库无关。
 
         结果通过 textContentLoaded 信号返回，失败通过 textLoadFailed。
         走后台线程避免阻塞 UI。

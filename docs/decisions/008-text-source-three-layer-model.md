@@ -106,7 +106,7 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
   ┌──────────┐         ┌────────────┐         ┌────────────┐
   │ 第1层    │         │  第2层     │         │  第3层     │
   │ 本地文件 │         │ Registry   │         │ 即时拉取   │
-  │ (静态)   │         │ (CI 只读)  │         │ (实时)     │
+  │ (静态)   │         │ (脚本工具) │         │ (实时)     │
   └──────────┘         └────────────┘         └────────────┘
    前/中/后五百         每日一文               晴发文 random
    自定义 txt           静态文集               服务端 API
@@ -115,28 +115,28 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
 
 ### 三层职责对照
 
-| 维度 | 第 1 层：本地文件 | 第 2 层：Registry（CI 只读）| 第 3 层：即时拉取 |
+| 维度 | 第 1 层：本地文件 | 第 2 层：Registry（脚本工具）| 第 3 层：即时拉取 |
 |:---|:---|:---|:---|
 | **`loader`** | `LOCAL_FILE` | `REGISTRY` | `REMOTE_API`（+ 独立 Gateway，如晴发文）|
 | **数据来源** | 用户/打包 txt | 用户本地运行脚本生成 JSON | 服务端/第三方实时 API |
 | **时效性** | 静态 | 日级/周级延迟可接受 | 秒级，用户实时交互 |
 | **数据规模** | 单文件 | 增量、可枚举 | 全库不可枚举（random 模型）|
-| **网络韧性要求** | 无 | 低（CI 失败有缓冲，客户端读旧 JSON）| 高（实时）|
+| **网络韧性要求** | 无 | 低（脚本失败有缓存兜底）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（兑现 `cache_ttl_seconds`）| 不需要（即时语义）|
-| **账号要求** | 无 | 无（CI 端若需账号则用项目维护者账号，产物脱敏）| 用户自有账号（`token_store`）|
-| **现有实现** | ✅ `LocalTextLoader`（`qt_local_text_loader.py`）| ✅ `RegistryTextProvider`（待补缓存）| ✅ `RemoteTextProvider` + `WenlaiGateway` |
+| **账号要求** | 无 | 无 | 用户自有账号（`token_store`）|
+| **现有实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider`（缓存已补）| ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
 | **CI workflow** | 不需要 | 不需要（用户本地运行脚本） | 不需要 |
 
 ---
 
-## 第 2 层详化：Registry + CI 模型（本 ADR 的核心增量）
+## 第 2 层详化：Registry 脚本工具模型（本 ADR 的核心增量）
 
 ### 拓扑
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Registry 仓库（独立 git 仓库，如 open-typing-texts）         │
-│  （需启用 GitHub Pages，作为 CDN 分发前端）                    │
+│  （提供纯脚本工具模板，用户本地运行生成文本）                   │
 │                                                              │
 │  registry_index.json          ← 声明式索引（轻量元数据）       │
 │  content/                                                   │
@@ -144,11 +144,8 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
 │    gushiwen-300.json         ← 静态文集                       │
 │    community-xxx.json        ← 社区 PR                        │
 │                                                              │
-│  .github/workflows/                                          │
-│    daily.yml                 ← 每日 0 点 cron                 │
-│    weekly-static.yml         ← 每周全量刷新                   │
 │  scripts/                                                   │
-│    fetch_daily.py            ← 抓取脚本（CI 跑，客户端不见）   │
+│    fetch_daily.py            ← 抓取脚本（用户本地运行）       │
 └──────────────────────────────────────────────────────────────┘
                          │
                          │ httpx.get() — 客户端只读 JSON
@@ -188,60 +185,25 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
 - `source_key` 校验沿用 `_validate_source_key()`（`registry_text_provider.py:96-98`，禁 `/`、`..`、`\`）
 - 正文大小受 `RegistryConfig.max_content_bytes`（默认 1MB）限制
 
-### GHA workflow 模板（关键韧性设计）
+### 用户本地运行脚本的韧性设计
 
-```yaml
-name: registry-daily
-on:
-  schedule: [{cron: "0 0 * * *"}]      # 每日 0 点
-  workflow_dispatch:                    # 手动补抓
-    inputs: {date: {description: "YYYY-MM-DD"}}
-concurrency:
-  group: registry-fetch
-  cancel-in-progress: false             # 让正在跑的跑完
-jobs:
-  fetch:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.12"}
-      - uses: actions/cache@v4           # 复用上次 content/
-        with:
-          path: content/
-          key: registry-${{ github.run_id }}
-          restore-keys: registry-
-      - run: pip install httpx
-      - run: python scripts/fetch_daily.py
-        continue-on-error: true          # 单日失败不挂 workflow
-      - run: python scripts/gen_index.py # 重生成 registry_index.json
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        with: {commit_message: "chore: daily update"}
-      # GitHub Pages 自动部署（仓库设置里启用）
-```
+Registry 仓库提供纯脚本工具（`scripts/`），用户本地运行生成 `content/*.json` 和
+`registry_index.json`，再通过本地 HTTP 服务（如 `python -m http.server 18888`）暴露给客户端。
 
 **韧性要点**：
-- `continue-on-error: true` → 单日失败时客户端读旧 JSON，无感
-- `actions/cache` → 每次复用历史 `content/`，避免重新抓全量
-- `concurrency.cancel-in-progress: false` → 不浪费已跑的 job
-- 双触发（`schedule` + `workflow_dispatch`）→ 自动 + 手动兜底
+- 脚本运行失败不影响客户端（客户端读旧缓存）
+- 增量累积：`content/` 目录不清理，每次追加/覆盖
+- 客户端兜底：缓存层无视 TTL 返回旧值
 
-### GHA 网络与耗时问题的应对
+### 本地运行的网络与耗时问题
 
-CI 阶段 GitHub Actions 拉源站时的网络/耗时问题，按来源类型差异化处理：
+用户本地运行脚本拉源站时的网络/耗时问题，按来源类型差异化处理：
 
-| 来源类型 | GHA 网络风险 | 耗时风险 | 应对 |
+| 来源类型 | 网络风险 | 耗时风险 | 应对 |
 |:---|:---|:---|:---|
-| 公开数据集（古诗文网 API、Hugging Face、GitHub txt 仓库）| 低（源站即 GitHub/CDN）| 低（git clone 或单次 API）| 标准 workflow 即可 |
-| 每日一文（每日 1 篇）| 低 | 极低（秒级）| `schedule` + `continue-on-error` |
-| 受风控/限频的源（晴发文类）| **高** | **高（爬全库会撞 6h 限额）**| **不入 CI，走第 3 层即时拉取** |
-
-**通用韧性配置**（所有第 2 层 workflow 应遵守）：
-- `schedule` 定时 + `workflow_dispatch` 手动双触发
-- `continue-on-error: true` 单条失败不挂全任务
-- `actions/cache` 增量累积历史产物
-- `concurrency.cancel-in-progress: false` 不浪费已跑的 job
-- 最坏情况：CI 连续失败 → 客户端读旧 JSON（用户无感），下次 schedule 自动补
+| 公开数据集（古诗文网 API、Hugging Face、GitHub txt 仓库）| 低 | 低 | 直接 fetch 即可 |
+| 每日一文（每日 1 篇）| 低 | 极低 | 每日跑一次脚本 |
+| 受风控/限频的源（晴发文类）| **高** | **高** | **不入 Registry，走第 3 层即时拉取** |
 
 ### 客户端缓存层补全（**第 1 优先级前置工作**）
 
@@ -367,4 +329,4 @@ fetch_text_by_key(key)
 
 ## 一句话总结
 
-**三层模型，按数据如何到达客户端分而治之**：本地文件零成本、Registry 走 CI 只读 JSON（补缓存 + 建 Registry 仓库即可上线，晴发文除外）、即时拉取保持 Worker 实时（晴发文现状不动）。三层各自有明确的扩展路径和扩展成本，**第 1、2 层的新增需求不再触碰主仓库代码**——这是本架构的核心收益。
+**三层模型，按数据如何到达客户端分而治之**：本地文件零成本、Registry 走用户本地脚本生成的 JSON（补缓存 + 建 Registry 仓库即可上线，晴发文除外）、即时拉取保持 Worker 实时（晴发文现状不动）。三层各自有明确的扩展路径和扩展成本，**第 1、2 层的新增需求不再触碰主仓库代码**——这是本架构的核心收益。

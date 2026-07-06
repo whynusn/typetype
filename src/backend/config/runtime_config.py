@@ -383,6 +383,19 @@ class RuntimeConfig:
         self.base_url = new_base_url
         self._save_to_file()
 
+    def update_registry_url(
+        self,
+        *,
+        primary_url: str | None = None,
+        mirror_url: str | None = None,
+    ) -> None:
+        """更新 Registry 服务地址并持久化到 config.json。"""
+        if primary_url is not None:
+            self.registry.primary_url = primary_url.rstrip("/") if primary_url else ""
+        if mirror_url is not None:
+            self.registry.mirror_url = mirror_url.rstrip("/") if mirror_url else ""
+        self._save_to_file()
+
     def _save_to_file(self) -> None:
         """将当前配置持久化到 config.json。
 

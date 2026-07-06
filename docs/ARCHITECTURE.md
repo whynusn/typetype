@@ -7,7 +7,7 @@
 
 | 当前文档 | 其他核心文档 | 快速链接 |
 | :--- | :--- | :--- |
-| **本文** — 架构分层、数据流、依赖规则、陷阱 | [README.md](../README.md) — 快速入门<br>[AGENTS.md](../AGENTS.md) — 开发规范 | [快速开始](#快速开始)<br>[分层架构](#分层架构)<br>[数据流](#核心数据流)<br>[已知陷阱](#已知陷阱) |
+| **本文** — 架构分层、数据流、依赖规则、陷阱 | [README.md](../README.md) — 快速入门<br>[AGENTS.md](../AGENTS.md) — 开发规范 | [快速开始](#快速开始)<br>[分层架构](#分层架构)<br>[文本源三层模型](#文本源三层模型)<br>[数据流](#核心数据流)<br>[已知陷阱](#已知陷阱) |
 
 ---
 
@@ -121,11 +121,11 @@ src/backend/
 
 ¹ 晴发文不走 App 的分片/乱序机制，文本分段由晴发文服务端提供 (`loadPrevWenlaiSegment` / `loadNextWenlaiSegment`)。
 
-#### 载文分类说明
+#### 载文分类说明（对应三层模型）
 
-- **本地载文**：剪贴板、自定义、本地文库、练单器 — 文本来自本地文件或用户输入
-- **官方网络载文**：极速杯 — 文本来自 TypeType 后端 (typetype-server)
-- **第三方网络载文**：晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
+- **第 1 层（本地文件）**：剪贴板、自定义、本地文库、练单器、前/中/后五百、打词必备单字 — 文本来自本地文件或用户输入
+- **第 2 层（Registry）**：Registry 仓库提供的文本（通过本地运行的脚本服务获取）— 暂未接 UI 入口
+- **第 3 层（即时拉取）**：极速杯 — 文本来自 TypeType 后端 (`typetype-server`)；晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
 
 #### 分段模式与乱序
 
@@ -286,10 +286,87 @@ onActivated → Qt.callLater() 延迟触发信号
 
 ---
 
+## 文本源三层模型
+
+> 决策依据：ADR-008（`docs/decisions/008-text-source-three-layer-model.md`）。
+> 按「数据如何到达客户端」划分三层，不强行统一。
+
+### 三层职责对照
+
+| 维度 | 第 1 层：本地文件 | 第 2 层：Registry | 第 3 层：即时拉取 |
+|:---|:---|:---|:---|
+| **`loader`** | `LOCAL_FILE` | `REGISTRY` | `REMOTE_API`（+ 独立 Pipeline，如晴发文）|
+| **数据来源** | 用户/打包 txt | 用户本地运行脚本生成 JSON | 服务端/第三方实时 API |
+| **时效性** | 静态 | 日级/周级延迟可接受 | 秒级，用户实时交互 |
+| **网络韧性要求** | 无 | 低（离线读缓存兜底）| 高（实时） |
+| **客户端缓存** | 不需要 | **必须**（TTL + stale-while-revalidate） | 不需要 |
+| **账号要求** | 无 | 无 | 用户自有账号（token_store）|
+| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
+| **Loader 路由** | `text_source_config.py` `Loader.LOCAL_FILE` | `Loader.REGISTRY` | `Loader.REMOTE_API` |
+
+### 文本源扩展路径
+
+| 想加什么 | 走哪层 | 改动量 |
+|:---|:---|:---|
+| 新本地练习文件 | 第 1 层 | `config.json` 加 1 行（`loader: local_file`），零代码 |
+| 静态文集（每日一文、古诗文等）| 第 2 层 | Registry 仓库加脚本，typetype 主仓不动 |
+| 服务端排行榜文本（极速杯等）| 第 3 层 | `config.json` 加 1 行（`loader: remote_api`），服务端注册 |
+| 第三方带认证实时源 | 第 3 层 | 完整 Port + Gateway + UseCase + Adapter（参考晴发文）|
+
+### 二维正交设计
+
+每个文本来源由 `TextSourceEntry` 的两个正交维度定义：
+
+- **`loader`**：数据从哪来 → 决定 `TextSourceGateway` 路由到哪个 Provider
+- **`leaderboard_mode`**：成绩怎么处理 → 决定 text_id 决策路径
+
+```python
+# 常见组合
+本地纯练习:     loader=LOCAL_FILE,  leaderboard_mode=NONE
+本地排行榜文本: loader=LOCAL_FILE,  leaderboard_mode=LOCAL_LOOKUP
+服务端网络源:   loader=REMOTE_API,  leaderboard_mode=SERVER_RESOLVED
+Registry 源:    loader=REGISTRY,    leaderboard_mode=SERVER_RESOLVED
+```
+
+### 晴发文特殊地位
+
+晴发文独立于 `TextSourceConfig.sources`（拥有自己的 Port / Gateway / UseCase / Adapter），
+不走 `TextSourceGateway` 路由。它是第 3 层（即时拉取）的参照实现，保持不动。
+
+```
+         TextSourceConfig.sources
+                   │
+    ┌──────────────┼──────────────┐
+    ▼              ▼              ▼
+ 第1层          第2层          第3层
+本地文件       Registry       RemoteTextProvider
+                               (jisubei 等)
+
+                    ┌────── 晴发文独立 Pipeline ──────┐
+                    │  WenlaiProvider → WenlaiGateway │
+                    │  → LoadWenlaiTextUseCase        │
+                    │  → WenlaiAdapter               │
+                    └────────────────────────────────┘
+```
+
+### Registry 缓存层
+
+`RegistryTextProvider` 实现五层决策树（`registry_text_provider.py:121-159`）：
+
+```
+fetch_text_by_key(key)
+  ├─ cache_hit + 未过期 → 返回缓存
+  ├─ cache_hit + 过期 → 返回 stale + 后台刷新（stale-while-revalidate）
+  ├─ cache miss + 在线 → primary_url → mirror_url，成功写缓存
+  └─ cache miss + 离线 → 返回 stale（无视 TTL 兜底）
+```
+
+---
+
 ## 后续方向
 
 | 优先级 | 方向 |
-|:--- |:--- |
+|:--- |:---|
 | 高 | 基于薄弱字自动生成练习材料 |
 | 中 | 远端同步字符统计 / AI Typing Coach |
 | 低 | 更细粒度学习分析 |
