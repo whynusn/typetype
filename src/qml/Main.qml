@@ -42,6 +42,12 @@ FluentWindow {
             position: Position.None
         },
         {
+            title: qsTr("开源文库"),
+            page: Qt.resolvedUrl("pages/TextLibraryPage.qml"),
+            icon: "ic_fluent_text_bullet_list_20_regular",
+            position: Position.None
+        },
+        {
             title: qsTr("自定义载文"),
             page: Qt.resolvedUrl("pages/CustomLoadTextPage.qml"),
             icon: "ic_fluent_edit_20_regular",
