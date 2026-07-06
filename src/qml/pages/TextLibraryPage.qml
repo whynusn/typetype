@@ -400,9 +400,10 @@ Item {
     // ========== 信号连接 ==========
     Connections {
         target: appBridge
-        enabled: textLibraryPage.active
+        enabled: appBridge !== null
 
         function onCatalogLoaded(catalog) {
+            if (!textLibraryPage.active) return;
             syncCatalog(catalog);
             statusMessage = catalogListModel.count > 0
                 ? qsTr("已加载 %1 篇开源文库文本").arg(catalogListModel.count)
@@ -411,11 +412,13 @@ Item {
         }
 
         function onCatalogLoadFailed(message) {
+            if (!textLibraryPage.active) return;
             errorMessage = message;
             statusMessage = "";
         }
 
         function onTextContentLoaded(textId, content, title) {
+            if (!textLibraryPage.active) return;
             // 保存加载自开源文库的内容
             loadedContent = content || "";
             loadedTitle = title || entryLabel(selectedEntry);
@@ -458,6 +461,7 @@ Item {
         }
 
         function onTextLoadFailed(message) {
+            if (!textLibraryPage.active) return;
             errorMessage = message;
             statusMessage = "";
             loadedContent = "";
