@@ -101,6 +101,7 @@ class Bridge(QObject):
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
     baseUrlChanged = Signal()
+    registryUrlChanged = Signal()
     windowTitleChanged = Signal()
     textTitleChanged = Signal()
     textSourceOptionsChanged = Signal()
@@ -729,6 +730,16 @@ class Bridge(QObject):
     def baseUrl(self) -> str:
         """当前 API 服务地址。"""
         return self._text_adapter.get_base_url()
+
+    @Property(str, notify=registryUrlChanged)
+    def registryPrimaryUrl(self) -> str:
+        """注册表主地址。"""
+        return self._text_adapter._runtime_config.registry.primary_url
+
+    @Property(str, notify=registryUrlChanged)
+    def registryMirrorUrl(self) -> str:
+        """注册表镜像地址。"""
+        return self._text_adapter._runtime_config.registry.mirror_url
 
     @Property(str, notify=windowTitleChanged)
     def windowTitle(self) -> str:
@@ -2194,6 +2205,23 @@ class Bridge(QObject):
         if self._base_url_update_callback:
             self._base_url_update_callback(new_base_url)
         self.baseUrlChanged.emit()
+
+    @Slot(str)
+    def setRegistryPrimaryUrl(self, new_url: str) -> None:
+        """更新注册表主地址并持久化。"""
+        self._text_adapter._runtime_config.update_registry_url(primary_url=new_url)
+        # 清除 catalog 缓存使新 URL 生效
+        if self._leaderboard_adapter:
+            self._leaderboard_adapter.refreshCatalog()
+        self.registryUrlChanged.emit()
+
+    @Slot(str)
+    def setRegistryMirrorUrl(self, new_url: str) -> None:
+        """更新注册表镜像地址并持久化。"""
+        self._text_adapter._runtime_config.update_registry_url(mirror_url=new_url)
+        if self._leaderboard_adapter:
+            self._leaderboard_adapter.refreshCatalog()
+        self.registryUrlChanged.emit()
 
     @Slot(str, str)
     def loginWenlai(self, username: str, password: str) -> None:
