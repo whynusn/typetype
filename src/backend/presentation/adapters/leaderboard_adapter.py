@@ -28,6 +28,7 @@ class LeaderboardAdapter(QObject):
 
     catalogLoaded = Signal(list)  # list of {key, label} dicts
     catalogLoadFailed = Signal(str)
+    catalogLoadingChanged = Signal()
 
     textListLoaded = Signal(list)  # list of text summary dicts
     textListLoadFailed = Signal(str)
@@ -47,6 +48,7 @@ class LeaderboardAdapter(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._loading = False
         self._text_list_loading = False
+        self._catalog_loading = False
         self._catalog_cache: list | None = None
         self._current_text_list_request: int = 0
 
@@ -59,6 +61,11 @@ class LeaderboardAdapter(QObject):
         if self._text_list_loading != loading:
             self._text_list_loading = loading
             self.textListLoadingChanged.emit()
+
+    def _set_catalog_loading(self, loading: bool) -> None:
+        if self._catalog_loading != loading:
+            self._catalog_loading = loading
+            self.catalogLoadingChanged.emit()
 
     def _on_leaderboard_loaded(self, data: dict[str, Any]) -> None:
         """处理排行榜加载成功。"""
@@ -118,6 +125,7 @@ class LeaderboardAdapter(QObject):
             self.catalogLoaded.emit(self._catalog_cache)
             return
 
+        self._set_catalog_loading(True)
         from ...workers.catalog_worker import CatalogWorker
 
         worker = CatalogWorker(
@@ -130,6 +138,7 @@ class LeaderboardAdapter(QObject):
 
     def _on_catalog_loaded(self, catalog: list[dict]) -> None:
         """处理目录加载成功。"""
+        self._set_catalog_loading(False)
         # 转换为 TextCatalogItem 列表更新到 RuntimeConfig 供异步回查兜底使用
         catalog_items = [
             TextCatalogItem(
@@ -159,6 +168,7 @@ class LeaderboardAdapter(QObject):
 
     def _on_catalog_load_failed(self, message: str) -> None:
         """处理目录加载失败。"""
+        self._set_catalog_loading(False)
         self.catalogLoadFailed.emit(message)
 
     @Slot()
@@ -223,6 +233,10 @@ class LeaderboardAdapter(QObject):
     @property
     def text_list_loading(self) -> bool:
         return self._text_list_loading
+
+    @property
+    def catalog_loading(self) -> bool:
+        return self._catalog_loading
 
     def fetch_registry_text(self, source_key: str):
         """从开源文库获取单篇文本内容。返回 (text_id, content, title) 或 raise。"""

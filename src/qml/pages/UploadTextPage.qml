@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
+import QtQuick.Window 2.15
 import RinUI
 
 FluentPage {
@@ -29,22 +30,14 @@ FluentPage {
         cloudCheckBox.checked = false;
         toLocal = true;
         toCloud = false;
-        infoBar.visible = false;
     }
 
     function showInfo(severity, title, text) {
-        infoBar.severity = severity;
-        infoBar.title = title;
-        infoBar.text = text;
-        infoBar.visible = true;
-    }
-
-    // 反馈提示
-    InfoBar {
-        id: infoBar
-        Layout.fillWidth: true
-        visible: false
-        closable: true
+        if (Window.window && Window.window.appNotificationManager) {
+            // 验证类错误停留较久，成功/提示类自动关闭
+            var duration = severity === Severity.Error ? 5000 : 2500
+            Window.window.appNotificationManager.show(severity, title, text, duration)
+        }
     }
 
     // 标题
@@ -253,7 +246,6 @@ FluentPage {
                     return;
                 }
 
-                infoBar.visible = false;
                 uploadPage.uploading = true;
                 if (appBridge) {
                     if (hasFile) {

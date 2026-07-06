@@ -150,6 +150,10 @@ def typing_totals_path() -> Path:
     return user_data_dir() / "typing_totals.json"
 
 
+def typing_history_path() -> Path:
+    return user_data_dir() / "typing_history.json"
+
+
 def score_retry_db_path() -> Path:
     """成绩重试队列 SQLite 数据库路径。"""
     return user_data_dir() / "score_retry.db"

@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
+import QtQuick.Window 2.15
 import RinUI
 
 // 可折叠文本信息卡（footer 模式），参考 DailyLeaderboard.qml textInfoCard 实现
@@ -97,7 +98,10 @@ Frame {
                 onClicked: {
                     if (root.content.length > 0 && appBridge) {
                         appBridge.copyToClipboard(root.content)
-                        copyToast.show()
+                        if (Window.window && Window.window.appNotificationManager) {
+                            Window.window.appNotificationManager.show(
+                                Severity.Success, "", qsTr("已复制到剪贴板"), 1600)
+                        }
                     }
                 }
                 ToolTip {
@@ -150,36 +154,4 @@ Frame {
         }
     }
 
-    // 复制成功提示
-    Rectangle {
-        id: copyToast
-        anchors.centerIn: parent
-        width: copyToastText.implicitWidth + 32
-        height: 36
-        radius: 8
-        color: Theme.currentTheme.colors.systemSuccessBackgroundColor
-        border.color: Theme.currentTheme.colors.systemSuccessColor
-        visible: false
-        opacity: visible ? 1 : 0
-        z: 10
-
-        Text {
-            id: copyToastText
-            anchors.centerIn: parent
-            typography: Typography.Body
-            color: Theme.currentTheme.colors.systemSuccessColor
-            text: qsTr("已复制到剪贴板")
-        }
-
-        Timer {
-            id: copyToastTimer
-            interval: 2000
-            onTriggered: copyToast.visible = false
-        }
-
-        function show() {
-            visible = true
-            copyToastTimer.restart()
-        }
-    }
 }

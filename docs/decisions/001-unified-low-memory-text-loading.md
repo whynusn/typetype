@@ -5,16 +5,16 @@
 
 当前项目已经在 QML 层把多个载文入口尽量共享为 `TextLoadPanel`、`SliceSettingsPanel`、`SliceCriteriaPanel` 等组件，但 Python 层仍有两类载文模型并存：
 
-- **文本型分片**：自定义载文、极速杯载文、内置本地文本会把完整文本传入 `Bridge.setupSliceMode(text, ...)`，由 `TypingSessionContext.setup_slice_mode()` 保存整篇 `_slice_text`，再按当前片取子串。见 `src/qml/pages/CustomLoadTextPage.qml:39-107`、`src/qml/pages/JisuBeiPage.qml:116-171`、`src/backend/presentation/bridge.py:1294-1358`、`src/backend/application/session_context.py:236-297`。
+- **文本型分片**：自定义载文、极速杯载文、内置本地文本会把完整文本传入 `Bridge.setupSliceMode(text, ...)`，由 `TypingSessionContext.setup_slice_mode()` 保存整篇 `_slice_text`，再按当前片取子串。见 `src/qml/pages/TextLoadHubPage.qml`、`src/backend/presentation/bridge.py:1294-1358`、`src/backend/application/session_context.py:236-297`。
 - **来源型分片**：本地文库、练单器按段加载，`TextLoadCoordinator` 在段落结果到达后调用 `setup_sourced_slice_mode()`，会话只缓存当前段。见 `src/backend/presentation/text_load_coordinator.py:164-246`。
 
 这导致行为和性能不统一：
 
-- 自定义/极速杯的历史进度 key 依赖全文内容 hash，必须先拿到完整文本才能判断是否有进度。见 `src/qml/pages/CustomLoadTextPage.qml:14-28`、`src/qml/pages/JisuBeiPage.qml:55-80`。
-- 极速杯选择文本时会通过 `getTextContentById()` 获取完整 content，后端当前 `GET /api/v1/texts/{id}` 返回整篇详情。见 `src/qml/pages/JisuBeiPage.qml:33-52`、`src/backend/integration/leaderboard_fetcher.py:134-150`。
+- 自定义/极速杯的历史进度 key 依赖全文内容 hash，必须先拿到完整文本才能判断是否有进度。见 `src/qml/pages/TextLoadHubPage.qml`。
+- 极速杯选择文本时会通过 `getTextContentById()` 获取完整 content，后端当前 `GET /api/v1/texts/{id}` 返回整篇详情。见 `src/qml/pages/TextLoadHubPage.qml`、`src/backend/integration/leaderboard_fetcher.py:134-150`。
 - 本地文库普通分片已经改为 `load_article_segment(article_id, start, length)` 按字符窗口读取，避免每次分片全量读入；但全文乱序仍需要完整文本。见 `src/backend/integration/file_local_article_repository.py:53-65`、`src/backend/integration/file_local_article_repository.py:127-176`。
 - 练单器会将整个词库分组装入 session，全文乱序会 flatten 全部 entries 再 shuffle。见 `src/backend/domain/services/trainer_service.py:27-59`。
-- 入口页依赖 `Qt.callLater()` 在导航后发起载文，时序是 UI 侧的隐式约定，不是后端可验证的载文事务。见 `src/qml/pages/CustomLoadTextPage.qml:88-108`、`src/qml/pages/LocalArticlesPage.qml:173-183`、`src/qml/pages/TrainerPage.qml:156-165`。
+- 入口页依赖 `Qt.callLater()` 在导航后发起载文，时序是 UI 侧的隐式约定，不是后端可验证的载文事务。见 `src/qml/pages/TextLoadHubPage.qml`。
 
 ## 目标
 
@@ -293,7 +293,7 @@ progress_key = sha256(handle.kind + ":" + handle.identifier + ":" + handle.versi
 
 ## QML 入口统一
 
-四个入口页不再分别调用：
+统一入口页不再分别调用：
 
 - `setupSliceMode(text, ...)`
 - `loadLocalArticleSegment(...)`
@@ -388,7 +388,7 @@ Bridge
 1. 本地百万字 `.txt`：载入第 5000 段时，Bridge/QML 只收到当前段文本；内存峰值不随全文长度线性增长。
 2. 极速杯在服务端 segment API 可用时：进入分片模式不拉完整 content。
 3. 自定义文本超过阈值时：UI 提示转为本地文库文件或分片导入，不允许静默塞入 TextArea。
-4. 四个入口页使用同一个 `startTextSession(request)`。
+4. 统一入口页中的各来源均使用同一个 `startTextSession(request)`。
 5. 顺序/随机/上一段/下一段/重打/当前段乱序/全文虚拟乱序都通过同一套代码处理，不按来源分支。
 6. 历史进度恢复不依赖全文 hash；同一文本内容变更后不会误用旧进度。
 7. 无 `Qt.callLater()` 作为载文正确性的必要条件。
@@ -457,7 +457,7 @@ Bridge
 - **正向**：所有载文入口统一为 `startTextSession(request)`，消除 4 套不同实现
 - **正向**：百万字文本分片加载内存不随全文线性增长
 - **变更**：`TextLoadPanel` 不再预加载全文，改为显示 metadata/预览
-- **变更**：四个入口页调用路径改为 Bridge → TextAdapter → TextSessionUseCase
+- **变更**：统一入口页中各来源的调用路径改为 Bridge → TextAdapter → TextSessionUseCase
 - **变更**：进度恢复 key 改为基于 TextHandle 的 hash，不再依赖全文内容
 - **变更**：`setupSliceMode()` 对外 QML 调用废弃
 - **服务端**：需要 metadata 和 segments API 支持完美低内存远程载文

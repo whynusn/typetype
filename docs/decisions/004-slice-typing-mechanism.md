@@ -44,7 +44,7 @@
 - `TypingSessionContext` 管理分片状态：`current_slice`、`total_slices`、`pass_count`、`slices_met`
 - 共享组件 `SliceCriteriaPanel`：击键、速度、准确率、达标次数、失败动作配置
 - `TextLoadCoordinator`（Presentation 层）管理来源切换状态、分片参数、UI 协调
-- 所有 4 个载文入口（CustomLoadTextPage、LocalArticlesPage、TrainerPage、JisuBeiPage）使用相同的分片参数和 UI 模式
+- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部来源切换进入；自定义、极速杯、本地文库、练单器、开源文库共享同一组分片参数和 UI 模式
 
 ## 影响
 
