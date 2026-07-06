@@ -116,24 +116,36 @@ FluentPage {
                 anchors.fill: parent
                 spacing: 4
 
-                // 文本源选择器
-                ComboBox {
-                    id: sourceComboBox
+                // 文本来源选择器
+                ColumnLayout {
                     Layout.fillWidth: true
-                    model: sourceListModel
-                    textRole: "label"
-                    valueRole: "key"
-                    onCurrentIndexChanged: {
-                        // 使用 model.get() 取值，避免 currentValue 绑定时序问题
-                        var key = (currentIndex >= 0 && currentIndex < sourceListModel.count)
-                            ? sourceListModel.get(currentIndex).key : "";
-                        if (key && appBridge) {
-                            selectedTextId = -1;
-                            selectedTextTitle = "";
-                            leaderboardRecords = [];
-                            currentTextInfo = null;
-                            textListModel.clear();
-                            appBridge.loadTextList(key);
+                    spacing: 4
+
+                    Text {
+                        typography: Typography.Caption
+                        font.weight: Font.DemiBold
+                        color: Theme.currentTheme.colors.textSecondaryColor
+                        text: qsTr("文本来源")
+                    }
+
+                    ComboBox {
+                        id: sourceComboBox
+                        Layout.fillWidth: true
+                        model: sourceListModel
+                        textRole: "label"
+                        valueRole: "key"
+                        onCurrentIndexChanged: {
+                            // 使用 model.get() 取值，避免 currentValue 绑定时序问题
+                            var key = (currentIndex >= 0 && currentIndex < sourceListModel.count)
+                                ? sourceListModel.get(currentIndex).key : "";
+                            if (key && appBridge) {
+                                selectedTextId = -1;
+                                selectedTextTitle = "";
+                                leaderboardRecords = [];
+                                currentTextInfo = null;
+                                textListModel.clear();
+                                appBridge.loadTextList(key);
+                            }
                         }
                     }
                 }
