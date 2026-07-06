@@ -63,6 +63,7 @@ class RegistryTextProvider:
                 source_key=item["source_key"],
                 label=item.get("label", item["source_key"]),
                 description=item.get("description", ""),
+                charCount=int(item.get("charCount", 0) or 0),
                 has_ranking=bool(item.get("has_ranking", False)),
             )
             for item in sources

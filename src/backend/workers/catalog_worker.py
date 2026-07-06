@@ -39,7 +39,8 @@ class CatalogWorker(BaseWorker):
                         "id": item.id,
                         "sourceKey": item.source_key,
                         "label": item.label,
-                        "category": item.description,  # 兼容 LeaderboardAdapter 期望格式
+                        "description": item.description,
+                        "charCount": item.charCount,
                     }
                     for item in catalog
                 ]

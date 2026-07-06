@@ -143,9 +143,14 @@ class LeaderboardAdapter(QObject):
         ]
         self._runtime_config.update_catalog(catalog_items)
 
-        # 转换服务端 TextSource 字段名 (sourceKey → key) 匹配 QML ComboBox
+        # 透传所有 QML 需要的字段
         options = [
-            {"key": item.get("sourceKey", ""), "label": item.get("label", "")}
+            {
+                "key": item.get("sourceKey", ""),
+                "label": item.get("label", ""),
+                "description": item.get("description", ""),
+                "charCount": item.get("charCount", 0),
+            }
             for item in catalog
             if item.get("sourceKey")
         ]
