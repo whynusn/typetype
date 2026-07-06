@@ -30,39 +30,15 @@ FluentWindow {
             position: Position.Top
         },
         {
-            title: qsTr("极速杯载文"),
-            page: Qt.resolvedUrl("pages/JisuBeiPage.qml"),
-            icon: "ic_fluent_globe_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("本地文库"),
-            page: Qt.resolvedUrl("pages/LocalArticlesPage.qml"),
-            icon: "ic_fluent_library_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("开源文库"),
-            page: Qt.resolvedUrl("pages/TextLibraryPage.qml"),
-            icon: "ic_fluent_text_bullet_list_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("自定义载文"),
-            page: Qt.resolvedUrl("pages/CustomLoadTextPage.qml"),
-            icon: "ic_fluent_edit_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("练单器"),
-            page: Qt.resolvedUrl("pages/TrainerPage.qml"),
-            icon: "ic_fluent_apps_list_detail_20_regular",
+            title: qsTr("载文"),
+            page: Qt.resolvedUrl("pages/TextLoadHubPage.qml"),
+            icon: "ic_fluent_document_add_20_regular",
             position: Position.None
         },
         {
             title: qsTr("上传文本"),
             page: Qt.resolvedUrl("pages/UploadTextPage.qml"),
-            icon: "ic_fluent_document_add_20_regular",
+            icon: "ic_fluent_cloud_upload_20_regular",
             position: Position.None
         },
         {

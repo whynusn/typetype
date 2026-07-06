@@ -46,69 +46,96 @@ def _get_qml_refs(source):
     return refs
 
 
-def test_main_window_includes_navigation_items():
+def test_main_window_has_unified_text_load_hub():
     main_qml = QML_DIR / "Main.qml"
     source = main_qml.read_text(encoding="utf-8")
-    assert 'title: qsTr("极速杯载文")' in source
-    assert 'page: Qt.resolvedUrl("pages/JisuBeiPage.qml")' in source
-    assert 'title: qsTr("本地文库")' in source
-    assert 'page: Qt.resolvedUrl("pages/LocalArticlesPage.qml")' in source
-    assert 'title: qsTr("自定义载文")' in source
-    assert 'page: Qt.resolvedUrl("pages/CustomLoadTextPage.qml")' in source
+    assert 'title: qsTr("载文")' in source
+    assert 'page: Qt.resolvedUrl("pages/TextLoadHubPage.qml")' in source
+    # 旧入口已被移除
+    assert 'title: qsTr("极速杯载文")' not in source
+    assert 'title: qsTr("本地文库")' not in source
+    assert 'title: qsTr("自定义载文")' not in source
+    assert 'title: qsTr("练单器")' not in source
 
 
-def test_main_window_includes_trainer_navigation_item():
-    main_qml = QML_DIR / "Main.qml"
-    source = main_qml.read_text(encoding="utf-8")
-    assert 'title: qsTr("练单器")' in source
-    assert 'page: Qt.resolvedUrl("pages/TrainerPage.qml")' in source
-
-
-def test_trainer_page_uses_expected_bridge_contract():
-    page_qml = QML_DIR / "pages/TrainerPage.qml"
+def test_text_load_hub_uses_expected_bridge_contract():
+    page_qml = QML_DIR / "pages/TextLoadHubPage.qml"
     source = page_qml.read_text(encoding="utf-8")
     refs = _get_qml_refs(source)
     assert "property bool active: false" in source
-    assert "trainerLoading" in refs and "trainerLoading" in BRIDGE_PROPERTIES
-    assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
-    assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
-    assert "trainersLoaded" in BRIDGE_SIGNALS
-    assert "trainersLoadFailed" in BRIDGE_SIGNALS
-    assert "trainerSegmentLoaded" in BRIDGE_SIGNALS
-    assert "trainerSegmentLoadFailed" in BRIDGE_SIGNALS
+    assert "TextSourceListPanel" in source
     assert "SliceCriteriaPanel" in source
-    assert (
-        'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
-    )
-    assert "Qt.callLater(function () {" in source
+    assert "SliceSettingsPanel" in source
 
-
-def test_local_articles_page_uses_expected_bridge_contract():
-    page_qml = QML_DIR / "pages/LocalArticlesPage.qml"
-    source = page_qml.read_text(encoding="utf-8")
-    refs = _get_qml_refs(source)
-    assert "property bool active: false" in source
-    assert "localArticleLoading" in refs and "localArticleLoading" in BRIDGE_PROPERTIES
+    # 列表加载
+    assert "loadTextList" in refs and "loadTextList" in BRIDGE_SLOTS
     assert "loadLocalArticles" in refs and "loadLocalArticles" in BRIDGE_SLOTS
+    assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
+    assert "loadCatalog" in refs and "loadCatalog" in BRIDGE_SLOTS
+
+    # 内容/分段加载
+    assert "getTextContentById" in refs and "getTextContentById" in BRIDGE_SLOTS
+    assert "loadLibraryText" in refs and "loadLibraryText" in BRIDGE_SLOTS
     assert (
         "loadLocalArticleSegment" in refs and "loadLocalArticleSegment" in BRIDGE_SLOTS
     )
-    assert "localArticlesLoaded" in BRIDGE_SIGNALS
-    assert "localArticlesLoadFailed" in BRIDGE_SIGNALS
-    assert "localArticleSegmentLoaded" in BRIDGE_SIGNALS
-    assert "localArticleSegmentLoadFailed" in BRIDGE_SIGNALS
-    assert "localArticleLoadingChanged" in BRIDGE_SIGNALS
-    assert "SliceCriteriaPanel" in source
+    assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
+    assert "loadFullText" in refs and "loadFullText" in BRIDGE_SLOTS
+    assert "setupSliceMode" in refs and "setupSliceMode" in BRIDGE_SLOTS
+
+    # 状态属性
+    assert "textListLoading" in refs and "textListLoading" in BRIDGE_PROPERTIES
+    assert "localArticleLoading" in refs and "localArticleLoading" in BRIDGE_PROPERTIES
+    assert "trainerLoading" in refs and "trainerLoading" in BRIDGE_PROPERTIES
+
+    # 信号
+    for signal in (
+        "textListLoaded",
+        "textListLoadFailed",
+        "textContentLoaded",
+        "catalogLoaded",
+        "catalogLoadFailed",
+        "localArticlesLoaded",
+        "localArticlesLoadFailed",
+        "localArticleSegmentLoaded",
+        "localArticleSegmentLoadFailed",
+        "localArticleDeleted",
+        "localArticleRenamed",
+        "trainersLoaded",
+        "trainersLoadFailed",
+        "trainerSegmentLoaded",
+        "trainerSegmentLoadFailed",
+    ):
+        assert signal in BRIDGE_SIGNALS
+
     assert (
         'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in source
     )
-    assert "Qt.callLater(function () {" in source
 
 
-def test_local_articles_page_accepts_modified_timestamp_alias():
-    page_qml = QML_DIR / "pages/LocalArticlesPage.qml"
+def test_text_leaderboard_page_uses_expected_bridge_contract():
+    page_qml = QML_DIR / "pages/TextLeaderboardPage.qml"
     source = page_qml.read_text(encoding="utf-8")
-    assert "article.modifiedTimestamp" in source
+    refs = _get_qml_refs(source)
+    assert "property bool active: false" in source
+    assert "TextSourceListPanel" in source
+    assert (
+        "loadLeaderboardByTextId" in refs and "loadLeaderboardByTextId" in BRIDGE_SLOTS
+    )
+    assert "loadTextList" in refs and "loadTextList" in BRIDGE_SLOTS
+    assert "loadCatalog" in refs and "loadCatalog" in BRIDGE_SLOTS
+    assert "refreshCatalog" in refs and "refreshCatalog" in BRIDGE_SLOTS
+    assert "leaderboardLoaded" in BRIDGE_SIGNALS
+    assert "leaderboardLoadFailed" in BRIDGE_SIGNALS
+
+
+def test_typing_page_opens_unified_text_load_hub():
+    page_qml = QML_DIR / "pages/TypingPage.qml"
+    source = page_qml.read_text(encoding="utf-8")
+    assert (
+        'Window.window.navigationView.push(Qt.resolvedUrl("TextLoadHubPage.qml"), { initialSource: "custom" })'
+        in source
+    )
 
 
 def test_typing_page_handles_local_article_segment_load_failure():
