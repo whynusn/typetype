@@ -168,8 +168,14 @@ class RuntimeConfig:
             config_path = str(user_config_path())
 
         if os.path.exists(config_path):
-            with open(config_path, encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                with open(config_path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                log_error(
+                    f"[RuntimeConfig] 配置文件损坏，使用默认配置: {config_path}"
+                )
+                return cls(_config_path=str(user_config_path()))
             config = cls._from_dict(data)
             config._config_path = config_path
             return config
@@ -195,15 +201,42 @@ class RuntimeConfig:
 
     @classmethod
     def _ensure_config_sections(cls, target: Path) -> None:
-        """Merge any top-level sections from defaults that the user config lacks."""
-        data = json.loads(target.read_text(encoding="utf-8"))
+        """Merge any top-level sections from defaults that the user config lacks.
+
+        Handles corrupted JSON gracefully by regenerating from defaults.
+        Uses file lock to prevent concurrent write conflicts.
+        """
+        try:
+            data = json.loads(target.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            log_error(
+                f"[RuntimeConfig] 配置文件损坏，重新生成: {target}"
+            )
+            data = cls()._to_dict()
+            try:
+                with target.open("w", encoding="utf-8") as f:
+                    try:
+                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                    except (OSError, AttributeError):
+                        pass
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+            except OSError:
+                log_error(f"[RuntimeConfig] 写入配置文件失败：{target}")
+            return
+
         defaults = cls()._to_dict()
         missing = {k: v for k, v in defaults.items() if k not in data}
         if missing:
             data.update(missing)
-            target.write_text(
-                json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8"
-            )
+            try:
+                with target.open("w", encoding="utf-8") as f:
+                    try:
+                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                    except (OSError, AttributeError):
+                        pass
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+            except OSError:
+                log_error(f"[RuntimeConfig] 合并配置字段失败：{target}")
 
     @classmethod
     def _from_dict(cls, data: dict) -> "RuntimeConfig":
@@ -252,7 +285,7 @@ class RuntimeConfig:
         registry = RegistryConfig(
             primary_url=cls._safe_str(r_data.get("primary_url"), "", allow_empty=False),
             mirror_url=cls._safe_str(r_data.get("mirror_url"), "", allow_empty=False),
-            cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 3600),
+            cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 86400),
             max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),
         )
 
