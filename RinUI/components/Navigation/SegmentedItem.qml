@@ -13,16 +13,14 @@ TabButton {
 
     background: Rectangle {
         id: background
-        anchors.centerIn: parent
-        width: checked ? parent.width : parent.width - 4*2
-        height: checked ? parent.height : parent.height - 3*2
+        anchors.fill: parent
 
         color: checked ? Theme.currentTheme.colors.controlFillColor :
-            hovered ? Theme.currentTheme.colors.subtleSecondaryColor : Theme.currentTheme.colors.subtleColor
+            hovered ? Theme.currentTheme.colors.subtleSecondaryColor : "transparent"
         radius: Theme.currentTheme.appearance.smallRadius
 
         border.width: Theme.currentTheme.appearance.borderWidth  // 边框宽度 / Border Width
-        border.color: checked ? Theme.currentTheme.colors.controlBorderColor : "transparent"
+        border.color: checked ? Theme.currentTheme.colors.dividerBorderColor : "transparent"
 
         Behavior on scale {
             NumberAnimation {

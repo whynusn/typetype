@@ -466,29 +466,22 @@ FluentPage {
         spacing: 16
 
         // ---- 顶部来源切换 (Segmented) ----
-        Frame {
+        Segmented {
+            id: sourceSelector
             Layout.fillWidth: true
-            Layout.preferredHeight: 48
-            radius: 8
-            hoverable: false
-            color: Theme.currentTheme.colors.subtleColor
-
-            Segmented {
-                id: sourceSelector
-                anchors.fill: parent
-                currentIndex: root.currentSourceIndex
-                onCurrentIndexChanged: {
-                    if (currentIndex !== -1 && currentIndex !== root.currentSourceIndex) {
-                        root.currentSource = root.sourceKeys[currentIndex]
-                    }
+            Layout.preferredHeight: 40
+            currentIndex: root.currentSourceIndex
+            onCurrentIndexChanged: {
+                if (currentIndex !== -1 && currentIndex !== root.currentSourceIndex) {
+                    root.currentSource = root.sourceKeys[currentIndex]
                 }
+            }
 
-                Repeater {
-                    model: root.sourceKeys.length
-                    SegmentedItem {
-                        text: root.sourceLabels[index]
-                        icon.name: root.sourceIcons[index]
-                    }
+            Repeater {
+                model: root.sourceKeys.length
+                SegmentedItem {
+                    text: root.sourceLabels[index]
+                    icon.name: root.sourceIcons[index]
                 }
             }
         }

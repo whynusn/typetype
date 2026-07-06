@@ -299,6 +299,7 @@ Item {
 
         // --- 分片设置 ---
         Frame {
+            visible: !root.hubMode
             Layout.fillWidth: true
             radius: 6; hoverable: false; padding: 8
 

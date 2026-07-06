@@ -30,28 +30,23 @@ FluentPage {
         id: textListModel
     }
 
-    // 源选项列表模型
-    ListModel {
-        id: sourceListModel
-    }
+    property string _currentSourceKey: ""
 
-    // 同步服务端目录到 ListModel
+    // 加载首个可用来源的文本列表
     function syncSourceOptions(catalog) {
-        sourceListModel.clear();
         if (catalog && catalog.length > 0) {
-            for (var i = 0; i < catalog.length; i++) {
-                sourceListModel.append({ key: catalog[i].key, label: catalog[i].label || catalog[i].key });
-            }
-            // 只在首次初始化时自动选择第一个源
-            // 后续重新激活时保留用户上次的选择，避免级联触发 loadTextList
-            sourceComboBox.currentIndex = _sourcesInitialized ? sourceComboBox.currentIndex : 0;
-            _sourcesInitialized = true;
-
             var firstKey = catalog[0].key;
-            if (firstKey && appBridge) {
+            if (firstKey && appBridge && firstKey !== _currentSourceKey) {
+                _currentSourceKey = firstKey;
+                selectedTextId = -1;
+                selectedTextTitle = "";
+                leaderboardRecords = [];
+                currentTextInfo = null;
+                textListModel.clear();
                 appBridge.loadTextList(firstKey);
             }
         }
+        _sourcesInitialized = true;
     }
 
     // ========== 主布局 ==========
@@ -115,40 +110,6 @@ FluentPage {
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 4
-
-                // 文本来源选择器
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
-
-                    Text {
-                        typography: Typography.Caption
-                        font.weight: Font.DemiBold
-                        color: Theme.currentTheme.colors.textSecondaryColor
-                        text: qsTr("文本来源")
-                    }
-
-                    ComboBox {
-                        id: sourceComboBox
-                        Layout.fillWidth: true
-                        model: sourceListModel
-                        textRole: "label"
-                        valueRole: "key"
-                        onCurrentIndexChanged: {
-                            // 使用 model.get() 取值，避免 currentValue 绑定时序问题
-                            var key = (currentIndex >= 0 && currentIndex < sourceListModel.count)
-                                ? sourceListModel.get(currentIndex).key : "";
-                            if (key && appBridge) {
-                                selectedTextId = -1;
-                                selectedTextTitle = "";
-                                leaderboardRecords = [];
-                                currentTextInfo = null;
-                                textListModel.clear();
-                                appBridge.loadTextList(key);
-                            }
-                        }
-                    }
-                }
 
                 // 文本列表标题
                 RowLayout {
