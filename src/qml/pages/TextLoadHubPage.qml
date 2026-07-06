@@ -465,23 +465,72 @@ FluentPage {
         width: parent.width
         spacing: 16
 
-        // ---- 顶部来源切换 (Segmented) ----
-        Segmented {
-            id: sourceSelector
+        // ---- 顶部来源切换（自定义 pill 导航，背景与高亮完全同高） ----
+        Item {
             Layout.fillWidth: true
             Layout.preferredHeight: 40
-            currentIndex: root.currentSourceIndex
-            onCurrentIndexChanged: {
-                if (currentIndex !== -1 && currentIndex !== root.currentSourceIndex) {
-                    root.currentSource = root.sourceKeys[currentIndex]
-                }
+
+            Rectangle {
+                anchors.fill: parent
+                radius: 8
+                color: Theme.currentTheme.colors.subtleColor
+                border.color: Theme.currentTheme.colors.dividerBorderColor
+                border.width: 1
             }
 
-            Repeater {
-                model: root.sourceKeys.length
-                SegmentedItem {
-                    text: root.sourceLabels[index]
-                    icon.name: root.sourceIcons[index]
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 3
+                spacing: 2
+
+                Repeater {
+                    model: root.sourceKeys.length
+
+                    Rectangle {
+                        id: pill
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        radius: 6
+                        property bool isSelected: index === root.currentSourceIndex
+                        color: isSelected ? Theme.currentTheme.colors.controlFillColor : "transparent"
+                        border.color: isSelected ? Theme.currentTheme.colors.dividerBorderColor : "transparent"
+                        border.width: isSelected ? 1 : 0
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 5
+
+                            IconWidget {
+                                anchors.verticalCenter: parent.verticalCenter
+                                icon: root.sourceIcons[index]
+                                color: isSelected ? Theme.currentTheme.colors.primaryColor : Theme.currentTheme.colors.textSecondaryColor
+                                visible: icon !== ""
+                            }
+                            Text {
+                                anchors.verticalCenter: parent.verticalCenter
+                                text: root.sourceLabels[index]
+                                typography: Typography.Body
+                                color: isSelected ? Theme.currentTheme.colors.textColor : Theme.currentTheme.colors.textSecondaryColor
+                                font.weight: isSelected ? Font.DemiBold : Font.Normal
+                            }
+                        }
+
+                        MouseArea {
+                            id: pillArea
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.currentSource = root.sourceKeys[index]
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 6
+                            color: Theme.currentTheme.colors.subtleSecondaryColor
+                            opacity: pillArea.containsMouse && !isSelected ? 0.6 : 0
+                            z: -1
+                        }
+                    }
                 }
             }
         }
@@ -556,9 +605,19 @@ FluentPage {
                 }
 
                 Item {
+                    // 卡片背景（与其它来源的 TextSourceListPanel 视觉高度一致）
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: 6
+                        color: Theme.currentTheme.colors.cardColor
+                        border.color: Theme.currentTheme.colors.cardBorderColor
+                        border.width: 1
+                    }
+
                     TextLoadPanel {
                         id: textLoadPanel
                         anchors.fill: parent
+                        anchors.margins: 8
                         compactMode: false
                         hubMode: true
                         textSourceOptions: appBridge ? appBridge.textSourceOptions : []
