@@ -14,9 +14,9 @@
     "user_id": 0
   },
   "registry": {
-    "primary_url": "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main",
-    "mirror_url": "https://raw.githubusercontent.com/whynusn/open-typing-texts/main",
-    "cache_ttl_seconds": 3600,
+    "primary_url": "http://127.0.0.1:18888",
+    "mirror_url": "",
+    "cache_ttl_seconds": 86400,
     "max_content_bytes": 1048576
   },
   "text_session": {

@@ -32,18 +32,14 @@
 |----|---------|-------------|
 | `local_file` | 读本地文件 | `LocalTextLoader` / `FileSegmentProvider` |
 | `remote_api` | 调用服务端 API | `RemoteTextProvider` |
-| `registry` | CDN 注册表（GitHub Actions 生成） | `RegistryTextProvider` |
+| `registry` | OTT 文本源（本地适配器或自托管） | `RegistryTextProvider` |
 
 ## LeaderboardMode 枚举
 
 | 值 | text_id 决策 | 适用场景 |
 |----|------------|---------|
-| `none` | 不提交，不参与排行榜 | 本地练习文本、剪贴板 |
-<<<<<<< HEAD
+| `none` | 不提交，不参与排行榜 | 本地练习文本、剪贴板、OTT 文本源 |
 | `server_resolved` | 服务端直接返回 text_id | 极速杯等远程源 |
-=======
-| `server_resolved` | 服务端直接返回 text_id | 极速杯等远程源、注册表源 |
->>>>>>> 2ccc605 (refactor: 文本源 Loader + LeaderboardMode 二维正交分解)
 | `local_lookup` | 本地内容 hash 回查服务端 text_id | "前五百"等固定本地内容 |
 
 ## 默认来源列表
@@ -84,6 +80,17 @@
 | `wenlai.user_id` | `int` | `0` | 晴发文用户 ID |
 
 晴发文 token 不写入 JSON 配置，走系统密钥环中的 `wenlai_user` token key。
+
+## Registry 子字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `registry.primary_url` | `str` | `http://127.0.0.1:18888` | OTT 适配器地址（本地或远程） |
+| `registry.mirror_url` | `str` | `""` | 镜像地址（可选） |
+| `registry.cache_ttl_seconds` | `int` | `86400` | 缓存过期时间（秒） |
+| `registry.max_content_bytes` | `int` | `1048576` | 单篇正文最大字节（1 MB） |
+
+> 推荐：使用 [ott-adapter](https://github.com/whynusn/open-typing-texts) 在本地运行，`primary_url` 设为 `http://127.0.0.1:18888`。
 
 ## UI 子字段
 
