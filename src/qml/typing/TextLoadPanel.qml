@@ -12,6 +12,7 @@ Item {
     property string defaultTextSourceKey: ""
     property var catalogSourceOptions: []
     property bool compactMode: false  // true: 隐藏来源选择器，仅保留切片设置
+    property bool hubMode: false      // true: 在载文中心内使用，隐藏"从文本库选择"
 
     // --- Outputs ---
     readonly property string contentText: contentTextArea.text.trim()
@@ -81,6 +82,10 @@ Item {
             }
         }
         _restoreDefaultSource();
+    }
+
+    function onCatalogLoaded(catalog) {
+        syncSourceOptions(textSourceOptions, catalog)
     }
 
     function _restoreDefaultSource() {
@@ -221,7 +226,7 @@ Item {
 
         // --- 从文本库选择 ---
         Frame {
-            visible: !root.compactMode
+            visible: !root.compactMode && !root.hubMode
             Layout.fillWidth: true
             Layout.preferredHeight: 200
             radius: 6

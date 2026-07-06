@@ -89,6 +89,7 @@ def main():
         trainer_adapter=adapters.trainer,
         font_adapter=adapters.font,
         typing_totals_gateway=gateways.typing_totals,
+        typing_history_gateway=gateways.typing_history,
         key_listener=adapters.key_listener,
         base_url_update_callback=update_base_url,
         slice_metrics_prefs_store=slice_metrics_store,

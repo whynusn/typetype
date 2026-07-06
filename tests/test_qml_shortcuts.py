@@ -134,7 +134,7 @@ def test_history_area_shows_wenlai_segment_and_right_click_copies_record_score()
     assert source.index('display: "segmentNo"') < source.index('display: "speed"')
     assert "Qt.RightButton" in source
     assert "copyToClipboard(rowData.scoreText)" in source
-    assert "copyToast.show()" in source
+    assert "appNotificationManager.show" in source
     assert "已复制到剪贴板" in source
 
 

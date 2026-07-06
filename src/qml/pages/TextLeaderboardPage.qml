@@ -22,6 +22,9 @@ FluentPage {
     // 当前文本信息
     property var currentTextInfo: null
 
+    // 响应式断点
+    readonly property bool wideMode: width >= 800
+
     // 文本列表模型
     ListModel {
         id: textListModel
@@ -93,14 +96,18 @@ FluentPage {
         }
     }
 
-    RowLayout {
+    GridLayout {
         Layout.fillWidth: true
         Layout.preferredHeight: Math.max(textLeaderboardPage._availableHeight, 300)
-        spacing: 6
+        columnSpacing: 12
+        rowSpacing: 12
+        columns: textLeaderboardPage.wideMode ? 2 : 1
 
         // ========== 左侧文本列表面板 ==========
         Frame {
-            Layout.preferredWidth: 180
+            Layout.fillWidth: !textLeaderboardPage.wideMode
+            Layout.preferredWidth: textLeaderboardPage.wideMode ? Math.max(280, parent.width * 0.3) : parent.width
+            Layout.maximumWidth: textLeaderboardPage.wideMode ? 360 : parent.width
             Layout.fillHeight: true
             radius: 6
             hoverable: false
@@ -289,7 +296,7 @@ FluentPage {
 
                                 // 用户
                                 Rectangle {
-                                    Layout.preferredWidth: 110
+                                    Layout.preferredWidth: 140
                                     Layout.fillHeight: true
                                     color: "transparent"
                                     Text {
@@ -624,7 +631,7 @@ FluentPage {
 
                 // 用户
                 Rectangle {
-                    Layout.preferredWidth: 110
+                    Layout.preferredWidth: 140
                     Layout.fillHeight: true
                     color: "transparent"
                     Text {
@@ -738,14 +745,17 @@ FluentPage {
                 // 日期
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.minimumWidth: 90
+                    Layout.minimumWidth: 100
                     Layout.fillHeight: true
                     color: "transparent"
                     Text {
                         anchors.centerIn: parent
+                        width: parent.width - 8
                         typography: Typography.Caption
                         color: Theme.currentTheme.colors.textSecondaryColor
                         text: modelData.createdAt ? formatDate(modelData.createdAt) : "-"
+                        elide: Text.ElideRight
+                        horizontalAlignment: Text.AlignHCenter
                     }
                 }
             }

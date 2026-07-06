@@ -1,5 +1,6 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
+import QtQuick.Window 2.15
 import Qt.labs.qmlmodels
 import RinUI
 
@@ -146,7 +147,10 @@ QQC.Pane {
                     var rowData = tableView.model.rows[row]
                     if (rowData && rowData.scoreText) {
                         appBridge.copyToClipboard(rowData.scoreText)
-                        copyToast.show()
+                        if (Window.window && Window.window.appNotificationManager) {
+                            Window.window.appNotificationManager.show(
+                                Severity.Success, "", qsTr("已复制到剪贴板"), 1600)
+                        }
                     }
                 }
             }
@@ -155,41 +159,4 @@ QQC.Pane {
         Component.onCompleted: root.resetColumnWidths()
     }
 
-    Rectangle {
-        id: copyToast
-
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 12
-        z: 10
-        width: copyToastText.implicitWidth + 32
-        height: 32
-        radius: 6
-        visible: false
-        opacity: visible ? 1 : 0
-        color: Theme.currentTheme ? Theme.currentTheme.colors.systemSuccessBackgroundColor : "#e6f4ea"
-        border.color: Theme.currentTheme ? Theme.currentTheme.colors.systemSuccessColor : "#107c10"
-        border.width: 1
-
-        Text {
-            id: copyToastText
-
-            anchors.centerIn: parent
-            text: qsTr("已复制到剪贴板")
-            color: Theme.currentTheme ? Theme.currentTheme.colors.systemSuccessColor : "#107c10"
-            font.pixelSize: 13
-        }
-
-        Timer {
-            id: copyToastTimer
-
-            interval: 1600
-            onTriggered: copyToast.visible = false
-        }
-
-        function show() {
-            visible = true
-            copyToastTimer.restart()
-        }
-    }
 }
