@@ -10,18 +10,23 @@ FluentPage {
     horizontalPadding: 20
     wrapperWidth: 1100
 
+    property bool active: false  // 由 NavigationView 注入
+
     onActiveChanged: {
         if (active && appBridge) {
             appBridge.loadTypingHistory();
         }
     }
 
-    ScrollView {
+    Flickable {
         anchors.fill: parent
-        contentWidth: availableWidth
+        contentWidth: width
+        contentHeight: columnLayout.height
+        boundsBehavior: Flickable.StopAtBounds
 
         ColumnLayout {
-            width: root.availableWidth
+            id: columnLayout
+            width: parent.width
             spacing: 16
 
             // ============== 未登录：登录/注册卡片 ==============
@@ -439,7 +444,7 @@ FluentPage {
             Item { Layout.fillHeight: true }
 
         } // ColumnLayout
-    } // ScrollView
+    } // Flickable
 
     // ============== 登录/注册弹窗 ==============
     Dialog {

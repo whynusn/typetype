@@ -403,16 +403,6 @@ Item {
     }
 
     // --- AppBridge 信号 ---
-    function onCatalogLoaded(catalog) {
-        catalogSourceOptions = [];
-        if (catalog) {
-            for (var i = 0; i < catalog.length; i++) {
-                if (catalog[i].key)
-                    catalogSourceOptions.push({ key: catalog[i].key, label: catalog[i].label || catalog[i].key });
-            }
-        }
-        syncSourceOptions(textSourceOptions, catalogSourceOptions);
-    }
 
     function onTextListLoaded(texts) {
         var currentOption = sourceComboBox.currentIndex >= 0 && sourceComboBox.currentIndex < sourceListModel.count

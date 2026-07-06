@@ -516,7 +516,7 @@ FluentPage {
                     sourceItems: root.jisubeiItems
                     loading: root.currentSource === "jisubei" && (appBridge ? appBridge.textListLoading : false)
                     emptyText: qsTr("暂无文本")
-                    onItemClicked: { root.selectListItem("jisubei", originalIndex) }
+                    onItemClicked: function(originalIndex) { root.selectListItem("jisubei", originalIndex) }
                     onRefreshRequested: { if (appBridge) appBridge.loadTextList("jisubei") }
                 }
 
@@ -526,7 +526,7 @@ FluentPage {
                     sourceItems: root.localItems
                     loading: root.currentSource === "local" && (appBridge ? appBridge.localArticleLoading : false)
                     emptyText: qsTr("暂无本地文章")
-                    onItemClicked: { root.selectListItem("local", originalIndex) }
+                    onItemClicked: function(originalIndex) { root.selectListItem("local", originalIndex) }
                     onRefreshRequested: { if (appBridge) appBridge.loadLocalArticles() }
 
                     ToolButton {
@@ -548,7 +548,7 @@ FluentPage {
                     sourceItems: root.registryItems
                     loading: root.currentSource === "registry" && (appBridge ? appBridge.catalogLoading : false)
                     emptyText: qsTr("暂无文本")
-                    onItemClicked: { root.selectListItem("registry", originalIndex) }
+                    onItemClicked: function(originalIndex) { root.selectListItem("registry", originalIndex) }
                     onRefreshRequested: { if (appBridge) appBridge.refreshCatalog() }
                 }
 
@@ -558,7 +558,7 @@ FluentPage {
                     sourceItems: root.trainerItems
                     loading: root.currentSource === "trainer" && (appBridge ? appBridge.trainerLoading : false)
                     emptyText: qsTr("暂无练单器词库")
-                    onItemClicked: { root.selectListItem("trainer", originalIndex) }
+                    onItemClicked: function(originalIndex) { root.selectListItem("trainer", originalIndex) }
                     onRefreshRequested: { if (appBridge) appBridge.loadTrainers() }
                 }
 
