@@ -334,9 +334,9 @@ onActiveChanged: {
 
 **历史**：2026-07-04 重构。
 
-### ⚠️ Registry 缓存层必须读缓存，禁止直打网络
+### ⚠️ 开源文库缓存层必须读缓存，禁止直打网络
 
-**问题**：`RegistryTextProvider` 的 `_cache_dir` 长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
+**问题**：开源文库的内部实现 `RegistryTextProvider` 的 `_cache_dir` 长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
 
 **现状**（Phase 1a/1b 实现后）：
 - `RegistryTextProvider._fetch_json_with_cache()` 实现五层决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底

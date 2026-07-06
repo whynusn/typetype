@@ -1,7 +1,7 @@
 """目录加载 Worker - 在后台线程执行网络请求。
 
 优先使用 RegistryTextProvider 获取目录（Phase 3），fallback 到
-LeaderboardGateway（兼容未配置 Registry 的场景）。
+LeaderboardGateway（兼容未配置开源文库的场景）。
 """
 
 from typing import TYPE_CHECKING
@@ -29,7 +29,7 @@ class CatalogWorker(BaseWorker):
         """获取文本来源目录。
 
         优先使用 RegistryTextProvider.get_catalog()（Phase 3），
-        fallback 到 LeaderboardGateway（兼容无 Registry 场景）。
+        fallback 到 LeaderboardGateway（兼容无开源文库场景）。
         """
         if self._registry_provider is not None:
             catalog = self._registry_provider.get_catalog()

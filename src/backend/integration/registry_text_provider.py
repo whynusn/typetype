@@ -1,6 +1,7 @@
-"""注册表文本提供器 - 从 Registry 服务获取文本（第 2 层）。
+"""开源文库文本提供器（Registry）- 第 2 层文本源实现。
 
-实现 TextProvider Protocol。文本由用户在本地运行脚本生成，通过 HTTP 服务暴露，
+用户-facing 名称为"开源文库"，内部标识符为 Registry。
+实现 TextProvider Protocol。文本由用户在本地运行开源文库脚本生成，通过 HTTP 服务暴露，
 客户端只读不写，不执行远程脚本。
 
 缓存层设计：

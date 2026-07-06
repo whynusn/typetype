@@ -19,8 +19,9 @@ typetype 当前支持多种文本来源（本地文件、服务端 API、晴发�
 | **文本源（Text Source）** | 用户打字练习的内容来源（如「前五百」「每日一文」「晴发文随机」）。在代码中由 `TextSourceEntry`（`src/backend/config/text_source_config.py`）表示，配置于 `config.json` 的 `text_sources` 字段。 |
 | **Loader** | `TextSourceEntry.loader` 枚举，决定 `TextSourceGateway` 路由到哪个 Provider。取值：`LOCAL_FILE` / `REMOTE_API` / `REGISTRY`。 |
 | **LeaderboardMode** | `TextSourceEntry.leaderboard_mode` 枚举，决定成绩提交时 `text_id` 如何解析。与 `Loader` 正交。 |
-| **Registry** | 由独立 git 仓库托管、提供纯脚本工具模板、客户端只读 JSON 拉取的文本源体系。实现为 `RegistryTextProvider`（`src/backend/integration/registry_text_provider.py`）。 |
-| **Registry 仓库** | 独立于 typetype 主仓库的第二个 git 仓库（如 `open-typing-texts`），提供抓取脚本模板（`scripts/`），用户本地运行生成 `content/*.json` 和 `registry_index.json`。**不提供任何现成文本内容，也不运行 CI 自动抓取。** |
+| **开源文库**（第 2 层） | 用户-facing 名称。由独立 git 仓库托管、提供纯脚本工具模板、客户端只读 JSON 拉取的文本源体系。 |
+| **Registry** | 开源文库的内部实现标识符，用于代码命名（`RegistryTextProvider`、`RegistryConfig`、`registry.primary_url`）。 |
+| **开源文库仓库** | 独立于 typetype 主仓库的第二个 git 仓库（如 `open-typing-texts`），提供抓取脚本模板（`scripts/`），用户本地运行生成 `content/*.json` 和 `registry_index.json`。**不提供任何现成文本内容，也不运行 CI 自动抓取。** |
 | **即时拉取源** | 客户端通过 Worker 实时调用第三方/服务端 API 获取文本的来源（如晴发文 random、服务端 `/api/v1/texts/latest`）。 |
 | **晴发文** | 第三方打字文本服务（代码标识符为 `wenlai`/`Wenlai`，`base_url` 默认 `https://qingfawen.fcxxz.com`，见 `src/backend/config/runtime_config.py` 的 `WenlaiConfig`），提供随机文本、相邻换段等接口，需要登录。 |
 
@@ -115,10 +116,10 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
 
 ### 三层职责对照
 
-| 维度 | 第 1 层：本地文件 | 第 2 层：Registry（脚本工具）| 第 3 层：即时拉取 |
+| 维度 | 第 1 层：本地文件 | 第 2 层：开源文库（Registry）| 第 3 层：即时拉取 |
 |:---|:---|:---|:---|
 | **`loader`** | `LOCAL_FILE` | `REGISTRY` | `REMOTE_API`（+ 独立 Gateway，如晴发文）|
-| **数据来源** | 用户/打包 txt | 用户本地运行脚本生成 JSON | 服务端/第三方实时 API |
+| **数据来源** | 用户/打包 txt | 用户本地运行开源文库脚本生成 JSON | 服务端/第三方实时 API |
 | **时效性** | 静态 | 日级/周级延迟可接受 | 秒级，用户实时交互 |
 | **数据规模** | 单文件 | 增量、可枚举 | 全库不可枚举（random 模型）|
 | **网络韧性要求** | 无 | 低（脚本失败有缓存兜底）| 高（实时）|

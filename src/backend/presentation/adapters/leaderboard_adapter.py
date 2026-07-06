@@ -110,7 +110,7 @@ class LeaderboardAdapter(QObject):
 
     @Slot()
     def loadCatalog(self) -> None:
-        """加载文本来源目录（优先 Registry，fallback Leaderboard API）。
+        """加载文本来源目录（优先开源文库，fallback Leaderboard API）。
 
         如果缓存存在，直接使用缓存避免重复请求。
         """
@@ -225,7 +225,7 @@ class LeaderboardAdapter(QObject):
         return self._text_list_loading
 
     def fetch_registry_text(self, source_key: str):
-        """从 registry CDN 获取单篇文本内容。返回 (text_id, content, title) 或 raise。"""
+        """从开源文库获取单篇文本内容。返回 (text_id, content, title) 或 raise。"""
         if self._registry_provider is None:
             raise RuntimeError("注册表文本源未配置")
         fetched = self._registry_provider.fetch_text_by_key(source_key)

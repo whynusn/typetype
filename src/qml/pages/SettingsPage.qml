@@ -519,9 +519,9 @@ FluentPage {
     SettingCard {
         id: registryUrlCard
         Layout.fillWidth: true
-        title: qsTr("开源文库（Registry）")
+        title: qsTr("开源文库")
         icon.name: "ic_fluent_text_bullet_list_20_regular"
-        description: qsTr("Registry 服务地址（本地运行脚本后暴露的 HTTP 服务，留空则禁用）")
+        description: qsTr("开源文库服务地址（本地运行脚本后暴露的 HTTP 服务，留空则禁用）")
 
         ColumnLayout {
             spacing: 6

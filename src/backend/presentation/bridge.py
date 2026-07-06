@@ -1113,7 +1113,7 @@ class Bridge(QObject):
 
     @Slot()
     def loadCatalog(self) -> None:
-        """加载文本来源目录（优先 Registry CDN，fallback 服务端 API）。"""
+        """加载文本来源目录（优先开源文库，fallback 服务端 API）。"""
         if self._leaderboard_adapter:
             self._leaderboard_adapter.loadCatalog()
 
@@ -1125,10 +1125,10 @@ class Bridge(QObject):
 
     @Slot(str)
     def loadLibraryText(self, source_key: str) -> None:
-        """从 Registry 服务加载文本（完全独立于服务端 API）。
+        """从开源文库加载文本（完全独立于服务端 API）。
 
-        Registry（第 2 层）文本由用户本地运行脚本生成，通过 HTTP 服务暴露，
-        客户端通过 RegistryTextProvider 拉取，与服务端数据库无关。
+        开源文库（第 2 层，内部实现为 RegistryTextProvider）文本由用户本地运行脚本生成，
+        通过 HTTP 服务暴露，客户端拉取，与服务端数据库无关。
 
         结果通过 textContentLoaded 信号返回，失败通过 textLoadFailed。
         走后台线程避免阻塞 UI。

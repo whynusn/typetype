@@ -15,7 +15,7 @@ Item {
     property string statusMessage: ""
     // 分片模式开关（true=分片，false=全文）
     property bool sliceModeChecked: false
-    // 加载自 registry CDN 的正文与标题
+    // 加载自开源文库的正文与标题
     property string loadedContent: ""
     property string loadedTitle: ""
 
@@ -86,9 +86,9 @@ Item {
             errorMessage = qsTr("文本缺少来源 key");
             return;
         }
-        // 先通过 CDN 加载 registry 文本内容
+        // 先通过开源文库加载文本内容
         errorMessage = "";
-        statusMessage = qsTr("正在从 registry CDN 加载...");
+        statusMessage = qsTr("正在从开源文库加载...");
         appBridge.loadLibraryText(sourceKey);
     }
 
@@ -405,8 +405,8 @@ Item {
         function onCatalogLoaded(catalog) {
             syncCatalog(catalog);
             statusMessage = catalogListModel.count > 0
-                ? qsTr("已加载 %1 篇 registry 文本").arg(catalogListModel.count)
-                : qsTr("暂无 registry 文本");
+                ? qsTr("已加载 %1 篇开源文库文本").arg(catalogListModel.count)
+                : qsTr("暂无开源文库文本");
             errorMessage = "";
         }
 
@@ -416,7 +416,7 @@ Item {
         }
 
         function onTextContentLoaded(textId, content, title) {
-            // 保存加载自 registry CDN 的内容
+            // 保存加载自开源文库的内容
             loadedContent = content || "";
             loadedTitle = title || entryLabel(selectedEntry);
             errorMessage = "";

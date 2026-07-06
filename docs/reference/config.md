@@ -32,7 +32,7 @@
 |----|---------|-------------|
 | `local_file` | 读本地文件 | `LocalTextLoader` / `FileSegmentProvider` |
 | `remote_api` | 调用服务端 API | `RemoteTextProvider` |
-| `registry` | Registry（第 2 层，本地运行脚本生成的只读 JSON） | `RegistryTextProvider` |
+| `registry` | 开源文库（第 2 层，本地运行脚本生成的只读 JSON） | `RegistryTextProvider` |
 
 ## LeaderboardMode 枚举
 
@@ -85,12 +85,12 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `registry.primary_url` | `str` | `http://127.0.0.1:18888` | Registry 服务地址（本地运行脚本后暴露的 HTTP 服务） |
+| `registry.primary_url` | `str` | `http://127.0.0.1:18888` | 开源文库服务地址（本地运行脚本后暴露的 HTTP 服务） |
 | `registry.mirror_url` | `str` | `""` | 镜像地址（可选） |
 | `registry.cache_ttl_seconds` | `int` | `86400` | 缓存过期时间（秒） |
 | `registry.max_content_bytes` | `int` | `1048576` | 单篇正文最大字节（1 MB） |
 
-> 推荐：使用 [open-typing-texts](https://github.com/whynusn/open-typing-texts) 仓库的脚本在本地运行 Registry 服务，`primary_url` 设为 `http://127.0.0.1:18888`。
+> 推荐：使用 [open-typing-texts](https://github.com/whynusn/open-typing-texts) 开源文库仓库的脚本在本地运行服务，`primary_url` 设为 `http://127.0.0.1:18888`。
 
 ## UI 子字段
 

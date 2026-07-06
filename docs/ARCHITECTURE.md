@@ -124,7 +124,7 @@ src/backend/
 #### 载文分类说明（对应三层模型）
 
 - **第 1 层（本地文件）**：剪贴板、自定义、本地文库、练单器、前/中/后五百、打词必备单字 — 文本来自本地文件或用户输入
-- **第 2 层（Registry）**：Registry 仓库提供的文本（通过本地运行的脚本服务获取）— 暂未接 UI 入口
+- **第 2 层（开源文库）**：开源文库仓库提供的文本（通过本地运行的脚本服务获取）— 暂未接 UI 入口
 - **第 3 层（即时拉取）**：极速杯 — 文本来自 TypeType 后端 (`typetype-server`)；晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
 
 #### 分段模式与乱序
@@ -290,15 +290,17 @@ onActivated → Qt.callLater() 延迟触发信号
 
 > 决策依据：ADR-008（`docs/decisions/008-text-source-three-layer-model.md`）。
 > 按「数据如何到达客户端」划分三层，不强行统一。
+>
+> **命名约定**：第 2 层的用户-facing 名称是**开源文库**，内部实现使用 `Registry`（如 `RegistryTextProvider`、`registry.primary_url`）。
 
 ### 三层职责对照
 
-| 维度 | 第 1 层：本地文件 | 第 2 层：Registry | 第 3 层：即时拉取 |
+| 维度 | 第 1 层：本地文件 | 第 2 层：开源文库 | 第 3 层：即时拉取 |
 |:---|:---|:---|:---|
 | **`loader`** | `LOCAL_FILE` | `REGISTRY` | `REMOTE_API`（+ 独立 Pipeline，如晴发文）|
 | **数据来源** | 用户/打包 txt | 用户本地运行脚本生成 JSON | 服务端/第三方实时 API |
 | **时效性** | 静态 | 日级/周级延迟可接受 | 秒级，用户实时交互 |
-| **网络韧性要求** | 无 | 低（离线读缓存兜底）| 高（实时） |
+| **网络韧性要求** | 无 | 低（离线读缓存兜底）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（TTL + stale-while-revalidate） | 不需要 |
 | **账号要求** | 无 | 无 | 用户自有账号（token_store）|
 | **现配实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
@@ -309,7 +311,7 @@ onActivated → Qt.callLater() 延迟触发信号
 | 想加什么 | 走哪层 | 改动量 |
 |:---|:---|:---|
 | 新本地练习文件 | 第 1 层 | `config.json` 加 1 行（`loader: local_file`），零代码 |
-| 静态文集（每日一文、古诗文等）| 第 2 层 | Registry 仓库加脚本，typetype 主仓不动 |
+| 静态文集（每日一文、古诗文等）| 第 2 层 | 开源文库仓库加脚本，typetype 主仓不动 |
 | 服务端排行榜文本（极速杯等）| 第 3 层 | `config.json` 加 1 行（`loader: remote_api`），服务端注册 |
 | 第三方带认证实时源 | 第 3 层 | 完整 Port + Gateway + UseCase + Adapter（参考晴发文）|
 
@@ -325,7 +327,7 @@ onActivated → Qt.callLater() 延迟触发信号
 本地纯练习:     loader=LOCAL_FILE,  leaderboard_mode=NONE
 本地排行榜文本: loader=LOCAL_FILE,  leaderboard_mode=LOCAL_LOOKUP
 服务端网络源:   loader=REMOTE_API,  leaderboard_mode=SERVER_RESOLVED
-Registry 源:    loader=REGISTRY,    leaderboard_mode=SERVER_RESOLVED
+开源文库:       loader=REGISTRY,    leaderboard_mode=SERVER_RESOLVED
 ```
 
 ### 晴发文特殊地位
@@ -339,8 +341,8 @@ Registry 源:    loader=REGISTRY,    leaderboard_mode=SERVER_RESOLVED
     ┌──────────────┼──────────────┐
     ▼              ▼              ▼
  第1层          第2层          第3层
-本地文件       Registry       RemoteTextProvider
-                               (jisubei 等)
+本地文件       开源文库       RemoteTextProvider
+               (Registry)      (jisubei 等)
 
                     ┌────── 晴发文独立 Pipeline ──────┐
                     │  WenlaiProvider → WenlaiGateway │
@@ -349,9 +351,9 @@ Registry 源:    loader=REGISTRY,    leaderboard_mode=SERVER_RESOLVED
                     └────────────────────────────────┘
 ```
 
-### Registry 缓存层
+### 开源文库缓存层
 
-`RegistryTextProvider` 实现五层决策树（`registry_text_provider.py:121-159`）：
+内部实现为 `RegistryTextProvider`，五层决策树（`registry_text_provider.py:121-159`）：
 
 ```
 fetch_text_by_key(key)
