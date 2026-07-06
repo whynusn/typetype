@@ -35,7 +35,7 @@ Follow these steps **IN ORDER**.
 
 | Feature Type | Files to modify/create |
 |--------------|------------------------|
-| New text source | 1. `ports/text_provider.py` (if new protocol)<br>2. `integration/xxx.py` (impl)<br>3. Update `config/config.example.json` if a new source key is needed<br>4. Update `main.py` injection and/or `TextSourceGateway` only if routing changes<br>5. Add test |
+| New text source | 1. `ports/text_provider.py` (if new protocol)<br>2. `integration/xxx.py` (impl)<br>3. User config `config.json` 添加新 source key<br>4. Update `main.py` injection and/or `TextSourceGateway` only if routing changes<br>5. Add test |
 | New business | 1. `domain/services/xxx.py`<br>2. `presentation/adapters/xxx.py`<br>3. `presentation/bridge.py` (signals/slots if needed)<br>4. Add test |
 | New UI page | 1. `src/qml/pages/Page.qml`<br>2. Update `Main.qml` nav<br>3. `bridge.py` if needed<br>4. Python adapter if needed |
 | New persistence | 1. `ports/repo.py` (protocol)<br>2. `integration/sqlite-repo.py` (impl)<br>3. Domain Service uses it<br>4. Add test |
@@ -113,7 +113,7 @@ Not-tested: <gaps>
 1. Protocol exists: `ports/text_provider.py`
 2. Implement: `integration/springboot_text_provider.py`
 3. Inject: `main.py` → replace or extend the injected `TextProvider`
-4. Config: `config/config.example.json` → add text source if the UI should expose it
+4. Config: user `config.json` → add text source if the UI should expose it
 5. Test: `tests/test_springboot.py`
 6. Verify: `uv run pytest && uv run ruff check .`
 7. Commit with Lore protocol trailers describing why, constraints, and verification

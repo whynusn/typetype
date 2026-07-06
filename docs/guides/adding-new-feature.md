@@ -35,7 +35,7 @@
     否
     │
     ▼
-  配置变更？── 是 ──→ RuntimeConfig + config.example.json
+  配置变更？── 是 ──→ RuntimeConfig dataclass
 ```
 
 ## 通用流程

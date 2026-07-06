@@ -1,7 +1,7 @@
 # RuntimeConfig 配置速查
 <!-- 状态: active | 最后验证: 2026-07-04 -->
 
-> 配置文件查找顺序：用户配置目录中的 `config.json` → `config/config.json` → `config/config.example.json`。macOS 用户配置目录为 `~/Library/Application Support/TypeType/`，Linux 为 `~/.config/typetype/`。
+> 配置文件位于用户配置目录中的 `config.json`。首次启动时由 dataclass 默认值自动生成。macOS 用户配置目录为 `~/Library/Application Support/TypeType/`，Linux 为 `~/.config/typetype/`。
 
 ## 顶层字段
 

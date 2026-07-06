@@ -112,9 +112,8 @@ def test_backend_config_modules_import_with_src_only_pythonpath(tmp_path):
 
 def test_update_base_url_persists_to_user_config(monkeypatch, tmp_path: Path):
     user_config = tmp_path / "user" / "config.json"
-    bundled_example = tmp_path / "bundle" / "config.example.json"
-    bundled_example.parent.mkdir(parents=True)
-    bundled_example.write_text(
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
         json.dumps({"base_url": "http://old", "text_sources": {}}),
         encoding="utf-8",
     )
@@ -123,17 +122,13 @@ def test_update_base_url_persists_to_user_config(monkeypatch, tmp_path: Path):
         lambda: user_config,
     )
 
-    runtime_config = RuntimeConfig.load_from_file(str(bundled_example))
+    runtime_config = RuntimeConfig.load_from_file(str(user_config))
 
     runtime_config.update_base_url("http://new")
 
     assert user_config.exists()
     assert (
         json.loads(user_config.read_text(encoding="utf-8"))["base_url"] == "http://new"
-    )
-    assert (
-        json.loads(bundled_example.read_text(encoding="utf-8"))["base_url"]
-        == "http://old"
     )
 
 
@@ -214,9 +209,8 @@ def test_runtime_config_malformed_wenlai_strings_default_safely():
 
 def test_update_wenlai_config_persists_to_user_config(monkeypatch, tmp_path: Path):
     user_config = tmp_path / "user" / "config.json"
-    bundled_example = tmp_path / "bundle" / "config.example.json"
-    bundled_example.parent.mkdir(parents=True)
-    bundled_example.write_text(
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
         json.dumps({"base_url": "http://old", "text_sources": {}}),
         encoding="utf-8",
     )
@@ -225,7 +219,7 @@ def test_update_wenlai_config_persists_to_user_config(monkeypatch, tmp_path: Pat
         lambda: user_config,
     )
 
-    runtime_config = RuntimeConfig.load_from_file(str(bundled_example))
+    runtime_config = RuntimeConfig.load_from_file(str(user_config))
     runtime_config.update_wenlai_config(
         base_url="https://wenlai.test/",
         length=250,
@@ -355,9 +349,8 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
 
 def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
     user_config = tmp_path / "user" / "config.json"
-    bundled_example = tmp_path / "bundle" / "config.example.json"
-    bundled_example.parent.mkdir(parents=True)
-    bundled_example.write_text(
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
         json.dumps({"base_url": "http://old", "text_sources": {}}),
         encoding="utf-8",
     )
@@ -366,7 +359,7 @@ def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
         lambda: user_config,
     )
 
-    runtime_config = RuntimeConfig.load_from_file(str(bundled_example))
+    runtime_config = RuntimeConfig.load_from_file(str(user_config))
     runtime_config.update_wenlai_config(length=0)
 
     saved = json.loads(user_config.read_text(encoding="utf-8"))["wenlai"]

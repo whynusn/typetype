@@ -41,8 +41,8 @@ uv run ruff check . && uv run ruff format --check . && uv run pytest
 
 ## 可选：配置 API 服务端地址
 
-1. 复制 `config/config.example.json` → `config/config.json`
-2. 编辑 `config.json`，设置 `api_base_url` 为你的后端地址
+1. 首次启动时 `~/.config/typetype/config.json` 自动生成
+2. 编辑用户配置文件，设置 `base_url` 为你的后端地址
 3. 或使用运行时配置：设置页面输入地址 → 应用
 
 ## 日志调试

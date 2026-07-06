@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
@@ -166,9 +165,9 @@ class RuntimeConfig:
     @classmethod
     def load_from_file(cls, config_path: str | None = None) -> "RuntimeConfig":
         if config_path is None:
-            config_path = cls._find_config_file()
+            config_path = str(user_config_path())
 
-        if config_path and os.path.exists(config_path):
+        if os.path.exists(config_path):
             with open(config_path, encoding="utf-8") as f:
                 data = json.load(f)
             config = cls._from_dict(data)
@@ -179,19 +178,19 @@ class RuntimeConfig:
 
     @classmethod
     def ensure_user_config_exists(cls) -> str:
-        """Ensure the writable user config exists and return its path."""
+        """Ensure the writable user config exists and return its path.
+
+        Generates from dataclass defaults if the user config does not exist.
+        The dataclass is the single source of truth for default values.
+        """
         target = user_config_path()
         if target.exists():
             cls._ensure_config_sections(target)
             return str(target)
 
-        source = cls._find_project_config_file()
         target.parent.mkdir(parents=True, exist_ok=True)
-        if source and os.path.exists(source):
-            shutil.copy2(source, target)
-        else:
-            with target.open("w", encoding="utf-8") as f:
-                json.dump(cls()._to_dict(), f, ensure_ascii=False, indent=4)
+        with target.open("w", encoding="utf-8") as f:
+            json.dump(cls()._to_dict(), f, ensure_ascii=False, indent=4)
         return str(target)
 
     @classmethod
@@ -205,28 +204,6 @@ class RuntimeConfig:
             target.write_text(
                 json.dumps(data, ensure_ascii=False, indent=4), encoding="utf-8"
             )
-
-    @classmethod
-    def _find_config_file(cls) -> str | None:
-        user_config = user_config_path()
-        if user_config.exists():
-            return str(user_config)
-
-        return cls._find_project_config_file()
-
-    @classmethod
-    def _find_project_config_file(cls) -> str | None:
-        current = Path(__file__).parent
-        while current.parent != current:
-            project_config = current / "config" / "config.json"
-            if project_config.exists():
-                return str(project_config)
-            example_config = current / "config" / "config.example.json"
-            if example_config.exists():
-                return str(example_config)
-            current = current.parent
-
-        return None
 
     @classmethod
     def _from_dict(cls, data: dict) -> "RuntimeConfig":

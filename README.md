@@ -190,7 +190,7 @@ TypeType 按「数据如何到达客户端」分三层（详见 [ARCHITECTURE.md
 
 所有本地载文 + 极速杯共享分片/乱序组件。晴发文在服务端分段，不走 App 分片机制。
 
-当前默认配置 `config/config.example.json`：
+默认配置（`~/.config/typetype/config.json`，首次启动自动生成）：
 - 第 3 层：`jisubei`（极速杯）
 - 第 1 层：`builtin_demo`、`fst_500`、`mid_500`、`lst_500`、`essential_single_char`
 - 第 2 层开源文库：默认未启用，需在设置页配置 `registry.primary_url`

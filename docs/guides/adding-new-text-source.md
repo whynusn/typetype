@@ -63,7 +63,7 @@ class NewSourceRepository(NewSourceProvider):
         return [...]
 ```
 
-### 3. 在 `config.example.json` 添加配置
+### 3. 在用户配置 `config.json` 添加配置
 
 ```json
 {
