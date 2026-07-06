@@ -425,6 +425,10 @@ Item {
                 return;
             }
             statusMessage = qsTr("已载入：") + loadedTitle;
+
+            // 导航前捕获 sourceKey（避免页面销毁后 selectedEntry 变野指针）
+            var sourceKey = entrySourceKey(selectedEntry);
+
             // 设置达标条件
             if (appBridge) {
                 var criteriaOn = sliceCriteriaPanel.conditionChecked;
@@ -448,7 +452,7 @@ Item {
             }
             Qt.callLater(function() {
                 if (appBridge && loadedContent) {
-                    appBridge.loadFullText(loadedContent, entrySourceKey(selectedEntry), loadedTitle, textId);
+                    appBridge.loadFullText(loadedContent, sourceKey, loadedTitle, textId);
                 }
             });
         }
