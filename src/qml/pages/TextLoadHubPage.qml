@@ -739,7 +739,7 @@ FluentPage {
             appBridge.prepareSliceProgressRestore(appBridge.getProgressKey(root.progressKeyType(), _restoreId), _restoreTitle)
             var settings = JSON.parse(appBridge.getRestoredSliceSettings())
             SliceHelpers.startWithCriteria(
-                appBridge, Window.window ? Window.window.navigationView : null,
+                appBridge, root.window ? root.window.navigationView : null,
                 sliceSettingsPanel, sliceCriteriaPanel, settings,
                 function(size) {
                     if (_source === "jisubei") {
