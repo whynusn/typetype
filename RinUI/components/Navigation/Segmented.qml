@@ -10,8 +10,8 @@ TabBar {
 
     background: Rectangle {
         border.width: Theme.currentTheme.appearance.borderWidth  // 边框宽度 / Border Width
-        border.color: Theme.currentTheme.colors.controlBorderColor
+        border.color: Theme.currentTheme.colors.dividerBorderColor
         radius: Theme.currentTheme.appearance.buttonRadius
-        color: Theme.currentTheme.colors.controlAltSecondaryColor
+        color: Theme.currentTheme.colors.subtleColor
     }
 }
