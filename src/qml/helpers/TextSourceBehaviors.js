@@ -35,11 +35,11 @@ var capabilities = {
         supportsRefresh: true,
         supportsSearch: true,
         supportsProgress: true,
-        supportsPreview: false,
+        supportsPreview: true,
         supportsShuffle: false,
         supportsEdit: true,
         supportsCountValidation: false,
-        needsContentPrefetch: false,
+        needsContentPrefetch: true,
         tier: "local",
         label: qsTr("本地文库"),
         icon: "ic_fluent_library_20_regular"
@@ -63,11 +63,11 @@ var capabilities = {
         supportsRefresh: true,
         supportsSearch: true,
         supportsProgress: true,
-        supportsPreview: false,
+        supportsPreview: true,
         supportsShuffle: false,
         supportsEdit: false,
         supportsCountValidation: false,
-        needsContentPrefetch: false,
+        needsContentPrefetch: true,
         tier: "local",
         label: qsTr("练单器"),
         icon: "ic_fluent_apps_list_detail_20_regular"
@@ -151,6 +151,8 @@ function cardContent(sourceKey, item, previewContent, customText) {
     case "custom":   return (customText || "").substring(0, 200)
     case "jisubei":  return previewContent || ""
     case "registry": return (previewContent || "").substring(0, 200)
+    case "local":    return (previewContent || "").substring(0, 200)
+    case "trainer":  return (previewContent || "").substring(0, 200)
     }
     return ""
 }

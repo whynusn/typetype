@@ -18,6 +18,7 @@ class TrainerAdapter(QObject):
     trainerSegmentLoaded = Signal(dict)
     trainerSegmentLoadFailed = Signal(str)
     trainerLoadingChanged = Signal()
+    trainerPreviewLoaded = Signal(str)  # content text
 
     def __init__(
         self,
@@ -227,6 +228,23 @@ class TrainerAdapter(QObject):
             ),
             error_prefix="加载练单器上一段失败",
         )
+
+    @Slot(str)
+    def loadTrainerPreview(self, trainer_id: str) -> None:
+        """异步加载练单器词库原始文本供预览卡片展示。"""
+
+        def _do_load() -> str:
+            lexicon = self._gateway.load_lexicon(trainer_id, group_size=1)
+            # groups 是 tuple[tuple[str, ...]]，展平后用换行连接
+            return "\n".join(
+                item for group in lexicon.groups for item in group
+            )
+
+        worker = BaseWorker(task=_do_load, error_prefix="加载词库预览失败")
+        worker.signals.succeeded.connect(
+            lambda content: self.trainerPreviewLoaded.emit(content)
+        )
+        self._thread_pool.start(worker)
 
     @Slot(int)
     def setTrainerSegment(self, index: int) -> None:

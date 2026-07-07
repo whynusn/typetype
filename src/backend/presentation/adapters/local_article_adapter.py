@@ -18,6 +18,7 @@ class LocalArticleAdapter(QObject):
     localArticleLoadingChanged = Signal()
     localArticleDeleted = Signal(bool, str)  # (success, message)
     localArticleRenamed = Signal(bool, str)  # (success, message)
+    localArticlePreviewLoaded = Signal(str)  # content text
 
     def __init__(
         self,
@@ -198,6 +199,19 @@ class LocalArticleAdapter(QObject):
         )
         worker.signals.failed.connect(
             lambda msg: self.localArticleDeleted.emit(False, msg)
+        )
+        self._thread_pool.start(worker)
+
+    @Slot(str)
+    def loadLocalArticlePreview(self, article_id: str) -> None:
+        """异步加载本地文章全文供预览卡片展示。"""
+
+        def _do_load() -> str:
+            return self.get_full_article_content(article_id)
+
+        worker = BaseWorker(task=_do_load, error_prefix="加载文章预览失败")
+        worker.signals.succeeded.connect(
+            lambda content: self.localArticlePreviewLoaded.emit(content)
         )
         self._thread_pool.start(worker)
 

@@ -142,9 +142,19 @@ FluentPage {
         if (source === "registry") registryLoading = false  // 仅 registry 使用
         hasProgress = false
 
-        // needsContentPrefetch == true 的来源（jisubei）点选即拉取内容预览
-        if (SrcBehav.capabilities[source].needsContentPrefetch && selectedItem && selectedItem.id && appBridge) {
-            appBridge.getTextContentById(selectedItem.id)
+        // needsContentPrefetch == true 的来源点选即异步拉取内容预览
+        if (SrcBehav.capabilities[source].needsContentPrefetch && selectedItem && appBridge) {
+            if (source === "jisubei" && selectedItem.id) {
+                appBridge.getTextContentById(selectedItem.id)
+            } else if (source === "local") {
+                var articleId = SrcBehav.articleId(selectedItem)
+                if (articleId) appBridge.loadLocalArticlePreview(articleId)
+            } else if (source === "trainer") {
+                var tid = SrcBehav.trainerId(selectedItem)
+                if (tid) appBridge.loadTrainerPreview(tid)
+            } else {
+                checkProgress()
+            }
         } else {
             checkProgress()
         }
@@ -354,9 +364,9 @@ FluentPage {
         if (currentSource === "custom") return SrcBehav.customTextLen() > 0
         // registry 额外等待单篇加载完成
         if (currentSource === "registry") return selectedItem !== null && !registryLoading
-        // jisubei 需等预览内容拉回
-        if (currentSource === "jisubei") return selectedItem !== null && previewContent.length > 0
-        // local / trainer
+        // jisubei / local / trainer 需等预览内容拉回
+        if (currentSource === "jisubei" || currentSource === "local" || currentSource === "trainer")
+            return selectedItem !== null && previewContent.length > 0
         return selectedItem !== null
     }
 
@@ -861,6 +871,16 @@ FluentPage {
         }
         function onLocalArticleSegmentLoadFailed(message) {
             if (root.active) root.errorMessage = message
+        }
+        function onLocalArticlePreviewLoaded(content) {
+            if (!root.active || root.currentSource !== "local") return
+            root.previewContent = content || ""
+            root.checkProgress()
+        }
+        function onTrainerPreviewLoaded(content) {
+            if (!root.active || root.currentSource !== "trainer") return
+            root.previewContent = content || ""
+            root.checkProgress()
         }
         function onLocalArticleDeleted(success, message) {
             if (root.active) {

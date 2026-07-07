@@ -136,6 +136,7 @@ class Bridge(QObject):
     localArticleLoadingChanged = Signal()
     localArticleDeleted = Signal(bool, str)
     localArticleRenamed = Signal(bool, str)
+    localArticlePreviewLoaded = Signal(str)
     # 字提示信号
     zitiSchemesLoaded = Signal(list)
     zitiSchemesLoadFailed = Signal(str)
@@ -148,6 +149,7 @@ class Bridge(QObject):
     trainerSegmentLoaded = Signal(dict)
     trainerSegmentLoadFailed = Signal(str)
     trainerLoadingChanged = Signal()
+    trainerPreviewLoaded = Signal(str)
     # 字体信号
     fontsLoaded = Signal(list)
     fontsLoadFailed = Signal(str)
@@ -500,6 +502,9 @@ class Bridge(QObject):
         self._local_article_adapter.localArticleRenamed.connect(
             self.localArticleRenamed.emit
         )
+        self._local_article_adapter.localArticlePreviewLoaded.connect(
+            self.localArticlePreviewLoaded.emit
+        )
 
     def _connect_ziti_signals(self) -> None:
         if not self._ziti_adapter:
@@ -523,6 +528,9 @@ class Bridge(QObject):
         )
         self._trainer_adapter.trainerLoadingChanged.connect(
             self.trainerLoadingChanged.emit
+        )
+        self._trainer_adapter.trainerPreviewLoaded.connect(
+            self.trainerPreviewLoaded.emit
         )
 
     def _connect_font_signals(self) -> None:
@@ -1174,6 +1182,12 @@ class Bridge(QObject):
             self._local_article_adapter.loadLocalArticles()
 
     @Slot(str)
+    def loadLocalArticlePreview(self, article_id: str) -> None:
+        """异步加载本地文章全文供预览。"""
+        if self._local_article_adapter:
+            self._local_article_adapter.loadLocalArticlePreview(article_id)
+
+    @Slot(str)
     def deleteLocalArticle(self, article_id: str) -> None:
         """删除本地长文。"""
         if self._local_article_adapter:
@@ -1311,6 +1325,12 @@ class Bridge(QObject):
         """加载练单器词库目录。"""
         if self._trainer_adapter:
             self._trainer_adapter.loadTrainers()
+
+    @Slot(str)
+    def loadTrainerPreview(self, trainer_id: str) -> None:
+        """异步加载练单器词库原始文本供预览。"""
+        if self._trainer_adapter:
+            self._trainer_adapter.loadTrainerPreview(trainer_id)
 
     @Slot(str, int, int)
     def loadTrainerSegment(
