@@ -107,21 +107,22 @@ class AiConfig:
 
 @dataclass
 class RegistryConfig:
-    """注册表文本源配置。"""
+    """开源文库（Registry/OTT）配置。"""
 
-    primary_url: str = "http://127.0.0.1:18888"
-    mirror_url: str = ""
-    cache_ttl_seconds: int = 86400
+    primary_url: str = "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
+    mirror_url: str = "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
+    cache_ttl_seconds: int = 3600
     max_content_bytes: int = 1_048_576
 
     def __post_init__(self) -> None:
         if not isinstance(self.primary_url, str) or not self.primary_url.strip():
-            self.primary_url = "http://127.0.0.1:18888"
-        if not isinstance(self.mirror_url, str):
-            self.mirror_url = ""
+            self.primary_url = "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
+        if not isinstance(self.mirror_url, str) or not self.mirror_url.strip():
+            self.mirror_url = "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
         self.primary_url = self.primary_url.rstrip("/")
+        self.mirror_url = self.mirror_url.rstrip("/")
         if self.cache_ttl_seconds < 0:
-            self.cache_ttl_seconds = 86400
+            self.cache_ttl_seconds = 3600
         if self.max_content_bytes < 0:
             self.max_content_bytes = 1_048_576
 
@@ -280,9 +281,17 @@ class RuntimeConfig:
         if not isinstance(r_data, dict):
             r_data = {}
         registry = RegistryConfig(
-            primary_url=cls._safe_str(r_data.get("primary_url"), "", allow_empty=False),
-            mirror_url=cls._safe_str(r_data.get("mirror_url"), "", allow_empty=False),
-            cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 86400),
+            primary_url=cls._safe_str(
+                r_data.get("primary_url"),
+                "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main",
+                allow_empty=False,
+            ),
+            mirror_url=cls._safe_str(
+                r_data.get("mirror_url"),
+                "https://raw.githubusercontent.com/whynusn/open-typing-texts/main",
+                allow_empty=False,
+            ),
+            cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 3600),
             max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),
         )
 

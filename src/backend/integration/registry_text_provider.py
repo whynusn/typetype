@@ -66,6 +66,8 @@ class RegistryTextProvider:
                 description=item.get("description", ""),
                 charCount=int(item.get("charCount", 0) or 0),
                 has_ranking=bool(item.get("has_ranking", False)),
+                category=str(item.get("category", "") or ""),
+                update_freq=str(item.get("update_freq", "") or ""),
             )
             for item in sources
             if isinstance(item, dict) and item.get("source_key")
@@ -81,10 +83,18 @@ class RegistryTextProvider:
         if not isinstance(content, str) or not content:
             return None
         content = self._sanitize_content(content)
+        # 新格式：metadata 可能包含 title/description
+        title = data.get("title", "")
+        if not isinstance(title, str):
+            title = ""
+        if not title:
+            metadata = data.get("metadata")
+            if isinstance(metadata, dict):
+                title = str(metadata.get("title", "") or "")
         return FetchedText(
             content=content,
             text_id=data.get("text_id"),
-            title=data.get("title", "") if isinstance(data.get("title"), str) else "",
+            title=title,
         )
 
     def fetch_text_by_client_id(self, client_text_id: int) -> FetchedText | None:

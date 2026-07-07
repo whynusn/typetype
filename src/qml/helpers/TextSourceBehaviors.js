@@ -220,7 +220,14 @@ function _syncRegistry(catalog) {
             arr.push({
                 title: c.label || c.key || "",
                 subtitle: desc,
-                raw: { sourceKey: c.key, label: c.label || c.key, charCount: c.charCount || 0, description: c.description || "" }
+                raw: {
+                    sourceKey: c.key,
+                    label: c.label || c.key,
+                    charCount: c.charCount || 0,
+                    description: c.description || "",
+                    category: c.category || "",
+                    updateFreq: c.updateFreq || "",
+                }
             })
         }
     }

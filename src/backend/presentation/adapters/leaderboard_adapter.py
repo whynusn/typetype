@@ -146,6 +146,8 @@ class LeaderboardAdapter(QObject):
                 source_key=item.get("sourceKey", ""),
                 label=item.get("label", ""),
                 description=item.get("category", ""),
+                category=item.get("category", ""),
+                update_freq=item.get("updateFreq", ""),
                 has_ranking=True,  # ponytail: static till server returns has_ranking
             )
             for item in catalog
@@ -159,6 +161,8 @@ class LeaderboardAdapter(QObject):
                 "label": item.get("label", ""),
                 "description": item.get("description", ""),
                 "charCount": item.get("charCount", 0),
+                "category": item.get("category", ""),
+                "updateFreq": item.get("updateFreq", ""),
             }
             for item in catalog
             if item.get("sourceKey")
