@@ -742,6 +742,7 @@ FluentPage {
         property string _restoreTitle: ""
 
         onRestoreAccepted: {
+            console.log("[onRestoreAccepted] _source=", _source, "_restoreId=", _restoreId)
             if (_source === "" || _source === "custom") {
                 var text = textLoadPanel.contentText
                 var rp = appBridge.applySliceProgressRestore(appBridge.getProgressKey("custom_text", text), true, textLoadPanel.selectedSourceLabel || "")
@@ -751,10 +752,12 @@ FluentPage {
             }
             appBridge.prepareSliceProgressRestore(appBridge.getProgressKey(root.progressKeyType(), _restoreId), _restoreTitle)
             var settings = JSON.parse(appBridge.getRestoredSliceSettings())
+            console.log("[onRestoreAccepted] settings=", JSON.stringify(settings))
             SliceHelpers.startWithCriteria(
                 appBridge, root.window ? root.window.navigationView : null,
                 sliceSettingsPanel, sliceCriteriaPanel, settings,
                 function(size) {
+                    console.log("[onRestoreAccepted] loadFn size=", size, "_source=", _source)
                     if (_source === "jisubei") {
                         var text = root.previewContent
                         var title = root.itemDisplayTitle()
@@ -769,8 +772,10 @@ FluentPage {
                             sliceCriteriaPanel.speedDecreaseValue, sliceCriteriaPanel.accuracyDecreaseValue,
                             "", title)
                     } else if (_source === "local") {
+                        console.log("[onRestoreAccepted] loadLocalArticleSegment id=", SrcBehav.articleId(root.selectedItem), "size=", size)
                         appBridge.loadLocalArticleSegment(SrcBehav.articleId(root.selectedItem), 1, size)
                     } else if (_source === "trainer") {
+                        console.log("[onRestoreAccepted] loadTrainerSegment id=", SrcBehav.trainerId(root.selectedItem), "size=", size)
                         appBridge.loadTrainerSegment(SrcBehav.trainerId(root.selectedItem), 1, size)
                     }
                 }
