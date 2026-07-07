@@ -8,9 +8,9 @@ FluentPage {
     id: root
     title: qsTr("个人中心")
     horizontalPadding: 20
-    wrapperWidth: 1100
+    wrapperWidth: 900
 
-    property bool active: false  // 由 NavigationView 注入
+    property bool active: false
 
     onActiveChanged: {
         if (active && appBridge) {
@@ -33,20 +33,19 @@ FluentPage {
             Frame {
                 Layout.alignment: Qt.AlignCenter
                 Layout.preferredWidth: 360
-                Layout.preferredHeight: 180
                 radius: 12
                 visible: appBridge ? !appBridge.loggedin : true
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 24
-                    spacing: 16
+                    anchors.margins: 20
+                    spacing: 14
 
                     IconWidget {
                         Layout.alignment: Qt.AlignHCenter
                         icon: "ic_fluent_person_20_filled"
-                        Layout.preferredWidth: 40
-                        Layout.preferredHeight: 40
+                        Layout.preferredWidth: 36
+                        Layout.preferredHeight: 36
                         color: Theme.currentTheme.colors.primaryColor
                     }
 
@@ -86,17 +85,17 @@ FluentPage {
 
                     Image {
                         source: resourceBaseUrl + "images/TypeTypeLogo.png"
-                        Layout.preferredWidth: 64
-                        Layout.preferredHeight: 64
+                        Layout.preferredWidth: 56
+                        Layout.preferredHeight: 56
                         fillMode: Image.PreserveAspectFit
                     }
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 4
+                        spacing: 2
 
                         Text {
-                            typography: Typography.Title
+                            typography: Typography.Subtitle
                             text: appBridge ? (appBridge.userNickname || qsTr("昵称")) : qsTr("昵称")
                         }
                         Text {
@@ -104,11 +103,13 @@ FluentPage {
                             color: Theme.currentTheme.colors.textSecondaryColor
                             text: "@" + (appBridge ? (appBridge.currentUser || qsTr("用户名")) : qsTr("用户名"))
                         }
-                        Text {
-                            typography: Typography.Caption
-                            color: Theme.currentTheme.colors.textSecondaryColor
-                            text: qsTr("总场次：%1").arg(appBridge ? appBridge.typingHistoryCount : 0)
-                        }
+                    }
+
+                    Text {
+                        typography: Typography.BodyStrong
+                        color: Theme.currentTheme.colors.primaryColor
+                        text: qsTr("%1 场").arg(appBridge ? appBridge.typingHistoryCount : 0)
+                        visible: appBridge ? appBridge.typingHistoryCount > 0 : false
                     }
 
                     Button {
@@ -130,28 +131,21 @@ FluentPage {
                     model: [
                         { label: qsTr("今日字数"), value: appBridge ? appBridge.todayTypedChars : 0, unit: qsTr("字"), icon: "ic_fluent_calendar_20_regular" },
                         { label: qsTr("总字数"), value: appBridge ? appBridge.totalTypedChars : 0, unit: qsTr("字"), icon: "ic_fluent_text_number_list_20_regular" },
-                        { label: qsTr("平均速度"), value: (appBridge ? appBridge.typingHistoryAverageSpeed : 0).toFixed(2), unit: qsTr("字/分"), icon: "ic_fluent_speedometer_20_regular" },
-                        { label: qsTr("最高速度"), value: (appBridge ? appBridge.typingHistoryMaxSpeed : 0).toFixed(2), unit: qsTr("字/分"), icon: "ic_fluent_flash_20_regular" },
+                        { label: qsTr("平均速度"), value: (appBridge ? appBridge.typingHistoryAverageSpeed : 0).toFixed(0), unit: qsTr("字/分"), icon: "ic_fluent_speedometer_20_regular" },
+                        { label: qsTr("最高速度"), value: (appBridge ? appBridge.typingHistoryMaxSpeed : 0).toFixed(0), unit: qsTr("字/分"), icon: "ic_fluent_flash_20_regular" },
                         { label: qsTr("平均键准"), value: (appBridge ? appBridge.typingHistoryAverageKeyAccuracy : 0).toFixed(1), unit: qsTr("%"), icon: "ic_fluent_target_arrow_20_regular" },
                         { label: qsTr("总场次"), value: appBridge ? appBridge.typingHistoryCount : 0, unit: qsTr("场"), icon: "ic_fluent_ranking_20_regular" }
                     ]
 
                     Frame {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 90
                         radius: 8
                         hoverable: false
 
                         ColumnLayout {
                             anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 4
-
-                            Text {
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                text: modelData.label
-                            }
+                            anchors.margins: 14
+                            spacing: 6
 
                             RowLayout {
                                 Layout.fillWidth: true
@@ -159,19 +153,30 @@ FluentPage {
 
                                 IconWidget {
                                     icon: modelData.icon
-                                    Layout.preferredWidth: 18
-                                    Layout.preferredHeight: 18
+                                    Layout.preferredWidth: 16
+                                    Layout.preferredHeight: 16
                                     color: Theme.currentTheme.colors.primaryColor
                                 }
-
                                 Text {
                                     Layout.fillWidth: true
-                                    typography: Typography.Subtitle
-                                    text: String(modelData.value)
-                                    elide: Text.ElideRight
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                    text: modelData.label
+                                }
                             }
 
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+
                                 Text {
+                                    typography: Typography.Title
+                                    color: Theme.currentTheme.colors.primaryColor
+                                    text: String(modelData.value)
+                                }
+                                Text {
+                                    Layout.alignment: Qt.AlignBottom
+                                    Layout.bottomMargin: 3
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                     text: modelData.unit
@@ -190,8 +195,8 @@ FluentPage {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    spacing: 8
+                    anchors.margins: 14
+                    spacing: 10
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -203,14 +208,14 @@ FluentPage {
                         Text {
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
-                            text: qsTr("单位：字")
+                            text: qsTr("字/天")
                         }
                     }
 
                     // 趋势柱状图
                     Item {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 80
+                        Layout.preferredHeight: 120
 
                         property var trendData: appBridge ? appBridge.typingHistoryDailyTrend : []
                         property real maxChars: {
@@ -223,7 +228,8 @@ FluentPage {
 
                         RowLayout {
                             anchors.fill: parent
-                            spacing: 1
+                            anchors.bottomMargin: 2
+                            spacing: 2
 
                             Repeater {
                                 model: parent.parent.trendData
@@ -235,15 +241,15 @@ FluentPage {
                                     Rectangle {
                                         anchors.bottom: parent.bottom
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        width: parent.width - 1
+                                        width: Math.max(2, parent.width - 2)
                                         height: {
                                             var m = parent.parent.maxChars;
-                                            return m > 0 ? (modelData.chars / m) * (parent.height - 4) : 0;
+                                            return m > 0 ? (modelData.chars / m) * (parent.height - 2) : 0;
                                         }
                                         color: modelData.chars > 0
                                             ? Theme.currentTheme.colors.primaryColor
                                             : Theme.currentTheme.colors.subtleColor
-                                        radius: 1
+                                        radius: 2
                                     }
                                 }
                             }
@@ -260,7 +266,7 @@ FluentPage {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 12
+                    anchors.margins: 14
                     spacing: 8
 
                     Text {
@@ -275,55 +281,41 @@ FluentPage {
                     }
 
                     // 表头
-                    Rectangle {
+                    RowLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 28
-                        color: Theme.currentTheme.colors.subtleSecondaryColor
+                        spacing: 0
 
                         Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width * 0.28
+                            Layout.preferredWidth: 100
                             typography: Typography.Caption
-                            font.weight: Font.DemiBold
+                            color: Theme.currentTheme.colors.textSecondaryColor
                             text: qsTr("日期")
                         }
                         Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: parent.width * 0.30
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width * 0.12
+                            Layout.preferredWidth: 40
                             typography: Typography.Caption
-                            font.weight: Font.DemiBold
-                            text: qsTr("段号")
+                            color: Theme.currentTheme.colors.textSecondaryColor
+                            text: qsTr("段")
                         }
                         Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: parent.width * 0.44
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width * 0.18
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignRight
                             typography: Typography.Caption
-                            font.weight: Font.DemiBold
+                            color: Theme.currentTheme.colors.textSecondaryColor
                             text: qsTr("速度")
                         }
                         Text {
-                            anchors.left: parent.left
-                            anchors.leftMargin: parent.width * 0.62
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width * 0.18
+                            Layout.fillWidth: true
+                            horizontalAlignment: Text.AlignRight
                             typography: Typography.Caption
-                            font.weight: Font.DemiBold
+                            color: Theme.currentTheme.colors.textSecondaryColor
                             text: qsTr("键准")
                         }
                         Text {
-                            anchors.right: parent.right
-                            anchors.rightMargin: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width * 0.14
-                            typography: Typography.Caption
-                            font.weight: Font.DemiBold
+                            Layout.preferredWidth: 50
                             horizontalAlignment: Text.AlignRight
+                            typography: Typography.Caption
+                            color: Theme.currentTheme.colors.textSecondaryColor
                             text: qsTr("字数")
                         }
                     }
@@ -332,7 +324,7 @@ FluentPage {
                         id: historyList
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.min(count * 36, 240)
-                        Layout.minimumHeight: 54
+                        Layout.minimumHeight: 60
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         visible: appBridge && appBridge.typingHistoryRecords.length > 0
@@ -342,72 +334,60 @@ FluentPage {
                             width: historyList.width
                             height: 36
                             color: index % 2 === 0
-                                ? Theme.currentTheme.colors.cardColor
-                                : Theme.currentTheme.colors.cardSecondaryColor
+                                ? "transparent"
+                                : Theme.currentTheme.colors.subtleColor
 
                             property var rowData: modelData
 
-                            Text {
-                                anchors.left: parent.left
-                                anchors.leftMargin: 8
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width * 0.28
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                text: rowData ? (rowData.date ? rowData.date.substring(0, 16) : "") : ""
-                                elide: Text.ElideRight
-                            }
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: 4
+                                anchors.rightMargin: 4
+                                spacing: 0
 
-                            Text {
-                                anchors.left: parent.left
-                                anchors.leftMargin: parent.width * 0.30
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width * 0.12
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textColor
-                                text: rowData ? (rowData.segmentNo || "") : ""
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                anchors.left: parent.left
-                                anchors.leftMargin: parent.width * 0.44
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width * 0.18
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.primaryColor
-                                font.weight: Font.DemiBold
-                                text: rowData ? (rowData.speed !== undefined && rowData.speed !== null ? Number(rowData.speed).toFixed(1) : "-") : "-"
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                anchors.left: parent.left
-                                anchors.leftMargin: parent.width * 0.62
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width * 0.18
-                                typography: Typography.Caption
-                                color: {
-                                    var ka = rowData ? rowData.keyAccuracy : null;
-                                    if (ka === undefined || ka === null) return Theme.currentTheme.colors.textColor;
-                                    if (ka >= 98) return Theme.currentTheme.colors.systemSuccessColor;
-                                    if (ka >= 95) return Theme.currentTheme.colors.systemAttentionColor;
-                                    return Theme.currentTheme.colors.textColor;
+                                Text {
+                                    Layout.preferredWidth: 100
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                    text: rowData ? (rowData.date ? rowData.date.substring(0, 16) : "") : ""
+                                    elide: Text.ElideRight
                                 }
-                                text: rowData ? (rowData.keyAccuracy !== undefined && rowData.keyAccuracy !== null ? Number(rowData.keyAccuracy).toFixed(1) + "%" : "-") : "-"
-                                elide: Text.ElideRight
-                            }
-
-                            Text {
-                                anchors.right: parent.right
-                                anchors.rightMargin: 8
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width * 0.14
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                horizontalAlignment: Text.AlignRight
-                                text: rowData ? (rowData.charNum !== undefined && rowData.charNum !== null ? rowData.charNum + qsTr("字") : "-") : "-"
-                                elide: Text.ElideRight
+                                Text {
+                                    Layout.preferredWidth: 40
+                                    typography: Typography.Caption
+                                    text: rowData ? (rowData.segmentNo || "") : ""
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignRight
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.primaryColor
+                                    text: rowData ? (rowData.speed !== undefined && rowData.speed !== null ? Number(rowData.speed).toFixed(1) : "-") : "-"
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    horizontalAlignment: Text.AlignRight
+                                    typography: Typography.Caption
+                                    color: {
+                                        var ka = rowData ? rowData.keyAccuracy : null;
+                                        if (ka === undefined || ka === null) return Theme.currentTheme.colors.textColor;
+                                        if (ka >= 98) return Theme.currentTheme.colors.systemSuccessColor;
+                                        if (ka >= 95) return Theme.currentTheme.colors.systemAttentionColor;
+                                        return Theme.currentTheme.colors.textColor;
+                                    }
+                                    text: rowData ? (rowData.keyAccuracy !== undefined && rowData.keyAccuracy !== null ? Number(rowData.keyAccuracy).toFixed(1) + "%" : "-") : "-"
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    Layout.preferredWidth: 50
+                                    horizontalAlignment: Text.AlignRight
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                    text: rowData ? (rowData.charNum !== undefined && rowData.charNum !== null ? rowData.charNum + qsTr("字") : "-") : "-"
+                                    elide: Text.ElideRight
+                                }
                             }
 
                             MouseArea {
@@ -433,6 +413,9 @@ FluentPage {
 
                     Text {
                         Layout.alignment: Qt.AlignHCenter
+                        Layout.fillHeight: true
+                        Layout.minimumHeight: 60
+                        verticalAlignment: Text.AlignVCenter
                         typography: Typography.Caption
                         color: Theme.currentTheme.colors.textSecondaryColor
                         text: qsTr("暂无历史记录，打完一局后会自动记录")
@@ -440,8 +423,6 @@ FluentPage {
                     }
                 }
             }
-
-            Item { Layout.fillHeight: true }
 
         } // ColumnLayout
     } // Flickable
@@ -469,13 +450,13 @@ FluentPage {
                 Layout.fillWidth: true
             }
 
-            Text {
-                id: errorText
+            InfoBar {
+                id: loginErrorBar
                 visible: false
-                color: Theme.currentTheme.colors.systemCriticalColor
-                typography: Typography.Caption
+                severity: Severity.Error
                 Layout.fillWidth: true
-                horizontalAlignment: Qt.AlignCenter
+                isDynamic: false
+                closable: false
             }
 
             RowLayout {
@@ -494,14 +475,14 @@ FluentPage {
                     highlighted: true
                     Layout.fillWidth: true
                     onClicked: {
-                        const username = usernameField.text.trim();
-                        const password = passwordField.text;
+                        var username = usernameField.text.trim();
+                        var password = passwordField.text;
                         if (!username || !password) {
-                            errorText.text = qsTr("请输入用户名和密码");
-                            errorText.visible = true;
+                            loginErrorBar.text = qsTr("请输入用户名和密码");
+                            loginErrorBar.visible = true;
                             return;
                         }
-                        errorText.visible = false;
+                        loginErrorBar.visible = false;
                         loginBtn.enabled = false;
                         if (appBridge)
                             appBridge.login(username, password);
@@ -519,8 +500,8 @@ FluentPage {
             if (success) {
                 loginDialog.close();
             } else {
-                errorText.text = message;
-                errorText.visible = true;
+                loginErrorBar.text = message;
+                loginErrorBar.visible = true;
             }
         }
         function onRegisterResult(success, message) {
@@ -528,8 +509,8 @@ FluentPage {
             if (success) {
                 registerDialog.close();
             } else {
-                registerErrorText.text = message;
-                registerErrorText.visible = true;
+                registerErrorBar.text = message;
+                registerErrorBar.visible = true;
             }
         }
     }
@@ -569,13 +550,13 @@ FluentPage {
                 Layout.fillWidth: true
             }
 
-            Text {
-                id: registerErrorText
+            InfoBar {
+                id: registerErrorBar
                 visible: false
-                color: Theme.currentTheme.colors.systemCriticalColor
-                typography: Typography.Caption
+                severity: Severity.Error
                 Layout.fillWidth: true
-                horizontalAlignment: Qt.AlignCenter
+                isDynamic: false
+                closable: false
             }
 
             RowLayout {
@@ -594,21 +575,21 @@ FluentPage {
                     highlighted: true
                     Layout.fillWidth: true
                     onClicked: {
-                        const username = registerUsernameField.text.trim();
-                        const password = registerPasswordField.text;
-                        const confirm = registerConfirmField.text;
-                        const nickname = registerNicknameField.text.trim();
+                        var username = registerUsernameField.text.trim();
+                        var password = registerPasswordField.text;
+                        var confirm = registerConfirmField.text;
+                        var nickname = registerNicknameField.text.trim();
                         if (!username || !password) {
-                            registerErrorText.text = qsTr("请输入用户名和密码");
-                            registerErrorText.visible = true;
+                            registerErrorBar.text = qsTr("请输入用户名和密码");
+                            registerErrorBar.visible = true;
                             return;
                         }
                         if (password !== confirm) {
-                            registerErrorText.text = qsTr("两次密码不一致");
-                            registerErrorText.visible = true;
+                            registerErrorBar.text = qsTr("两次密码不一致");
+                            registerErrorBar.visible = true;
                             return;
                         }
-                        registerErrorText.visible = false;
+                        registerErrorBar.visible = false;
                         registerBtn.enabled = false;
                         if (appBridge)
                             appBridge.register(username, password, nickname);

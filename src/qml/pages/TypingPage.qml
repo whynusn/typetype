@@ -331,13 +331,17 @@ Item {
         }
 
         function onTextLoadFailed(message) {
-            // 加载失败时只更新显示文本，不调用 handleLoadedText（不禁用 readOnly）
-            // 用户无法在加载失败的文本上打字
             upperPane.text = message;
+            if (Window.window && Window.window.appNotificationManager)
+                Window.window.appNotificationManager.show(
+                    Severity.Error, qsTr("载文失败"), message, -1, { showCopy: true })
         }
 
         function onWenlaiLoadFailed(message) {
             upperPane.text = message;
+            if (Window.window && Window.window.appNotificationManager)
+                Window.window.appNotificationManager.show(
+                    Severity.Error, qsTr("晴发文加载失败"), message, -1, { showCopy: true })
         }
 
         function onAiTextPartial(text) {
@@ -346,10 +350,16 @@ Item {
 
         function onAiTextFailed(message) {
             upperPane.text = message;
+            if (Window.window && Window.window.appNotificationManager)
+                Window.window.appNotificationManager.show(
+                    Severity.Error, qsTr("AI 文本生成失败"), message, -1, { showCopy: true })
         }
 
         function onLocalArticleSegmentLoadFailed(message) {
             upperPane.text = message;
+            if (Window.window && Window.window.appNotificationManager)
+                Window.window.appNotificationManager.show(
+                    Severity.Error, qsTr("本地文章加载失败"), message, -1, { showCopy: true })
         }
     }
 
@@ -427,6 +437,9 @@ Item {
             } else {
                 // 正常模式：复制成绩，不弹结束窗
                 appBridge.copyScoreMessage();
+                if (Window.window && Window.window.appNotificationManager)
+                    Window.window.appNotificationManager.show(
+                        Severity.Success, "", qsTr("成绩已复制到剪贴板"), 1600)
             }
         }
     }
@@ -511,6 +524,9 @@ Item {
             var footer = "-----第" + seg + "段-TypeType";
             var output = firstLine + "\n" + text + "\n" + footer;
             appBridge.copyToClipboard(output);
+            if (Window.window && Window.window.appNotificationManager)
+                Window.window.appNotificationManager.show(
+                    Severity.Success, "", qsTr("发文格式已复制到剪贴板"), 1600)
         }
     }
 
