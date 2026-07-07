@@ -182,13 +182,19 @@ FluentPage {
     function checkProgress() {
         if (!appBridge || !selectedItem || currentSource === "registry") {
             hasProgress = false
+            console.log("[checkProgress] skip: no appBridge/selectedItem or registry")
             return
         }
         var id = progressIdentifier()
+        var pk = appBridge.getProgressKey(progressKeyType(), id)
+        var title = itemDisplayTitle()
+        console.log("[checkProgress] id=", id, "progressKey=", pk, "title=", title)
         if (id && id.length > 0) {
-            hasProgress = appBridge.hasSliceProgress(appBridge.getProgressKey(progressKeyType(), id), itemDisplayTitle())
+            hasProgress = appBridge.hasSliceProgress(pk, title)
+            console.log("[checkProgress] hasProgress=", hasProgress)
         } else {
             hasProgress = false
+            console.log("[checkProgress] no id")
         }
     }
 
@@ -200,10 +206,12 @@ FluentPage {
     }
 
     function continueLastProgress() {
+        console.log("[continueLastProgress] source=", currentSource, "selectedItem=", selectedItem ? "exists" : "null")
         if (currentSource === "custom") {
             var text = textLoadPanel.contentText
-            if (!text) return
+            if (!text) { console.log("[continueLastProgress] custom: empty text"); return }
             var infoJson = appBridge.getSliceProgressInfo(appBridge.getProgressKey("custom_text", text), textLoadPanel.selectedSourceLabel || "")
+            console.log("[continueLastProgress] custom: infoJson length=", infoJson ? infoJson.length : 0)
             if (!infoJson) { loadSelectedItem(); return }
             progressRestoreDialog.progressInfo = JSON.parse(infoJson)
             progressRestoreDialog._source = currentSource
@@ -212,10 +220,13 @@ FluentPage {
             progressRestoreDialog.open()
             return
         }
-        if (!selectedItem) { errorMessage = qsTr("请先选择一个项目"); return }
+        if (!selectedItem) { errorMessage = qsTr("请先选择一个项目"); console.log("[continueLastProgress] no selectedItem"); return }
         var id = progressIdentifier()
         var title = itemDisplayTitle()
-        var infoJson = appBridge.getSliceProgressInfo(appBridge.getProgressKey(progressKeyType(), id), title)
+        var pk = appBridge.getProgressKey(progressKeyType(), id)
+        console.log("[continueLastProgress] id=", id, "title=", title, "progressKey=", pk)
+        var infoJson = appBridge.getSliceProgressInfo(pk, title)
+        console.log("[continueLastProgress] infoJson length=", infoJson ? infoJson.length : 0)
         if (!infoJson) { loadSelectedItem(); return }
         progressRestoreDialog._source = currentSource
         progressRestoreDialog._restoreId = id
@@ -256,6 +267,7 @@ FluentPage {
     }
 
     function navigateToTyping() {
+        console.log("[navigateToTyping] window=", Window.window ? "exists" : "null", "navView=", Window.window && Window.window.navigationView ? "exists" : "null")
         if (Window.window && Window.window.navigationView)
             Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))
     }
@@ -270,7 +282,8 @@ FluentPage {
     property bool readyForLoad: canLoad() && !currentSourceLoading() && !sliceCriteriaPanel.validationMessage
 
     function loadSelectedItem(rp) {
-        if (!appBridge) return
+        if (!appBridge) { console.log("[loadSelectedItem] no appBridge"); return }
+        console.log("[loadSelectedItem] source=", currentSource, "rp=", rp ? "exists" : "undefined")
         if (currentSource === "custom") { startCustomTyping(rp); return }
         if (currentSource === "registry") {
             if (!selectedItem) { errorMessage = qsTr("请选择一个文本"); return }
