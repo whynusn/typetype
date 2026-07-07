@@ -1165,7 +1165,7 @@ class Bridge(QObject):
             return
         provider = self._leaderboard_adapter._registry_provider
         if provider is None:
-            self.textLoadFailed.emit("注册表文本源未配置")
+            self.textLoadFailed.emit("注册表文本源未配置：请在设置中填写开源文库地址")
             return
         self._leaderboard_adapter.submit_to_thread_pool(
             fn=lambda: self._leaderboard_adapter.fetch_registry_text(source_key),

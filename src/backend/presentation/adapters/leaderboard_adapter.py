@@ -7,6 +7,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 from ...config.runtime_config import RuntimeConfig
 from ...application.gateways.leaderboard_gateway import LeaderboardGateway
 from ...models.dto.text_catalog_item import TextCatalogItem
+from ...utils.logger import log_warning
 from ...workers.leaderboard_worker import LeaderboardWorker
 from ...workers.text_content_worker import TextContentWorker
 from ...workers.text_list_worker import TextListWorker
@@ -232,6 +233,11 @@ class LeaderboardAdapter(QObject):
             leaderboard_gateway=self._leaderboard_gateway, text_id=text_id
         )
         worker.signals.succeeded.connect(callback)
+        worker.signals.failed.connect(
+            lambda msg: log_warning(
+                f"[LeaderboardAdapter] 获取文本内容失败: text_id={text_id}, error={msg}"
+            )
+        )
         self._thread_pool.start(worker)
 
     @property

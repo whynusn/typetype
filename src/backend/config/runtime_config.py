@@ -115,21 +115,22 @@ class RegistryConfig:
     max_content_bytes: int = 1_048_576
 
     def __post_init__(self) -> None:
-        # 迁移：旧的本地开发 URL → 新的 OTT CDN 地址
-        if self.primary_url in ("http://127.0.0.1:18888", ""):
-            self.primary_url = (
-                "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
-            )
-        if not isinstance(self.primary_url, str) or not self.primary_url.strip():
-            self.primary_url = (
-                "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
-            )
-        if not isinstance(self.mirror_url, str) or not self.mirror_url.strip():
-            self.mirror_url = (
-                "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
-            )
-        self.primary_url = self.primary_url.rstrip("/")
-        self.mirror_url = self.mirror_url.rstrip("/")
+        # 确保 primary_url 是合法字符串，否则视为禁用
+        if not isinstance(self.primary_url, str):
+            self.primary_url = ""
+        self.primary_url = self.primary_url.strip()
+        if self.primary_url:
+            self.primary_url = self.primary_url.rstrip("/")
+            # primary 有值时，mirror 为空才补默认镜像
+            if not isinstance(self.mirror_url, str) or not self.mirror_url.strip():
+                self.mirror_url = (
+                    "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
+                )
+            else:
+                self.mirror_url = self.mirror_url.strip().rstrip("/")
+        else:
+            # primary_url 为空 → 整个 registry 禁用，mirror_url 也置空
+            self.mirror_url = ""
         if self.cache_ttl_seconds < 0:
             self.cache_ttl_seconds = 3600
         if self.max_content_bytes < 0:

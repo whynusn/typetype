@@ -126,15 +126,23 @@ FluentPage {
     }
 
     // ---- 选择事件 ----
+    property var _lastSelectedRaw: null  // 去重守卫：防止重复点击同一项
+
     function selectListItem(source, originalIndex) {
         // 注册表分派当前来源的列表属性名
         var propName = SrcBehav.itemsListPropertyName(source)
         var items = propName ? root[propName] : []
         if (originalIndex < 0 || originalIndex >= items.length) {
             selectedItem = null
+            _lastSelectedRaw = null
             return
         }
-        selectedItem = items[originalIndex].raw
+        var raw = items[originalIndex].raw
+        // 去重：点击同一项不做重复操作
+        if (raw === _lastSelectedRaw && source === currentSource) return
+        _lastSelectedRaw = raw
+
+        selectedItem = raw
         previewContent = ""
         serverTextId = 0
         errorMessage = ""
@@ -364,9 +372,10 @@ FluentPage {
         if (currentSource === "custom") return SrcBehav.customTextLen() > 0
         // registry 额外等待单篇加载完成
         if (currentSource === "registry") return selectedItem !== null && !registryLoading
-        // jisubei / local / trainer 需等预览内容拉回
-        if (currentSource === "jisubei" || currentSource === "local" || currentSource === "trainer")
+        // jisubei 需要服务端内容提前拉回（loadSelectedItem 依赖 previewContent）
+        if (currentSource === "jisubei")
             return selectedItem !== null && previewContent.length > 0
+        // local / trainer 本地读取，选中即可载文
         return selectedItem !== null
     }
 
@@ -689,7 +698,6 @@ FluentPage {
         id: deleteConfirmDialog
         title: qsTr("确认删除")
         modal: true
-        anchors.centerIn: QQC.Overlay.overlay
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         Text {
@@ -706,7 +714,6 @@ FluentPage {
         id: renameDialog
         title: qsTr("重命名")
         modal: true
-        anchors.centerIn: QQC.Overlay.overlay
         standardButtons: Dialog.Ok | Dialog.Cancel
 
         RowLayout {

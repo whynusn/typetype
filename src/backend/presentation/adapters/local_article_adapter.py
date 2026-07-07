@@ -31,6 +31,8 @@ class LocalArticleAdapter(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._local_article_loading = False
         self._request_generation = 0
+        self._preview_request_generation = 0
+        self._preview_active_worker = None
         self._active_worker = None
 
     def _set_loading(self, loading: bool) -> None:
@@ -204,16 +206,58 @@ class LocalArticleAdapter(QObject):
 
     @Slot(str)
     def loadLocalArticlePreview(self, article_id: str) -> None:
-        """异步加载本地文章全文供预览卡片展示。"""
+        """异步加载本地文章全文供预览卡片展示。
+
+        安全设计：
+        - 使用 _preview_request_generation 代际守卫丢弃过期回调
+        - 跟踪当前 active worker，新请求到来时断开旧 worker 的信号连接
+          （防止 thread pool 中堆积的 worker 完成后密集发射信号击穿 Qt 事件循环）
+        - worker.setAutoDelete(True) 确保 worker 完成后立即释放
+        """
+        self._preview_request_generation += 1
+        request_generation = self._preview_request_generation
+
+        # 断开上一个 worker 的所有信号连接
+        if self._preview_active_worker is not None:
+            try:
+                self._preview_active_worker.signals.succeeded.disconnect()
+            except TypeError:
+                pass  # 没有连接时忽略
+            try:
+                self._preview_active_worker.signals.failed.disconnect()
+            except TypeError:
+                pass
+            self._preview_active_worker = None
 
         def _do_load() -> str:
-            return self.get_full_article_content(article_id)
+            try:
+                return self.get_full_article_content(article_id)
+            except Exception:
+                return ""
 
         worker = BaseWorker(task=_do_load, error_prefix="加载文章预览失败")
+        worker.setAutoDelete(True)
         worker.signals.succeeded.connect(
-            lambda content: self.localArticlePreviewLoaded.emit(content)
+            lambda content, gen=request_generation: self._on_preview_loaded(
+                gen, content
+            )
         )
+        worker.signals.failed.connect(
+            lambda msg, gen=request_generation: self._on_preview_failed(gen, msg)
+        )
+        self._preview_active_worker = worker
         self._thread_pool.start(worker)
+
+    def _on_preview_loaded(self, request_generation: int, content: str) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        self.localArticlePreviewLoaded.emit(content)
+
+    def _on_preview_failed(self, request_generation: int, message: str) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        # 预览加载失败时发出空内容，让 QML 仍可更新状态
+        self.localArticlePreviewLoaded.emit("")
 
     @Slot(str, str)
     def renameArticle(self, article_id: str, new_title: str) -> None:

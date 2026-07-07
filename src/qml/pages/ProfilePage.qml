@@ -36,10 +36,11 @@ FluentPage {
                 Layout.preferredWidth: 360
                 radius: 12
                 visible: appBridge ? !appBridge.loggedin : true
+                padding: 20
 
                 ColumnLayout {
-                    anchors.fill: parent
-                    anchors.margins: 20
+                    width: parent.width
+                    height: parent.height
                     spacing: 14
 
                     IconWidget {
@@ -156,10 +157,12 @@ FluentPage {
                                     icon: modelData.icon
                                     Layout.preferredWidth: 16
                                     Layout.preferredHeight: 16
+                                    Layout.alignment: Qt.AlignVCenter
                                     color: Theme.currentTheme.colors.primaryColor
                                 }
                                 Text {
                                     Layout.fillWidth: true
+                                    Layout.alignment: Qt.AlignVCenter
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                     text: modelData.label
@@ -169,6 +172,7 @@ FluentPage {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: 4
+                                Layout.alignment: Qt.AlignBottom
 
                                 Text {
                                     typography: Typography.Title
@@ -177,7 +181,6 @@ FluentPage {
                                 }
                                 Text {
                                     Layout.alignment: Qt.AlignBottom
-                                    Layout.bottomMargin: 3
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                     text: modelData.unit
