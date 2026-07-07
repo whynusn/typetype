@@ -108,9 +108,7 @@ class LeaderboardFetcher:
                 return data
         return None
 
-    def get_texts_by_source(
-        self, source_key: str
-    ) -> list[dict[str, Any]] | None:
+    def get_texts_by_source(self, source_key: str) -> list[dict[str, Any]] | None:
         """获取来源下所有文本的摘要列表。
 
         Args:

@@ -236,9 +236,7 @@ class TrainerAdapter(QObject):
         def _do_load() -> str:
             lexicon = self._gateway.load_lexicon(trainer_id, group_size=1)
             # groups 是 tuple[tuple[str, ...]]，展平后用换行连接
-            return "\n".join(
-                item for group in lexicon.groups for item in group
-            )
+            return "\n".join(item for group in lexicon.groups for item in group)
 
         worker = BaseWorker(task=_do_load, error_prefix="加载词库预览失败")
         worker.signals.succeeded.connect(

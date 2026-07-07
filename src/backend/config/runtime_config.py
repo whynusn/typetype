@@ -116,9 +116,13 @@ class RegistryConfig:
 
     def __post_init__(self) -> None:
         if not isinstance(self.primary_url, str) or not self.primary_url.strip():
-            self.primary_url = "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
+            self.primary_url = (
+                "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
+            )
         if not isinstance(self.mirror_url, str) or not self.mirror_url.strip():
-            self.mirror_url = "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
+            self.mirror_url = (
+                "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
+            )
         self.primary_url = self.primary_url.rstrip("/")
         self.mirror_url = self.mirror_url.rstrip("/")
         if self.cache_ttl_seconds < 0:
