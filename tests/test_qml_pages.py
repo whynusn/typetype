@@ -59,7 +59,9 @@ def test_text_load_hub_uses_expected_bridge_contract():
     qml_source = page_qml.read_text(encoding="utf-8")
     # 载文 trait 行为已下沉到 JS 分派模块，bridge 引用分布在 QML + JS 里
     js_behaviors = PROJECT_ROOT / "src/qml/helpers/TextSourceBehaviors.js"
-    js_source = js_behaviors.read_text(encoding="utf-8") if js_behaviors.exists() else ""
+    js_source = (
+        js_behaviors.read_text(encoding="utf-8") if js_behaviors.exists() else ""
+    )
     source = qml_source + js_source
     refs = _get_qml_refs(source)
     assert "property bool active: false" in qml_source
@@ -79,7 +81,8 @@ def test_text_load_hub_uses_expected_bridge_contract():
     assert "SliceCriteriaPanel" in qml_source
     assert "TextInfoCard" in qml_source
     assert (
-        'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))' in qml_source
+        'Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))'
+        in qml_source
     )
     assert (
         "Qt.callLater(function() {" in source or "Qt.callLater(function () {" in source
