@@ -2624,20 +2624,22 @@ class Bridge(QObject):
 
     @Property(int, notify=typingHistoryChanged)
     def typingHistoryMaxRecords(self) -> int:
-        if self._runtime_config:
-            return self._runtime_config.typing_history_max_records
+        if self._text_adapter and self._text_adapter._runtime_config:
+            return self._text_adapter._runtime_config.typing_history_max_records
         return 2000
 
     @Slot(int)
     def setTypingHistoryMaxRecords(self, max_records: int) -> None:
         """更新打字历史最大保留条数。"""
-        if not self._runtime_config:
+        if not (self._text_adapter and self._text_adapter._runtime_config):
             return
-        self._runtime_config.update_typing_history_max_records(max_records)
+        self._text_adapter._runtime_config.update_typing_history_max_records(
+            max_records
+        )
         # 如果当前记录数超过新上限，截断
         if self._typing_history_gateway:
             self._typing_history_gateway._max_records = (
-                self._runtime_config.typing_history_max_records
+                self._text_adapter._runtime_config.typing_history_max_records
             )
             # 立即截断超限记录
             data = self._typing_history_gateway._load_normalized()

@@ -41,6 +41,8 @@ class CatalogWorker(BaseWorker):
                         "label": item.label,
                         "description": item.description,
                         "charCount": item.charCount,
+                        "category": item.category,
+                        "updateFreq": item.update_freq,
                     }
                     for item in catalog
                 ]

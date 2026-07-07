@@ -115,6 +115,11 @@ class RegistryConfig:
     max_content_bytes: int = 1_048_576
 
     def __post_init__(self) -> None:
+        # 迁移：旧的本地开发 URL → 新的 OTT CDN 地址
+        if self.primary_url in ("http://127.0.0.1:18888", ""):
+            self.primary_url = (
+                "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
+            )
         if not isinstance(self.primary_url, str) or not self.primary_url.strip():
             self.primary_url = (
                 "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
@@ -589,5 +594,5 @@ class RuntimeConfig:
 
     def update_typing_history_max_records(self, max_records: int) -> None:
         """更新打字历史最大保留条数并持久化。"""
-        self.typing_history_max_records = max(100, min(int(max_records), 50000))
+        self.typing_history_max_records = max(100, min(int(max_records), 100000))
         self._save_to_file()

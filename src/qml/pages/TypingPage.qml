@@ -316,51 +316,46 @@ Item {
 
     // 载文结果必须始终处理，不守卫 active——否则异步载文完成时若页面恰好非活跃
     // （如窗口管理器短暂失焦），textLoaded 信号被静默丢弃，readOnly 卡在 true。
-    Connections {
-        target: appBridge
+    // 用 Item 包裹 Connections，避免 Qt 在页面层级误报 Window.window 警告
+    Item {
+        Connections {
+            target: appBridge
 
-        function onTextLoaded(text, textId, sourceLabel) {
-            applyLoadedText(text);
-            typingPage.refreshZitiHint();
-            if (appBridge && textId > 0) {
-                appBridge.setTextId(textId);
+            function onTextLoaded(text, textId, sourceLabel) {
+                applyLoadedText(text)
+                typingPage.refreshZitiHint()
+                if (appBridge && textId > 0) appBridge.setTextId(textId)
+                if (appBridge && sourceLabel) appBridge.setTextTitle(sourceLabel)
             }
-            if (appBridge && sourceLabel) {
-                appBridge.setTextTitle(sourceLabel);
+
+            function onTextLoadFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("载文失败"), message)
+            }
+
+            function onWenlaiLoadFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("晴发文加载失败"), message)
+            }
+
+            function onAiTextPartial(text) { upperPane.text = text }
+            function onAiTextFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("AI 文本生成失败"), message)
+            }
+
+            function onLocalArticleSegmentLoadFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("本地文章加载失败"), message)
             }
         }
+    }
 
-        function onTextLoadFailed(message) {
-            upperPane.text = message;
-            if (Window.window && Window.window.appNotificationManager)
-                Window.window.appNotificationManager.show(
-                    Severity.Error, qsTr("载文失败"), message, -1, { showCopy: true })
-        }
-
-        function onWenlaiLoadFailed(message) {
-            upperPane.text = message;
-            if (Window.window && Window.window.appNotificationManager)
-                Window.window.appNotificationManager.show(
-                    Severity.Error, qsTr("晴发文加载失败"), message, -1, { showCopy: true })
-        }
-
-        function onAiTextPartial(text) {
-            upperPane.text = text;
-        }
-
-        function onAiTextFailed(message) {
-            upperPane.text = message;
-            if (Window.window && Window.window.appNotificationManager)
-                Window.window.appNotificationManager.show(
-                    Severity.Error, qsTr("AI 文本生成失败"), message, -1, { showCopy: true })
-        }
-
-        function onLocalArticleSegmentLoadFailed(message) {
-            upperPane.text = message;
-            if (Window.window && Window.window.appNotificationManager)
-                Window.window.appNotificationManager.show(
-                    Severity.Error, qsTr("本地文章加载失败"), message, -1, { showCopy: true })
-        }
+    // 辅助函数：统一通知调用
+    function _notifyError(title, message) {
+        if (Window.window && Window.window.appNotificationManager)
+            Window.window.appNotificationManager.show(
+                Severity.Error, title, message, -1, { showCopy: true })
     }
 
     // 光标/字体状态变化需要守卫，防止页面切换后旧事件干扰

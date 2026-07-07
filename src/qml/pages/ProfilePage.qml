@@ -19,7 +19,8 @@ FluentPage {
     }
 
     Flickable {
-        anchors.fill: parent
+        Layout.fillWidth: true
+        Layout.fillHeight: true
         contentWidth: width
         contentHeight: columnLayout.height
         boundsBehavior: Flickable.StopAtBounds

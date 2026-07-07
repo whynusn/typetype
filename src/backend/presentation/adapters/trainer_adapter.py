@@ -235,13 +235,18 @@ class TrainerAdapter(QObject):
 
         def _do_load() -> str:
             lexicon = self._gateway.load_lexicon(trainer_id, group_size=1)
-            # groups 是 tuple[tuple[str, ...]]，展平后用换行连接
-            return "\n".join(item for group in lexicon.groups for item in group)
+            # groups 是 tuple[tuple[str, ...]]；variable 模式下每个 group 是字元組，
+            # fixed 模式下每個 group 是詞組 tuple。兩種情況皆safe：用換行拼接後返回。。
+            if lexicon.mode == "variable":
+                # variable 模式：每行是一個"group"，但因為字元已被 split，還原為原始行
+                return "\n".join("".join(group) for group in lexicon.groups)
+            # fixed 模式：每個 group 是詞組 tuple
+            return "\n".join(
+                "\n".join(item for item in group) for group in lexicon.groups
+            )
 
         worker = BaseWorker(task=_do_load, error_prefix="加载词库预览失败")
-        worker.signals.succeeded.connect(
-            lambda content: self.trainerPreviewLoaded.emit(content)
-        )
+        worker.signals.succeeded.connect(self.trainerPreviewLoaded.emit)
         self._thread_pool.start(worker)
 
     @Slot(int)
