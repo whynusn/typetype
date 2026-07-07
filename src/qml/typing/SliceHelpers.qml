@@ -32,15 +32,11 @@ QtObject {
     function startWithCriteria(appBridge, navigationView, settingsPanel, criteriaPanel, restoredSettings, loadFn) {
         var s = restoredSettings || {};
         var size = s.slice_size > 0 ? s.slice_size : settingsPanel.sliceSize;
-        console.log("[startWithCriteria] navView=", navigationView ? "exists" : "null", "size=", size);
         applyRestoredCriteria(appBridge, s, settingsPanel, criteriaPanel);
         if (navigationView)
             navigationView.push(Qt.resolvedUrl("../pages/TypingPage.qml"));
-        else
-            console.log("[startWithCriteria] SKIP navigation: no navigationView");
         Qt.callLater(function() {
-            if (appBridge && loadFn) { console.log("[startWithCriteria] calling loadFn"); loadFn(size); }
-            else console.log("[startWithCriteria] SKIP loadFn: appBridge=", appBridge ? "exists" : "null", "loadFn=", loadFn ? "exists" : "null");
+            if (appBridge && loadFn) loadFn(size);
         });
     }
 }
