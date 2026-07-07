@@ -27,6 +27,22 @@
 
 - ** 重复项修复**：移除条目列表中多余的"用时"重复项
 
+- **文本排行页崩溃**：`TextLeaderboardPage.qml` 缺少 `DataCell` 类型引用导致页面无法打开；排行榜布局改为响应式（宽屏左右分栏、窄屏上下堆叠），列宽不再截断内容
+- **开源文库加载状态**：开源文库列表不再错误复用 `typetype-server` 的 `textListLoading`，改为独立的 `catalogLoading` 属性
+
+### Changed
+
+- **统一载文中心**：极速杯、本地文库、开源文库、练单器、自定义 5 个载文入口合并为单一 `TextLoadHubPage.qml`，顶部 Segmented 切换来源，左侧列表/输入区与右侧切片设置/预览区统一；删除 `JisuBeiPage.qml`、`LocalArticlesPage.qml`、`TextLibraryPage.qml`、`CustomLoadTextPage.qml`、`TrainerPage.qml`
+- **顶部来源切换**：`SelectorBar` 替换为 RinUI `Segmented`/`SegmentedItem`，带背景容器与间距，视觉层次更清晰；无边框、紧贴下方组件的问题已解决
+- **个人中心重构**：登录后展示用户信息卡片、6 项统计卡片（今日字数/总字数/平均速度/最高速度/平均键准/总场次）、最近 30 天打字趋势迷你柱状图、最近 50 条成绩列表（右键复制成绩）
+- **全应用内部通知统一**：抽取 `AppNotification.qml` + `AppNotificationManager.qml`，替换 `HistoryArea`、`TextInfoCard`、`DailyLeaderboard`、`UploadTextPage` 中各页面硬编码的 `copyToast`/`InfoBar`
+- **自定义载文去重**：统一载文中心内的自定义面板隐藏与顶部来源切换功能重叠的"从文本库选择"，仅保留纯文本输入 + 切片设置
+
+### Added
+
+- **打字历史记录持久化**：新增 `TypingHistoryStore` 端口、`JsonTypingHistoryStore` 实现、`TypingHistoryGateway` 业务网关；每次跟打完成自动持久化到 `~/.local/share/typetype/typing_history.json`，最多 5000 条；Bridge 暴露 `typingHistoryCount`/`typingHistoryAverageSpeed`/`typingHistoryMaxSpeed`/`typingHistoryAverageKeyAccuracy`/`typingHistoryTotalChars`/`typingHistoryRecords`/`typingHistoryDailyTrend`
+- **Bridge `catalogLoading` 属性**：开源文库目录加载的独立状态信号
+
 ---
 
 ## [0.2.0] - 2026-06-04

@@ -1,6 +1,7 @@
 import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
+import QtQuick.Window 2.15
 import RinUI
 
 FluentPage {
@@ -325,7 +326,10 @@ FluentPage {
                     onClicked: {
                         if (currentTextInfo && currentTextInfo.content && appBridge) {
                             appBridge.copyToClipboard(currentTextInfo.content)
-                            copyToast.show()
+                            if (Window.window && Window.window.appNotificationManager) {
+                                Window.window.appNotificationManager.show(
+                                    Severity.Success, "", qsTr("已复制到剪贴板"), 1600)
+                            }
                         }
                     }
 
@@ -579,40 +583,6 @@ FluentPage {
                 height: 1
                 color: Theme.currentTheme.colors.cardBorderColor
             }
-        }
-    }
-
-    // 复制成功提示（简单 Toast）
-    Rectangle {
-        id: copyToast
-        // 使用 Layout 属性而非 anchors，因为 FluentPage 内部使用布局管理
-        Layout.alignment: Qt.AlignHCenter | Qt.AlignBottom
-        Layout.bottomMargin: 80
-        Layout.preferredWidth: copyToastText.implicitWidth + 32
-        Layout.preferredHeight: 36
-        radius: 8
-        color: Theme.currentTheme.colors.systemSuccessBackgroundColor
-        border.color: Theme.currentTheme.colors.systemSuccessColor
-        visible: false
-        opacity: visible ? 1 : 0
-
-        Text {
-            id: copyToastText
-            anchors.centerIn: parent
-            typography: Typography.Body
-            color: Theme.currentTheme.colors.systemSuccessColor
-            text: qsTr("已复制到剪贴板")
-        }
-
-        Timer {
-            id: copyToastTimer
-            interval: 2000
-            onTriggered: copyToast.visible = false
-        }
-
-        function show() {
-            visible = true
-            copyToastTimer.restart()
         }
     }
 

@@ -12,6 +12,7 @@ Item {
     property string defaultTextSourceKey: ""
     property var catalogSourceOptions: []
     property bool compactMode: false  // true: 隐藏来源选择器，仅保留切片设置
+    property bool hubMode: false      // true: 在载文中心内使用，隐藏"从文本库选择"
 
     // --- Outputs ---
     readonly property string contentText: contentTextArea.text.trim()
@@ -81,6 +82,10 @@ Item {
             }
         }
         _restoreDefaultSource();
+    }
+
+    function onCatalogLoaded(catalog) {
+        syncSourceOptions(textSourceOptions, catalog)
     }
 
     function _restoreDefaultSource() {
@@ -221,7 +226,7 @@ Item {
 
         // --- 从文本库选择 ---
         Frame {
-            visible: !root.compactMode
+            visible: !root.compactMode && !root.hubMode
             Layout.fillWidth: true
             Layout.preferredHeight: 200
             radius: 6
@@ -294,6 +299,7 @@ Item {
 
         // --- 分片设置 ---
         Frame {
+            visible: !root.hubMode
             Layout.fillWidth: true
             radius: 6; hoverable: false; padding: 8
 
@@ -398,16 +404,6 @@ Item {
     }
 
     // --- AppBridge 信号 ---
-    function onCatalogLoaded(catalog) {
-        catalogSourceOptions = [];
-        if (catalog) {
-            for (var i = 0; i < catalog.length; i++) {
-                if (catalog[i].key)
-                    catalogSourceOptions.push({ key: catalog[i].key, label: catalog[i].label || catalog[i].key });
-            }
-        }
-        syncSourceOptions(textSourceOptions, catalogSourceOptions);
-    }
 
     function onTextListLoaded(texts) {
         var currentOption = sourceComboBox.currentIndex >= 0 && sourceComboBox.currentIndex < sourceListModel.count

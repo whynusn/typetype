@@ -3,6 +3,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
+import "managers"
 
 FluentWindow {
     id: root
@@ -16,10 +17,22 @@ FluentWindow {
     // Expose loggedin state to NavigationView for page injection
     property bool loggedin: appBridge ? appBridge.loggedin : false
 
+    // 全局通知管理器
+    property alias appNotificationManager: appNotificationManager
+
     onActiveChanged: {
         if (!active && appBridge) {
             appBridge.pauseTypingFromWindowDeactivate();
         }
+    }
+
+    AppNotificationManager {
+        id: appNotificationManager
+        anchors.top: parent.top
+        anchors.topMargin: 12
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width - 48, 420)
+        z: 999
     }
 
     navigationItems: [
@@ -30,33 +43,9 @@ FluentWindow {
             position: Position.Top
         },
         {
-            title: qsTr("极速杯载文"),
-            page: Qt.resolvedUrl("pages/JisuBeiPage.qml"),
-            icon: "ic_fluent_globe_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("本地文库"),
-            page: Qt.resolvedUrl("pages/LocalArticlesPage.qml"),
-            icon: "ic_fluent_library_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("开源文库"),
-            page: Qt.resolvedUrl("pages/TextLibraryPage.qml"),
-            icon: "ic_fluent_text_bullet_list_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("自定义载文"),
-            page: Qt.resolvedUrl("pages/CustomLoadTextPage.qml"),
-            icon: "ic_fluent_edit_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("练单器"),
-            page: Qt.resolvedUrl("pages/TrainerPage.qml"),
-            icon: "ic_fluent_apps_list_detail_20_regular",
+            title: qsTr("载文"),
+            page: Qt.resolvedUrl("pages/TextLoadHubPage.qml"),
+            icon: "ic_fluent_document_text_20_regular",
             position: Position.None
         },
         {

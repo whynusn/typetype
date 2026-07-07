@@ -158,7 +158,7 @@
 - `FluentPage` 不使用 `layer.effect: OpacityMask`
 - **FluentPage 内容区子项必须用 `Layout.*` 而非 `anchors`**
 - **QQC 必须限定导入 `as QQC`**（避免与 RinUI 同名组件冲突）
-- 所有载文入口页（CustomLoadTextPage、LocalArticlesPage、TrainerPage、JisuBeiPage）应保持一致的 UI 模式
+- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部来源切换（`RinUI Segmented`）进入；各来源共享同一组分片/达标组件，不再分散为多个独立入口页
 
 ---
 

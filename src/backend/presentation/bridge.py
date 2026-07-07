@@ -24,6 +24,7 @@ from ..utils.logger import log_info
 if TYPE_CHECKING:
     from ..ports.key_listener import KeyListener
     from ..application.gateways.typing_totals_gateway import TypingTotalsGateway
+    from ..application.gateways.typing_history_gateway import TypingHistoryGateway
     from ..integration.slice_metrics_prefs_store import SliceMetricsPrefsStore
     from ..integration.text_slice_progress_store import TextSliceProgressStore
     from .adapters.auth_adapter import AuthAdapter
@@ -85,6 +86,7 @@ class Bridge(QObject):
     leaderboardLoadingChanged = Signal()
     catalogLoaded = Signal(list)
     catalogLoadFailed = Signal(str)
+    catalogLoadingChanged = Signal()
     textListLoaded = Signal(list)
     textListLoadFailed = Signal(str)
     textListLoadingChanged = Signal()
@@ -108,6 +110,9 @@ class Bridge(QObject):
     defaultTextSourceKeyChanged = Signal()
     typingTotalsChanged = Signal()
     textIdLookupFailed = Signal()  # 本地 text_id 回查失败
+    # 打字历史记录信号
+    typingHistoryChanged = Signal()
+    typingHistorySummaryChanged = Signal()
     # 晴发文信号
     wenlaiLoadFailed = Signal(str)
     wenlaiLoadingChanged = Signal()
@@ -166,6 +171,7 @@ class Bridge(QObject):
         trainer_adapter: TrainerAdapter | None = None,
         font_adapter: FontAdapter | None = None,
         typing_totals_gateway: TypingTotalsGateway | None = None,
+        typing_history_gateway: "TypingHistoryGateway | None" = None,
         key_listener: KeyListener | None = None,
         base_url_update_callback: Callable[[str], None] | None = None,
         slice_metrics_prefs_store: "SliceMetricsPrefsStore | None" = None,
@@ -185,6 +191,7 @@ class Bridge(QObject):
         self._trainer_adapter = trainer_adapter
         self._font_adapter = font_adapter
         self._typing_totals_gateway = typing_totals_gateway
+        self._typing_history_gateway = typing_history_gateway
         self._key_listener = key_listener
         self._base_url_update_callback = base_url_update_callback
         self._slice_metrics_prefs_store = slice_metrics_prefs_store
@@ -287,6 +294,10 @@ class Bridge(QObject):
             char_count = self._safe_record_char_count(record)
             self._typing_totals_gateway.record_session(char_count)
             self.typingTotalsChanged.emit()
+        if self._typing_history_gateway:
+            self._typing_history_gateway.append_record(record)
+            self.typingHistoryChanged.emit()
+            self.typingHistorySummaryChanged.emit()
         self.historyRecordUpdated.emit(record)
 
     def _on_typing_ended(self) -> None:
@@ -421,6 +432,9 @@ class Bridge(QObject):
             self._leaderboard_adapter.catalogLoaded.connect(self.catalogLoaded.emit)
             self._leaderboard_adapter.catalogLoadFailed.connect(
                 self.catalogLoadFailed.emit
+            )
+            self._leaderboard_adapter.catalogLoadingChanged.connect(
+                self.catalogLoadingChanged.emit
             )
 
     def _connect_wenlai_signals(self) -> None:
@@ -710,6 +724,12 @@ class Bridge(QObject):
     def textListLoading(self) -> bool:
         if self._leaderboard_adapter:
             return self._leaderboard_adapter.text_list_loading
+        return False
+
+    @Property(bool, notify=catalogLoadingChanged)
+    def catalogLoading(self) -> bool:
+        if self._leaderboard_adapter:
+            return self._leaderboard_adapter.catalog_loading
         return False
 
     @Property(int, notify=textIdChanged)
@@ -2531,6 +2551,56 @@ class Bridge(QObject):
     # ==========================================
     # 字体配置持久化 — 通过 RuntimeConfig.ui.reader_font_path
     # ==========================================
+
+    # ---- 打字历史记录 ----
+
+    @Slot()
+    def loadTypingHistory(self) -> None:
+        """通知 QML 刷新打字历史数据。"""
+        self.typingHistoryChanged.emit()
+        self.typingHistorySummaryChanged.emit()
+
+    @Property(int, notify=typingHistoryChanged)
+    def typingHistoryCount(self) -> int:
+        if self._typing_history_gateway:
+            return self._typing_history_gateway.get_count()
+        return 0
+
+    @Property(float, notify=typingHistorySummaryChanged)
+    def typingHistoryAverageSpeed(self) -> float:
+        if self._typing_history_gateway:
+            return self._typing_history_gateway.get_summary()["average_speed"]
+        return 0.0
+
+    @Property(float, notify=typingHistorySummaryChanged)
+    def typingHistoryMaxSpeed(self) -> float:
+        if self._typing_history_gateway:
+            return self._typing_history_gateway.get_summary()["max_speed"]
+        return 0.0
+
+    @Property(float, notify=typingHistorySummaryChanged)
+    def typingHistoryAverageKeyAccuracy(self) -> float:
+        if self._typing_history_gateway:
+            return self._typing_history_gateway.get_summary()["average_key_accuracy"]
+        return 0.0
+
+    @Property(int, notify=typingHistorySummaryChanged)
+    def typingHistoryTotalChars(self) -> int:
+        if self._typing_history_gateway:
+            return self._typing_history_gateway.get_summary()["total_chars"]
+        return 0
+
+    @Property("QVariantList", notify=typingHistoryChanged)
+    def typingHistoryRecords(self) -> list:
+        if self._typing_history_gateway:
+            return self._typing_history_gateway.get_records(50)
+        return []
+
+    @Property("QVariantList", notify=typingHistorySummaryChanged)
+    def typingHistoryDailyTrend(self) -> list:
+        if self._typing_history_gateway:
+            return self._typing_history_gateway.get_daily_trend(30)
+        return []
 
     @staticmethod
     def _font_config_path() -> str:

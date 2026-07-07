@@ -55,7 +55,7 @@ Item {
 
     function openSliceConfig() {
         if (Window.window && Window.window.navigationView) {
-            Window.window.navigationView.push(Qt.resolvedUrl("CustomLoadTextPage.qml"));
+            Window.window.navigationView.push(Qt.resolvedUrl("pages/TextLoadHubPage.qml"), { initialSource: "custom" });
         }
     }
 

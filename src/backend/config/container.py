@@ -17,6 +17,7 @@ from .app_paths import (
     ensure_user_trainer_seeded,
     ensure_user_ziti_seeded,
     load_common_chars,
+    typing_history_path,
     typing_totals_path,
     user_fonts_dir,
     user_texts_dir,
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from ..application.gateways.score_gateway import ScoreGateway
     from ..application.gateways.text_source_gateway import TextSourceGateway
     from ..application.gateways.trainer_gateway import TrainerGateway
+    from ..application.gateways.typing_history_gateway import TypingHistoryGateway
     from ..application.gateways.typing_totals_gateway import TypingTotalsGateway
     from ..application.gateways.wenlai_gateway import WenlaiGateway
     from ..application.gateways.ziti_gateway import ZitiGateway
@@ -112,6 +114,7 @@ class Gateways:
     ziti: ZitiGateway
     trainer: TrainerGateway
     typing_totals: TypingTotalsGateway
+    typing_history: TypingHistoryGateway
 
 
 @dataclass
@@ -263,7 +266,9 @@ def create_gateways(
     from ..application.gateways.local_article_gateway import LocalArticleGateway
     from ..application.gateways.ziti_gateway import ZitiGateway
     from ..application.gateways.trainer_gateway import TrainerGateway
+    from ..application.gateways.typing_history_gateway import TypingHistoryGateway
     from ..application.gateways.typing_totals_gateway import TypingTotalsGateway
+    from ..integration.json_typing_history_store import JsonTypingHistoryStore
     from ..integration.json_typing_totals_store import JsonTypingTotalsStore
 
     return Gateways(
@@ -284,6 +289,9 @@ def create_gateways(
         trainer=TrainerGateway(repository=repos.trainer),
         typing_totals=TypingTotalsGateway(
             store=JsonTypingTotalsStore(typing_totals_path())
+        ),
+        typing_history=TypingHistoryGateway(
+            store=JsonTypingHistoryStore(typing_history_path())
         ),
     )
 
