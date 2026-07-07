@@ -24,12 +24,15 @@ ColumnLayout {
         property var pending: []
     }
 
-    function show(severity, title, message, duration) {
+    function show(severity, title, message, duration, options) {
+        if (duration === undefined) duration = 2500
+        var opts = options || {}
         var data = {
             severity: severity,
             title: title,
             message: message,
-            duration: duration
+            duration: duration,
+            showCopy: opts.showCopy === true
         }
         if (internal.active.length < maxVisible) {
             createNotification(data)
@@ -48,7 +51,8 @@ ColumnLayout {
             severity: data.severity,
             title: data.title,
             text: data.message,
-            duration: data.duration
+            duration: data.duration,
+            showCopy: data.showCopy
         })
         if (!obj) {
             console.error("[AppNotificationManager] createObject returned null")

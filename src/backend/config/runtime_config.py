@@ -148,6 +148,7 @@ class RuntimeConfig:
     api_timeout: float = (
         20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
     )
+    typing_history_max_records: int = 2000  # 打字历史最多保留条数
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -316,6 +317,9 @@ class RuntimeConfig:
         return cls(
             base_url=base_url,
             api_timeout=api_timeout,
+            typing_history_max_records=cls._safe_int(
+                data.get("typing_history_max_records"), 2000
+            ),
             text_source_config=text_source_config,
             wenlai=wenlai,
             registry=registry,
@@ -442,6 +446,7 @@ class RuntimeConfig:
             updated = self._from_dict(data)
             self.base_url = updated.base_url
             self.api_timeout = updated.api_timeout
+            self.typing_history_max_records = updated.typing_history_max_records
             self.text_source_config = updated.text_source_config
             self.wenlai = updated.wenlai
             self.registry = updated.registry
@@ -462,6 +467,7 @@ class RuntimeConfig:
             "base_url": self.base_url,
             "default_text_source_key": self.default_text_source_key,
             "api_timeout": self.api_timeout,
+            "typing_history_max_records": self.typing_history_max_records,
             "text_sources": {
                 key: {
                     "label": source.label,
@@ -566,4 +572,9 @@ class RuntimeConfig:
         self.wenlai.username = ""
         self.wenlai.display_name = ""
         self.wenlai.user_id = 0
+        self._save_to_file()
+
+    def update_typing_history_max_records(self, max_records: int) -> None:
+        """更新打字历史最大保留条数并持久化。"""
+        self.typing_history_max_records = max(100, min(int(max_records), 50000))
         self._save_to_file()

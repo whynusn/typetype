@@ -473,6 +473,43 @@ FluentPage {
     }
 
     SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("打字历史")
+        icon.name: "ic_fluent_history_20_regular"
+        description: qsTr("最多保留的历史记录条数（100–50000），超出后自动截断旧记录")
+
+        RowLayout {
+            spacing: 8
+
+            QQC.SpinBox {
+                id: historyMaxSpinBox
+                from: 100
+                to: 50000
+                stepSize: 500
+                value: appBridge ? appBridge.typingHistoryMaxRecords : 2000
+                implicitWidth: 140
+                onValueModified: {
+                    if (appBridge) appBridge.setTypingHistoryMaxRecords(value)
+                }
+            }
+
+            Text {
+                text: qsTr("条")
+                typography: Typography.Body
+                color: Theme.currentTheme.colors.textSecondaryColor
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Text {
+                text: qsTr("当前: %1 条").arg(appBridge ? appBridge.typingHistoryCount : 0)
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.textSecondaryColor
+            }
+        }
+    }
+
+    SettingCard {
         id: baseUrlCard
         Layout.fillWidth: true
         title: qsTr("服务地址")

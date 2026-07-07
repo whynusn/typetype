@@ -108,14 +108,18 @@ class LeaderboardFetcher:
                 return data
         return None
 
-    def get_texts_by_source(self, source_key: str) -> list[dict[str, Any]] | None:
+    def get_texts_by_source(
+        self, source_key: str
+    ) -> list[dict[str, Any]] | None:
         """获取来源下所有文本的摘要列表。
 
         Args:
             source_key: 文本来源标识，如 "jisubei"
 
         Returns:
-            文本摘要列表，每个元素包含 id, title 等字段，失败返回 None
+            文本摘要列表，每个元素包含 id, title 等字段。
+            来源合法但无文本时返回空列表 []。
+            网络/服务端异常时返回 None。
         """
         url = f"{self._base_url}/api/v1/texts/by-source/{source_key}"
         response = self._api_client.request(
@@ -129,6 +133,9 @@ class LeaderboardFetcher:
             data = response.get("data")
             if isinstance(data, list):
                 return data
+            # 来源合法但无文本（data 为 null 或空）→ 返回空列表而非 None
+            if data is None or data == []:
+                return []
         return None
 
     def get_text_by_id(self, text_id: int) -> dict[str, Any] | None:

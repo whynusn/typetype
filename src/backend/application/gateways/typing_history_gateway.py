@@ -12,14 +12,14 @@ from ...ports.typing_history_store import TypingHistoryStore
 class TypingHistoryGateway:
     """维护本地持久化的打字历史记录，并提供聚合统计。"""
 
-    MAX_RECORDS = 5000
-
     def __init__(
         self,
         store: TypingHistoryStore,
+        max_records: int = 2000,
         today_provider: Callable[[], date] = date.today,
     ) -> None:
         self._store = store
+        self._max_records = max_records
         self._today_provider = today_provider
 
     def append_record(self, record: dict[str, Any]) -> None:
@@ -27,8 +27,8 @@ class TypingHistoryGateway:
         data = self._load_normalized()
         clean = self._normalize_record(record)
         data["records"].insert(0, clean)
-        if len(data["records"]) > self.MAX_RECORDS:
-            data["records"] = data["records"][: self.MAX_RECORDS]
+        if len(data["records"]) > self._max_records:
+            data["records"] = data["records"][: self._max_records]
         self._store.save(data)
 
     def get_records(self, limit: int = 50) -> list[dict[str, Any]]:

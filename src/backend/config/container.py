@@ -291,7 +291,8 @@ def create_gateways(
             store=JsonTypingTotalsStore(typing_totals_path())
         ),
         typing_history=TypingHistoryGateway(
-            store=JsonTypingHistoryStore(typing_history_path())
+            store=JsonTypingHistoryStore(typing_history_path()),
+            max_records=gateways_cfg.typing_history_max_records,
         ),
     )
 
