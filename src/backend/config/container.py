@@ -292,7 +292,7 @@ def create_gateways(
         ),
         typing_history=TypingHistoryGateway(
             store=JsonTypingHistoryStore(typing_history_path()),
-            max_records=gateways_cfg.typing_history_max_records,
+            max_records=runtime_config.typing_history_max_records,
         ),
     )
 
