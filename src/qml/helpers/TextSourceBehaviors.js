@@ -172,7 +172,7 @@ function cardTitle(sourceKey, item, previewContent, customLabel) {
     switch (sourceKey) {
     case "jisubei":  return item.title || item.name || qsTr("未命名文本")
     case "local":    return articleTitle(item)
-    case "registry": return item.label || item.sourceKey || ""
+    case "registry": return item.entryTitle || item.sourceKey || ""
     case "trainer":  return trainerTitle(item)
     }
     return qsTr("未选择文本")
@@ -268,8 +268,11 @@ function _syncRegistry(catalog) {
     if (catalog) {
         for (var i = 0; i < catalog.length; i++) {
             var e = catalog[i]
-            var subtitle = (e.source_label || "") + " · " + (e.charCount || 0) + qsTr("字")
-            if (e.category) subtitle += " · " + e.category
+            // 底部展示分类（category）和字数，避免与标题重复
+            var subtitleParts = []
+            if (e.category) subtitleParts.push(e.category)
+            subtitleParts.push((e.charCount || 0) + qsTr("字"))
+            var subtitle = subtitleParts.join(" · ")
             arr.push({
                 title: e.title || "",
                 subtitle: subtitle,
