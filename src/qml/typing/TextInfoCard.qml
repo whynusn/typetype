@@ -105,7 +105,7 @@ Frame {
                     }
                 }
                 ToolTip {
-                    text: root.content.length >= 200 ? qsTr("复制预览（前 200 字）") : qsTr("复制预览")
+                    text: root.content.length >= 1000 ? qsTr("复制预览（前 1000 字）") : qsTr("复制预览")
                     parent: parent
                     visible: parent.hovered
                 }

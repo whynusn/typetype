@@ -21,7 +21,7 @@ FluentPage {
 
     property bool active: false
     property string initialSource: ""
-    property string currentSource: initialSource || "jisubei"
+    property string currentSource: initialSource || "local"
 
     // ---- 来源定义 ----
     readonly property var sourceKeys: ["local", "registry", "trainer", "custom", "jisubei"]
@@ -466,87 +466,91 @@ FluentPage {
             columns: root.wideMode ? 2 : 1
 
             // ---- 左侧内容 ----
-            StackLayout {
-                id: leftStack
-                Layout.fillWidth: !root.wideMode
-                Layout.preferredWidth: root.wideMode ? Math.max(300, parent.width * 0.38) : parent.width
-                Layout.maximumWidth: root.wideMode ? 480 : parent.width
-                Layout.fillHeight: true
-                currentIndex: root.currentSourceIndex
+        StackLayout {
+            id: leftStack
+            Layout.fillWidth: !root.wideMode
+            Layout.preferredWidth: root.wideMode ? Math.max(300, parent.width * 0.38) : parent.width
+            Layout.maximumWidth: root.wideMode ? 480 : parent.width
+            Layout.fillHeight: true
+            currentIndex: root.currentSourceIndex
 
-                TextSourceListPanel {
-                    title: qsTr("文本列表")
-                    icon: "ic_fluent_document_text_20_regular"
-                    sourceItems: root.jisubeiItems
-                    loading: root.currentSource === "jisubei" && (appBridge ? appBridge.textListLoading : false)
-                    emptyText: qsTr("暂无文本")
-                    onItemClicked: function(originalIndex) { root.selectListItem("jisubei", originalIndex) }
-                    onRefreshRequested: { if (appBridge) appBridge.loadTextList("jisubei") }
-                }
+            // index 0: local — 本地文库
+            TextSourceListPanel {
+                title: qsTr("文章")
+                icon: "ic_fluent_library_20_regular"
+                sourceItems: root.localItems
+                loading: root.currentSource === "local" && (appBridge ? appBridge.localArticleLoading : false)
+                emptyText: qsTr("暂无本地文章")
+                onItemClicked: function(originalIndex) { root.selectListItem("local", originalIndex) }
+                onRefreshRequested: { if (appBridge) appBridge.loadLocalArticles() }
 
-                TextSourceListPanel {
-                    title: qsTr("文章")
-                    icon: "ic_fluent_document_text_20_regular"
-                    sourceItems: root.localItems
-                    loading: root.currentSource === "local" && (appBridge ? appBridge.localArticleLoading : false)
-                    emptyText: qsTr("暂无本地文章")
-                    onItemClicked: function(originalIndex) { root.selectListItem("local", originalIndex) }
-                    onRefreshRequested: { if (appBridge) appBridge.loadLocalArticles() }
-
-                    ToolButton {
-                        Layout.preferredWidth: 28
-                        Layout.preferredHeight: 28
-                        icon.name: "ic_fluent_add_20_regular"
-                        flat: true
-                        onClicked: {
-                            if (Window.window && Window.window.navigationView)
-                                Window.window.navigationView.push(Qt.resolvedUrl("UploadTextPage.qml"))
-                        }
-                        ToolTip { text: qsTr("上传文本"); visible: parent.hovered }
+                ToolButton {
+                    Layout.preferredWidth: 28
+                    Layout.preferredHeight: 28
+                    icon.name: "ic_fluent_add_20_regular"
+                    flat: true
+                    onClicked: {
+                        if (Window.window && Window.window.navigationView)
+                            Window.window.navigationView.push(Qt.resolvedUrl("UploadTextPage.qml"))
                     }
-                }
-
-                TextSourceListPanel {
-                    title: qsTr("文本列表")
-                    icon: "ic_fluent_document_text_20_regular"
-                    sourceItems: root.registryItems
-                    loading: root.currentSource === "registry" && (appBridge ? appBridge.catalogLoading : false)
-                    emptyText: qsTr("暂无文本")
-                    onItemClicked: function(originalIndex) { root.selectListItem("registry", originalIndex) }
-                    onRefreshRequested: { if (appBridge) appBridge.refreshCatalog() }
-                }
-
-                TextSourceListPanel {
-                    title: qsTr("词库")
-                    icon: "ic_fluent_text_bullet_list_square_20_regular"
-                    sourceItems: root.trainerItems
-                    loading: root.currentSource === "trainer" && (appBridge ? appBridge.trainerLoading : false)
-                    emptyText: qsTr("暂无练单器词库")
-                    onItemClicked: function(originalIndex) { root.selectListItem("trainer", originalIndex) }
-                    onRefreshRequested: { if (appBridge) appBridge.loadTrainers() }
-                }
-
-                Item {
-                    // 卡片背景（与其它来源的 TextSourceListPanel 视觉高度一致）
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: 6
-                        color: Theme.currentTheme.colors.cardColor
-                        border.color: Theme.currentTheme.colors.cardBorderColor
-                        border.width: 1
-                    }
-
-                    TextLoadPanel {
-                        id: textLoadPanel
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        compactMode: false
-                        hubMode: true
-                        textSourceOptions: appBridge ? appBridge.textSourceOptions : []
-                        defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
-                    }
+                    ToolTip { text: qsTr("上传文本"); visible: parent.hovered }
                 }
             }
+
+            // index 1: registry — 开源文库
+            TextSourceListPanel {
+                title: qsTr("文本列表")
+                icon: "ic_fluent_text_bullet_list_20_regular"
+                sourceItems: root.registryItems
+                loading: root.currentSource === "registry" && (appBridge ? appBridge.catalogLoading : false)
+                emptyText: qsTr("暂无文本")
+                onItemClicked: function(originalIndex) { root.selectListItem("registry", originalIndex) }
+                onRefreshRequested: { if (appBridge) appBridge.refreshCatalog() }
+            }
+
+            // index 2: trainer — 练单器
+            TextSourceListPanel {
+                title: qsTr("词库")
+                icon: "ic_fluent_apps_list_detail_20_regular"
+                sourceItems: root.trainerItems
+                loading: root.currentSource === "trainer" && (appBridge ? appBridge.trainerLoading : false)
+                emptyText: qsTr("暂无练单器词库")
+                onItemClicked: function(originalIndex) { root.selectListItem("trainer", originalIndex) }
+                onRefreshRequested: { if (appBridge) appBridge.loadTrainers() }
+            }
+
+            // index 3: custom — 自定义
+            Item {
+                Rectangle {
+                    anchors.fill: parent
+                    radius: 6
+                    color: Theme.currentTheme.colors.cardColor
+                    border.color: Theme.currentTheme.colors.cardBorderColor
+                    border.width: 1
+                }
+
+                TextLoadPanel {
+                    id: textLoadPanel
+                    anchors.fill: parent
+                    anchors.margins: 8
+                    compactMode: false
+                    hubMode: true
+                    textSourceOptions: appBridge ? appBridge.textSourceOptions : []
+                    defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
+                }
+            }
+
+            // index 4: jisubei — 极速杯
+            TextSourceListPanel {
+                title: qsTr("文本列表")
+                icon: "ic_fluent_document_text_20_regular"
+                sourceItems: root.jisubeiItems
+                loading: root.currentSource === "jisubei" && (appBridge ? appBridge.textListLoading : false)
+                emptyText: qsTr("暂无文本")
+                onItemClicked: function(originalIndex) { root.selectListItem("jisubei", originalIndex) }
+                onRefreshRequested: { if (appBridge) appBridge.loadTextList("jisubei") }
+            }
+        }
 
             // ---- 右侧预览与设置 ----
             Frame {
