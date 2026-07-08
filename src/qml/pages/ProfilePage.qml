@@ -21,18 +21,9 @@ FluentPage {
         if (active && appBridge) appBridge.loadTypingHistory();
     }
 
-    Flickable {
-        Layout.fillWidth: true
-        Layout.fillHeight: true
-        contentWidth: width
-        contentHeight: columnLayout.height
-        boundsBehavior: Flickable.StopAtBounds
-
-        ColumnLayout {
-            id: columnLayout
-            width: parent.width
-            height: implicitHeight
-            spacing: __lg
+    // FluentPage 自带 Flickable — content 直接放入内建 ColumnLayout
+    ColumnLayout {
+        spacing: __lg
 
             // ============== 未登录卡片 ==============
             Frame {
@@ -439,7 +430,6 @@ FluentPage {
                 }
             }
         }
-    }
 
     // ============== 登录弹窗 ==============
     Dialog {
