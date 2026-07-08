@@ -31,6 +31,7 @@ FluentPage {
         ColumnLayout {
             id: columnLayout
             width: parent.width
+            height: implicitHeight
             spacing: __lg
 
             // ============== 未登录卡片 ==============
