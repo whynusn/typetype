@@ -7,6 +7,7 @@ LeaderboardGateway（兼容未配置开源文库的场景）。
 from typing import TYPE_CHECKING
 
 from ..application.gateways.leaderboard_gateway import LeaderboardGateway
+from ..utils.logger import log_info
 from .base_worker import BaseWorker
 
 if TYPE_CHECKING:
@@ -32,9 +33,11 @@ class CatalogWorker(BaseWorker):
         fallback 到 LeaderboardGateway（兼容无开源文库场景）。
         """
         if self._registry_provider is not None:
+            log_info("[CatalogWorker] 使用 registry provider 获取目录...")
             catalog = self._registry_provider.get_catalog()
+            log_info(f"[CatalogWorker] registry provider 返回了 {len(catalog) if catalog else 0} 个来源")
             if catalog:
-                return [
+                result = [
                     {
                         "id": item.id,
                         "sourceKey": item.source_key,
@@ -46,9 +49,14 @@ class CatalogWorker(BaseWorker):
                     }
                     for item in catalog
                 ]
+                log_info(f"[CatalogWorker] 返回 {len(result)} 个来源给 LeaderboardAdapter")
+                return result
+            log_info("[CatalogWorker] registry provider 返回空目录，fallback 到 server API")
 
         # Fallback: 使用 LeaderboardGateway（网络 API）
+        log_info("[CatalogWorker] 使用 LeaderboardGateway 获取目录...")
         catalog = self._leaderboard_gateway.get_catalog()
+        log_info(f"[CatalogWorker] LeaderboardGateway 返回: {len(catalog) if catalog else 'None'}")
         if catalog is None:
             raise Exception("无法获取文本来源目录")
         return catalog
