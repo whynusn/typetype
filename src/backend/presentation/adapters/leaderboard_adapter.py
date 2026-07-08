@@ -52,6 +52,9 @@ class LeaderboardAdapter(QObject):
         self._catalog_loading = False
         self._catalog_cache: list | None = None
         self._current_text_list_request: int = 0
+        self._catalog_request_generation: int = 0
+        self._preview_request_generation = 0
+        self._preview_active_worker = None
 
     def _set_loading(self, loading: bool) -> None:
         if self._loading != loading:
@@ -126,16 +129,36 @@ class LeaderboardAdapter(QObject):
             self.catalogLoaded.emit(self._catalog_cache)
             return
 
+        if self._catalog_loading:
+            return  # 防止连续页面切换导致并发 worker 堆积
+
         self._set_catalog_loading(True)
+        self._catalog_request_generation += 1
+        request_generation = self._catalog_request_generation
         from ...workers.catalog_worker import CatalogWorker
 
         worker = CatalogWorker(
             leaderboard_gateway=self._leaderboard_gateway,
             registry_provider=self._registry_provider,
         )
-        worker.signals.succeeded.connect(self._on_catalog_loaded)
-        worker.signals.failed.connect(self._on_catalog_load_failed)
+        worker.signals.succeeded.connect(
+            lambda data, gen=request_generation: self._on_catalog_loaded_gen(
+                gen, data
+            )
+        )
+        worker.signals.failed.connect(
+            lambda msg, gen=request_generation: self._on_catalog_load_failed_gen(
+                gen, msg
+            )
+        )
         self._thread_pool.start(worker)
+
+    def _on_catalog_loaded_gen(
+        self, request_generation: int, catalog: list[dict]
+    ) -> None:
+        if request_generation != self._catalog_request_generation:
+            return
+        self._on_catalog_loaded(catalog)
 
     def _on_catalog_loaded(self, catalog: list[dict]) -> None:
         """处理目录加载成功。"""
@@ -175,6 +198,13 @@ class LeaderboardAdapter(QObject):
         """处理目录加载失败。"""
         self._set_catalog_loading(False)
         self.catalogLoadFailed.emit(message)
+
+    def _on_catalog_load_failed_gen(
+        self, request_generation: int, message: str
+    ) -> None:
+        if request_generation != self._catalog_request_generation:
+            return
+        self._on_catalog_load_failed(message)
 
     @Slot()
     def refreshCatalog(self) -> None:
@@ -229,16 +259,51 @@ class LeaderboardAdapter(QObject):
             text_id: 文本 ID
             callback: 成功回调，接收 dict 参数 (含 content, title)
         """
+        self._preview_request_generation += 1
+        request_generation = self._preview_request_generation
+
+        # 断开上一个 worker 的所有信号连接
+        if self._preview_active_worker is not None:
+            try:
+                self._preview_active_worker.signals.succeeded.disconnect()
+            except TypeError:
+                pass
+            try:
+                self._preview_active_worker.signals.failed.disconnect()
+            except TypeError:
+                pass
+            self._preview_active_worker = None
+
         worker = TextContentWorker(
             leaderboard_gateway=self._leaderboard_gateway, text_id=text_id
         )
-        worker.signals.succeeded.connect(callback)
-        worker.signals.failed.connect(
-            lambda msg: log_warning(
-                f"[LeaderboardAdapter] 获取文本内容失败: text_id={text_id}, error={msg}"
+        worker.setAutoDelete(True)
+        worker.signals.succeeded.connect(
+            lambda data, gen=request_generation: self._on_text_content_loaded(
+                gen, data, callback
             )
         )
+        worker.signals.failed.connect(
+            lambda msg, gen=request_generation: self._on_text_content_failed(
+                gen, msg
+            )
+        )
+        self._preview_active_worker = worker
         self._thread_pool.start(worker)
+
+    def _on_text_content_loaded(
+        self, request_generation: int, data: dict, callback
+    ) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        callback(data)
+
+    def _on_text_content_failed(self, request_generation: int, message: str) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        log_warning(
+            f"[LeaderboardAdapter] 获取文本内容失败: error={message}"
+        )
 
     @property
     def text_list_loading(self) -> bool:

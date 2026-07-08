@@ -90,6 +90,55 @@ var capabilities = {
 
 
 /* =========================================================================
+ * 预览分派 — 统一处理所有来源的异步预览加载与去重
+ * ========================================================================= */
+
+// 对于每个需要 async prefetch 的来源，提取用于预览请求的标识
+function previewId(sourceKey, item) {
+    if (!item) return ""
+    switch (sourceKey) {
+    case "jisubei":  return item.id !== undefined ? item.id : ""
+    case "local":    return articleId(item)
+    case "trainer":  return trainerId(item)
+    case "registry": return entrySourceKey(item)
+    }
+    return ""
+}
+
+// 通过 bridge 发起异步预览请求，统一分派
+function startPreview(bridge, sourceKey, id) {
+    if (!bridge || !id) return false
+    switch (sourceKey) {
+    case "jisubei":
+        bridge.getTextContentById(id)
+        return true
+    case "local":
+        bridge.loadLocalArticlePreview(id)
+        return true
+    case "trainer":
+        bridge.loadTrainerPreview(id)
+        return true
+    case "registry":
+        bridge.loadLibraryText(id)
+        return true
+    }
+    return false
+}
+
+// 统一判断「载入跟打」按钮是否可点亮
+// local/trainer 本地读取不依赖预览内容（canLoad 在 hub 中被调用时不传 previewContent）
+function canLoadButton(sourceKey, selectedItem, previewContent) {
+    if (!selectedItem) return false
+    switch (sourceKey) {
+    case "custom":  return customTextLen() > 0
+    case "registry": return true  // registry 在 hub 另有 registryLoading 判断
+    case "jisubei": return previewContent && previewContent.length > 0
+    default:        return true  // local / trainer 选中即可
+    }
+}
+
+
+/* =========================================================================
  * 公共辅助（纯变换）
  * ========================================================================= */
 

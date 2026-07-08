@@ -8,6 +8,8 @@ import RinUI
  * 基于 RinUI InfoBar 封装，支持自动关闭、手动关闭、复制内容。
  * 由 AppNotificationManager 动态创建，关闭后自动销毁。
  *
+ * 复制按钮由 InfoBar 原生支持（rights 区域，图标(左) | 正文 | 复制(右) | 关闭(右)）。
+ *
  * 用法（通过 AppNotificationManager）：
  *   show(Severity.Error, "标题", "消息", -1, { showCopy: true })
  */
@@ -21,27 +23,6 @@ InfoBar {
     position: Position.Top
     isDynamic: true
     closable: true
-
-    Button {
-        id: copyButton
-        visible: root.showCopy
-        text: qsTr("复制")
-        flat: true
-        height: 28
-        onClicked: {
-            if (root.text) {
-                QQC.Clipboard.setText(root.text)
-                copyButton.text = qsTr("已复制")
-                copyResetTimer.start()
-            }
-        }
-    }
-
-    Timer {
-        id: copyResetTimer
-        interval: 1600
-        onTriggered: {
-            copyButton.text = qsTr("复制")
-        }
-    }
+    showCopy: root.showCopy
+    copyText: root.text
 }

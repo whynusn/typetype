@@ -152,14 +152,9 @@ FluentPage {
 
         // needsContentPrefetch == true 的来源点选即异步拉取内容预览
         if (SrcBehav.capabilities[source].needsContentPrefetch && selectedItem && appBridge) {
-            if (source === "jisubei" && selectedItem.id) {
-                appBridge.getTextContentById(selectedItem.id)
-            } else if (source === "local") {
-                var articleId = SrcBehav.articleId(selectedItem)
-                if (articleId) appBridge.loadLocalArticlePreview(articleId)
-            } else if (source === "trainer") {
-                var tid = SrcBehav.trainerId(selectedItem)
-                if (tid) appBridge.loadTrainerPreview(tid)
+            var pid = SrcBehav.previewId(source, selectedItem)
+            if (pid) {
+                SrcBehav.startPreview(appBridge, source, pid)
             } else {
                 checkProgress()
             }
