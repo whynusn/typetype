@@ -847,7 +847,7 @@ FluentPage {
             if (root.active && root.currentSource === "registry") {
                 root._syncToCurrentList(catalog)
                 root.errorMessage = ""
-                if (textLoadPanel) textLoadPanel.onCatalogLoaded(catalog)
+                // hubMode 下 TextLoadPanel 不处理 catalog（字段格式不同）
             }
         }
         function onCatalogLoadFailed(message) {
