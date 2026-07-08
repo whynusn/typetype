@@ -58,6 +58,8 @@ class LeaderboardAdapter(QObject):
         # 内容缓存：keyed by text_id，上限 50 条，避免重复选择同一文本时重复请求网络
         self._content_cache: OrderedDict[int, dict] = OrderedDict()
         self._CONTENT_CACHE_MAX = 50
+        # 后台 worker 引用集：防止跨线程信号传递中 Python GC 回收 worker 的 QObject
+        self._submit_workers: set = set()
 
     def _init_registry_provider(self) -> None:
         """运行时根据当前配置延迟创建 RegistryTextProvider。
@@ -374,11 +376,21 @@ class LeaderboardAdapter(QObject):
         return (fetched.text_id or 0, fetched.content or "", fetched.title or "")
 
     def submit_to_thread_pool(self, fn, on_result, on_error):
-        """将 callable 提交到后台线程池执行，结果回调到主线程。"""
+        """将 callable 提交到后台线程池执行，结果回调到主线程。
+        
+        保持对 worker 的引用直到完成，防止 worker 的 QObject 在
+        跨线程信号传递过程中被 Python GC 回收导致 C++ 层内存损坏。
+        """
         from ...workers.base_worker import BaseWorker
 
         worker = BaseWorker(task=fn, error_prefix="操作失败")
+        worker.setAutoDelete(True)
         worker.signals.succeeded.connect(on_result)
         worker.signals.failed.connect(on_error)
+        worker.signals.finished.connect(lambda: self._release_submit_worker(worker))
+        self._submit_workers.add(worker)
         self._thread_pool.start(worker)
         return self._text_list_loading
+
+    def _release_submit_worker(self, worker) -> None:
+        self._submit_workers.discard(worker)
