@@ -46,7 +46,6 @@ class LeaderboardAdapter(QObject):
         self._leaderboard_gateway = leaderboard_gateway
         self._registry_provider = registry_provider
         self._runtime_config = runtime_config
-        self._registry_provider = registry_provider
         self._thread_pool = QThreadPool.globalInstance()
         self._loading = False
         self._text_list_loading = False
@@ -59,6 +58,28 @@ class LeaderboardAdapter(QObject):
         # 内容缓存：keyed by text_id，上限 50 条，避免重复选择同一文本时重复请求网络
         self._content_cache: OrderedDict[int, dict] = OrderedDict()
         self._CONTENT_CACHE_MAX = 50
+
+    def _init_registry_provider(self) -> None:
+        """运行时根据当前配置延迟创建 RegistryTextProvider。
+
+        用户在设置页面填写 registry URL 时，registry_provider 尚未创建
+        （启动时 URL 为空 → container.py 中 else None），此处按需创建。
+        """
+        primary_url = self._runtime_config.registry.primary_url
+        if not primary_url:
+            return
+        try:
+            from ...integration.registry_text_provider import RegistryTextProvider
+            from ..config.app_paths import registry_cache_dir
+            import httpx
+
+            self._registry_provider = RegistryTextProvider(
+                config=self._runtime_config.registry,
+                cache_dir=registry_cache_dir(),
+                http_client=httpx.Client(timeout=10.0, trust_env=False),
+            )
+        except Exception:
+            log_warning("[LeaderboardAdapter] 延迟创建 registry provider 失败")
 
     def _set_loading(self, loading: bool) -> None:
         if self._loading != loading:
@@ -129,6 +150,11 @@ class LeaderboardAdapter(QObject):
 
         如果缓存存在，直接使用缓存避免重复请求。
         """
+        # 运行时确保 registry provider 已初始化（应对启动时 URL 为空
+        # 后经设置页面配置的情况）
+        if self._registry_provider is None:
+            self._init_registry_provider()
+
         if self._catalog_cache is not None:
             self.catalogLoaded.emit(self._catalog_cache)
             return
