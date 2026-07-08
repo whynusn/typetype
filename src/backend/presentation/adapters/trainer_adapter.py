@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
@@ -33,6 +34,10 @@ class TrainerAdapter(QObject):
         self._request_generation = 0
         self._preview_request_generation = 0
         self._preview_active_worker = None
+        self._current_preview_trainer_id: str = ""
+        # 预览内容缓存：keyed by trainer_id，上限 50 条，避免重复读取词库
+        self._preview_cache: OrderedDict[str, str] = OrderedDict()
+        self._PREVIEW_CACHE_MAX = 50
         self._active_worker = None
 
     @property
@@ -233,9 +238,20 @@ class TrainerAdapter(QObject):
 
     @Slot(str)
     def loadTrainerPreview(self, trainer_id: str) -> None:
-        """异步加载练单器词库原始文本供预览卡片展示。"""
+        """异步加载练单器词库原始文本供预览卡片展示。
+
+        优先使用内存缓存，减少重复读取词库文件。
+        缓存上限 50 条，超出时驱逐最久未访问的条目。
+        """
+        # 缓存命中
+        if trainer_id in self._preview_cache:
+            self._preview_cache.move_to_end(trainer_id)
+            self.trainerPreviewLoaded.emit(self._preview_cache[trainer_id])
+            return
+
         self._preview_request_generation += 1
         request_generation = self._preview_request_generation
+        self._current_preview_trainer_id = trainer_id
 
         # 断开上一个 worker 的所有信号连接
         if self._preview_active_worker is not None:
@@ -276,6 +292,13 @@ class TrainerAdapter(QObject):
     def _on_preview_loaded(self, request_generation: int, content: str) -> None:
         if request_generation != self._preview_request_generation:
             return
+        # 写入缓存
+        trainer_id = self._current_preview_trainer_id
+        if trainer_id:
+            self._preview_cache[trainer_id] = content
+            self._preview_cache.move_to_end(trainer_id)
+            if len(self._preview_cache) > self._PREVIEW_CACHE_MAX:
+                self._preview_cache.popitem(last=False)
         self.trainerPreviewLoaded.emit(content)
 
     def _on_preview_failed(self, request_generation: int, message: str) -> None:

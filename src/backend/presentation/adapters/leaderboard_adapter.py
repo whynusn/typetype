@@ -1,5 +1,6 @@
 """排行榜适配层 - Qt 信号管理。"""
 
+from collections import OrderedDict
 from typing import Any
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
@@ -55,6 +56,9 @@ class LeaderboardAdapter(QObject):
         self._catalog_request_generation: int = 0
         self._preview_request_generation = 0
         self._preview_active_worker = None
+        # 内容缓存：keyed by text_id，上限 50 条，避免重复选择同一文本时重复请求网络
+        self._content_cache: OrderedDict[int, dict] = OrderedDict()
+        self._CONTENT_CACHE_MAX = 50
 
     def _set_loading(self, loading: bool) -> None:
         if self._loading != loading:
@@ -191,7 +195,9 @@ class LeaderboardAdapter(QObject):
             for item in catalog
             if item.get("sourceKey")
         ]
-        self._catalog_cache = options
+        # 仅缓存非空目录，避免因一次空结果导致后续请求永久走缓存
+        if options:
+            self._catalog_cache = options
         self.catalogLoaded.emit(options)
 
     def _on_catalog_load_failed(self, message: str) -> None:
@@ -255,10 +261,19 @@ class LeaderboardAdapter(QObject):
     def get_text_content_by_id(self, text_id: int, callback) -> None:
         """按文本 ID 异步获取完整内容。
 
+        优先使用内存缓存，减少重复网络请求。
+        缓存上限 50 条，超出时驱逐最久未访问的条目。
+
         Args:
             text_id: 文本 ID
             callback: 成功回调，接收 dict 参数 (含 content, title)
         """
+        # 缓存命中：move_to_end 维持 LRU 顺序，直接回调
+        if text_id in self._content_cache:
+            self._content_cache.move_to_end(text_id)
+            callback(self._content_cache[text_id])
+            return
+
         self._preview_request_generation += 1
         request_generation = self._preview_request_generation
 
@@ -279,8 +294,8 @@ class LeaderboardAdapter(QObject):
         )
         worker.setAutoDelete(True)
         worker.signals.succeeded.connect(
-            lambda data, gen=request_generation: self._on_text_content_loaded(
-                gen, data, callback
+            lambda data, gen=request_generation, tid=text_id: self._on_text_content_loaded(
+                gen, tid, data, callback
             )
         )
         worker.signals.failed.connect(
@@ -292,10 +307,15 @@ class LeaderboardAdapter(QObject):
         self._thread_pool.start(worker)
 
     def _on_text_content_loaded(
-        self, request_generation: int, data: dict, callback
+        self, request_generation: int, text_id: int, data: dict, callback
     ) -> None:
         if request_generation != self._preview_request_generation:
             return
+        # 写入缓存（LRU 淘汰）
+        self._content_cache[text_id] = data
+        self._content_cache.move_to_end(text_id)
+        if len(self._content_cache) > self._CONTENT_CACHE_MAX:
+            self._content_cache.popitem(last=False)
         callback(data)
 
     def _on_text_content_failed(self, request_generation: int, message: str) -> None:
