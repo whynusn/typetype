@@ -8,7 +8,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 from ...config.runtime_config import RuntimeConfig
 from ...application.gateways.leaderboard_gateway import LeaderboardGateway
 from ...models.dto.text_catalog_item import TextCatalogItem
-from ...utils.logger import log_warning
+from ...utils.logger import log_info, log_warning
 from ...workers.leaderboard_worker import LeaderboardWorker
 from ...workers.text_content_worker import TextContentWorker
 from ...workers.text_list_worker import TextListWorker
@@ -68,7 +68,9 @@ class LeaderboardAdapter(QObject):
         （启动时 URL 为空 → container.py 中 else None），此处按需创建。
         """
         primary_url = self._runtime_config.registry.primary_url
+        log_info(f"[LeaderboardAdapter] _init_registry_provider: primary_url={primary_url!r}")
         if not primary_url:
+            log_info("[LeaderboardAdapter] _init_registry_provider: primary_url 为空，跳过")
             return
         try:
             from ...integration.registry_text_provider import RegistryTextProvider
@@ -80,8 +82,9 @@ class LeaderboardAdapter(QObject):
                 cache_dir=registry_cache_dir(),
                 http_client=httpx.Client(timeout=10.0, trust_env=False),
             )
-        except Exception:
-            log_warning("[LeaderboardAdapter] 延迟创建 registry provider 失败")
+            log_info(f"[LeaderboardAdapter] _init_registry_provider: 创建成功，primary_url={primary_url}")
+        except Exception as e:
+            log_warning(f"[LeaderboardAdapter] 延迟创建 registry provider 失败: {e}")
 
     def _set_loading(self, loading: bool) -> None:
         if self._loading != loading:
@@ -155,7 +158,12 @@ class LeaderboardAdapter(QObject):
         # 运行时确保 registry provider 已初始化（应对启动时 URL 为空
         # 后经设置页面配置的情况）
         if self._registry_provider is None:
+            log_info("[LeaderboardAdapter] loadCatalog: _registry_provider 为 None，尝试初始化")
             self._init_registry_provider()
+        if self._registry_provider is not None:
+            log_info("[LeaderboardAdapter] loadCatalog: 使用 registry provider")
+        else:
+            log_info("[LeaderboardAdapter] loadCatalog: registry provider 不可用，fallback 到 server API")
 
         if self._catalog_cache is not None:
             self.catalogLoaded.emit(self._catalog_cache)
