@@ -251,7 +251,9 @@ Item {
                     model: sourceListModel
                     textRole: "label"
                     valueRole: "key"
-                    onCurrentIndexChanged: _applySource(currentIndex)
+                    onCurrentIndexChanged: {
+                        if (!hubMode) _applySource(currentIndex)
+                    }
                 }
 
                 ListView {
