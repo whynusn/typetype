@@ -294,12 +294,12 @@ class RuntimeConfig:
             primary_url=cls._safe_str(
                 r_data.get("primary_url"),
                 "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main",
-                allow_empty=False,
+                allow_empty=True,
             ),
             mirror_url=cls._safe_str(
                 r_data.get("mirror_url"),
                 "https://raw.githubusercontent.com/whynusn/open-typing-texts/main",
-                allow_empty=False,
+                allow_empty=True,
             ),
             cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 3600),
             max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),

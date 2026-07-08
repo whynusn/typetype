@@ -17,12 +17,11 @@ InfoBar {
     id: root
 
     property int duration: 2500  // 自动关闭时间(ms)，-1 表示不自动关闭
-    property bool showCopy: false  // 是否显示复制按钮
 
     timeout: duration
     position: Position.Top
     isDynamic: true
     closable: true
-    showCopy: root.showCopy
+    showCopy: true
     copyText: root.text
 }

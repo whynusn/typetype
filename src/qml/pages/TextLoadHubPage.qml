@@ -24,20 +24,20 @@ FluentPage {
     property string currentSource: initialSource || "jisubei"
 
     // ---- 来源定义 ----
-    readonly property var sourceKeys: ["jisubei", "local", "registry", "trainer", "custom"]
+    readonly property var sourceKeys: ["local", "registry", "trainer", "custom", "jisubei"]
     readonly property var sourceLabels: [
-        qsTr("极速杯"),
         qsTr("本地文库"),
         qsTr("开源文库"),
         qsTr("练单器"),
-        qsTr("自定义")
+        qsTr("自定义"),
+        qsTr("极速杯")
     ]
     readonly property var sourceIcons: [
-        "ic_fluent_document_text_20_regular",
         "ic_fluent_library_20_regular",
         "ic_fluent_text_bullet_list_20_regular",
         "ic_fluent_apps_list_detail_20_regular",
-        "ic_fluent_edit_20_regular"
+        "ic_fluent_edit_20_regular",
+        "ic_fluent_document_text_20_regular"
     ]
 
     readonly property int currentSourceIndex: sourceKeys.indexOf(currentSource)

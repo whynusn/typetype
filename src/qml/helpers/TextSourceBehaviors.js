@@ -198,7 +198,7 @@ function cardCharCount(sourceKey, item, previewContent, customLen) {
 function cardContent(sourceKey, item, previewContent, customText) {
     switch (sourceKey) {
     case "custom":   return (customText || "").substring(0, 200)
-    case "jisubei":  return previewContent || ""
+    case "jisubei":  return (previewContent || "").substring(0, 200)
     case "registry": return (previewContent || "").substring(0, 200)
     case "local":    return (previewContent || "").substring(0, 200)
     case "trainer":  return (previewContent || "").substring(0, 200)
