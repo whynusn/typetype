@@ -227,11 +227,14 @@ class RegistryTextProvider:
             response = self._client.get(url)
             response.raise_for_status()
             if max_bytes > 0 and len(response.content) > max_bytes:
+                log_warning(f"[RegistryTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})")
                 return None
             return response.json()
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            log_warning(f"[RegistryTextProvider] HTTP 请求失败: {url} — {e}")
             return None
-        except (ValueError, TypeError, OSError):
+        except (ValueError, TypeError, OSError) as e:
+            log_warning(f"[RegistryTextProvider] 响应解析失败: {url} — {e}")
             return None
 
     # ------------------------------------------------------------------
