@@ -99,6 +99,7 @@ class Bridge(QObject):
     sliceModeChanged = Signal()
     sliceStatusChanged = Signal(str)
     textContentLoaded = Signal(int, str, str)  # (text_id, content, title)
+    registryEntriesLoaded = Signal(str, list)  # (source_key, entries[{title, content, fetched_at}])
     # 会话状态机信号
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
@@ -1169,11 +1170,20 @@ class Bridge(QObject):
             return
         self._leaderboard_adapter.submit_to_thread_pool(
             fn=lambda: self._leaderboard_adapter.fetch_registry_text(source_key),
-            on_result=lambda result: self.textContentLoaded.emit(
-                result[0], result[1], result[2]
+            on_result=lambda result: self._on_registry_text_loaded(
+                source_key, result
             ),
             on_error=lambda msg: self.textLoadFailed.emit(msg),
         )
+
+    def _on_registry_text_loaded(self, source_key: str, result: tuple) -> None:
+        """处理 registry 文本加载完成，拆分 entries 和主内容。"""
+        text_id, content, title, entries = result[0], result[1], result[2], result[3] if len(result) > 3 else []
+        # 先发射主内容（向后兼容即时跟打）
+        self.textContentLoaded.emit(text_id, content, title)
+        # 如果有 entries，发射 entries 信号让 QML 展示条目列表
+        if entries:
+            self.registryEntriesLoaded.emit(source_key, entries)
 
     @Slot()
     def loadLocalArticles(self) -> None:

@@ -91,10 +91,22 @@ class RegistryTextProvider:
             metadata = data.get("metadata")
             if isinstance(metadata, dict):
                 title = str(metadata.get("title", "") or "")
+        # 提取 entries 数组（OTT v1+ 多条目格式）
+        entries: list[dict] = []
+        raw_entries = data.get("entries", [])
+        if isinstance(raw_entries, list):
+            for e in raw_entries:
+                if isinstance(e, dict) and e.get("content"):
+                    entries.append({
+                        "title": e.get("title", ""),
+                        "content": self._sanitize_content(str(e["content"])),
+                        "fetched_at": e.get("fetched_at", ""),
+                    })
         return FetchedText(
             content=content,
             text_id=data.get("text_id"),
             title=title,
+            entries=entries,
         )
 
     def fetch_text_by_client_id(self, client_text_id: int) -> FetchedText | None:

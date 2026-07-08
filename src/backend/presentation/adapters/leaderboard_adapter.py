@@ -367,13 +367,18 @@ class LeaderboardAdapter(QObject):
         return self._catalog_loading
 
     def fetch_registry_text(self, source_key: str):
-        """从开源文库获取单篇文本内容。返回 (text_id, content, title) 或 raise。"""
+        """从开源文库获取单篇文本内容。返回 (text_id, content, title, entries) 或 raise。"""
         if self._registry_provider is None:
             raise RuntimeError("注册表文本源未配置")
         fetched = self._registry_provider.fetch_text_by_key(source_key)
         if fetched is None:
             raise RuntimeError(f"无法获取注册表文本({source_key})")
-        return (fetched.text_id or 0, fetched.content or "", fetched.title or "")
+        return (
+            fetched.text_id or 0,
+            fetched.content or "",
+            fetched.title or "",
+            fetched.entries or [],
+        )
 
     def submit_to_thread_pool(self, fn, on_result, on_error):
         """将 callable 提交到后台线程池执行，结果回调到主线程。
