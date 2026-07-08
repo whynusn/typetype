@@ -224,6 +224,7 @@ FluentPage {
                         Layout.preferredHeight: 120
 
                         property var trendData: appBridge ? appBridge.typingHistoryDailyTrend : []
+                        property bool hasData: trendData && trendData.length > 0
                         property real maxChars: {
                             var m = 1;
                             for (var i = 0; i < trendData.length; i++)
@@ -235,6 +236,7 @@ FluentPage {
                             anchors.fill: parent
                             anchors.bottomMargin: __xs
                             spacing: __xs
+                            visible: parent.hasData
 
                             Repeater {
                                 model: parent.parent.trendData
@@ -257,6 +259,15 @@ FluentPage {
                                     }
                                 }
                             }
+                        }
+
+                        // 无数据占位
+                        Text {
+                            anchors.centerIn: parent
+                            typography: Typography.Caption
+                            color: Theme.currentTheme.colors.textSecondaryColor
+                            text: qsTr("暂无趋势数据，多打几局后自动生成")
+                            visible: !parent.hasData
                         }
                     }
                 }
