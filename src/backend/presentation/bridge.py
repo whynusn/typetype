@@ -1147,6 +1147,12 @@ class Bridge(QObject):
             self._leaderboard_adapter.loadCatalog()
 
     @Slot()
+    def loadRegistryEntries(self) -> None:
+        """加载开源文库（OTT）聚合的全部条目（扁平列表）。"""
+        if self._leaderboard_adapter:
+            self._leaderboard_adapter.loadRegistryEntries()
+
+    @Slot()
     def refreshCatalog(self) -> None:
         """清除缓存并重新加载文本来源目录。"""
         if self._leaderboard_adapter:

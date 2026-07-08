@@ -112,6 +112,36 @@ class RegistryTextProvider:
     def fetch_text_by_client_id(self, client_text_id: int) -> FetchedText | None:
         return None
 
+    def fetch_all_entries(self) -> list[dict]:
+        """获取 OTT 适配器聚合的全部条目（通过 /api/entries）。
+
+        返回展平的条目列表，每个条目包含 title/content/source_key/source_label/charCount 等字段。
+        自动过滤无效来源，无需先拉 catalog 再逐源请求。
+        """
+        url = f"{self._config.primary_url}/api/entries"
+        data = self._fetch_json(url, max_bytes=self._config.max_content_bytes * 4)
+        if data is None and self._config.mirror_url:
+            mirror = f"{self._config.mirror_url}/api/entries"
+            data = self._fetch_json(mirror, max_bytes=self._config.max_content_bytes * 4)
+        if data is None:
+            return []
+        raw = data.get("entries", [])
+        if not isinstance(raw, list):
+            return []
+        return [
+            {
+                "title": e.get("title", ""),
+                "content": self._sanitize_content(str(e.get("content", ""))),
+                "source_key": str(e.get("source_key", "")),
+                "source_label": str(e.get("source_label", "")),
+                "charCount": int(e.get("charCount", 0) or 0),
+                "fetched_at": str(e.get("fetched_at", "")),
+                "category": str(e.get("category", "")),
+            }
+            for e in raw
+            if isinstance(e, dict) and e.get("content")
+        ]
+
     # ------------------------------------------------------------------
     # 网络获取（含缓存决策）
     # ------------------------------------------------------------------

@@ -262,27 +262,28 @@ function _syncLocal(articles) {
 }
 
 function _syncRegistry(catalog) {
+    // catalog 现在是从 /api/entries 返回的扁平条目列表，
+    // 每个条目有 title/content/source_label/charCount 等字段，content 已预载
     var arr = []
     if (catalog) {
         for (var i = 0; i < catalog.length; i++) {
-            var c = catalog[i]
-            var desc = c.description || ""
-            if (c.charCount > 0) desc += (desc ? " • " : "") + c.charCount + qsTr("字")
+            var e = catalog[i]
+            var subtitle = (e.source_label || "") + " · " + (e.charCount || 0) + qsTr("字")
+            if (e.category) subtitle += " · " + e.category
             arr.push({
-                title: c.label || c.key || "",
-                subtitle: desc,
+                title: e.title || "",
+                subtitle: subtitle,
                 raw: {
-                    sourceKey: c.key,
-                    label: c.label || c.key,
-                    charCount: c.charCount || 0,
-                    description: c.description || "",
-                    category: c.category || "",
-                    updateFreq: c.updateFreq || "",
+                    entryContent: e.content || "",
+                    entryTitle: e.title || "",
+                    sourceKey: e.source_key || "",
+                    sourceLabel: e.source_label || "",
+                    charCount: e.charCount || 0,
                 }
             })
         }
     }
-    var message = arr.length > 0 ? qsTr("已加载 %1 篇开源文库文本").arg(arr.length) : qsTr("暂无开源文库文本")
+    var message = arr.length > 0 ? qsTr("已加载 %1 篇文本").arg(arr.length) : qsTr("暂无开源文库文本")
     return { items: arr, statusMessage: message }
 }
 
@@ -323,8 +324,8 @@ function loadList(bridge, sourceKey) {
         bridge.loadLocalArticles()
         return qsTr("正在扫描本地文库...")
     case "registry":
-        bridge.loadCatalog()
-        return qsTr("正在加载开源文库目录...")
+        bridge.loadRegistryEntries()
+        return qsTr("正在加载开源文库文本列表...")
     case "trainer":
         bridge.loadTrainers()
         return qsTr("正在扫描练单器词库...")

@@ -193,6 +193,40 @@ class LeaderboardAdapter(QObject):
         )
         self._thread_pool.start(worker)
 
+    def loadRegistryEntries(self) -> None:
+        """加载开源文库（OTT）聚合的全部条目（扁平列表，含预载内容）。"""
+        if self._registry_provider is None:
+            self._init_registry_provider()
+        if self._registry_provider is None:
+            self._on_catalog_load_failed("注册表文本源未配置")
+            return
+
+        self._set_catalog_loading(True)
+        self._catalog_request_generation += 1
+        request_generation = self._catalog_request_generation
+
+        def _fetch() -> list[dict]:
+            return self._registry_provider.fetch_all_entries()
+
+        from ...workers.base_worker import BaseWorker
+        worker = BaseWorker(task=_fetch, error_prefix="加载开源文库条目失败")
+        worker.setAutoDelete(True)
+        worker.signals.succeeded.connect(
+            lambda entries, gen=request_generation: self._on_entries_loaded(gen, entries)
+        )
+        worker.signals.failed.connect(
+            lambda msg, gen=request_generation: self._on_catalog_load_failed_gen(gen, msg)
+        )
+        self._submit_workers.add(worker)
+        self._thread_pool.start(worker)
+
+    def _on_entries_loaded(self, request_generation: int, entries: list[dict]) -> None:
+        if request_generation != self._catalog_request_generation:
+            return
+        self._set_catalog_loading(False)
+        self._submit_workers.discard(None)  # cleanup
+        self.catalogLoaded.emit(entries)
+
     def _on_catalog_loaded_gen(
         self, request_generation: int, catalog: list[dict]
     ) -> None:

@@ -829,33 +829,13 @@ FluentPage {
                 root.checkProgress()
             } else if (root.currentSource === "registry" && root.registryLoading) {
                 root.registryLoading = false
-                // entries 会通过 registryEntriesLoaded 信号单独处理，
-                // 此处仅设置预览内容，不自动导航（让用户从条目列表中选择）
                 root.previewContent = content || ""
-                root.statusMessage = qsTr("已载入：%1，可选择具体条目").arg(title || root.itemDisplayTitle())
+                root.statusMessage = qsTr("已载入：%1").arg(title || root.itemDisplayTitle())
                 root.errorMessage = ""
             }
         }
         function onRegistryEntriesLoaded(sourceKey, entries) {
-            if (!root.active || root.currentSource !== "registry") return
-            // 用 entries 替换当前 registry 列表（不再显示 catalog 来源，
-            // 而是显示该来源下的具体文本条目）
-            var items = []
-            for (var i = 0; i < entries.length; i++) {
-                var e = entries[i]
-                items.push({
-                    title: e.title || qsTr("条目 %1").arg(i + 1),
-                    subtitle: qsTr("%1 字").arg((e.content || "").length),
-                    raw: {
-                        sourceKey: sourceKey,
-                        entryTitle: e.title || "",
-                        entryContent: e.content || "",
-                        charCount: (e.content || "").length,
-                    }
-                })
-            }
-            root.registryItems = items
-            root.statusMessage = qsTr("找到 %1 篇文本，请选择一篇").arg(items.length)
+            // 已废弃 — entries 现在通过 onCatalogLoaded 直接加载
         }
         function onTextLoadFailed(message) {
             if (root.currentSource === "registry" && root.registryLoading) {
