@@ -207,15 +207,26 @@ FluentPage {
 
                     RowLayout {
                         Layout.fillWidth: true
+
                         Text {
                             typography: Typography.BodyStrong
-                            text: qsTr("最近 30 天打字量")
+                            text: qsTr("打字趋势")
                         }
+
                         Item { Layout.fillWidth: true }
-                        Text {
-                            typography: Typography.Caption
-                            color: Theme.currentTheme.colors.textSecondaryColor
-                            text: qsTr("字/天")
+
+                        Segmented {
+                            id: trendRangeSelector
+                            currentIndex: 1  // 默认"按天"
+
+                            SegmentedItem { text: qsTr("按小时") }
+                            SegmentedItem { text: qsTr("按天") }
+                            SegmentedItem { text: qsTr("按周") }
+                            SegmentedItem { text: qsTr("按月") }
+
+                            onCurrentIndexChanged: {
+                                // 后续可在此触发对应范围的数据加载
+                            }
                         }
                     }
 
