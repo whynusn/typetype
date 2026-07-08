@@ -175,6 +175,7 @@ FluentPage {
                                 Layout.alignment: Qt.AlignBottom
 
                                 Text {
+                                    Layout.alignment: Qt.AlignBottom
                                     typography: Typography.Title
                                     color: Theme.currentTheme.colors.primaryColor
                                     text: String(modelData.value)
