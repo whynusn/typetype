@@ -142,8 +142,10 @@ class TypingHistoryGateway:
     def _extract_date_key(date_str: Any) -> str | None:
         if not isinstance(date_str, str) or not date_str:
             return None
-        # 支持 "2026-07-06 15:00:00" 与 ISO 格式
+        # 支持 "2026-07-06 15:00:00"（空格）与 "2026-07-06T15:00:00"（ISO）格式
         parts = date_str.split("T")
-        if parts and len(parts[0]) >= 10:
-            return parts[0]
+        raw = parts[0] if parts else date_str
+        # 统一截取前 10 个字符作为日期键
+        if len(raw) >= 10:
+            return raw[:10]
         return None

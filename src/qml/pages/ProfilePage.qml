@@ -312,6 +312,7 @@ FluentPage {
 
                         Text {
                             id: hDate
+                            Layout.fillWidth: true
                             Layout.preferredWidth: 130
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
@@ -319,7 +320,8 @@ FluentPage {
                         }
                         Text {
                             id: hSeg
-                            Layout.preferredWidth: 40
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 30
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
                             text: qsTr("段")
@@ -344,7 +346,8 @@ FluentPage {
                         }
                         Text {
                             id: hChars
-                            Layout.preferredWidth: 60
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 50
                             horizontalAlignment: Text.AlignRight
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
@@ -378,13 +381,15 @@ FluentPage {
                                 spacing: __xs
 
                                 Text {
+                                    Layout.fillWidth: true
                                     Layout.preferredWidth: 130
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                     text: rowData ? (rowData.date ? rowData.date.substring(0, 16) : "") : ""
                                 }
                                 Text {
-                                    Layout.preferredWidth: 40
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 30
                                     typography: Typography.Caption
                                     text: rowData ? (rowData.segmentNo || "") : ""
                                 }
@@ -411,7 +416,8 @@ FluentPage {
                                     text: rowData ? (rowData.keyAccuracy !== undefined && rowData.keyAccuracy !== null ? Number(rowData.keyAccuracy).toFixed(1) + "%" : "-") : "-"
                                 }
                                 Text {
-                                    Layout.preferredWidth: 60
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 50
                                     horizontalAlignment: Text.AlignRight
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
