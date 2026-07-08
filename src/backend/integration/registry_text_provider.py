@@ -230,6 +230,16 @@ class RegistryTextProvider:
         """缓存文件路径。cache_key 为 'index' 或 'content/{source_key}'。"""
         return self._cache_dir / f"{cache_key}.json"
 
+    def clear_cache(self) -> None:
+        """清除所有磁盘缓存（index + 所有 content），URL 变更时调用。"""
+        import shutil
+        try:
+            if self._cache_dir.exists():
+                shutil.rmtree(self._cache_dir)
+                self._cache_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            log_warning("[RegistryTextProvider] 清除缓存失败")
+
     def _read_cache(self, cache_key: str) -> dict | None:
         """读取缓存文件，失败返回 None。"""
         path = self._cache_path(cache_key)

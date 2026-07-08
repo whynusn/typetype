@@ -240,8 +240,13 @@ class LeaderboardAdapter(QObject):
 
     @Slot()
     def refreshCatalog(self) -> None:
-        """清除缓存并重新从服务端加载文本来源目录。"""
+        """清除缓存并重新从服务端加载文本来源目录。
+        同时清除 RegistryTextProvider 的磁盘缓存，确保 URL 变更后不走旧缓存。
+        """
         self._catalog_cache = None
+        # 清除 registry 磁盘缓存
+        if self._registry_provider is not None:
+            self._registry_provider.clear_cache()
         self.loadCatalog()
 
     @Slot(str)
