@@ -4,6 +4,15 @@ import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
 import RinUI
 
+/**
+ * 个人中心 — 遵循设计令牌系统。
+ *
+ * 令牌映射（设计令牌 → RinUI 实际值）:
+ *   间距: xs=4, sm=8, md=16, lg=24, xl=32, xxl=48
+ *   内边距: tight=8, normal=16, loose=24
+ *   字体: caption=12px, body=14px, body-lg=16px,
+ *         title=20px, headline=24px, display=32px
+ */
 FluentPage {
     id: root
     title: qsTr("个人中心")
@@ -11,6 +20,17 @@ FluentPage {
     wrapperWidth: 900
 
     property bool active: false
+
+    // ---- 令牌常量（集中管理，一处修改全局生效）----
+    readonly property int __xs: 4
+    readonly property int __sm: 8
+    readonly property int __md: 16
+    readonly property int __lg: 24
+    readonly property int __xl: 32
+
+    readonly property int __pt: 8  // padding tight
+    readonly property int __pn: 16 // padding normal
+    readonly property int __pl: 24 // padding loose
 
     onActiveChanged: {
         if (active && appBridge) {
@@ -28,20 +48,21 @@ FluentPage {
         ColumnLayout {
             id: columnLayout
             width: parent.width
-            spacing: 16
+            spacing: __lg  // ColumnLayout 顶级间距
 
             // ============== 未登录：登录/注册卡片 ==============
             Frame {
                 Layout.alignment: Qt.AlignCenter
-                Layout.preferredWidth: 360
+                Layout.fillWidth: true
+                Layout.maximumWidth: 480
                 radius: 12
                 visible: appBridge ? !appBridge.loggedin : true
-                padding: 20
+                padding: __pl  // 24px
 
                 ColumnLayout {
                     width: parent.width
                     height: parent.height
-                    spacing: 14
+                    spacing: __md
 
                     IconWidget {
                         Layout.alignment: Qt.AlignHCenter
@@ -59,7 +80,7 @@ FluentPage {
 
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
-                        spacing: 12
+                        spacing: __md
 
                         Button {
                             text: qsTr("登录")
@@ -82,8 +103,8 @@ FluentPage {
 
                 RowLayout {
                     anchors.fill: parent
-                    anchors.margins: 16
-                    spacing: 16
+                    anchors.margins: __pn
+                    spacing: __md
 
                     Image {
                         source: resourceBaseUrl + "images/TypeTypeLogo.png"
@@ -94,7 +115,7 @@ FluentPage {
 
                     ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 2
+                        spacing: __xs
 
                         Text {
                             typography: Typography.Subtitle
@@ -124,8 +145,8 @@ FluentPage {
             // ============== 统计卡片 ==============
             GridLayout {
                 Layout.fillWidth: true
-                columnSpacing: 12
-                rowSpacing: 12
+                columnSpacing: __md
+                rowSpacing: __md
                 columns: root.width >= 760 ? 3 : 2
                 visible: appBridge ? appBridge.loggedin : false
 
@@ -146,12 +167,12 @@ FluentPage {
 
                         ColumnLayout {
                             anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 6
+                            anchors.margins: __pn
+                            spacing: __sm
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 6
+                                spacing: __sm
 
                                 IconWidget {
                                     icon: modelData.icon
@@ -171,7 +192,7 @@ FluentPage {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                spacing: 4
+                                spacing: __xs
                                 Layout.alignment: Qt.AlignBottom
 
                                 Text {
@@ -200,8 +221,8 @@ FluentPage {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 10
+                    anchors.margins: __pn
+                    spacing: __sm
 
                     RowLayout {
                         Layout.fillWidth: true
@@ -233,8 +254,8 @@ FluentPage {
 
                         RowLayout {
                             anchors.fill: parent
-                            anchors.bottomMargin: 2
-                            spacing: 2
+                            anchors.bottomMargin: __xs
+                            spacing: __xs
 
                             Repeater {
                                 model: parent.parent.trendData
@@ -271,8 +292,8 @@ FluentPage {
 
                 ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 14
-                    spacing: 8
+                    anchors.margins: __pn
+                    spacing: __sm
 
                     Text {
                         typography: Typography.BodyStrong
@@ -285,13 +306,14 @@ FluentPage {
                         color: Theme.currentTheme.colors.cardBorderColor
                     }
 
-                    // 表头
+                    // 表头（无需 ellipsis：列宽按典型内容设计）
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 0
+                        spacing: __xs
 
                         Text {
-                            Layout.preferredWidth: 100
+                            Layout.fillWidth: true
+                            Layout.preferredWidth: 120
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
                             text: qsTr("日期")
@@ -317,7 +339,7 @@ FluentPage {
                             text: qsTr("键准")
                         }
                         Text {
-                            Layout.preferredWidth: 50
+                            Layout.preferredWidth: 60
                             horizontalAlignment: Text.AlignRight
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
@@ -346,22 +368,21 @@ FluentPage {
 
                             RowLayout {
                                 anchors.fill: parent
-                                anchors.leftMargin: 4
-                                anchors.rightMargin: 4
-                                spacing: 0
+                                anchors.leftMargin: __xs
+                                anchors.rightMargin: __xs
+                                spacing: __xs
 
                                 Text {
-                                    Layout.preferredWidth: 100
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 120
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                     text: rowData ? (rowData.date ? rowData.date.substring(0, 16) : "") : ""
-                                    elide: Text.ElideRight
                                 }
                                 Text {
                                     Layout.preferredWidth: 40
                                     typography: Typography.Caption
                                     text: rowData ? (rowData.segmentNo || "") : ""
-                                    elide: Text.ElideRight
                                 }
                                 Text {
                                     Layout.fillWidth: true
@@ -369,7 +390,6 @@ FluentPage {
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.primaryColor
                                     text: rowData ? (rowData.speed !== undefined && rowData.speed !== null ? Number(rowData.speed).toFixed(1) : "-") : "-"
-                                    elide: Text.ElideRight
                                 }
                                 Text {
                                     Layout.fillWidth: true
@@ -383,15 +403,13 @@ FluentPage {
                                         return Theme.currentTheme.colors.textColor;
                                     }
                                     text: rowData ? (rowData.keyAccuracy !== undefined && rowData.keyAccuracy !== null ? Number(rowData.keyAccuracy).toFixed(1) + "%" : "-") : "-"
-                                    elide: Text.ElideRight
                                 }
                                 Text {
-                                    Layout.preferredWidth: 50
+                                    Layout.preferredWidth: 60
                                     horizontalAlignment: Text.AlignRight
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                     text: rowData ? (rowData.charNum !== undefined && rowData.charNum !== null ? rowData.charNum + qsTr("字") : "-") : "-"
-                                    elide: Text.ElideRight
                                 }
                             }
 
@@ -439,8 +457,8 @@ FluentPage {
         modal: true
 
         ColumnLayout {
-            width: 300
-            spacing: 12
+            Layout.preferredWidth: 320
+            spacing: __md
 
             TextField {
                 id: usernameField
@@ -466,7 +484,7 @@ FluentPage {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: __sm
 
                 Button {
                     text: qsTr("取消")
@@ -526,8 +544,8 @@ FluentPage {
         modal: true
 
         ColumnLayout {
-            width: 300
-            spacing: 12
+            Layout.preferredWidth: 320
+            spacing: __md
 
             TextField {
                 id: registerUsernameField
@@ -566,7 +584,7 @@ FluentPage {
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: __sm
 
                 Button {
                     text: qsTr("取消")
