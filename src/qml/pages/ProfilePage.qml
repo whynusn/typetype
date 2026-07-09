@@ -25,57 +25,10 @@ FluentPage {
     ColumnLayout {
         spacing: __lg
 
-            // ============== 未登录卡片 ==============
-            Frame {
-                Layout.alignment: Qt.AlignCenter
-                Layout.fillWidth: true
-                Layout.maximumWidth: 480
-                radius: 12
-                visible: appBridge ? !appBridge.loggedin : true
-                padding: __lg
-
-                ColumnLayout {
-                    anchors.fill: parent
-                    spacing: __md
-
-                    IconWidget {
-                        Layout.alignment: Qt.AlignHCenter
-                        icon: "ic_fluent_person_20_filled"
-                        Layout.preferredWidth: 36
-                        Layout.preferredHeight: 36
-                        color: Theme.currentTheme.colors.primaryColor
-                    }
-
-                    Text {
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.fillWidth: true
-                        typography: Typography.BodyStrong
-                        text: qsTr("登录后可查看个人成绩与统计")
-                        horizontalAlignment: Text.AlignHCenter
-                    }
-
-                    RowLayout {
-                        Layout.alignment: Qt.AlignHCenter
-                        spacing: __md
-
-                        Button {
-                            text: qsTr("登录")
-                            highlighted: true
-                            onClicked: loginDialog.open()
-                        }
-                        Button {
-                            text: qsTr("注册")
-                            onClicked: registerDialog.open()
-                        }
-                    }
-                }
-            }
-
-            // ============== 已登录：用户信息 ==============
+            // ============== 用户信息（登录态/未登录态合一） ==============
             Frame {
                 Layout.fillWidth: true
                 radius: 12
-                visible: appBridge ? appBridge.loggedin : false
                 padding: __md
 
                 RowLayout {
@@ -97,14 +50,18 @@ FluentPage {
 
                         Text {
                             typography: Typography.Subtitle
-                            text: appBridge ? (appBridge.userNickname || qsTr("昵称")) : qsTr("昵称")
+                            text: appBridge && appBridge.loggedin
+                                  ? (appBridge.userNickname || qsTr("昵称"))
+                                  : qsTr("未登录")
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
                         Text {
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
-                            text: "@" + (appBridge ? (appBridge.currentUser || qsTr("用户名")) : qsTr("用户名"))
+                            text: appBridge && appBridge.loggedin
+                                  ? "@" + (appBridge.currentUser || qsTr("用户名"))
+                                  : qsTr("登录后可查看个人统计与历史记录")
                             elide: Text.ElideRight
                             Layout.fillWidth: true
                         }
@@ -115,12 +72,18 @@ FluentPage {
                         typography: Typography.BodyStrong
                         color: Theme.currentTheme.colors.primaryColor
                         text: qsTr("%1 场").arg(appBridge ? appBridge.typingHistoryCount : 0)
-                        visible: appBridge ? appBridge.typingHistoryCount > 0 : false
+                        visible: appBridge && appBridge.loggedin && appBridge.typingHistoryCount > 0
                     }
 
                     Button {
-                        text: qsTr("退出登录")
-                        onClicked: { if (appBridge) appBridge.logout() }
+                        text: appBridge && appBridge.loggedin ? qsTr("退出登录") : qsTr("登录")
+                        highlighted: appBridge && appBridge.loggedin ? false : true
+                        onClicked: {
+                            if (appBridge && appBridge.loggedin)
+                                appBridge.logout()
+                            else
+                                loginDialog.open()
+                        }
                     }
                 }
             }
@@ -131,7 +94,6 @@ FluentPage {
                 columnSpacing: __md
                 rowSpacing: __md
                 columns: root.width >= 760 ? 3 : 2
-                visible: appBridge ? appBridge.loggedin : false
 
                 Repeater {
                     model: [
@@ -198,7 +160,6 @@ FluentPage {
             Frame {
                 Layout.fillWidth: true
                 radius: 8
-                visible: appBridge ? appBridge.loggedin : false
                 padding: __md
 
                 ColumnLayout {
@@ -288,7 +249,6 @@ FluentPage {
             Frame {
                 Layout.fillWidth: true
                 radius: 8
-                visible: appBridge ? appBridge.loggedin : false
                 padding: __md
 
                 ColumnLayout {
