@@ -290,17 +290,15 @@ class RuntimeConfig:
         r_data = data.get("registry", {})
         if not isinstance(r_data, dict):
             r_data = {}
+        raw_primary = r_data.get("primary_url")
+        raw_mirror = r_data.get("mirror_url")
         registry = RegistryConfig(
-            primary_url=cls._safe_str(
-                r_data.get("primary_url"),
-                "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main",
-                allow_empty=True,
-            ),
-            mirror_url=cls._safe_str(
-                r_data.get("mirror_url"),
-                "https://raw.githubusercontent.com/whynusn/open-typing-texts/main",
-                allow_empty=True,
-            ),
+            primary_url=cls._safe_str(raw_primary, "", allow_empty=True)
+            if isinstance(raw_primary, str)
+            else "",
+            mirror_url=cls._safe_str(raw_mirror, "", allow_empty=True)
+            if isinstance(raw_mirror, str)
+            else "",
             cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 3600),
             max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),
         )
