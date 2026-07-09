@@ -71,7 +71,8 @@ def test_text_load_hub_uses_expected_bridge_contract():
     assert "trainerLoading" in refs and "trainerLoading" in BRIDGE_PROPERTIES
     assert "loadTextList" in refs and "loadTextList" in BRIDGE_SLOTS
     assert "loadLocalArticles" in refs and "loadLocalArticles" in BRIDGE_SLOTS
-    assert "loadCatalog" in refs and "loadCatalog" in BRIDGE_SLOTS
+    assert "loadCatalog" in BRIDGE_SLOTS or "loadRegistryEntries" in BRIDGE_SLOTS
+    assert "loadRegistryEntries" in refs
     assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
     assert "loadLibraryText" in refs and "loadLibraryText" in BRIDGE_SLOTS
     assert (

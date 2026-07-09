@@ -97,11 +97,13 @@ class RegistryTextProvider:
         if isinstance(raw_entries, list):
             for e in raw_entries:
                 if isinstance(e, dict) and e.get("content"):
-                    entries.append({
-                        "title": e.get("title", ""),
-                        "content": self._sanitize_content(str(e["content"])),
-                        "fetched_at": e.get("fetched_at", ""),
-                    })
+                    entries.append(
+                        {
+                            "title": e.get("title", ""),
+                            "content": self._sanitize_content(str(e["content"])),
+                            "fetched_at": e.get("fetched_at", ""),
+                        }
+                    )
         return FetchedText(
             content=content,
             text_id=data.get("text_id"),
@@ -122,7 +124,9 @@ class RegistryTextProvider:
         data = self._fetch_json(url, max_bytes=self._config.max_content_bytes * 4)
         if data is None and self._config.mirror_url:
             mirror = f"{self._config.mirror_url}/api/entries"
-            data = self._fetch_json(mirror, max_bytes=self._config.max_content_bytes * 4)
+            data = self._fetch_json(
+                mirror, max_bytes=self._config.max_content_bytes * 4
+            )
         if data is None:
             return []
         raw = data.get("entries", [])
@@ -257,7 +261,9 @@ class RegistryTextProvider:
             response = self._client.get(url)
             response.raise_for_status()
             if max_bytes > 0 and len(response.content) > max_bytes:
-                log_warning(f"[RegistryTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})")
+                log_warning(
+                    f"[RegistryTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})"
+                )
                 return None
             return response.json()
         except httpx.HTTPError as e:
@@ -278,6 +284,7 @@ class RegistryTextProvider:
     def clear_cache(self) -> None:
         """清除所有磁盘缓存（index + 所有 content），URL 变更时调用。"""
         import shutil
+
         try:
             if self._cache_dir.exists():
                 shutil.rmtree(self._cache_dir)

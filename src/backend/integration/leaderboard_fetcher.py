@@ -51,7 +51,8 @@ class LeaderboardFetcher:
             try:
                 items = self._remote_text_provider.get_catalog()
                 return [
-                    {"sourceKey": item.source_key, "label": item.label} for item in items
+                    {"sourceKey": item.source_key, "label": item.label}
+                    for item in items
                 ]
             except Exception:
                 self._check_network_error()

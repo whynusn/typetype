@@ -68,9 +68,13 @@ class LeaderboardAdapter(QObject):
         （启动时 URL 为空 → container.py 中 else None），此处按需创建。
         """
         primary_url = self._runtime_config.registry.primary_url
-        log_info(f"[LeaderboardAdapter] _init_registry_provider: primary_url={primary_url!r}")
+        log_info(
+            f"[LeaderboardAdapter] _init_registry_provider: primary_url={primary_url!r}"
+        )
         if not primary_url:
-            log_info("[LeaderboardAdapter] _init_registry_provider: primary_url 为空，跳过")
+            log_info(
+                "[LeaderboardAdapter] _init_registry_provider: primary_url 为空，跳过"
+            )
             return
         try:
             from ...integration.registry_text_provider import RegistryTextProvider
@@ -82,7 +86,9 @@ class LeaderboardAdapter(QObject):
                 cache_dir=registry_cache_dir(),
                 http_client=httpx.Client(timeout=10.0, trust_env=False),
             )
-            log_info(f"[LeaderboardAdapter] _init_registry_provider: 创建成功，primary_url={primary_url}")
+            log_info(
+                f"[LeaderboardAdapter] _init_registry_provider: 创建成功，primary_url={primary_url}"
+            )
         except Exception as e:
             log_warning(f"[LeaderboardAdapter] 延迟创建 registry provider 失败: {e}")
 
@@ -158,12 +164,16 @@ class LeaderboardAdapter(QObject):
         # 运行时确保 registry provider 已初始化（应对启动时 URL 为空
         # 后经设置页面配置的情况）
         if self._registry_provider is None:
-            log_info("[LeaderboardAdapter] loadCatalog: _registry_provider 为 None，尝试初始化")
+            log_info(
+                "[LeaderboardAdapter] loadCatalog: _registry_provider 为 None，尝试初始化"
+            )
             self._init_registry_provider()
         if self._registry_provider is not None:
             log_info("[LeaderboardAdapter] loadCatalog: 使用 registry provider")
         else:
-            log_info("[LeaderboardAdapter] loadCatalog: registry provider 不可用，fallback 到 server API")
+            log_info(
+                "[LeaderboardAdapter] loadCatalog: registry provider 不可用，fallback 到 server API"
+            )
 
         if self._catalog_cache is not None:
             self.catalogLoaded.emit(self._catalog_cache)
@@ -182,9 +192,7 @@ class LeaderboardAdapter(QObject):
             registry_provider=self._registry_provider,
         )
         worker.signals.succeeded.connect(
-            lambda data, gen=request_generation: self._on_catalog_loaded_gen(
-                gen, data
-            )
+            lambda data, gen=request_generation: self._on_catalog_loaded_gen(gen, data)
         )
         worker.signals.failed.connect(
             lambda msg, gen=request_generation: self._on_catalog_load_failed_gen(
@@ -209,13 +217,18 @@ class LeaderboardAdapter(QObject):
             return self._registry_provider.fetch_all_entries()
 
         from ...workers.base_worker import BaseWorker
+
         worker = BaseWorker(task=_fetch, error_prefix="加载开源文库条目失败")
         worker.setAutoDelete(True)
         worker.signals.succeeded.connect(
-            lambda entries, gen=request_generation: self._on_entries_loaded(gen, entries)
+            lambda entries, gen=request_generation: self._on_entries_loaded(
+                gen, entries
+            )
         )
         worker.signals.failed.connect(
-            lambda msg, gen=request_generation: self._on_catalog_load_failed_gen(gen, msg)
+            lambda msg, gen=request_generation: self._on_catalog_load_failed_gen(
+                gen, msg
+            )
         )
         self._submit_workers.add(worker)
         self._thread_pool.start(worker)
@@ -369,14 +382,12 @@ class LeaderboardAdapter(QObject):
         )
         worker.setAutoDelete(True)
         worker.signals.succeeded.connect(
-            lambda data, gen=request_generation, tid=text_id: self._on_text_content_loaded(
-                gen, tid, data, callback
+            lambda data, gen=request_generation, tid=text_id: (
+                self._on_text_content_loaded(gen, tid, data, callback)
             )
         )
         worker.signals.failed.connect(
-            lambda msg, gen=request_generation: self._on_text_content_failed(
-                gen, msg
-            )
+            lambda msg, gen=request_generation: self._on_text_content_failed(gen, msg)
         )
         self._preview_active_worker = worker
         self._thread_pool.start(worker)
@@ -396,9 +407,7 @@ class LeaderboardAdapter(QObject):
     def _on_text_content_failed(self, request_generation: int, message: str) -> None:
         if request_generation != self._preview_request_generation:
             return
-        log_warning(
-            f"[LeaderboardAdapter] 获取文本内容失败: error={message}"
-        )
+        log_warning(f"[LeaderboardAdapter] 获取文本内容失败: error={message}")
 
     @property
     def text_list_loading(self) -> bool:
@@ -424,7 +433,7 @@ class LeaderboardAdapter(QObject):
 
     def submit_to_thread_pool(self, fn, on_result, on_error):
         """将 callable 提交到后台线程池执行，结果回调到主线程。
-        
+
         保持对 worker 的引用直到完成，防止 worker 的 QObject 在
         跨线程信号传递过程中被 Python GC 回收导致 C++ 层内存损坏。
         """

@@ -7,8 +7,6 @@ ProfilePage 精确布局验证 v2 — 逐子容器迭代 + 同级相对位置 + 
   3. 每层检查：同级间距、是否重叠、父边界是否溢出
   4. 输出每个容器的绝对坐标和边界状态
 """
-import json
-import math
 
 # ==============================
 # 设计令牌
@@ -16,13 +14,13 @@ import math
 SPACING = {"xs": 4, "sm": 8, "md": 16, "lg": 24, "xl": 32}
 PADDING = {"none": 0, "tight": 8, "normal": 16, "loose": 24}
 FONTS = {
-    "caption":      {"size": 12, "lh": 18, "ch": 12, "en": 7},
-    "body":         {"size": 14, "lh": 21, "ch": 14, "en": 8},
-    "body-strong":  {"size": 14, "lh": 21, "ch": 14, "en": 8},
-    "body-lg":      {"size": 16, "lh": 24, "ch": 16, "en": 9},
-    "subtitle":     {"size": 20, "lh": 30, "ch": 20, "en": 11},
-    "title":        {"size": 28, "lh": 42, "ch": 28, "en": 16},
-    "headline":     {"size": 24, "lh": 36, "ch": 24, "en": 13},
+    "caption": {"size": 12, "lh": 18, "ch": 12, "en": 7},
+    "body": {"size": 14, "lh": 21, "ch": 14, "en": 8},
+    "body-strong": {"size": 14, "lh": 21, "ch": 14, "en": 8},
+    "body-lg": {"size": 16, "lh": 24, "ch": 16, "en": 9},
+    "subtitle": {"size": 20, "lh": 30, "ch": 20, "en": 11},
+    "title": {"size": 28, "lh": 42, "ch": 28, "en": 16},
+    "headline": {"size": 24, "lh": 36, "ch": 24, "en": 13},
 }
 
 
@@ -31,11 +29,11 @@ def text_size(text: str, font: str, max_w: float = None):
     f = FONTS[font]
     tw = 0
     for ch in text:
-        if '\u4e00' <= ch <= '\u9fff' or '\u3000' <= ch <= '\u303f':
+        if "\u4e00" <= ch <= "\u9fff" or "\u3000" <= ch <= "\u303f":
             tw += f["ch"]
         elif ch.isascii():
             tw += f["en"]
-        elif ch == ' ':
+        elif ch == " ":
             tw += f["size"] * 0.3
         else:
             tw += f["ch"]
@@ -56,162 +54,247 @@ def text_size(text: str, font: str, max_w: float = None):
 SPEC = {
     "root": {
         "type": "Column",
-        "gap": "lg",            # 24
-        "padding": "none",      # 0 — Flickable 内 ColumnLayout 无 padding
+        "gap": "lg",  # 24
+        "padding": "none",  # 0 — Flickable 内 ColumnLayout 无 padding
         "desc": "顶级 ColumnLayout",
-        "children": ["login_card", "user_info", "stat_grid",
-                     "trend_card", "history_card"]
+        "children": [
+            "login_card",
+            "user_info",
+            "stat_grid",
+            "trend_card",
+            "history_card",
+        ],
     },
     # ---- 未登录卡片 ----
     "login_card": {
         "type": "Card",
-        "padding": "loose",     # 24
-        "child_gap": "md",      # 16 — ColumnLayout spacing
+        "padding": "loose",  # 24
+        "child_gap": "md",  # 16 — ColumnLayout spacing
         "align": "center",
         "maxWidth": 480,
         "desc": "登录提示卡片 Frame",
-        "children": ["login_icon", "login_text", "login_buttons"]
+        "children": ["login_icon", "login_text", "login_buttons"],
     },
-    "login_icon": {
-        "type": "Fixed",
-        "w": 36, "h": 36,
-        "desc": "头像图标"
-    },
+    "login_icon": {"type": "Fixed", "w": 36, "h": 36, "desc": "头像图标"},
     "login_text": {
         "type": "Text",
         "font": "body-strong",
         "text": "登录后可查看个人成绩与统计",
-        "desc": "提示文字"
+        "desc": "提示文字",
     },
     "login_buttons": {
         "type": "Row",
-        "gap": "md",            # 16
+        "gap": "md",  # 16
         "padding": "none",
         "desc": "登录/注册按钮行",
-        "children": ["btn_login", "btn_register"]
+        "children": ["btn_login", "btn_register"],
     },
     "btn_login": {"type": "Fixed", "w": 80, "h": 32, "desc": "登录按钮"},
     "btn_register": {"type": "Fixed", "w": 80, "h": 32, "desc": "注册按钮"},
-
     # ---- 用户信息卡片 ----
     "user_info": {
         "type": "Card",
-        "padding": "normal",    # 16
+        "padding": "normal",  # 16
         "desc": "用户信息 Frame",
-        "children": ["user_row"]
+        "children": ["user_row"],
     },
     "user_row": {
         "type": "Row",
-        "gap": "md",           # 16
+        "gap": "md",  # 16
         "padding": "none",
         "desc": "头像/昵称/场次/退出 RowLayout",
-        "children": ["avatar", "nickname_col", "match_count", "btn_logout"]
+        "children": ["avatar", "nickname_col", "match_count", "btn_logout"],
     },
     "avatar": {"type": "Fixed", "w": 56, "h": 56, "desc": "头像"},
     "nickname_col": {
         "type": "Column",
-        "gap": "xs",           # 4
+        "gap": "xs",  # 4
         "padding": "none",
         "desc": "昵称+用户名 Column",
-        "children": ["nickname", "username"]
+        "children": ["nickname", "username"],
     },
-    "nickname": {"type": "Text", "font": "subtitle", "text": "八九寺真宵",
-                 "desc": "用户昵称"},
-    "username": {"type": "Text", "font": "caption", "text": "@username",
-                 "desc": "用户名"},
-    "match_count": {"type": "Text", "font": "body-strong", "text": "99999 场",
-                    "desc": "历史场次"},
+    "nickname": {
+        "type": "Text",
+        "font": "subtitle",
+        "text": "八九寺真宵",
+        "desc": "用户昵称",
+    },
+    "username": {
+        "type": "Text",
+        "font": "caption",
+        "text": "@username",
+        "desc": "用户名",
+    },
+    "match_count": {
+        "type": "Text",
+        "font": "body-strong",
+        "text": "99999 场",
+        "desc": "历史场次",
+    },
     "btn_logout": {"type": "Fixed", "w": 80, "h": 32, "desc": "退出按钮"},
-
     # ---- 统计卡片网格 (取 1 张代表性卡片, 实际在 GridLayout 中重复) ----
     "stat_grid": {
         "type": "Grid",
         "columns": 3,
         "gap": "md",
         "desc": "统计卡片 GridLayout (3列)",
-        "children": ["stat_1", "stat_2", "stat_3", "stat_4", "stat_5", "stat_6"]
+        "children": ["stat_1", "stat_2", "stat_3", "stat_4", "stat_5", "stat_6"],
     },
     # 用"平均速度"作为最宽场景（"999.9" + "字/分"）
-    "stat_1": {"type": "StatCard", "label": "今日字数", "value": "99999", "unit": "字",
-               "desc": "统计卡片(今日字数)"},
-    "stat_2": {"type": "StatCard", "label": "总字数", "value": "99999", "unit": "字",
-               "desc": "统计卡片(总字数)"},
-    "stat_3": {"type": "StatCard", "label": "平均速度", "value": "999.9", "unit": "字/分",
-               "desc": "统计卡片(平均速度)"},
-    "stat_4": {"type": "StatCard", "label": "最高速度", "value": "999.9", "unit": "字/分",
-               "desc": "统计卡片(最高速度)"},
-    "stat_5": {"type": "StatCard", "label": "平均键准", "value": "99.9", "unit": "%",
-               "desc": "统计卡片(平均键准)"},
-    "stat_6": {"type": "StatCard", "label": "总场次", "value": "99999", "unit": "场",
-               "desc": "统计卡片(总场次)"},
-
+    "stat_1": {
+        "type": "StatCard",
+        "label": "今日字数",
+        "value": "99999",
+        "unit": "字",
+        "desc": "统计卡片(今日字数)",
+    },
+    "stat_2": {
+        "type": "StatCard",
+        "label": "总字数",
+        "value": "99999",
+        "unit": "字",
+        "desc": "统计卡片(总字数)",
+    },
+    "stat_3": {
+        "type": "StatCard",
+        "label": "平均速度",
+        "value": "999.9",
+        "unit": "字/分",
+        "desc": "统计卡片(平均速度)",
+    },
+    "stat_4": {
+        "type": "StatCard",
+        "label": "最高速度",
+        "value": "999.9",
+        "unit": "字/分",
+        "desc": "统计卡片(最高速度)",
+    },
+    "stat_5": {
+        "type": "StatCard",
+        "label": "平均键准",
+        "value": "99.9",
+        "unit": "%",
+        "desc": "统计卡片(平均键准)",
+    },
+    "stat_6": {
+        "type": "StatCard",
+        "label": "总场次",
+        "value": "99999",
+        "unit": "场",
+        "desc": "统计卡片(总场次)",
+    },
     # ---- 每日趋势卡片 ----
     "trend_card": {
         "type": "Card",
         "padding": "normal",
         "desc": "每日趋势 Frame",
-        "children": ["trend_col"]
+        "children": ["trend_col"],
     },
     "trend_col": {
         "type": "Column",
         "gap": "sm",
         "padding": "none",
         "desc": "趋势内 Column",
-        "children": ["trend_header", "trend_chart"]
+        "children": ["trend_header", "trend_chart"],
     },
     "trend_header": {
         "type": "Row",
         "gap": "md",
         "padding": "none",
         "desc": "趋势标题行 (居中用 Item spacer)",
-        "children": ["trend_title", "trend_spacer", "trend_unit"]
+        "children": ["trend_title", "trend_spacer", "trend_unit"],
     },
-    "trend_title": {"type": "Text", "font": "body-strong", "text": "最近 30 天打字量",
-                    "desc": "趋势标题"},
+    "trend_title": {
+        "type": "Text",
+        "font": "body-strong",
+        "text": "最近 30 天打字量",
+        "desc": "趋势标题",
+    },
     "trend_spacer": {"type": "Flex", "desc": "弹性间隔 Item"},
-    "trend_unit": {"type": "Text", "font": "caption", "text": "字/天",
-                   "desc": "趋势单位"},
+    "trend_unit": {
+        "type": "Text",
+        "font": "caption",
+        "text": "字/天",
+        "desc": "趋势单位",
+    },
     "trend_chart": {"type": "Fixed", "w": 0, "h": 120, "desc": "柱状图区域"},
-
     # ---- 最近成绩卡片 ----
     "history_card": {
         "type": "Card",
         "padding": "normal",
         "desc": "最近成绩 Frame",
-        "children": ["history_col"]
+        "children": ["history_col"],
     },
     "history_col": {
         "type": "Column",
         "gap": "sm",
         "padding": "none",
         "desc": "成绩内 Column",
-        "children": ["history_title", "history_divider", "history_header",
-                     "history_list", "history_empty"]
+        "children": [
+            "history_title",
+            "history_divider",
+            "history_header",
+            "history_list",
+            "history_empty",
+        ],
     },
-    "history_title": {"type": "Text", "font": "body-strong", "text": "最近成绩",
-                      "desc": "成绩标题"},
+    "history_title": {
+        "type": "Text",
+        "font": "body-strong",
+        "text": "最近成绩",
+        "desc": "成绩标题",
+    },
     "history_divider": {"type": "Fixed", "w": 0, "h": 1, "desc": "分隔线"},
     "history_header": {
         "type": "Row",
         "gap": "xs",
         "padding": "none",
         "desc": "成绩表头 Row",
-        "children": ["h_date", "h_seg", "h_speed", "h_acc", "h_chars"]
+        "children": ["h_date", "h_seg", "h_speed", "h_acc", "h_chars"],
     },
-    "h_date": {"type": "Text", "font": "caption", "text": "日期", "fillW": 120,
-               "desc": "表头-日期"},
-    "h_seg": {"type": "Text", "font": "caption", "text": "段", "fillW": 40,
-              "desc": "表头-段"},
-    "h_speed": {"type": "Text", "font": "caption", "text": "速度", "align": "right",
-                "desc": "表头-速度"},
-    "h_acc": {"type": "Text", "font": "caption", "text": "键准", "align": "right",
-              "desc": "表头-键准"},
-    "h_chars": {"type": "Text", "font": "caption", "text": "字数", "fillW": 60,
-                "align": "right", "desc": "表头-字数"},
+    "h_date": {
+        "type": "Text",
+        "font": "caption",
+        "text": "日期",
+        "fillW": 120,
+        "desc": "表头-日期",
+    },
+    "h_seg": {
+        "type": "Text",
+        "font": "caption",
+        "text": "段",
+        "fillW": 40,
+        "desc": "表头-段",
+    },
+    "h_speed": {
+        "type": "Text",
+        "font": "caption",
+        "text": "速度",
+        "align": "right",
+        "desc": "表头-速度",
+    },
+    "h_acc": {
+        "type": "Text",
+        "font": "caption",
+        "text": "键准",
+        "align": "right",
+        "desc": "表头-键准",
+    },
+    "h_chars": {
+        "type": "Text",
+        "font": "caption",
+        "text": "字数",
+        "fillW": 60,
+        "align": "right",
+        "desc": "表头-字数",
+    },
     "history_list": {"type": "Fixed", "w": 0, "h": 240, "desc": "成绩列表 ListView"},
-    "history_empty": {"type": "Text", "font": "caption",
-                      "text": "暂无历史记录，打完一局后会自动记录",
-                      "desc": "空状态提示"},
+    "history_empty": {
+        "type": "Text",
+        "font": "caption",
+        "text": "暂无历史记录，打完一局后会自动记录",
+        "desc": "空状态提示",
+    },
 }
 
 # StatCard 模板展开
@@ -220,8 +303,9 @@ _STATCARD_TEMPLATE = {
     "gap": "sm",
     "padding": "normal",
     "desc_template": "统计卡片({label})",
-    "children": ["stat_label_row", "stat_value_row"]
+    "children": ["stat_label_row", "stat_value_row"],
 }
+
 
 def build_spec():
     """完整展开 StatCard 模板"""
@@ -233,28 +317,44 @@ def build_spec():
         lid = f"{key}_label"
         vid = f"{key}_value"
         s[lid] = {
-            "type": "Row", "gap": "sm", "padding": "none",
+            "type": "Row",
+            "gap": "sm",
+            "padding": "none",
             "desc": f"{label}标签行",
-            "children": [f"{key}_icon", f"{key}_label_text"]
+            "children": [f"{key}_icon", f"{key}_label_text"],
         }
         s[f"{key}_icon"] = {"type": "Fixed", "w": 16, "h": 16, "desc": f"{label}图标"}
-        s[f"{key}_label_text"] = {"type": "Text", "font": "caption", "text": label,
-                                   "desc": f"{label}标签"}
-        s[vid] = {
-            "type": "Row", "gap": "xs", "padding": "none",
-            "desc": f"{label}数值行",
-            "children": [f"{key}_val", f"{key}_unit"]
+        s[f"{key}_label_text"] = {
+            "type": "Text",
+            "font": "caption",
+            "text": label,
+            "desc": f"{label}标签",
         }
-        s[f"{key}_val"] = {"type": "Text", "font": "title", "text": value,
-                            "desc": f"{label}数值"}
-        s[f"{key}_unit"] = {"type": "Text", "font": "caption", "text": unit,
-                             "desc": f"{label}单位"}
+        s[vid] = {
+            "type": "Row",
+            "gap": "xs",
+            "padding": "none",
+            "desc": f"{label}数值行",
+            "children": [f"{key}_val", f"{key}_unit"],
+        }
+        s[f"{key}_val"] = {
+            "type": "Text",
+            "font": "title",
+            "text": value,
+            "desc": f"{label}数值",
+        }
+        s[f"{key}_unit"] = {
+            "type": "Text",
+            "font": "caption",
+            "text": unit,
+            "desc": f"{label}单位",
+        }
         s[key] = {
             "type": "Column",
             "gap": "sm",
             "padding": "normal",
             "desc": f"统计卡片({label})",
-            "children": [lid, vid]
+            "children": [lid, vid],
         }
     return s
 
@@ -264,6 +364,7 @@ def build_spec():
 # ==============================
 class LayoutResult:
     """单个组件的计算结果"""
+
     def __init__(self, id, w, h, x=0, y=0):
         self.id = id
         self.w = w
@@ -279,9 +380,9 @@ class LayoutResult:
         return f"{self.id} @({self.x},{self.y}) {self.w}×{self.h}"
 
 
-def validate(element_id: str, spec: dict,
-             parent_w: float, parent_h: float,
-             depth: int = 0) -> LayoutResult:
+def validate(
+    element_id: str, spec: dict, parent_w: float, parent_h: float, depth: int = 0
+) -> LayoutResult:
     """
     递归验证一个组件，自底向上。
     parent_w/h: 父容器可用空间（已扣除 padding）。
@@ -289,7 +390,6 @@ def validate(element_id: str, spec: dict,
     """
     node = spec[element_id]
     t = node["type"]
-    indent = "  " * depth
 
     # ---- 叶子节点 ----
     if t == "Text":
@@ -301,7 +401,9 @@ def validate(element_id: str, spec: dict,
         r = LayoutResult(element_id, w, h)
         # 溢出检查
         if w > parent_w:
-            r.overflow = f"text宽度{w:.0f} > 可用{parent_w:.0f}, 溢出{w-parent_w:.0f}px"
+            r.overflow = (
+                f"text宽度{w:.0f} > 可用{parent_w:.0f}, 溢出{w - parent_w:.0f}px"
+            )
         if h > parent_h:
             r.overflow = r.overflow or f"text高度{h:.0f} > 可用{parent_h:.0f}"
         return r
@@ -414,9 +516,9 @@ def validate(element_id: str, spec: dict,
         elif len(child_results) == 1:
             child_results[0].x = pad
             child_results[0].y = pad
-            r = LayoutResult(element_id,
-                             child_results[0].w + 2 * pad,
-                             child_results[0].h + 2 * pad)
+            r = LayoutResult(
+                element_id, child_results[0].w + 2 * pad, child_results[0].h + 2 * pad
+            )
         else:
             # 多子作为 Column
             y = pad
@@ -433,9 +535,7 @@ def validate(element_id: str, spec: dict,
                 max_w = max(max_w, cr.w)
                 total_h += cr.h
             total_h += inner_gap * max(0, len(child_results) - 1)
-            r = LayoutResult(element_id,
-                             max_w + 2 * pad,
-                             total_h + 2 * pad)
+            r = LayoutResult(element_id, max_w + 2 * pad, total_h + 2 * pad)
 
     elif t == "Grid":
         cols = node.get("columns", 2)
@@ -473,13 +573,14 @@ def validate(element_id: str, spec: dict,
 
     # ---- 溢出检查 ----
     if r.w > parent_w:
-        r.overflow = (f"容器总宽{r.w:.0f} > 父可用{parent_w:.0f}, "
-                      f"溢出{r.w - parent_w:.0f}px")
+        r.overflow = (
+            f"容器总宽{r.w:.0f} > 父可用{parent_w:.0f}, 溢出{r.w - parent_w:.0f}px"
+        )
     if r.h > parent_h:
-        r.overflow = (r.overflow or "") + (
-            f"容器总高{r.h:.0f} > 父可用{parent_h:.0f}"
-        ) if r.overflow else (
-            f"容器总高{r.h:.0f} > 父可用{parent_h:.0f}"
+        r.overflow = (
+            (r.overflow or "") + (f"容器总高{r.h:.0f} > 父可用{parent_h:.0f}")
+            if r.overflow
+            else (f"容器总高{r.h:.0f} > 父可用{parent_h:.0f}")
         )
 
     # ---- 同级相对位置检查 ----
@@ -495,14 +596,16 @@ def validate(element_id: str, spec: dict,
                         overlap = a_right - b.x
                         r.sibling_overlap = (
                             f"兄弟重叠: {a.id}(右{a_right:.0f}) → {b.id}(左{b.x:.0f}), "
-                            f"重叠{overlap:.0f}px")
+                            f"重叠{overlap:.0f}px"
+                        )
                 elif t in ("Column",):
                     a_bot = a.y + a.h
                     if a_bot > b.y + 0.5:
                         overlap = a_bot - b.y
                         r.sibling_overlap = (
                             f"兄弟重叠: {a.id}(底{a_bot:.0f}) → {b.id}(顶{b.y:.0f}), "
-                            f"重叠{overlap:.0f}px")
+                            f"重叠{overlap:.0f}px"
+                        )
                 elif t == "Grid":
                     # Grid 中，只检查真正在同一 x 范围重叠的卡片
                     a_right = a.x + a.w
@@ -516,13 +619,15 @@ def validate(element_id: str, spec: dict,
                             f"Grid重叠: {a.id}({a.x:.0f},{a.y:.0f}"
                             f"→{a_right:.0f},{a_bot:.0f}) "
                             f"vs {b.id}({b.x:.0f},{b.y:.0f}"
-                            f"→{b_right:.0f},{b_bot:.0f})")
+                            f"→{b_right:.0f},{b_bot:.0f})"
+                        )
 
     return r
 
 
-def print_tree(r: LayoutResult, depth: int = 0, parent_w: float = None,
-               parent_h: float = None):
+def print_tree(
+    r: LayoutResult, depth: int = 0, parent_w: float = None, parent_h: float = None
+):
     """美化打印布局树"""
     indent = "  " * depth
     prefix = f"{indent}{r.id}"
@@ -556,24 +661,31 @@ def report_sibling_relationships(r: LayoutResult, depth: int = 0):
     if len(r.children) >= 2:
         print(f"\n{indent}📦 父容器 [{r.id}]  {r.w:.0f}×{r.h:.0f}")
         for child in r.children:
-            print(f"{indent}  ├─ {child.id}: "
-                  f"x={child.x:.0f} y={child.y:.0f} "
-                  f"w={child.w:.0f} h={child.h:.0f} "
-                  f"右={child.x+child.w:.0f} 底={child.y+child.h:.0f}")
+            print(
+                f"{indent}  ├─ {child.id}: "
+                f"x={child.x:.0f} y={child.y:.0f} "
+                f"w={child.w:.0f} h={child.h:.0f} "
+                f"右={child.x + child.w:.0f} 底={child.y + child.h:.0f}"
+            )
     for child in r.children:
         report_sibling_relationships(child, depth + 1)
 
 
-def report_boundary_status(r: LayoutResult, parent_w: float = None,
-                           parent_h: float = None, depth: int = 0):
+def report_boundary_status(
+    r: LayoutResult, parent_w: float = None, parent_h: float = None, depth: int = 0
+):
     """检查父容器边界是否完好"""
     indent = "  " * depth
     issues = []
     if parent_w is not None:
         if r.x + r.w > parent_w:
-            issues.append(f"❌ 右边界溢出: x+r.w({r.x+r.w:.0f}) > parent_w({parent_w:.0f})")
+            issues.append(
+                f"❌ 右边界溢出: x+r.w({r.x + r.w:.0f}) > parent_w({parent_w:.0f})"
+            )
         if r.y + r.h > parent_h:
-            issues.append(f"❌ 下边界溢出: y+r.h({r.y+r.h:.0f}) > parent_h({parent_h:.0f})")
+            issues.append(
+                f"❌ 下边界溢出: y+r.h({r.y + r.h:.0f}) > parent_h({parent_h:.0f})"
+            )
         if r.x < 0:
             issues.append(f"❌ 左边界越界: x({r.x:.0f}) < 0")
         if r.y < 0:
@@ -584,8 +696,11 @@ def report_boundary_status(r: LayoutResult, parent_w: float = None,
             right_free = parent_w - (r.x + r.w) if parent_h else 0
             issues.append(f"✅ 右余{right_free:.0f}px 下余{bottom_free:.0f}px")
 
-    print(f"{indent}[{r.id}] 边界: {'; '.join(issues)}" if issues else
-          f"{indent}[{r.id}] 边界: ✅ 子元素均在容器内")
+    print(
+        f"{indent}[{r.id}] 边界: {'; '.join(issues)}"
+        if issues
+        else f"{indent}[{r.id}] 边界: ✅ 子元素均在容器内"
+    )
 
     for child in r.children:
         report_boundary_status(child, r.w, r.h, depth + 1)
@@ -601,8 +716,11 @@ if __name__ == "__main__":
 
     spec = build_spec()
 
-    for container_w, label in [(900, "宽屏 900px"), (760, "中屏 760px"),
-                                (600, "窄屏 600px")]:
+    for container_w, label in [
+        (900, "宽屏 900px"),
+        (760, "中屏 760px"),
+        (600, "窄屏 600px"),
+    ]:
         content_w = container_w - 40  # horizontalPadding 20×2
         print(f"\n{'#' * 70}")
         print(f"## 容器: {label} → 内容区 {content_w}px")
@@ -610,13 +728,13 @@ if __name__ == "__main__":
 
         root_r = validate("root", spec, content_w, 5000)  # 高度不限
 
-        print(f"\n【布局树 (自顶向下)】")
+        print("\n【布局树 (自顶向下)】")
         print_tree(root_r)
 
-        print(f"\n【同级相对位置关系】")
+        print("\n【同级相对位置关系】")
         report_sibling_relationships(root_r)
 
-        print(f"\n【父容器边界状态】")
+        print("\n【父容器边界状态】")
         report_boundary_status(root_r, content_w, 5000)
 
         # 汇总 — 使用可变对象替代 nonlocal
@@ -627,6 +745,7 @@ if __name__ == "__main__":
                 results["ok"] = False
             for c in r.children:
                 check_issues(c)
+
         check_issues(root_r)
 
         status = "✅ 全部通过" if results["ok"] else "❌ 存在溢出或重叠"
