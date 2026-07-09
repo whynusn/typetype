@@ -195,7 +195,7 @@ FluentPage {
                     Item {
                         id: trendChart
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 120
+                        Layout.preferredHeight: 130
 
                         property var trendData: appBridge ? appBridge.typingHistoryDailyTrend : []
 
@@ -225,68 +225,96 @@ FluentPage {
                             return m;
                         }
 
-                        // Y 轴标尺
+                        // Y 轴标尺 + 网格线
                         Item {
                             anchors.left: parent.left
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
-                            width: 40
+                            height: parent.height
+                            width: 36
 
-                            Text {
-                                anchors.right: parent.right
-                                anchors.top: parent.top
-                                anchors.topMargin: -6
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                text: String(trendChart.maxChars)
-                                visible: trendChart.hasData
-                            }
-                            Rectangle {
-                                anchors.right: parent.right
-                                anchors.top: parent.top
-                                width: parent.width - 30
-                                height: 1
-                                color: Theme.currentTheme.colors.dividerBorderColor
-                                visible: trendChart.hasData
-                                opacity: 0.3
-                            }
-                            Text {
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                anchors.bottomMargin: -5
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                text: "0"
-                                visible: trendChart.hasData
+                            Repeater {
+                                model: 4  // 3 条网格线 + 0 值基准
+
+                                Item {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.verticalCenterOffset: -((index + 1) / 4) * parent.height + parent.height / 2
+
+                                    Text {
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: 4
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        typography: Typography.Caption
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        text: index === 0
+                                            ? String(Math.round(trendChart.maxChars))
+                                            : index === 1
+                                                ? String(Math.round(trendChart.maxChars * 2 / 3))
+                                                : index === 2
+                                                    ? String(Math.round(trendChart.maxChars / 3))
+                                                    : "0"
+                                        visible: trendChart.hasData
+                                    }
+                                }
                             }
                         }
 
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: 42  // 为 Y 轴标尺留空间
-                            anchors.bottomMargin: __xs
-                            spacing: __xs
-                            visible: parent.hasData
+                        // 网格背景 + 柱子
+                        Item {
+                            anchors.left: parent.left
+                            anchors.leftMargin: 36
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            clip: true
 
+                            // 水平网格线
                             Repeater {
-                                model: trendChart.displayData
+                                model: 3
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.verticalCenterOffset: -(index / 3) * parent.height + parent.height / 2
+                                    height: 1
+                                    color: Theme.currentTheme.colors.dividerBorderColor
+                                    opacity: 0.2
+                                    visible: trendChart.hasData
+                                }
+                            }
 
-                                Item {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
+                            // 柱状图
+                            RowLayout {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                height: parent.height
+                                spacing: 0
+                                visible: parent.visible && trendChart.hasData
 
-                                    Rectangle {
-                                        anchors.bottom: parent.bottom
-                                        anchors.horizontalCenter: parent.horizontalCenter
-                                        // 单根柱子 ≤40px 宽，防止少数据量时撑满
-                                        width: Math.max(1, Math.min(parent.width - 2, 40))
-                                        height: trendChart.maxChars > 0
-                                            ? (modelData.chars / trendChart.maxChars) * (parent.height - 2)
-                                            : 0
-                                        color: modelData.chars > 0
-                                            ? Theme.currentTheme.colors.primaryColor
-                                            : Theme.currentTheme.colors.subtleColor
-                                        radius: modelData.date && modelData.date.length <= 7 ? 1 : 2
+                                Repeater {
+                                    model: trendChart.displayData
+
+                                    Item {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: parent.height
+                                        Layout.minimumWidth: 1
+
+                                        Rectangle {
+                                            anchors.bottom: parent.bottom
+                                            anchors.left: parent.left
+                                            anchors.right: parent.right
+                                            anchors.rightMargin: 2
+                                            height: trendChart.maxChars > 0
+                                                ? Math.max(0, (modelData.chars / trendChart.maxChars) * (parent.height - 2))
+                                                : 0
+                                            color: modelData.chars > 0
+                                                ? Theme.currentTheme.colors.primaryColor
+                                                : Theme.currentTheme.colors.subtleColor
+                                            radius: 2
+                                        }
                                     }
                                 }
                             }
