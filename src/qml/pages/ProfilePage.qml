@@ -192,6 +192,7 @@ FluentPage {
                     }
 
                     Item {
+                        id: trendChart
                         Layout.fillWidth: true
                         Layout.preferredHeight: 120
 
@@ -211,7 +212,7 @@ FluentPage {
                             visible: parent.hasData
 
                             Repeater {
-                                model: parent.parent.trendData
+                                model: trendChart.trendData
 
                                 Item {
                                     Layout.fillWidth: true
@@ -221,8 +222,8 @@ FluentPage {
                                         anchors.bottom: parent.bottom
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         width: Math.max(2, parent.width - 2)
-                                        height: parent.parent.maxChars > 0
-                                            ? (modelData.chars / parent.parent.maxChars) * (parent.height - 2)
+                                        height: trendChart.maxChars > 0
+                                            ? (modelData.chars / trendChart.maxChars) * (parent.height - 2)
                                             : 0
                                         color: modelData.chars > 0
                                             ? Theme.currentTheme.colors.primaryColor
