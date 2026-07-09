@@ -198,22 +198,78 @@ FluentPage {
                         Layout.preferredHeight: 120
 
                         property var trendData: appBridge ? appBridge.typingHistoryDailyTrend : []
-                        property bool hasData: trendData && trendData.length > 0
+
+                        // 按数据量自动聚合: ≤60条直接展示, 否则按月聚合
+                        property var displayData: {
+                            if (!trendData || trendData.length === 0) return []
+                            if (trendData.length <= 60) return trendData
+                            var monthly = {}
+                            for (var i = 0; i < trendData.length; i++) {
+                                var d = trendData[i]
+                                var mk = d.date ? d.date.substring(0, 7) : ""
+                                if (!mk) continue
+                                monthly[mk] = (monthly[mk] || 0) + (d.chars || 0)
+                            }
+                            var keys = Object.keys(monthly).sort()
+                            var result = []
+                            for (var j = 0; j < keys.length; j++)
+                                result.push({date: keys[j], chars: monthly[keys[j]]})
+                            return result
+                        }
+
+                        property bool hasData: displayData && displayData.length > 0
                         property real maxChars: {
                             var m = 1;
-                            for (var i = 0; i < trendData.length; i++)
-                                if (trendData[i] && trendData[i].chars > m) m = trendData[i].chars;
+                            for (var i = 0; i < displayData.length; i++)
+                                if (displayData[i] && displayData[i].chars > m) m = displayData[i].chars;
                             return m;
+                        }
+
+                        // Y 轴标尺
+                        Item {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: 40
+
+                            Text {
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.topMargin: -6
+                                typography: Typography.Caption
+                                color: Theme.currentTheme.colors.textSecondaryColor
+                                text: String(trendChart.maxChars)
+                                visible: trendChart.hasData
+                            }
+                            Rectangle {
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                width: parent.width - 30
+                                height: 1
+                                color: Theme.currentTheme.colors.dividerBorderColor
+                                visible: trendChart.hasData
+                                opacity: 0.3
+                            }
+                            Text {
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.bottomMargin: -5
+                                typography: Typography.Caption
+                                color: Theme.currentTheme.colors.textSecondaryColor
+                                text: "0"
+                                visible: trendChart.hasData
+                            }
                         }
 
                         RowLayout {
                             anchors.fill: parent
+                            anchors.leftMargin: 42  // 为 Y 轴标尺留空间
                             anchors.bottomMargin: __xs
                             spacing: __xs
                             visible: parent.hasData
 
                             Repeater {
-                                model: trendChart.trendData
+                                model: trendChart.displayData
 
                                 Item {
                                     Layout.fillWidth: true
@@ -222,14 +278,15 @@ FluentPage {
                                     Rectangle {
                                         anchors.bottom: parent.bottom
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        width: Math.max(2, parent.width - 2)
+                                        // 单根柱子 ≤40px 宽，防止少数据量时撑满
+                                        width: Math.max(1, Math.min(parent.width - 2, 40))
                                         height: trendChart.maxChars > 0
                                             ? (modelData.chars / trendChart.maxChars) * (parent.height - 2)
                                             : 0
                                         color: modelData.chars > 0
                                             ? Theme.currentTheme.colors.primaryColor
                                             : Theme.currentTheme.colors.subtleColor
-                                        radius: 2
+                                        radius: modelData.date && modelData.date.length <= 7 ? 1 : 2
                                     }
                                 }
                             }
