@@ -1652,6 +1652,13 @@ def test_progress_key_consistency_between_save_and_lookup():
     assert key_custom == f"__custom_text__:{expected_hash}"
 
 
+def test_ott_progress_key_uses_protocol_identity():
+    from src.backend.presentation.bridge import _compute_progress_key
+
+    key = _compute_progress_key("ott", "127.0.0.1:18888:ent_a@rev_b")
+    assert key == "ott:127.0.0.1:18888:ent_a@rev_b"
+
+
 def test_find_progress_title_scan_prefers_newest():
     """验证 title 回退扫描优先返回 last_accessed 最新的条目。
 

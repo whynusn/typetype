@@ -20,6 +20,7 @@ import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlencode, urlparse
 
 import httpx
 
@@ -115,36 +116,142 @@ class RegistryTextProvider:
         return None
 
     def fetch_all_entries(self) -> list[dict]:
-        """获取 OTT 适配器聚合的全部条目（通过 /api/entries）。
+        """获取 OTT 聚合条目列表。
 
-        返回展平的条目列表，每个条目包含 title/content/source_key/source_label/charCount 等字段。
-        自动过滤无效来源，无需先拉 catalog 再逐源请求。
+        优先使用 OTT Core v1 summary-only `/ott/v1/entries`，不可用时 fallback
+        到旧静态 `registry_index.json` + `content/{source_key}.json` 布局。
+        不再把 adapter-private `/api/entries` 作为标准客户端路径。
         """
-        url = f"{self._config.primary_url}/api/entries"
-        data = self._fetch_json(url, max_bytes=self._config.max_content_bytes * 4)
-        if data is None and self._config.mirror_url:
-            mirror = f"{self._config.mirror_url}/api/entries"
-            data = self._fetch_json(
-                mirror, max_bytes=self._config.max_content_bytes * 4
-            )
+        entries = self._fetch_ott_entry_summaries()
+        if entries is not None:
+            return entries
+
+        return self._fetch_legacy_static_entries()
+
+    def _fetch_legacy_static_entries(self) -> list[dict]:
+        """Fallback for old static registry_index/content layout, not /api."""
+        data = self._fetch_registry_index()
         if data is None:
             return []
-        raw = data.get("entries", [])
-        if not isinstance(raw, list):
+        sources = data.get("sources", [])
+        if not isinstance(sources, list):
             return []
+        result: list[dict] = []
+        for item in sources:
+            if not isinstance(item, dict) or not item.get("source_key"):
+                continue
+            source_key = str(item.get("source_key", "") or "")
+            content_data = self._fetch_content(source_key)
+            if content_data is None:
+                continue
+            result.extend(
+                self._normalize_legacy_content_entries(source_key, item, content_data)
+            )
+        return result
+
+    def _normalize_legacy_content_entries(
+        self, source_key: str, source_item: dict, data: dict
+    ) -> list[dict]:
+        source_label = str(source_item.get("label", source_key) or source_key)
+        raw = data.get("entries", [])
+        if not isinstance(raw, list) or not raw:
+            content = data.get("content", "")
+            raw = [
+                {
+                    "title": data.get("title", source_label),
+                    "content": content,
+                    "fetched_at": data.get("fetched_at", ""),
+                    "metadata": data.get("metadata", {}),
+                }
+            ]
         return [
             {
-                "title": e.get("title", ""),
+                "entry_id": "",
+                "title": str(e.get("title", "") or source_label),
                 "content": self._sanitize_content(str(e.get("content", ""))),
-                "source_key": str(e.get("source_key", "")),
-                "source_label": str(e.get("source_label", "")),
-                "charCount": int(e.get("charCount", 0) or 0),
+                "source_key": source_key,
+                "source_label": source_label,
+                "charCount": len(str(e.get("content", "") or "")),
+                "char_count": len(str(e.get("content", "") or "")),
                 "fetched_at": str(e.get("fetched_at", "")),
-                "category": str(e.get("category", "")),
+                "category": str(source_item.get("category", "")),
+                "content_mode": "inline",
+                "authority": self.authority,
             }
             for e in raw
             if isinstance(e, dict) and e.get("content")
         ]
+
+    def fetch_text_by_entry_id(self, entry_id: str) -> FetchedText | None:
+        """Fetch an OTT Core v1 entry detail by stable entry_id."""
+        if not self._validate_identifier(entry_id):
+            return None
+        data = self._fetch_ott_entry_detail(entry_id)
+        if data is None:
+            return None
+        if not self._looks_like_ott_entry_detail(data):
+            return None
+        mode = str(data.get("content_mode") or "inline")
+        content = data.get("content", "")
+        if not isinstance(content, str):
+            content = ""
+        if mode == "inline" and not content:
+            return None
+        return FetchedText(
+            content=self._sanitize_content(content),
+            title=str(data.get("title", "") or ""),
+            source_key=str(data.get("source_key", "") or ""),
+            entry_id=str(data.get("entry_id", entry_id) or entry_id),
+            revision_id=str(
+                data.get("current_revision_id") or data.get("revision_id") or ""
+            ),
+            content_hash=str(data.get("content_hash", "") or ""),
+            content_mode=mode,
+            segment_count=int(data.get("segment_count", 0) or 0),
+            segment_size_hint=int(data.get("segment_size_hint", 0) or 0),
+        )
+
+    def fetch_ott_segment(
+        self, entry_id: str, revision_id: str, segment_index: int
+    ) -> dict | None:
+        """Fetch one server-defined OTT segment content."""
+        if (
+            not self._validate_identifier(entry_id)
+            or not self._validate_identifier(revision_id)
+            or segment_index < 1
+        ):
+            return None
+        url = (
+            f"{self._config.primary_url}/ott/v1/entries/{entry_id}"
+            f"/revisions/{revision_id}/segments/{segment_index}"
+        )
+        mirror_url = (
+            f"{self._config.mirror_url}/ott/v1/entries/{entry_id}"
+            f"/revisions/{revision_id}/segments/{segment_index}"
+            if self._config.mirror_url
+            else None
+        )
+        data = self._fetch_json_with_cache(
+            cache_key=f"ott/segments/{entry_id}/{revision_id}/{segment_index}",
+            url=url,
+            mirror_url=mirror_url,
+            max_bytes=self._config.max_content_bytes,
+        )
+        if data is None:
+            return None
+        content = data.get("content", "")
+        if not isinstance(content, str):
+            return None
+        return {
+            "entry_id": str(data.get("entry_id", entry_id) or entry_id),
+            "revision_id": str(data.get("revision_id", revision_id) or revision_id),
+            "index": int(data.get("index", segment_index) or segment_index),
+            "start_char": int(data.get("start_char", 0) or 0),
+            "end_char": int(data.get("end_char", 0) or 0),
+            "char_count": int(data.get("char_count", len(content)) or len(content)),
+            "content_hash": str(data.get("content_hash", "") or ""),
+            "content": self._sanitize_content(content),
+        }
 
     # ------------------------------------------------------------------
     # 网络获取（含缓存决策）
@@ -170,6 +277,53 @@ class RegistryTextProvider:
         )
         return self._fetch_json_with_cache(
             cache_key=f"content/{source_key}",
+            url=url,
+            mirror_url=mirror_url,
+            max_bytes=self._config.max_content_bytes,
+        )
+
+    def _fetch_ott_entry_summaries(self) -> list[dict] | None:
+        result: list[dict] = []
+        page = 1
+        limit = 200
+        max_pages = 20
+        while page <= max_pages:
+            query = urlencode({"page": page, "limit": limit})
+            url = f"{self._config.primary_url}/ott/v1/entries?{query}"
+            mirror_url = (
+                f"{self._config.mirror_url}/ott/v1/entries?{query}"
+                if self._config.mirror_url
+                else None
+            )
+            data = self._fetch_json_with_cache(
+                cache_key=f"ott/entries/{page}",
+                url=url,
+                mirror_url=mirror_url,
+                max_bytes=self._config.max_content_bytes,
+            )
+            if data is None:
+                return None if not result else result
+            raw = data.get("entries", [])
+            if not isinstance(raw, list):
+                return None if not result else result
+            result.extend(
+                self._normalize_ott_entry_summary(e) for e in raw if isinstance(e, dict)
+            )
+            pages = int(data.get("pages", page) or page)
+            if page >= pages or not raw:
+                break
+            page += 1
+        return result
+
+    def _fetch_ott_entry_detail(self, entry_id: str) -> dict | None:
+        url = f"{self._config.primary_url}/ott/v1/entries/{entry_id}"
+        mirror_url = (
+            f"{self._config.mirror_url}/ott/v1/entries/{entry_id}"
+            if self._config.mirror_url
+            else None
+        )
+        return self._fetch_json_with_cache(
+            cache_key=f"ott/entry/{entry_id}",
             url=url,
             mirror_url=mirror_url,
             max_bytes=self._config.max_content_bytes,
@@ -336,5 +490,53 @@ class RegistryTextProvider:
         return bool(key) and "/" not in key and ".." not in key and "\\" not in key
 
     @staticmethod
+    def _validate_identifier(value: str) -> bool:
+        return (
+            bool(value) and "/" not in value and ".." not in value and "\\" not in value
+        )
+
+    @property
+    def authority(self) -> str:
+        parsed = urlparse(self._config.primary_url)
+        return parsed.netloc or parsed.path.strip("/") or "local"
+
+    @staticmethod
     def _sanitize_content(content: str) -> str:
         return "".join(c for c in content if c >= " " or c in "\n\r\t")
+
+    def _normalize_ott_entry_summary(self, entry: dict) -> dict:
+        char_count = int(entry.get("char_count", entry.get("charCount", 0)) or 0)
+        return {
+            "entry_id": str(entry.get("entry_id", "") or ""),
+            "title": str(entry.get("title", "") or ""),
+            "preview": str(entry.get("preview", "") or ""),
+            "source_key": str(entry.get("source_key", "") or ""),
+            "source_label": str(entry.get("source_label", "") or ""),
+            "charCount": char_count,
+            "char_count": char_count,
+            "fetched_at": str(
+                entry.get("fetched_at", entry.get("updated_at", "")) or ""
+            ),
+            "category": str(entry.get("category", "") or ""),
+            "tags": entry.get("tags", [])
+            if isinstance(entry.get("tags", []), list)
+            else [],
+            "content_mode": str(entry.get("content_mode", "inline") or "inline"),
+            "current_revision_id": str(entry.get("current_revision_id", "") or ""),
+            "segment_count": int(entry.get("segment_count", 0) or 0),
+            "segment_size_hint": int(entry.get("segment_size_hint", 0) or 0),
+            "authority": str(entry.get("authority", self.authority) or self.authority),
+        }
+
+    @staticmethod
+    def _looks_like_ott_entry_detail(data: dict) -> bool:
+        return any(
+            key in data
+            for key in (
+                "entry_id",
+                "content_mode",
+                "current_revision_id",
+                "revision_id",
+                "segment_count",
+            )
+        )

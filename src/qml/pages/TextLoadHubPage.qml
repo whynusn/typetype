@@ -193,7 +193,7 @@ FluentPage {
     }
 
     function checkProgress() {
-        if (!appBridge || !selectedItem || currentSource === "registry") {
+        if (!appBridge || !selectedItem) {
             hasProgress = false
             return
         }
@@ -307,11 +307,31 @@ FluentPage {
         if (!selectedItem) { errorMessage = qsTr("请选择一个项目"); return null }
 
         if (currentSource === "registry") {
+            var contentMode = selectedItem.contentMode || "inline"
+            var entryIdentifier = selectedItem.entryId || SrcBehav.entrySourceKey(selectedItem)
+            if (contentMode === "segmented") {
+                if (!entryIdentifier || !selectedItem.revisionId) {
+                    errorMessage = qsTr("OTT 长文缺少 entry/revision 标识")
+                    return null
+                }
+                return {
+                    source: "registry",
+                    launchKind: "segmented_source",
+                    identifier: entryIdentifier,
+                    revisionId: selectedItem.revisionId,
+                    authority: selectedItem.authority || "local",
+                    title: selectedItem.entryTitle || itemDisplayTitle(),
+                    fullSize: selectedItem.charCount || 0,
+                    sourceSegmentSize: selectedItem.segmentSizeHint || 1000,
+                    loadSegmentMethod: "loadOttEntrySegment"
+                }
+            }
             return {
                 source: "registry",
-                launchKind: capability.launchKind,
+                launchKind: "materialized_text",
                 text: selectedItem.entryContent || "",
-                sourceKey: selectedItem.sourceKey || SrcBehav.entrySourceKey(selectedItem),
+                sourceKey: entryIdentifier,
+                entryId: selectedItem.entryId || "",
                 title: selectedItem.entryTitle || itemDisplayTitle(),
                 textId: 0,
                 deferLoad: !(selectedItem.entryContent || "")
@@ -373,9 +393,17 @@ FluentPage {
     }
 
     function startSegmentedSource(request, rp) {
-        var fullText = !root.sliceModeChecked
+        var isOttSegmented = request.loadSegmentMethod === "loadOttEntrySegment"
+        var fullText = isOttSegmented ? false : !root.sliceModeChecked
         var size = sliceSettingsPanel.sliceSize
-        var index = Math.max(1, Math.min(sliceSettingsPanel.startSlice, sliceSettingsPanel.totalSlices))
+        var index = sliceSettingsPanel.startSlice
+        if (isOttSegmented) {
+            size = request.sourceSegmentSize || size
+            var ottTotal = Math.max(1, Math.ceil((request.fullSize || size) / size))
+            index = Math.max(1, Math.min(index, ottTotal))
+        } else {
+            index = Math.max(1, Math.min(index, sliceSettingsPanel.totalSlices))
+        }
         if (fullText) { size = request.fullSize; index = 1 }
 
         setupSliceCriteria(rp)
@@ -385,6 +413,9 @@ FluentPage {
                 appBridge.loadLocalArticleSegment(request.identifier, index, size)
             else if (request.loadSegmentMethod === "loadTrainerSegment")
                 appBridge.loadTrainerSegment(request.identifier, index, size)
+            else if (request.loadSegmentMethod === "loadOttEntrySegment")
+                appBridge.loadOttEntrySegment(request.identifier, request.revisionId, index, size,
+                                            request.fullSize, request.sourceSegmentSize, request.title)
         })
     }
 
@@ -392,7 +423,10 @@ FluentPage {
         if (!appBridge || !request) return
         if (request.deferLoad) {
             registryLoading = true
-            appBridge.loadLibraryText(request.sourceKey)
+            if (request.source === "registry" && request.entryId)
+                appBridge.loadOttEntry(request.entryId)
+            else
+                appBridge.loadLibraryText(request.sourceKey)
             statusMessage = qsTr("正在从开源文库加载...")
             return
         }
@@ -860,7 +894,7 @@ FluentPage {
                 if (content) {
                     root.startTypingFromRequest({
                         source: "registry",
-                        launchKind: SrcBehav.capabilities.registry.launchKind,
+                        launchKind: "materialized_text",
                         text: content,
                         sourceKey: SrcBehav.entrySourceKey(root.selectedItem),
                         title: title || root.itemDisplayTitle(),
@@ -887,7 +921,7 @@ FluentPage {
         }
         function onCatalogLoadFailed(message) {
             if (root.active && root.currentSource === "registry") {
-                root.catalogLoading = true
+                root.catalogLoading = false
                 root.errorMessage = message
                 root.statusMessage = ""
             }

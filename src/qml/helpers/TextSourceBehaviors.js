@@ -50,7 +50,7 @@ var capabilities = {
     registry: {
         supportsRefresh: true,
         supportsSearch: true,
-        supportsProgress: false,
+        supportsProgress: true,
         supportsPreview: true,
         supportsShuffle: false,
         supportsEdit: false,
@@ -162,8 +162,8 @@ function trainerId(item) { return item ? (item.trainerId || item.trainer_id || i
 function trainerTitle(item) { return item ? (item.title || item.name || trainerId(item) || qsTr("未命名词库")) : qsTr("未选择词库") }
 function trainerEntryCount(item) { return item ? (item.entryCount || item.entry_count || item.count || 0) : 0 }
 
-// registry 专属 — 暴露 raw 对象里封装的 sourceKey
-function entrySourceKey(entry) { return entry ? (entry.sourceKey || "") : "" }
+// registry/OTT 专属 — 优先使用 entryId；旧 Registry fallback 使用 sourceKey
+function entrySourceKey(entry) { return entry ? (entry.entryId || entry.sourceKey || "") : "" }
 
 
 /* =========================================================================
@@ -204,7 +204,7 @@ function cardContent(sourceKey, item, previewContent, customText) {
     switch (sourceKey) {
     case "custom":   return (customText || "").substring(0, 1000)
     case "jisubei":  return (previewContent || "").substring(0, 1000)
-    case "registry": return (previewContent || "").substring(0, 1000)
+    case "registry": return (previewContent || item.preview || "").substring(0, 1000)
     case "local":    return (previewContent || "").substring(0, 1000)
     case "trainer":  return (previewContent || "").substring(0, 1000)
     }
@@ -226,6 +226,12 @@ function progressKeyAndId(sourceKey, item, previewContent, customText, serverTex
         return { key: "custom_text", identifier: previewContent || "" }
     case "custom":
         return { key: "custom_text", identifier: customText || "" }
+    case "registry":
+        if (item && item.contentMode === "segmented" && item.entryId && item.revisionId) {
+            var authority = item.authority || "local"
+            return { key: "ott", identifier: authority + ":" + item.entryId + "@" + item.revisionId }
+        }
+        return { key: "", identifier: "" }
     }
     return { key: "", identifier: "" }
 }
@@ -267,8 +273,8 @@ function _syncLocal(articles) {
 }
 
 function _syncRegistry(catalog) {
-    // catalog 现在是从 /api/entries 返回的扁平条目列表，
-    // 每个条目有 title/content/source_label/charCount 等字段，content 已预载
+    // catalog 优先来自 OTT Core v1 /ott/v1/entries：summary-only，正文按需加载。
+    // 旧静态 registry/content fallback 仍可能带 content。
     var arr = []
     if (catalog) {
         for (var i = 0; i < catalog.length; i++) {
@@ -284,9 +290,16 @@ function _syncRegistry(catalog) {
                 raw: {
                     entryContent: e.content || "",
                     entryTitle: e.title || "",
+                    entryId: e.entry_id || e.entryId || "",
+                    revisionId: e.current_revision_id || e.revision_id || e.revisionId || "",
                     sourceKey: e.source_key || "",
                     sourceLabel: e.source_label || "",
                     charCount: e.charCount || 0,
+                    contentMode: e.content_mode || e.contentMode || "inline",
+                    segmentCount: e.segment_count || e.segmentCount || 0,
+                    segmentSizeHint: e.segment_size_hint || e.segmentSizeHint || 0,
+                    authority: e.authority || "local",
+                    preview: e.preview || "",
                 }
             })
         }

@@ -121,7 +121,7 @@ src/backend/
 #### 载文分类说明（对应三层模型）
 
 - **第 1 层（本地文件）**：剪贴板、自定义、本地文库、练单器、前/中/后五百、打词必备单字 — 文本来自本地文件或用户输入
-- **第 2 层（开源文库）**：开源文库仓库提供的文本（通过本地运行的脚本服务获取）— 由 `TextLoadHubPage.qml` 的「开源文库」标签接入
+- **第 2 层（开源文库 / OTT）**：OTT Core v1 只读分发协议提供的文本（通常由用户本地运行 `ott-adapter`）— 由 `TextLoadHubPage.qml` 的「开源文库」标签接入
 - **第 3 层（即时拉取）**：极速杯 — 文本来自 TypeType 后端 (`typetype-server`)；晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
 
 #### 分段模式与乱序
@@ -129,6 +129,8 @@ src/backend/
 除晴发文外，所有载文入口共享同一组分片/乱序组件：
 - `SliceSettingsPanel` — 分片大小、起始片、全文乱序
 - `SliceCriteriaPanel` — 达标条件（击键/速度/键准/通过次数）、失败后行为
+
+OTT segmented 大文本使用服务端定义的 segment 边界，并通过 `OttSegmentProvider` 接入通用分片管线。为避免客户端拉取完整远程长文，OTT segmented 不启用全文乱序；普通按段推进、随机段、重打仍走统一分片控制。
 
 晴发文单独在服务端做分段，App 侧只做逐段推进。
 
@@ -288,7 +290,7 @@ onActivated → Qt.callLater() 延迟触发信号
 > 决策依据：ADR-008（`docs/decisions/008-text-source-three-layer-model.md`）。
 > 按「数据如何到达客户端」划分三层，不强行统一。
 >
-> **命名约定**：第 2 层的用户-facing 名称是**开源文库**，内部实现使用 `Registry`（如 `RegistryTextProvider`、`registry.primary_url`）。
+> **命名约定**：第 2 层的用户-facing 名称是**开源文库**；标准边界是 OTT Core v1。当前 typetype 内部仍使用历史 `Registry` 命名（如 `RegistryTextProvider`、`registry.primary_url`），后续再迁移到 `OttClient` / `OttTextProvider`。
 
 ### 三层职责对照
 
@@ -300,7 +302,7 @@ onActivated → Qt.callLater() 延迟触发信号
 | **网络韧性要求** | 无 | 低（离线读缓存兜底）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（TTL + stale-while-revalidate） | 不需要 |
 | **账号要求** | 无 | 无 | 用户自有账号（token_store）|
-| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
+| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider` + `OttSegmentProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
 | **Loader 路由** | `text_source_config.py` `Loader.LOCAL_FILE` | `Loader.REGISTRY` | `Loader.REMOTE_API` |
 
 ### 文本源扩展路径
@@ -308,7 +310,7 @@ onActivated → Qt.callLater() 延迟触发信号
 | 想加什么 | 走哪层 | 改动量 |
 |:---|:---|:---|
 | 新本地练习文件 | 第 1 层 | `config.json` 加 1 行（`loader: local_file`），零代码 |
-| 静态文集（每日一文、古诗文等）| 第 2 层 | 开源文库仓库加脚本，typetype 主仓不动 |
+| 静态文集（每日一文、古诗文等）| 第 2 层 | OTT 仓库加脚本或导入内容；typetype 通过 `/ott/v1` 读取 |
 | 服务端排行榜文本（极速杯等）| 第 3 层 | `config.json` 加 1 行（`loader: remote_api`），服务端注册 |
 | 第三方带认证实时源 | 第 3 层 | 完整 Port + Gateway + UseCase + Adapter（参考晴发文）|
 
@@ -350,7 +352,9 @@ onActivated → Qt.callLater() 延迟触发信号
 
 ### 开源文库缓存层
 
-内部实现为 `RegistryTextProvider`，五层决策树（`registry_text_provider.py:121-159`）：
+内部实现为 `RegistryTextProvider`。标准路径只依赖 OTT Core v1 `/ott/v1` 或旧静态 `registry_index.json` + `content/{source_key}.json` 兼容布局；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
+
+缓存层五层决策树：
 
 ```
 fetch_text_by_key(key)

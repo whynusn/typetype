@@ -351,6 +351,24 @@ onActiveChanged: {
 
 **历史**：2026-07-05 Phase 1a/1b 实现，ADR-008 §决策。
 
+### ⚠️ typetype 只能依赖 OTT 只读协议，不能把 `/api/entries` 当标准路径
+
+**问题**：OTT adapter 的 `/api` 同时承载管理、脚本、删除、调度等私有能力。把 `/api/entries` 作为 typetype 标准客户端 fallback 会重新耦合管理面和只读分发面，并让大文本退化成全量正文分发。
+
+**现状**（2026-07-10 ADR-009 首轮落地）：
+- OTT 标准客户端边界是 `/ott/v1` Service Profile，后续可补 Static Profile
+- `RegistryTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
+- `/ott/v1` 不可用时只 fallback 到旧静态 `registry_index.json` + `content/{source_key}.json`，不 fallback `/api/entries`
+- inline OTT 条目通过 `loadOttEntry(entry_id)` 显式加载，不靠 `entry_id` 前缀猜测
+- segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
+
+**正确做法**：
+- 新增 OTT 客户端能力 → 先扩展 `/ott/v1` 或 Static Profile，再改 typetype
+- 管理/脚本能力 → 留在 adapter-private `/api` 或未来 `/ott-admin/v1`，typetype 只读客户端不要依赖
+- 大文本 → 使用服务端定义 segment；不要在 typetype 侧拉完整正文再自行切片
+
+**历史**：2026-07-10 ADR-009 首轮实现。
+
 ### ⚠️ 晴发文（Wenlai）不得 CI 化，必须保持即时拉取
 
 **问题**：在评估「Registry/CI 化」提案时，曾误判晴发文（`wenlai_provider.py`）也适用。实际上晴发文是即时交互 API（`/api/texts/random` 每次返回不同内容），CI 化会破坏 random 语义且违反账号模型（CI 持账号 = 账号共享）。

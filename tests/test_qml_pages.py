@@ -75,10 +75,12 @@ def test_text_load_hub_uses_expected_bridge_contract():
     assert "loadRegistryEntries" in refs
     assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
     assert "loadLibraryText" in refs and "loadLibraryText" in BRIDGE_SLOTS
+    assert "loadOttEntry" in refs and "loadOttEntry" in BRIDGE_SLOTS
     assert (
         "loadLocalArticleSegment" in refs and "loadLocalArticleSegment" in BRIDGE_SLOTS
     )
     assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
+    assert "loadOttEntrySegment" in refs and "loadOttEntrySegment" in BRIDGE_SLOTS
     assert "SliceCriteriaPanel" in qml_source
     assert "TextInfoCard" in qml_source
     assert (

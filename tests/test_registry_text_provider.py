@@ -142,6 +142,62 @@ def test_fetch_text_by_key_returns_text(tmp_path):
     assert result == FetchedText(content="你好世界", text_id=42, title="测试文章")
 
 
+def test_fetch_text_by_entry_id_returns_ott_detail(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        responses=[
+            _mock_response(
+                {
+                    "entry_id": "ent_abc",
+                    "source_key": "poem",
+                    "title": "OTT 文章",
+                    "content_mode": "inline",
+                    "current_revision_id": "rev_abc",
+                    "content_hash": "sha256:abc",
+                    "content": "标准正文",
+                }
+            )
+        ],
+    )
+    result = provider.fetch_text_by_entry_id("ent_abc")
+    assert result is not None
+    assert result.content == "标准正文"
+    assert result.entry_id == "ent_abc"
+    assert result.revision_id == "rev_abc"
+    assert result.content_mode == "inline"
+
+
+def test_fetch_text_by_entry_id_accepts_non_ent_prefix(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        responses=[
+            _mock_response(
+                {
+                    "entry_id": "book_abc",
+                    "source_key": "book",
+                    "title": "Book",
+                    "content_mode": "inline",
+                    "current_revision_id": "rev_book",
+                    "content_hash": "sha256:book",
+                    "content": "正文",
+                }
+            )
+        ],
+    )
+    result = provider.fetch_text_by_entry_id("book_abc")
+    assert result is not None
+    assert result.entry_id == "book_abc"
+    assert result.content == "正文"
+
+
+def test_fetch_text_by_entry_id_ignores_legacy_content_shape(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        responses=[_mock_response({"content": "旧格式", "title": "Legacy"})],
+    )
+    assert provider.fetch_text_by_entry_id("legacy") is None
+
+
 def test_fetch_text_by_key_returns_none_for_missing_key(tmp_path):
     provider = _make_provider(tmp_path, responses=[_mock_response(None, 404)])
     assert provider.fetch_text_by_key("nonexistent") is None
@@ -174,6 +230,97 @@ def test_fetch_text_by_key_falls_back_to_mirror(tmp_path):
     result = provider.fetch_text_by_key("mirror_only")
     assert result is not None
     assert result.content == "mirror text"
+
+
+def test_fetch_all_entries_prefers_ott_core_summary(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        responses=[
+            _mock_response(
+                {
+                    "entries": [
+                        {
+                            "entry_id": "ent_1",
+                            "source_key": "poem",
+                            "title": "诗",
+                            "preview": "一二三",
+                            "char_count": 123,
+                            "content_mode": "segmented",
+                            "current_revision_id": "rev_1",
+                            "segment_count": 2,
+                            "segment_size_hint": 1000,
+                        }
+                    ],
+                    "page": 1,
+                    "pages": 1,
+                }
+            )
+        ],
+    )
+    result = provider.fetch_all_entries()
+    assert result == [
+        {
+            "entry_id": "ent_1",
+            "title": "诗",
+            "preview": "一二三",
+            "source_key": "poem",
+            "source_label": "",
+            "charCount": 123,
+            "char_count": 123,
+            "fetched_at": "",
+            "category": "",
+            "tags": [],
+            "content_mode": "segmented",
+            "current_revision_id": "rev_1",
+            "segment_count": 2,
+            "segment_size_hint": 1000,
+            "authority": "cdn.example.com",
+        }
+    ]
+
+
+def test_fetch_all_entries_empty_ott_result_does_not_fallback_to_api(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        responses=[
+            _mock_response(
+                {
+                    "entries": [],
+                    "page": 1,
+                    "pages": 0,
+                    "total": 0,
+                }
+            )
+        ],
+    )
+    assert provider.fetch_all_entries() == []
+    provider._client.get.assert_called_once()
+    assert "/ott/v1/entries" in provider._client.get.call_args[0][0]
+
+
+def test_fetch_ott_segment_returns_content(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        responses=[
+            _mock_response(
+                {
+                    "entry_id": "ent_1",
+                    "revision_id": "rev_1",
+                    "index": 1,
+                    "start_char": 0,
+                    "end_char": 4,
+                    "char_count": 4,
+                    "content_hash": "sha256:abc",
+                    "content": "分段正文",
+                }
+            )
+        ],
+    )
+    result = provider.fetch_ott_segment("ent_1", "rev_1", 1)
+    assert result is not None
+    assert result["content"] == "分段正文"
+    assert result["start_char"] == 0
+    assert result["end_char"] == 4
 
 
 # ---------------------------------------------------------------------------

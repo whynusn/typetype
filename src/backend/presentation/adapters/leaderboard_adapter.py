@@ -230,6 +230,7 @@ class LeaderboardAdapter(QObject):
                 gen, msg
             )
         )
+        worker.signals.finished.connect(lambda: self._release_submit_worker(worker))
         self._submit_workers.add(worker)
         self._thread_pool.start(worker)
 
@@ -237,7 +238,6 @@ class LeaderboardAdapter(QObject):
         if request_generation != self._catalog_request_generation:
             return
         self._set_catalog_loading(False)
-        self._submit_workers.discard(None)  # cleanup
         self.catalogLoaded.emit(entries)
 
     def _on_catalog_loaded_gen(
@@ -429,6 +429,38 @@ class LeaderboardAdapter(QObject):
             fetched.content or "",
             fetched.title or "",
             fetched.entries or [],
+            {
+                "source_key": fetched.source_key,
+                "entry_id": fetched.entry_id,
+                "revision_id": fetched.revision_id,
+                "content_mode": fetched.content_mode,
+                "segment_count": fetched.segment_count,
+                "segment_size_hint": fetched.segment_size_hint,
+                "content_hash": fetched.content_hash,
+            },
+        )
+
+    def fetch_ott_entry_text(self, entry_id: str):
+        """Fetch one OTT Core v1 inline entry by stable entry_id."""
+        if self._registry_provider is None:
+            raise RuntimeError("OTT 文本源未配置")
+        fetched = self._registry_provider.fetch_text_by_entry_id(entry_id)
+        if fetched is None or not fetched.content:
+            raise RuntimeError(f"无法获取 OTT 文本({entry_id})")
+        return (
+            fetched.text_id or 0,
+            fetched.content or "",
+            fetched.title or "",
+            fetched.entries or [],
+            {
+                "source_key": fetched.source_key,
+                "entry_id": fetched.entry_id,
+                "revision_id": fetched.revision_id,
+                "content_mode": fetched.content_mode,
+                "segment_count": fetched.segment_count,
+                "segment_size_hint": fetched.segment_size_hint,
+                "content_hash": fetched.content_hash,
+            },
         )
 
     def submit_to_thread_pool(self, fn, on_result, on_error):

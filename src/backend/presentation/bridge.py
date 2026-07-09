@@ -49,6 +49,8 @@ def _compute_progress_key(key_type: str, identifier: str) -> str:
         return f"__local_article__:{identifier}"
     if key_type == "trainer":
         return f"__trainer__:{identifier}"
+    if key_type == "ott":
+        return f"ott:{identifier}"
     return (
         f"__custom_text__:{hashlib.sha256(identifier.encode('utf-8')).hexdigest()[:16]}"
     )
@@ -1200,6 +1202,195 @@ class Bridge(QObject):
         # 如果有 entries，发射 entries 信号让 QML 展示条目列表
         if entries:
             self.registryEntriesLoaded.emit(source_key, entries)
+
+    @Slot(str)
+    def loadOttEntry(self, entryId: str) -> None:
+        """从 OTT Core v1 按 entry_id 加载 inline 文本。"""
+        if not self._leaderboard_adapter:
+            return
+        provider = self._leaderboard_adapter._registry_provider
+        if provider is None:
+            self.textLoadFailed.emit("OTT 文本源未配置")
+            return
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._leaderboard_adapter.fetch_ott_entry_text(entryId),
+            on_result=lambda result: self._on_registry_text_loaded(entryId, result),
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    @Slot(str, str, int, int, int, int, str)
+    def loadOttEntrySegment(
+        self,
+        entryId: str,
+        revisionId: str,
+        segmentIndex: int,
+        segmentSize: int,
+        totalChars: int,
+        sourceSegmentSize: int,
+        title: str,
+    ) -> None:
+        """Load an OTT segmented entry through the generic text session pipeline."""
+        if not self._leaderboard_adapter or not self._text_adapter:
+            return
+        provider_adapter = self._leaderboard_adapter._registry_provider
+        if provider_adapter is None:
+            self.textLoadFailed.emit("OTT 文本源未配置")
+            return
+
+        if self._pending_restored_progress:
+            saved_slice = self._pending_restored_progress.get("current_slice", 1)
+            saved_total = self._pending_restored_progress.get("total_slices", 0)
+            if 1 <= saved_slice <= saved_total:
+                segmentIndex = saved_slice
+
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._clear_wenlai_active()
+        self._clear_trainer_active()
+        self._clear_local_article_active()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+        self._coordinator.pending_slice_params["full_shuffle"] = False
+        self._current_shuffle_seed = None
+
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._build_ott_segment_session(
+                provider_adapter,
+                entryId,
+                revisionId,
+                segmentIndex,
+                segmentSize,
+                totalChars,
+                sourceSegmentSize or segmentSize or 1000,
+                title,
+            ),
+            on_result=self._on_ott_segment_session_started,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    def _build_ott_segment_session(
+        self,
+        provider_adapter,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size: int,
+        total_chars: int,
+        source_segment_size: int,
+        title: str,
+    ) -> dict:
+        from src.backend.integration.ott_segment_provider import OttSegmentProvider
+        from src.backend.models.dto.text_session import TextKind
+
+        provider = OttSegmentProvider(
+            provider_adapter,
+            entry_id,
+            revision_id,
+            total_chars,
+            source_segment_size,
+        )
+        built = self._text_adapter.buildProviderTextSession(
+            provider=provider,
+            kind=TextKind.OTT,
+            identifier=f"{entry_id}@{revision_id}",
+            title=title,
+            version=revision_id,
+            slice_size=segment_size,
+            start_slice=segment_index,
+            source_key="ott",
+        )
+        if built is None:
+            raise RuntimeError("无法加载 OTT 文本分段")
+        usecase, result = built
+        return {
+            "usecase": usecase,
+            "result": result,
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "segment_size": segment_size,
+            "source_segment_size": source_segment_size,
+            "title": title,
+            "authority": getattr(provider_adapter, "authority", "local"),
+        }
+
+    def _on_ott_segment_session_started(self, payload: dict) -> None:
+        self._text_adapter.attachTextSession(
+            payload["usecase"], int(payload["segment_size"])
+        )
+        result = payload["result"]
+        title = str(payload.get("title", "") or "")
+        title_label = (
+            f"{title} {result.index}/{result.total}"
+            if title and result.total > 1
+            else f"{result.index}/{result.total}"
+            if result.total > 1
+            else title
+        )
+        p = self._coordinator.pending_slice_params
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        self._coordinator._cache_current_content(result.content)
+        self._coordinator.source_slice_backend = "ott"
+        self._coordinator.source_slice_segment_size = int(payload["segment_size"])
+        self._coordinator._source_slice_title = title
+        self._coordinator._visited_slices.clear()
+        progress_id = (
+            f"{payload.get('authority', 'local')}:"
+            f"{payload['entry_id']}@{payload['revision_id']}"
+        )
+        self._progress_key_override = _compute_progress_key("ott", progress_id)
+        self._typing_adapter.setup_sourced_slice_mode(
+            result.index,
+            result.total,
+            slice_size=int(payload["segment_size"]),
+            on_fail_action=p["on_fail_action"],
+            key_stroke_min=p["key_stroke_min"],
+            speed_min=p["speed_min"],
+            accuracy_min=p["accuracy_min"],
+            pass_count_min=p["pass_count_min"],
+            reset_counts=True,
+            auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+            key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+            speed_decrease=p.get("speed_decrease", 0),
+            accuracy_decrease=p.get("accuracy_decrease", 0),
+        )
+        self._restore_pending_progress()
+        self._update_progress_current_slice()
+        self.sliceModeChanged.emit()
+        self.textLoaded.emit(result.content, -1, title_label)
+
+    def loadOttCurrentSessionSegment(self, index: int) -> None:
+        """异步加载当前 OTT session 的指定 segment。"""
+        if not self._leaderboard_adapter:
+            return
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._text_adapter.get_text_session_segment(index),
+            on_result=self._on_ott_current_session_segment_loaded,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    def _on_ott_current_session_segment_loaded(self, result) -> None:
+        if result is None:
+            self.textLoadFailed.emit("无法加载 OTT 文本分段")
+            return
+        title = self._coordinator._source_slice_title or "OTT"
+        title_label = (
+            f"{title} {result.index}/{result.total}"
+            if title
+            else f"{result.index}/{result.total}"
+        )
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        self._coordinator._cache_current_content(result.content)
+        self._typing_adapter.reset_slice_pass_count(result.index)
+        self._typing_adapter.set_slice_index(result.index)
+        self._typing_adapter.restore_slice_metrics(result.index)
+        self._typing_adapter.set_session_slice_size(
+            self._coordinator.source_slice_segment_size
+        )
+        self.sliceModeChanged.emit()
+        self.textLoaded.emit(result.content, -1, title_label)
+        self._update_progress_current_slice()
 
     @Slot()
     def loadLocalArticles(self) -> None:

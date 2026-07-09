@@ -355,6 +355,70 @@ class TextAdapter(QObject):
         self._session_slice_size = slice_size
         return self._text_session_usecase.get_segment(start_slice, slice_size)
 
+    def startProviderTextSession(
+        self,
+        provider,
+        kind: TextKind,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+        source_key: str = "",
+    ) -> "SegmentResult | None":
+        """启动统一载文会话（任意 TextSegmentProvider）。"""
+        built = self.buildProviderTextSession(
+            provider=provider,
+            kind=kind,
+            identifier=identifier,
+            title=title,
+            version=version,
+            slice_size=slice_size,
+            start_slice=start_slice,
+            source_key=source_key,
+        )
+        if built is None:
+            return None
+        usecase, result = built
+        self.attachTextSession(usecase, slice_size)
+        return result
+
+    def buildProviderTextSession(
+        self,
+        provider,
+        kind: TextKind,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+        source_key: str = "",
+    ) -> "tuple[TextSessionUseCase, SegmentResult] | None":
+        """构建任意 TextSegmentProvider 会话，不修改当前活动会话。"""
+        if provider is None or slice_size <= 0:
+            return None
+        total_chars = provider.get_total_chars()
+        handle = TextHandle(
+            kind=kind,
+            identifier=identifier,
+            title=title,
+            char_count=total_chars,
+            version=version,
+            source_key=source_key,
+        )
+        usecase = TextSessionUseCase(
+            provider,
+            handle,
+            full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
+        )
+        result = usecase.get_segment(start_slice, slice_size)
+        return usecase, result
+
+    def attachTextSession(self, usecase: TextSessionUseCase, slice_size: int) -> None:
+        """把已构建的文本会话设为当前活动会话。"""
+        self._text_session_usecase = usecase
+        self._session_slice_size = slice_size
+
     @property
     def text_session_usecase(self) -> TextSessionUseCase | None:
         return getattr(self, "_text_session_usecase", None)

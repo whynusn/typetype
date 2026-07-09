@@ -20,3 +20,10 @@ class FetchedText:
     text_id: int | None = None
     title: str = ""
     entries: list[dict[str, Any]] = field(default_factory=list)
+    source_key: str = ""
+    entry_id: str = ""
+    revision_id: str = ""
+    content_hash: str = ""
+    content_mode: str = "inline"
+    segment_count: int = 0
+    segment_size_hint: int = 0

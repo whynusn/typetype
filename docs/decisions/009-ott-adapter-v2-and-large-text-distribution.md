@@ -1,6 +1,6 @@
 # ADR-009: OTT Core v1 与 typetype 客户端演进
 
-<!-- 状态: proposed | 决策日期: 2026-07-09 | 最后验证: 2026-07-09 -->
+<!-- 状态: accepted | 决策日期: 2026-07-09 | 最后验证: 2026-07-10 -->
 
 > 本 ADR 是 ADR-008 的后续修订。核心结论：**OTT 是标准协议与参考实现，typetype 是 OTT 客户端之一**。typetype 应适配 OTT 标准，而不是让 OTT 为 typetype 当前实现让步。
 
@@ -372,6 +372,23 @@ ott:{authority}:{entry_id}@{revision_id}
 - 将 OTT segmented entry 接入现有 `segmented_source`。
 - 进度键迁移到 `ott:{authority}:{entry_id}@{revision_id}`。
 - UI 显示 OTT 服务健康、缓存状态、条目模式（短文/长文）。
+
+## 当前实施状态
+
+截至 2026-07-10 已完成第一轮落地：
+
+- OTT 仓库新增 `OTT_SPEC.md`，并实现 `/ott/v1/capabilities`、`/ott/v1/sources`、summary-only `/ott/v1/entries`、entry detail、segment endpoint。
+- OTT 列表摘要由索引中的 `ott_entries` 提供；segmented detail 默认不返回全文；`/api` 仍保留为 adapter-private / legacy。
+- typetype 的开源文库列表改为优先使用 `/ott/v1/entries`，不再把 `/api/entries` 作为标准 fallback。
+- typetype inline OTT 条目通过显式 `loadOttEntry(entry_id)` 加载；segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线。
+- typetype OTT 续练 key 改为 `ott:{authority}:{entry_id}@{revision_id}`。
+
+仍未完成：
+
+- Static Profile 的 `/ott.json`、`/sources.json`、`/entries/{entry_id}.json`、`/segments/{revision_id}/{index}.txt` 生成与客户端实现。
+- `RegistryTextProvider` 到 `OttClient` / `OttTextProvider` 的命名迁移。
+- `/ott-admin/v1` 命名空间拆分；当前管理 API 仍在 legacy `/api`。
+- JSON Schema 与跨实现兼容测试样例。
 
 ## 删除或降级的设计
 

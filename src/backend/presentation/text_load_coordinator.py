@@ -297,6 +297,8 @@ class TextLoadCoordinator:
             # next_segment() 只更新 session 中的 index，不会重新加载词库
             # 这样可以保持打乱后的顺序
             self._trainer.loadNextTrainerSegment()
+        elif backend == "ott":
+            bridge.loadOttCurrentSessionSegment(next_idx)
         elif backend == "local_article":
             self._navigate_local_article(bridge, next_idx)
         else:
@@ -332,6 +334,8 @@ class TextLoadCoordinator:
             # setTrainerSegment() 只更新 session 中的 index，不会重新加载词库
             # 这样可以保持打乱后的顺序
             self._trainer.setTrainerSegment(next_idx)
+        elif backend == "ott":
+            bridge.loadOttCurrentSessionSegment(next_idx)
         elif backend == "local_article":
             self._navigate_local_article(bridge, next_idx)
         else:
@@ -349,6 +353,9 @@ class TextLoadCoordinator:
         if backend == "trainer":
             assert self._trainer is not None
             self._trainer.loadPreviousTrainerSegment()
+        elif backend == "ott":
+            prev_idx = self._typing.slice_index - 1
+            bridge.loadOttCurrentSessionSegment(prev_idx)
         elif backend == "local_article":
             prev_idx = self._typing.slice_index - 1
             self._navigate_local_article(bridge, prev_idx)
@@ -377,6 +384,8 @@ class TextLoadCoordinator:
             if backend == "trainer":
                 assert self._trainer is not None
                 self._trainer.loadCurrentTrainerSegment()
+            elif backend == "ott":
+                bridge.loadOttCurrentSessionSegment(current)
             elif backend == "local_article":
                 self._navigate_local_article(bridge, current)
             else:

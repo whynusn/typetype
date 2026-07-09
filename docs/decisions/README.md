@@ -23,7 +23,7 @@
 | 006 | [成绩展示格式统一与 sliceStatusBar](./006-score-format-unification.md) | 2026-06-04 | accepted |
 | 007 | [回改/退格统计指标](./007-backspace-correction-stats.md) | 2026-06-04 | accepted |
 | 008 | [文本源三层模型（本地/Registry/即时）](./008-text-source-three-layer-model.md) | 2026-07-05 | accepted |
-| 009 | [OTT Core v1 与 typetype 客户端演进](./009-ott-adapter-v2-and-large-text-distribution.md) | 2026-07-09 | proposed |
+| 009 | [OTT Core v1 与 typetype 客户端演进](./009-ott-adapter-v2-and-large-text-distribution.md) | 2026-07-09 | accepted |
 
 ---
 
