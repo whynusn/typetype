@@ -186,7 +186,8 @@ FluentPage {
                             SegmentedItem { text: qsTr("按月") }
 
                             onCurrentIndexChanged: {
-                                // 后续可在此触发对应范围的数据加载
+                                var range = ["hour", "day", "week", "month"][currentIndex]
+                                if (appBridge) appBridge.setTrendRange(range)
                             }
                         }
                     }

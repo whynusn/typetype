@@ -197,6 +197,7 @@ class Bridge(QObject):
         self._font_adapter = font_adapter
         self._typing_totals_gateway = typing_totals_gateway
         self._typing_history_gateway = typing_history_gateway
+        self._trend_range_days = 30
         self._key_listener = key_listener
         self._base_url_update_callback = base_url_update_callback
         self._slice_metrics_prefs_store = slice_metrics_prefs_store
@@ -2601,6 +2602,13 @@ class Bridge(QObject):
         self.typingHistoryChanged.emit()
         self.typingHistorySummaryChanged.emit()
 
+    @Slot(str)
+    def setTrendRange(self, period: str) -> None:
+        """设置趋势图时间范围（hour/day/week/month）并刷新。"""
+        range_map = {"hour": 1, "day": 30, "week": 84, "month": 365}
+        self._trend_range_days = range_map.get(period, 30)
+        self.typingHistorySummaryChanged.emit()
+
     @Property(int, notify=typingHistoryChanged)
     def typingHistoryCount(self) -> int:
         if self._typing_history_gateway:
@@ -2640,7 +2648,7 @@ class Bridge(QObject):
     @Property("QVariantList", notify=typingHistorySummaryChanged)
     def typingHistoryDailyTrend(self) -> list:
         if self._typing_history_gateway:
-            return self._typing_history_gateway.get_daily_trend(30)
+            return self._typing_history_gateway.get_daily_trend(self._trend_range_days)
         return []
 
     @Property(int, notify=typingHistoryChanged)
