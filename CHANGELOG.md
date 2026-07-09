@@ -25,6 +25,11 @@
 
 ### Fixed
 
+- **用户配置写入路径污染**：`RuntimeConfig._save_to_file()` 尊重显式加载的 `_config_path`，避免测试或临时配置写入真实 `~/.config/typetype/config.json`
+- **启动默认载文报错**：首次进入跟打页时优先使用本地可用来源自动载文，避免默认远程来源（如 `old`）在服务端不可用时每次启动弹出“无法获取网络文本”
+- **启动默认网络载文误报失败**：远程文本解析兼容 `content`/`text`/`textContent`/`articleContent` 与顶层响应格式，避免 `/api/v1/texts/latest/{sourceKey}` 返回 200 时仍显示“无法获取网络文本”
+- **个人中心趋势图横轴**：图表内部类目改用唯一索引，横轴标签按 `ChartView.plotArea` 中心点独立渲染，避免 Qt Charts 因重复空白类目导致刻度重叠、缺失或柱状数据错位
+- **个人中心趋势粒度**：`按小时` 改为小时刻度，`按周` 改为 ISO 周刻度，`按月` 改为后端按月聚合，避免前端把日数据误折叠导致月图为空
 - ** 重复项修复**：移除条目列表中多余的"用时"重复项
 
 - **文本排行页崩溃**：`TextLeaderboardPage.qml` 缺少 `DataCell` 类型引用导致页面无法打开；排行榜布局改为响应式（宽屏左右分栏、窄屏上下堆叠），列宽不再截断内容
@@ -32,6 +37,7 @@
 
 ### Changed
 
+- **个人中心趋势图**：趋势图改用 PySide6 Qt Charts 成品 `ChartView`/`BarSeries` 组件渲染，并沿用 RinUI 主题色与时间范围切换
 - **统一载文中心**：极速杯、本地文库、开源文库、练单器、自定义 5 个载文入口合并为单一 `TextLoadHubPage.qml`，顶部 Segmented 切换来源，左侧列表/输入区与右侧切片设置/预览区统一；删除 `JisuBeiPage.qml`、`LocalArticlesPage.qml`、`TextLibraryPage.qml`、`CustomLoadTextPage.qml`、`TrainerPage.qml`
 - **顶部来源切换**：`SelectorBar` 替换为 RinUI `Segmented`/`SegmentedItem`，带背景容器与间距，视觉层次更清晰；无边框、紧贴下方组件的问题已解决
 - **个人中心重构**：登录后展示用户信息卡片、6 项统计卡片（今日字数/总字数/平均速度/最高速度/平均键准/总场次）、最近 30 天打字趋势迷你柱状图、最近 50 条成绩列表（右键复制成绩）

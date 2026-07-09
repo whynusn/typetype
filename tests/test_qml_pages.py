@@ -90,6 +90,30 @@ def test_text_load_hub_uses_expected_bridge_contract():
     )
 
 
+def test_text_load_hub_routes_text_sources_through_slice_launcher():
+    page_qml = QML_DIR / "pages/TextLoadHubPage.qml"
+    source = page_qml.read_text(encoding="utf-8")
+    js_behaviors = QML_DIR / "helpers/TextSourceBehaviors.js"
+    js_source = js_behaviors.read_text(encoding="utf-8")
+
+    assert 'launchKind: "segmented_source"' in js_source
+    assert 'launchKind: "materialized_text"' in js_source
+
+    assert "function buildLaunchRequest()" in source
+    assert "function startTypingFromRequest(request, rp)" in source
+    assert "function startMaterializedText(request, rp)" in source
+    assert "function startSegmentedSource(request, rp)" in source
+    assert "root.startTypingFromRequest({" in source
+    assert "var fullText = !root.sliceModeChecked" in source
+
+    custom_start = source.index("function startCustomTyping")
+    custom_end = source.index("function canLoad", custom_start)
+    custom_body = source[custom_start:custom_end]
+    assert "textLoadPanel.sliceModeChecked" not in custom_body
+    assert "textLoadPanel.sliceSize" not in custom_body
+    assert "textLoadPanel.startSlice" not in custom_body
+
+
 def test_typing_page_handles_local_article_segment_load_failure():
     page_qml = QML_DIR / "pages/TypingPage.qml"
     source = page_qml.read_text(encoding="utf-8")

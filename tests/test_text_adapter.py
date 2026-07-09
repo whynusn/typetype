@@ -42,6 +42,9 @@ def _build_adapter() -> tuple[TextAdapter, MagicMock, MagicMock]:
     runtime_config = MagicMock()
     runtime_config.text_source_config.default_key = "builtin_demo"
     runtime_config.text_source_config.sources = {}
+    runtime_config.text_source_config.get_source.side_effect = lambda key: (
+        runtime_config.text_source_config.sources.get(key)
+    )
     load_text_usecase = MagicMock()
     local_text_loader = MagicMock()
     adapter = TextAdapter(
@@ -244,13 +247,57 @@ def test_get_source_options_include_local_metadata():
     ]
 
 
+def test_startup_source_uses_default_when_default_is_local():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.default_key = "builtin_demo"
+    runtime_config.text_source_config.sources = {
+        "builtin_demo": TextSourceEntry(
+            key="builtin_demo",
+            label="本地示例",
+            loader=Loader.LOCAL_FILE,
+            local_path="resources/texts/builtin_demo.txt",
+        ),
+        "old": TextSourceEntry(key="old", label="Old", loader=Loader.REMOTE_API),
+    }
+
+    assert adapter.get_startup_source_key() == "builtin_demo"
+
+
+def test_startup_source_falls_back_to_first_local_when_default_is_remote():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.default_key = "old"
+    runtime_config.text_source_config.sources = {
+        "old": TextSourceEntry(key="old", label="Old", loader=Loader.REMOTE_API),
+        "builtin_demo": TextSourceEntry(
+            key="builtin_demo",
+            label="本地示例",
+            loader=Loader.LOCAL_FILE,
+            local_path="resources/texts/builtin_demo.txt",
+        ),
+    }
+
+    assert adapter.get_startup_source_key() == "builtin_demo"
+
+
+def test_startup_source_keeps_remote_default_when_no_local_source_exists():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.default_key = "old"
+    runtime_config.text_source_config.sources = {
+        "old": TextSourceEntry(key="old", label="Old", loader=Loader.REMOTE_API),
+    }
+
+    assert adapter.get_startup_source_key() == "old"
+
+
 def test_get_local_text_content_reads_from_local_source():
     adapter, runtime_config, _ = _build_adapter()
-    runtime_config.text_source_config.get_source.return_value = TextSourceEntry(
-        key="builtin_demo",
-        label="本地示例",
-        local_path="resources/texts/builtin_demo.txt",
-    )
+    runtime_config.text_source_config.sources = {
+        "builtin_demo": TextSourceEntry(
+            key="builtin_demo",
+            label="本地示例",
+            local_path="resources/texts/builtin_demo.txt",
+        )
+    }
     adapter._local_text_loader.load_text.return_value = "离线文本"
 
     assert adapter.get_local_text_content("builtin_demo") == "离线文本"
@@ -262,10 +309,12 @@ def test_get_local_text_content_reads_from_local_source():
 
 def test_get_local_text_content_returns_empty_for_non_local_source():
     adapter, runtime_config, _ = _build_adapter()
-    runtime_config.text_source_config.get_source.return_value = TextSourceEntry(
-        key="jisubei",
-        label="极速杯",
-    )
+    runtime_config.text_source_config.sources = {
+        "jisubei": TextSourceEntry(
+            key="jisubei",
+            label="极速杯",
+        )
+    }
 
     assert adapter.get_local_text_content("jisubei") == ""
 

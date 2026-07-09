@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
+import QtCharts
 import RinUI
 
 FluentPage {
@@ -195,27 +196,11 @@ FluentPage {
                     Item {
                         id: trendChart
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 130
+                        Layout.preferredHeight: 180
 
                         property var trendData: appBridge ? appBridge.typingHistoryDailyTrend : []
 
-                        // 按数据量自动聚合: ≤60条直接展示, 否则按月聚合
-                        property var displayData: {
-                            if (!trendData || trendData.length === 0) return []
-                            if (trendData.length <= 60) return trendData
-                            var monthly = {}
-                            for (var i = 0; i < trendData.length; i++) {
-                                var d = trendData[i]
-                                var mk = d.date ? d.date.substring(0, 7) : ""
-                                if (!mk) continue
-                                monthly[mk] = (monthly[mk] || 0) + (d.chars || 0)
-                            }
-                            var keys = Object.keys(monthly).sort()
-                            var result = []
-                            for (var j = 0; j < keys.length; j++)
-                                result.push({date: keys[j], chars: monthly[keys[j]]})
-                            return result
-                        }
+                        property var displayData: trendData || []
 
                         property bool hasData: displayData && displayData.length > 0
                         property real maxChars: {
@@ -224,98 +209,114 @@ FluentPage {
                                 if (displayData[i] && displayData[i].chars > m) m = displayData[i].chars;
                             return m;
                         }
+                        property real axisMax: Math.max(10, Math.ceil(maxChars * 1.15))
+                        property int labelStride: displayData.length > 30 ? 6 : (displayData.length > 14 ? 3 : 1)
+                        property real plotLeft: trendChartView.plotArea ? trendChartView.plotArea.x : 42
+                        property real plotWidth: trendChartView.plotArea ? trendChartView.plotArea.width : Math.max(0, trendChartView.width - plotLeft - 8)
+                        property real axisLabelWidth: displayData.length > 14 ? 42 : 56
+                        property var chartValues: {
+                            var values = []
+                            for (var i = 0; i < displayData.length; i++) {
+                                var item = displayData[i]
+                                values.push(item && item.chars ? Number(item.chars) : 0)
+                            }
+                            return values
+                        }
+                        property var chartCategories: {
+                            var categories = []
+                            for (var i = 0; i < displayData.length; i++)
+                                categories.push(String(i + 1))
+                            return categories
+                        }
 
-                        // Y 轴标尺 + 网格线
-                        Item {
-                            anchors.left: parent.left
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            height: parent.height
-                            width: 36
+                        function formatAxisLabel(item, index) {
+                            if (!item || !item.date) return String(index + 1)
+                            if (labelStride > 1 && index % labelStride !== 0 && index !== displayData.length - 1)
+                                return " "
+                            var dateText = item.date
+                            var period = item && item.period ? item.period : "day"
+                            if (period === "hour" && dateText.length >= 13)
+                                return dateText.substring(11, 13) + qsTr("时")
+                            if (period === "week") {
+                                var weekIndex = dateText.indexOf("-W")
+                                return weekIndex >= 0 ? qsTr("第%1周").arg(dateText.substring(weekIndex + 2)) : dateText
+                            }
+                            if (period === "month" && dateText.length >= 7)
+                                return dateText.substring(5, 7) + qsTr("月")
+                            if (dateText.length >= 10)
+                                return dateText.substring(5, 10)
+                            return dateText
+                        }
 
-                            Repeater {
-                                model: 4  // 3 条网格线 + 0 值基准
+                        ChartView {
+                            id: trendChartView
+                            anchors.fill: parent
+                            anchors.bottomMargin: 28
+                            visible: trendChart.hasData
+                            antialiasing: true
+                            backgroundColor: "transparent"
+                            dropShadowEnabled: false
+                            legend.visible: false
+                            animationOptions: ChartView.SeriesAnimations
+                            plotAreaColor: "transparent"
+                            margins.top: 0
+                            margins.bottom: 0
+                            margins.left: 0
+                            margins.right: 0
 
-                                Item {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.verticalCenterOffset: -((index + 1) / 4) * parent.height + parent.height / 2
+                            BarCategoryAxis {
+                                id: trendAxisX
+                                categories: trendChart.chartCategories
+                                labelsColor: "transparent"
+                                lineVisible: false
+                            }
 
-                                    Text {
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: 4
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        typography: Typography.Caption
-                                        color: Theme.currentTheme.colors.textSecondaryColor
-                                        text: index === 0
-                                            ? String(Math.round(trendChart.maxChars))
-                                            : index === 1
-                                                ? String(Math.round(trendChart.maxChars * 2 / 3))
-                                                : index === 2
-                                                    ? String(Math.round(trendChart.maxChars / 3))
-                                                    : "0"
-                                        visible: trendChart.hasData
-                                    }
+                            ValueAxis {
+                                id: trendAxisY
+                                min: 0
+                                max: trendChart.axisMax
+                                tickCount: 4
+                                labelFormat: "%d"
+                                labelsColor: Theme.currentTheme.colors.textSecondaryColor
+                                gridLineColor: Theme.currentTheme.colors.dividerBorderColor
+                                lineVisible: false
+                            }
+
+                            BarSeries {
+                                axisX: trendAxisX
+                                axisY: trendAxisY
+                                barWidth: trendChart.displayData.length > 30 ? 0.45 : 0.72
+                                labelsVisible: false
+
+                                BarSet {
+                                    label: qsTr("字数")
+                                    values: trendChart.chartValues
+                                    color: Theme.currentTheme.colors.primaryColor
+                                    borderColor: Theme.currentTheme.colors.primaryColor
                                 }
                             }
                         }
 
-                        // 网格背景 + 柱子
                         Item {
-                            anchors.left: parent.left
-                            anchors.leftMargin: 36
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            clip: true
+                            anchors.fill: parent
+                            visible: trendChart.hasData
 
-                            // 水平网格线
                             Repeater {
-                                model: 3
-                                Rectangle {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    anchors.verticalCenterOffset: -(index / 3) * parent.height + parent.height / 2
-                                    height: 1
-                                    color: Theme.currentTheme.colors.dividerBorderColor
-                                    opacity: 0.2
-                                    visible: trendChart.hasData
-                                }
-                            }
+                                model: trendChart.displayData
 
-                            // 柱状图
-                            RowLayout {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                height: parent.height
-                                spacing: 0
-                                visible: parent.visible && trendChart.hasData
-
-                                Repeater {
-                                    model: trendChart.displayData
-
-                                    Item {
-                                        Layout.fillWidth: true
-                                        Layout.preferredHeight: parent.height
-                                        Layout.minimumWidth: 1
-
-                                        Rectangle {
-                                            anchors.bottom: parent.bottom
-                                            anchors.left: parent.left
-                                            anchors.right: parent.right
-                                            anchors.rightMargin: 2
-                                            height: trendChart.maxChars > 0
-                                                ? Math.max(0, (modelData.chars / trendChart.maxChars) * (parent.height - 2))
-                                                : 0
-                                            color: modelData.chars > 0
-                                                ? Theme.currentTheme.colors.primaryColor
-                                                : Theme.currentTheme.colors.subtleColor
-                                            radius: 2
-                                        }
-                                    }
+                                Text {
+                                    width: trendChart.axisLabelWidth
+                                    height: 24
+                                    x: trendChart.plotLeft
+                                        + ((index + 0.5) / Math.max(1, trendChart.displayData.length)) * trendChart.plotWidth
+                                        - width / 2
+                                    y: parent.height - height
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                    text: trendChart.formatAxisLabel(modelData, index)
                                 }
                             }
                         }

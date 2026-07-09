@@ -673,6 +673,7 @@ dependencies = [
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
     { name = "pyside6" },
+    { name = "pyside6-addons" },
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "qasync" },
 ]
@@ -703,6 +704,7 @@ requires-dist = [
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'", specifier = ">=11.0" },
     { name = "pyside6", specifier = ">=6.10.2" },
+    { name = "pyside6-addons", specifier = ">=6.10.2" },
     { name = "pywin32", marker = "sys_platform == 'win32'", specifier = ">=310" },
     { name = "qasync", specifier = ">=0.28.0" },
 ]

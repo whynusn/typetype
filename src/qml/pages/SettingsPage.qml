@@ -546,10 +546,7 @@ FluentPage {
         if (!appBridge) return
         var primary = registryPrimaryField.text.trim()
         var mirror = registryMirrorField.text.trim()
-        if (primary.length > 0)
-            appBridge.setRegistryPrimaryUrl(primary)
-        if (mirror.length > 0)
-            appBridge.setRegistryMirrorUrl(mirror)
+        appBridge.setRegistryUrls(primary, mirror)
     }
 
     SettingCard {

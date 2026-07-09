@@ -16,6 +16,7 @@ dependencies = [
     "pyobjc-framework-cocoa>=11.0; platform_system == 'Darwin'",
     "pyobjc-framework-quartz>=11.0; platform_system == 'Darwin'",
     "pyside6>=6.10.2",
+    "pyside6-addons>=6.10.2",
     "pywin32>=310; platform_system == 'Windows'",
     "qasync>=0.28.0",
 ]

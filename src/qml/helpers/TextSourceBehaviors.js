@@ -26,6 +26,7 @@ var capabilities = {
         supportsEdit: false,
         supportsCountValidation: true,
         needsContentPrefetch: true,
+        launchKind: "materialized_text",
         tier: "network",
         label: qsTr("极速杯"),
         icon: "ic_fluent_document_text_20_regular"
@@ -40,6 +41,7 @@ var capabilities = {
         supportsEdit: true,
         supportsCountValidation: false,
         needsContentPrefetch: true,
+        launchKind: "segmented_source",
         tier: "local",
         label: qsTr("本地文库"),
         icon: "ic_fluent_library_20_regular"
@@ -54,6 +56,7 @@ var capabilities = {
         supportsEdit: false,
         supportsCountValidation: false,
         needsContentPrefetch: false,
+        launchKind: "materialized_text",
         tier: "registry",
         label: qsTr("开源文库"),
         icon: "ic_fluent_text_bullet_list_20_regular"
@@ -68,6 +71,7 @@ var capabilities = {
         supportsEdit: false,
         supportsCountValidation: false,
         needsContentPrefetch: true,
+        launchKind: "segmented_source",
         tier: "local",
         label: qsTr("练单器"),
         icon: "ic_fluent_apps_list_detail_20_regular"
@@ -82,6 +86,7 @@ var capabilities = {
         supportsEdit: false,
         supportsCountValidation: true,
         needsContentPrefetch: false,
+        launchKind: "materialized_text",
         tier: "custom",
         label: qsTr("自定义"),
         icon: "ic_fluent_edit_20_regular"

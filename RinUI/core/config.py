@@ -5,6 +5,11 @@ import sys
 from enum import Enum
 from pathlib import Path
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 
 def is_win11():
     return bool(
@@ -137,21 +142,32 @@ class AppUIConfigManager:
     def save_config(self) -> None:
         """将 UI 配置写回用户配置的 ui 字段。"""
         try:
-            # 先读取完整的应用配置文件
-            if self._config_path.exists():
-                with self._config_path.open(encoding="utf-8") as f:
-                    self._full_app_config = json.load(f)
-            else:
-                self._full_app_config = {}
-
-            # 更新 ui 字段
-            self._full_app_config["ui"] = self.config
-
-            # 确保目录存在
             self._config_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with self._config_path.open("w", encoding="utf-8") as f:
-                json.dump(self._full_app_config, f, ensure_ascii=False, indent=4)
+            # 与 RuntimeConfig 使用同一份 config.json。必须先加锁再读写，
+            # 避免 open("w") 先截断文件后被另一端读取到空配置。
+            with self._config_path.open("a+", encoding="utf-8") as f:
+                try:
+                    if fcntl is not None:
+                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                except (OSError, AttributeError):
+                    pass
+
+                f.seek(0)
+                try:
+                    full_app_config = json.load(f)
+                    if not isinstance(full_app_config, dict):
+                        full_app_config = {}
+                except (json.JSONDecodeError, OSError):
+                    full_app_config = {}
+
+                full_app_config["ui"] = self.config
+                self._full_app_config = full_app_config
+
+                f.seek(0)
+                f.truncate()
+                json.dump(full_app_config, f, ensure_ascii=False, indent=4)
+                f.write("\n")
         except Exception as e:
             print(f"Error saving UI config: {e}")
 

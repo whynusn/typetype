@@ -280,6 +280,19 @@ class TextAdapter(QObject):
     def get_default_source_key(self) -> str:
         return self._runtime_config.text_source_config.default_key
 
+    def get_startup_source_key(self) -> str:
+        """启动自动载文优先选本地来源，避免远程默认源不可用时开屏报错。"""
+        config = self._runtime_config.text_source_config
+        default_key = config.default_key
+        default_source = config.get_source(default_key)
+        if default_source and default_source.is_local:
+            return default_key
+
+        for source in config.sources.values():
+            if source.is_local:
+                return source.key
+        return default_key
+
     def get_default_source_label(self) -> str:
         """获取默认文本来源的 label。"""
         default_key = self._runtime_config.text_source_config.default_key

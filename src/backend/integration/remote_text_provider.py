@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from ..infrastructure.network_errors import CatalogServiceError
 from ..models.dto.fetched_text import FetchedText
 from ..models.dto.text_catalog_item import TextCatalogItem
+from ..utils.logger import log_warning
 
 if TYPE_CHECKING:
     from ..infrastructure.api_client import ApiClient
@@ -73,21 +74,36 @@ class RemoteTextProvider:
             if response is None:
                 return None
             if isinstance(response, dict):
-                data = response.get("data")
+                data = response.get("data", response)
                 if isinstance(data, dict):
-                    content = data.get("content")
+                    content = self._extract_content(data)
                     if not isinstance(content, str):
+                        log_warning(
+                            "[RemoteTextProvider] latest text response missing content "
+                            f"for source_key={source_key}: keys={sorted(data.keys())}"
+                        )
                         return None
-                    text_id = data.get("id")
-                    title = data.get("title", "")
+                    text_id = data.get("id") or data.get("textId")
+                    title = data.get("title") or data.get("name") or ""
                     return FetchedText(
                         content=content,
                         text_id=int(text_id) if text_id is not None else None,
                         title=title if isinstance(title, str) else "",
                     )
             return None
-        except Exception:
+        except Exception as exc:
+            log_warning(
+                f"[RemoteTextProvider] latest text parse failed for source_key={source_key}: {exc}"
+            )
             return None
+
+    @staticmethod
+    def _extract_content(data: dict[str, Any]) -> Any:
+        for key in ("content", "text", "textContent", "articleContent"):
+            value = data.get(key)
+            if isinstance(value, str):
+                return value
+        return None
 
     def fetch_text_by_client_id(self, client_text_id: int) -> FetchedText | None:
         """通过 clientTextId 从服务器查找文本。

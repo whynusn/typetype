@@ -430,28 +430,40 @@ class RuntimeConfig:
         - 合并已存在文件中 _to_dict() 不识别的未知字段（前向兼容）
         - 使用文件锁（fcntl.lockf）防止并发写入冲突
         """
-        target_path = user_config_path()
+        target_path = (
+            Path(self._config_path) if self._config_path else user_config_path()
+        )
         try:
             new_data = self._to_dict()
 
-            # 合并已存在文件的未知字段（前向兼容）
-            source_path = Path(self._config_path) if self._config_path else target_path
-            if source_path.exists():
-                with source_path.open(encoding="utf-8") as f:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # 文件锁：防止 RinUI AppUIConfigManager 等并发写入冲突。
+            # 必须在锁内读取现有文件，否则读取和截断写入之间仍有 lost-update 窗口。
+            with target_path.open("a+", encoding="utf-8") as f:
+                try:
+                    if fcntl is not None:
+                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                except (OSError, AttributeError):
+                    pass  # 非 Unix 平台或锁不可用时降级
+
+                f.seek(0)
+                try:
                     existing = json.load(f)
+                    if not isinstance(existing, dict):
+                        existing = {}
+                except (json.JSONDecodeError, OSError):
+                    existing = {}
+
+                # 合并已存在文件的未知字段（前向兼容）
                 for k, v in existing.items():
                     if k not in new_data:
                         new_data[k] = v
 
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # 文件锁：防止 RinUI AppUIConfigManager 等并发写入冲突
-            with target_path.open("w", encoding="utf-8") as f:
-                try:
-                    fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
-                except (OSError, AttributeError):
-                    pass  # 非 Unix 平台或锁不可用时降级
+                f.seek(0)
+                f.truncate()
                 json.dump(new_data, f, ensure_ascii=False, indent=4)
+                f.write("\n")
             self._config_path = str(target_path)
         except Exception as e:
             log_error(f"[RuntimeConfig] 持久化配置失败：{e}")

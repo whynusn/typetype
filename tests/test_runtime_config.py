@@ -4,6 +4,8 @@ import sys
 import json
 from pathlib import Path
 
+from RinUI.core.config import AppUIConfigManager, DEFAULT_CONFIG
+
 from src.backend.models.dto.text_catalog_item import TextCatalogItem
 from src.backend.config.runtime_config import RuntimeConfig
 
@@ -557,3 +559,73 @@ def test_save_to_file_persists_all_to_dict_keys(monkeypatch, tmp_path: Path):
         assert key in saved, (
             f"{key!r} is in _to_dict() but missing from _save_to_file() output"
         )
+
+
+def test_save_to_file_uses_loaded_config_path(monkeypatch, tmp_path: Path):
+    """A config loaded from an explicit path must write back to that path."""
+    explicit_config = tmp_path / "explicit" / "config.json"
+    user_config = tmp_path / "user" / "config.json"
+    explicit_config.parent.mkdir(parents=True)
+    user_config.parent.mkdir(parents=True)
+    explicit_config.write_text(
+        json.dumps({"base_url": "http://explicit", "text_sources": {}}),
+        encoding="utf-8",
+    )
+    user_config.write_text(
+        json.dumps({"base_url": "http://user", "text_sources": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    config = RuntimeConfig.load_from_file(str(explicit_config))
+    config.update_base_url("http://changed")
+
+    assert json.loads(explicit_config.read_text(encoding="utf-8"))["base_url"] == (
+        "http://changed"
+    )
+    assert json.loads(user_config.read_text(encoding="utf-8"))["base_url"] == (
+        "http://user"
+    )
+
+
+def test_rinui_ui_save_does_not_roll_back_runtime_urls(tmp_path: Path):
+    """RinUI exit-time UI save must not overwrite URLs saved after RinUI loaded."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://old",
+                "text_sources": {},
+                "registry": {"primary_url": "", "mirror_url": ""},
+                "wenlai": {"base_url": "https://old.wenlai"},
+                "ai": {"base_url": "https://old.ai", "model": "old-model"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    ui_config = AppUIConfigManager(user_config, DEFAULT_CONFIG)
+    runtime_config = RuntimeConfig.load_from_file(str(user_config))
+    runtime_config.update_base_url("http://new")
+    runtime_config.update_registry_url(
+        primary_url="http://127.0.0.1:18888",
+        mirror_url="https://mirror.example.com",
+    )
+    runtime_config.update_wenlai_config(base_url="https://new.wenlai")
+    runtime_config.update_ai_config(base_url="https://new.ai", model="new-model")
+
+    ui_config.config["theme"]["current_theme"] = "Dark"
+    ui_config.save_config()
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert saved["base_url"] == "http://new"
+    assert saved["registry"]["primary_url"] == "http://127.0.0.1:18888"
+    assert saved["registry"]["mirror_url"] == "https://mirror.example.com"
+    assert saved["wenlai"]["base_url"] == "https://new.wenlai"
+    assert saved["ai"]["base_url"] == "https://new.ai"
+    assert saved["ai"]["model"] == "new-model"
+    assert saved["ui"]["theme"]["current_theme"] == "Dark"

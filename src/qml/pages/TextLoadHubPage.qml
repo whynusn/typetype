@@ -284,93 +284,142 @@ FluentPage {
 
     function loadSelectedItem(rp) {
         if (!appBridge) return
-        if (currentSource === "custom") { startCustomTyping(rp); return }
-        if (currentSource === "registry") {
-            if (!selectedItem) { errorMessage = qsTr("请选择一个文本"); return }
-            // 如果已加载具体条目内容，直接跳转跟打（跳过 loadLibraryText）
-            var entryContent = selectedItem.entryContent
-            if (entryContent) {
-                var entryTitle = selectedItem.entryTitle || itemDisplayTitle()
-                var sourceKey = selectedItem.sourceKey || ""
-                setupSliceCriteria(rp)
-                navigateToTyping()
-                Qt.callLater(function() {
-                    appBridge.loadFullText(entryContent, sourceKey, entryTitle, 0)
-                })
-                return
-            }
-            registryLoading = true
-            appBridge.loadLibraryText(SrcBehav.entrySourceKey(selectedItem))
-            statusMessage = qsTr("正在从开源文库加载...")
-            return
-        }
-        if (!selectedItem) { errorMessage = qsTr("请选择一个项目"); return }
+        startTypingFromRequest(buildLaunchRequest(), rp)
+    }
 
-        appBridge.clearPendingRestore()
-        var fullText = !sliceModeChecked
-        var size = sliceSettingsPanel.sliceSize
-        var index = Math.max(1, Math.min(sliceSettingsPanel.startSlice, sliceSettingsPanel.totalSlices))
+    function buildLaunchRequest() {
+        var capability = SrcBehav.capabilities[currentSource]
+        if (!capability) return null
+
+        if (currentSource === "custom") {
+            var customText = textLoadPanel.contentText
+            if (!customText) { errorMessage = qsTr("请输入文本"); return null }
+            return {
+                source: "custom",
+                launchKind: capability.launchKind,
+                text: customText,
+                sourceKey: textLoadPanel.selectedSourceKey || "custom",
+                title: textLoadPanel.selectedSourceLabel || qsTr("自定义文本"),
+                textId: 0
+            }
+        }
+
+        if (!selectedItem) { errorMessage = qsTr("请选择一个项目"); return null }
+
+        if (currentSource === "registry") {
+            return {
+                source: "registry",
+                launchKind: capability.launchKind,
+                text: selectedItem.entryContent || "",
+                sourceKey: selectedItem.sourceKey || SrcBehav.entrySourceKey(selectedItem),
+                title: selectedItem.entryTitle || itemDisplayTitle(),
+                textId: 0,
+                deferLoad: !(selectedItem.entryContent || "")
+            }
+        }
 
         if (currentSource === "jisubei") {
-            var text = previewContent
-            if (!text) { errorMessage = qsTr("文本内容尚未加载"); return }
-            if (fullText) { size = text.length; index = 1 }
-            setupSliceCriteria(rp)
-            navigateToTyping()
-            var title = itemDisplayTitle()
-            Qt.callLater(function() {
-                if (fullText) appBridge.loadFullText(text, "jisubei", title, serverTextId)
-                else appBridge.setupSliceMode(text, size, index,
-                    sliceCriteriaPanel.keyStrokeMinValue, sliceCriteriaPanel.speedMinValue,
-                    sliceCriteriaPanel.accuracyMinValue, sliceCriteriaPanel.passCountMinValue,
-                    sliceCriteriaPanel.conditionChecked ? sliceCriteriaPanel.onFailActionValue : "none",
-                    sliceCriteriaPanel.autoDecreaseEnabled, sliceCriteriaPanel.keyStrokeDecreaseValue,
-                    sliceCriteriaPanel.speedDecreaseValue, sliceCriteriaPanel.accuracyDecreaseValue,
-                    rp ? JSON.stringify(rp) : "", title)
-            })
-        } else if (currentSource === "local") {
+            if (!previewContent) { errorMessage = qsTr("文本内容尚未加载"); return null }
+            return {
+                source: "jisubei",
+                launchKind: capability.launchKind,
+                text: previewContent,
+                sourceKey: "jisubei",
+                title: itemDisplayTitle(),
+                textId: serverTextId
+            }
+        }
+
+        if (currentSource === "local") {
             var id = SrcBehav.articleId(selectedItem)
-            if (!id) { errorMessage = qsTr("文章缺少 ID"); return }
-            if (fullText) { size = SrcBehav.articleCharCount(selectedItem); index = 1 }
-            setupSliceCriteria(rp)
-            navigateToTyping()
-            Qt.callLater(function() { appBridge.loadLocalArticleSegment(id, index, size) })
-        } else if (currentSource === "trainer") {
+            if (!id) { errorMessage = qsTr("文章缺少 ID"); return null }
+            return {
+                source: "local",
+                launchKind: capability.launchKind,
+                identifier: id,
+                title: itemDisplayTitle(),
+                fullSize: SrcBehav.articleCharCount(selectedItem),
+                loadSegmentMethod: "loadLocalArticleSegment"
+            }
+        }
+
+        if (currentSource === "trainer") {
             var tid = SrcBehav.trainerId(selectedItem)
-            if (!tid) { errorMessage = qsTr("词库缺少 ID"); return }
-            if (fullText) { size = SrcBehav.trainerEntryCount(selectedItem); index = 1 }
-            setupSliceCriteria(rp)
-            navigateToTyping()
-            Qt.callLater(function() { appBridge.loadTrainerSegment(tid, index, size) })
+            if (!tid) { errorMessage = qsTr("词库缺少 ID"); return null }
+            return {
+                source: "trainer",
+                launchKind: capability.launchKind,
+                identifier: tid,
+                title: itemDisplayTitle(),
+                fullSize: SrcBehav.trainerEntryCount(selectedItem),
+                loadSegmentMethod: "loadTrainerSegment"
+            }
+        }
+
+        return null
+    }
+
+    function startTypingFromRequest(request, rp) {
+        if (!appBridge || !request) return
+        if (!rp) appBridge.clearPendingRestore()
+
+        if (request.launchKind === "materialized_text") {
+            startMaterializedText(request, rp)
+        } else if (request.launchKind === "segmented_source") {
+            startSegmentedSource(request, rp)
+        } else {
+            errorMessage = qsTr("不支持的载文方式")
         }
     }
 
-    function startCustomTyping(rp) {
-        if (!appBridge) return
-        var text = textLoadPanel.contentText
-        if (!text) { errorMessage = qsTr("请输入文本"); return }
-        if (!rp) appBridge.clearPendingRestore()
-
-        var s = rp || {}
-        var fullText = !textLoadPanel.sliceModeChecked
-        var sliceSize = s.slice_size > 0 ? s.slice_size : textLoadPanel.sliceSize
-        var startSlice = s.current_slice > 0 ? s.current_slice : textLoadPanel.startSlice
-        if (fullText) { sliceSize = text.length; startSlice = 1 }
+    function startSegmentedSource(request, rp) {
+        var fullText = !root.sliceModeChecked
+        var size = sliceSettingsPanel.sliceSize
+        var index = Math.max(1, Math.min(sliceSettingsPanel.startSlice, sliceSettingsPanel.totalSlices))
+        if (fullText) { size = request.fullSize; index = 1 }
 
         setupSliceCriteria(rp)
         navigateToTyping()
-        var title = textLoadPanel.selectedSourceLabel || qsTr("自定义文本")
-        var sourceKey = textLoadPanel.selectedSourceKey || "custom"
         Qt.callLater(function() {
-            if (fullText) appBridge.loadFullText(text, sourceKey, title)
-            else appBridge.setupSliceMode(text, sliceSize, startSlice,
+            if (request.loadSegmentMethod === "loadLocalArticleSegment")
+                appBridge.loadLocalArticleSegment(request.identifier, index, size)
+            else if (request.loadSegmentMethod === "loadTrainerSegment")
+                appBridge.loadTrainerSegment(request.identifier, index, size)
+        })
+    }
+
+    function startMaterializedText(request, rp) {
+        if (!appBridge || !request) return
+        if (request.deferLoad) {
+            registryLoading = true
+            appBridge.loadLibraryText(request.sourceKey)
+            statusMessage = qsTr("正在从开源文库加载...")
+            return
+        }
+        if (!request.text) return
+
+        var s = rp || {}
+        var fullText = !root.sliceModeChecked
+        var sliceSize = s.slice_size > 0 ? s.slice_size : sliceSettingsPanel.sliceSize
+        var startSlice = s.current_slice > 0 ? s.current_slice : sliceSettingsPanel.startSlice
+        if (fullText) { sliceSize = request.text.length; startSlice = 1 }
+
+        setupSliceCriteria(rp)
+        navigateToTyping()
+        Qt.callLater(function() {
+            if (fullText) appBridge.loadFullText(request.text, request.sourceKey, request.title, request.textId || 0)
+            else appBridge.setupSliceMode(request.text, sliceSize, startSlice,
                 sliceCriteriaPanel.keyStrokeMinValue, sliceCriteriaPanel.speedMinValue,
                 sliceCriteriaPanel.accuracyMinValue, sliceCriteriaPanel.passCountMinValue,
                 sliceCriteriaPanel.conditionChecked ? sliceCriteriaPanel.onFailActionValue : "none",
                 sliceCriteriaPanel.autoDecreaseEnabled, sliceCriteriaPanel.keyStrokeDecreaseValue,
                 sliceCriteriaPanel.speedDecreaseValue, sliceCriteriaPanel.accuracyDecreaseValue,
-                rp ? JSON.stringify(rp) : "", title)
+                rp ? JSON.stringify(rp) : "", request.title)
         })
+    }
+
+    function startCustomTyping(rp) {
+        startTypingFromRequest(buildLaunchRequest(), rp)
     }
 
     function canLoad() {
@@ -766,31 +815,7 @@ FluentPage {
             }
             appBridge.prepareSliceProgressRestore(appBridge.getProgressKey(root.progressKeyType(), _restoreId), _restoreTitle)
             var settings = JSON.parse(appBridge.getRestoredSliceSettings())
-            root.navigateToTyping()
-            SliceHelpers.startWithCriteria(
-                appBridge, null,
-                sliceSettingsPanel, sliceCriteriaPanel, settings,
-                function(size) {
-                    if (_source === "jisubei") {
-                        var text = root.previewContent
-                        var title = root.itemDisplayTitle()
-                        var fullText = !sliceSettingsPanel.sliceModeChecked
-                        if (fullText) { size = text.length }
-                        if (fullText) appBridge.loadFullText(text, "jisubei", title, root.serverTextId)
-                        else appBridge.setupSliceMode(text, size, 1,
-                            sliceCriteriaPanel.keyStrokeMinValue, sliceCriteriaPanel.speedMinValue,
-                            sliceCriteriaPanel.accuracyMinValue, sliceCriteriaPanel.passCountMinValue,
-                            sliceCriteriaPanel.conditionChecked ? sliceCriteriaPanel.onFailActionValue : "none",
-                            sliceCriteriaPanel.autoDecreaseEnabled, sliceCriteriaPanel.keyStrokeDecreaseValue,
-                            sliceCriteriaPanel.speedDecreaseValue, sliceCriteriaPanel.accuracyDecreaseValue,
-                            "", title)
-                    } else if (_source === "local") {
-                        appBridge.loadLocalArticleSegment(SrcBehav.articleId(root.selectedItem), 1, size)
-                    } else if (_source === "trainer") {
-                        appBridge.loadTrainerSegment(SrcBehav.trainerId(root.selectedItem), 1, size)
-                    }
-                }
-            )
+            root.startTypingFromRequest(root.buildLaunchRequest(), settings)
         }
 
         onStartFresh: {
@@ -832,6 +857,16 @@ FluentPage {
                 root.previewContent = content || ""
                 root.statusMessage = qsTr("已载入：%1").arg(title || root.itemDisplayTitle())
                 root.errorMessage = ""
+                if (content) {
+                    root.startTypingFromRequest({
+                        source: "registry",
+                        launchKind: SrcBehav.capabilities.registry.launchKind,
+                        text: content,
+                        sourceKey: SrcBehav.entrySourceKey(root.selectedItem),
+                        title: title || root.itemDisplayTitle(),
+                        textId: 0
+                    }, null)
+                }
             }
         }
         function onRegistryEntriesLoaded(sourceKey, entries) {

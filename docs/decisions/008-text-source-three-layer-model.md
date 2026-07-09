@@ -5,6 +5,9 @@
 > **2026-07-06 更新**：Registry 仓库已从"CI 生成内容"模式转型为"纯脚本工具"模式。
 > Registry 仓库不再托管任何文本内容，也不运行 GitHub Actions 自动抓取。
 > 仅提供抓取脚本模板，用户须在本地自行运行脚本生成文本。
+>
+> **2026-07-09 更新**：第 2 层进一步收敛为 OTT Core v1 + Distribution Profile。
+> OTT 标准边界、大文本分段与 typetype 客户端演进见 [ADR-009](./009-ott-adapter-v2-and-large-text-distribution.md)。
 
 ## 背景
 
