@@ -78,7 +78,7 @@ class LeaderboardAdapter(QObject):
             return
         try:
             from ...integration.registry_text_provider import RegistryTextProvider
-            from ..config.app_paths import registry_cache_dir
+            from ...config.app_paths import registry_cache_dir
             import httpx
 
             self._registry_provider = RegistryTextProvider(
