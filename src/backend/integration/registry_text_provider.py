@@ -20,7 +20,7 @@ import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 import httpx
 
@@ -28,6 +28,7 @@ from ..config.runtime_config import RegistryConfig
 from ..models.dto.fetched_text import FetchedText
 from ..models.dto.text_catalog_item import TextCatalogItem
 from ..utils.logger import log_info, log_warning
+from .ott_client import OttClient
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -48,6 +49,14 @@ class RegistryTextProvider:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = http_client or httpx.Client(timeout=10.0)
         self._async_executor = async_executor
+        self._ott_client = OttClient(
+            primary_url=self._config.primary_url,
+            mirror_url=self._config.mirror_url,
+            authority=self.authority,
+            fetch_json=self._fetch_json_with_cache,
+            fetch_text=self._fetch_text_with_cache,
+            max_content_bytes=self._config.max_content_bytes,
+        )
         # 后台刷新去重：防止同一 key 的多个过期请求触发重复刷新
         self._refresh_locks: dict[str, threading.Lock] = {}
         self._refresh_locks_lock = threading.Lock()
@@ -118,8 +127,9 @@ class RegistryTextProvider:
     def fetch_all_entries(self) -> list[dict]:
         """获取 OTT 聚合条目列表。
 
-        优先使用 OTT Core v1 summary-only `/ott/v1/entries`，不可用时 fallback
-        到旧静态 `registry_index.json` + `content/{source_key}.json` 布局。
+        优先使用 OTT Core v1 summary-only `/ott/v1/entries`，不可用时先
+        fallback 到 Static Profile，再 fallback 到旧静态
+        `registry_index.json` + `content/{source_key}.json` 布局。
         不再把 adapter-private `/api/entries` 作为标准客户端路径。
         """
         entries = self._fetch_ott_entry_summaries()
@@ -221,22 +231,7 @@ class RegistryTextProvider:
             or segment_index < 1
         ):
             return None
-        url = (
-            f"{self._config.primary_url}/ott/v1/entries/{entry_id}"
-            f"/revisions/{revision_id}/segments/{segment_index}"
-        )
-        mirror_url = (
-            f"{self._config.mirror_url}/ott/v1/entries/{entry_id}"
-            f"/revisions/{revision_id}/segments/{segment_index}"
-            if self._config.mirror_url
-            else None
-        )
-        data = self._fetch_json_with_cache(
-            cache_key=f"ott/segments/{entry_id}/{revision_id}/{segment_index}",
-            url=url,
-            mirror_url=mirror_url,
-            max_bytes=self._config.max_content_bytes,
-        )
+        data = self._ott_client.get_segment(entry_id, revision_id, segment_index)
         if data is None:
             return None
         content = data.get("content", "")
@@ -283,51 +278,10 @@ class RegistryTextProvider:
         )
 
     def _fetch_ott_entry_summaries(self) -> list[dict] | None:
-        result: list[dict] = []
-        page = 1
-        limit = 200
-        max_pages = 20
-        while page <= max_pages:
-            query = urlencode({"page": page, "limit": limit})
-            url = f"{self._config.primary_url}/ott/v1/entries?{query}"
-            mirror_url = (
-                f"{self._config.mirror_url}/ott/v1/entries?{query}"
-                if self._config.mirror_url
-                else None
-            )
-            data = self._fetch_json_with_cache(
-                cache_key=f"ott/entries/{page}",
-                url=url,
-                mirror_url=mirror_url,
-                max_bytes=self._config.max_content_bytes,
-            )
-            if data is None:
-                return None if not result else result
-            raw = data.get("entries", [])
-            if not isinstance(raw, list):
-                return None if not result else result
-            result.extend(
-                self._normalize_ott_entry_summary(e) for e in raw if isinstance(e, dict)
-            )
-            pages = int(data.get("pages", page) or page)
-            if page >= pages or not raw:
-                break
-            page += 1
-        return result
+        return self._ott_client.list_entries()
 
     def _fetch_ott_entry_detail(self, entry_id: str) -> dict | None:
-        url = f"{self._config.primary_url}/ott/v1/entries/{entry_id}"
-        mirror_url = (
-            f"{self._config.mirror_url}/ott/v1/entries/{entry_id}"
-            if self._config.mirror_url
-            else None
-        )
-        return self._fetch_json_with_cache(
-            cache_key=f"ott/entry/{entry_id}",
-            url=url,
-            mirror_url=mirror_url,
-            max_bytes=self._config.max_content_bytes,
-        )
+        return self._ott_client.get_entry(entry_id)
 
     def _fetch_json_with_cache(
         self,
@@ -419,12 +373,87 @@ class RegistryTextProvider:
                     f"[RegistryTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})"
                 )
                 return None
-            return response.json()
+            data = response.json()
+            return data if isinstance(data, dict) else None
         except httpx.HTTPError as e:
             log_warning(f"[RegistryTextProvider] HTTP 请求失败: {url} — {e}")
             return None
         except (ValueError, TypeError, OSError) as e:
             log_warning(f"[RegistryTextProvider] 响应解析失败: {url} — {e}")
+            return None
+
+    def _fetch_text_with_cache(
+        self,
+        cache_key: str,
+        url: str,
+        mirror_url: str | None = None,
+        max_bytes: int = 0,
+    ) -> str | None:
+        cached = self._read_cache(cache_key)
+        if cached is not None and isinstance(cached.get("content"), str):
+            if not self._is_cache_expired(cache_key):
+                return str(cached["content"])
+            self._maybe_refresh_text_in_background(
+                cache_key, url, mirror_url, max_bytes
+            )
+            return str(cached["content"])
+
+        content = self._fetch_text(url, max_bytes=max_bytes)
+        if content is None and mirror_url:
+            content = self._fetch_text(mirror_url, max_bytes=max_bytes)
+        if content is not None:
+            self._write_cache(cache_key, {"content": content})
+            return content
+        return None
+
+    def _maybe_refresh_text_in_background(
+        self,
+        cache_key: str,
+        url: str,
+        mirror_url: str | None,
+        max_bytes: int,
+    ) -> None:
+        if self._async_executor is None:
+            return
+        with self._refresh_locks_lock:
+            lock = self._refresh_locks.get(cache_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._refresh_locks[cache_key] = lock
+            if not lock.acquire(blocking=False):
+                return
+
+        def _refresh() -> None:
+            try:
+                content = self._fetch_text(url, max_bytes=max_bytes)
+                if content is None and mirror_url:
+                    content = self._fetch_text(mirror_url, max_bytes=max_bytes)
+                if content is not None:
+                    self._write_cache(cache_key, {"content": content})
+                    log_info(f"[RegistryTextProvider] 后台刷新成功: {cache_key}")
+                else:
+                    log_warning(f"[RegistryTextProvider] 后台刷新失败: {cache_key}")
+            except Exception:
+                log_warning(f"[RegistryTextProvider] 后台刷新异常: {cache_key}")
+            finally:
+                lock.release()
+                with self._refresh_locks_lock:
+                    self._refresh_locks.pop(cache_key, None)
+
+        self._async_executor.submit(_refresh)
+
+    def _fetch_text(self, url: str, max_bytes: int = 0) -> str | None:
+        try:
+            response = self._client.get(url)
+            response.raise_for_status()
+            if max_bytes > 0 and len(response.content) > max_bytes:
+                log_warning(
+                    f"[RegistryTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})"
+                )
+                return None
+            return response.text
+        except httpx.HTTPError as e:
+            log_warning(f"[RegistryTextProvider] HTTP 请求失败: {url} — {e}")
             return None
 
     # ------------------------------------------------------------------

@@ -356,11 +356,12 @@ onActiveChanged: {
 **问题**：OTT adapter 的 `/api` 同时承载管理、脚本、删除、调度等私有能力。把 `/api/entries` 作为 typetype 标准客户端 fallback 会重新耦合管理面和只读分发面，并让大文本退化成全量正文分发。
 
 **现状**（2026-07-10 ADR-009 首轮落地）：
-- OTT 标准客户端边界是 `/ott/v1` Service Profile，后续可补 Static Profile
+- OTT 标准客户端边界是 `/ott/v1` Service Profile 或 Static Profile
 - `RegistryTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
-- `/ott/v1` 不可用时只 fallback 到旧静态 `registry_index.json` + `content/{source_key}.json`，不 fallback `/api/entries`
+- `/ott/v1` 不可用时按 Static Profile → 旧静态 `registry_index.json` + `content/{source_key}.json` fallback，不 fallback `/api/entries`
 - inline OTT 条目通过 `loadOttEntry(entry_id)` 显式加载，不靠 `entry_id` 前缀猜测
 - segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
+- `OttClient` 负责 Service Profile / Static Profile 读取顺序；`RegistryTextProvider` 暂时保留历史命名和缓存实现
 
 **正确做法**：
 - 新增 OTT 客户端能力 → 先扩展 `/ott/v1` 或 Static Profile，再改 typetype

@@ -27,6 +27,20 @@ def _mock_response(json_data, status_code=200):
     return r
 
 
+def _mock_text_response(text: str, status_code=200):
+    r = MagicMock(spec=httpx.Response)
+    r.status_code = status_code
+    r.content = text.encode("utf-8")
+    r.text = text
+    if status_code >= 400:
+        r.raise_for_status.side_effect = httpx.HTTPStatusError(
+            str(status_code), request=MagicMock(), response=r
+        )
+    else:
+        r.raise_for_status = MagicMock()
+    return r
+
+
 def _make_provider(
     tmp_path: Path,
     config: RegistryConfig | None = None,
@@ -53,6 +67,7 @@ def _make_provider(
 def test_get_catalog_returns_items_from_index(tmp_path):
     provider = _make_provider(
         tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
         responses=[
             _mock_response(
                 {
@@ -128,6 +143,7 @@ def test_get_catalog_falls_back_to_mirror(tmp_path):
 def test_fetch_text_by_key_returns_text(tmp_path):
     provider = _make_provider(
         tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
         responses=[
             _mock_response(
                 {
@@ -145,6 +161,7 @@ def test_fetch_text_by_key_returns_text(tmp_path):
 def test_fetch_text_by_entry_id_returns_ott_detail(tmp_path):
     provider = _make_provider(
         tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
         responses=[
             _mock_response(
                 {
@@ -170,6 +187,7 @@ def test_fetch_text_by_entry_id_returns_ott_detail(tmp_path):
 def test_fetch_text_by_entry_id_accepts_non_ent_prefix(tmp_path):
     provider = _make_provider(
         tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
         responses=[
             _mock_response(
                 {
@@ -235,6 +253,7 @@ def test_fetch_text_by_key_falls_back_to_mirror(tmp_path):
 def test_fetch_all_entries_prefers_ott_core_summary(tmp_path):
     provider = _make_provider(
         tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
         responses=[
             _mock_response(
                 {
@@ -282,6 +301,7 @@ def test_fetch_all_entries_prefers_ott_core_summary(tmp_path):
 def test_fetch_all_entries_empty_ott_result_does_not_fallback_to_api(tmp_path):
     provider = _make_provider(
         tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
         responses=[
             _mock_response(
                 {
@@ -296,6 +316,72 @@ def test_fetch_all_entries_empty_ott_result_does_not_fallback_to_api(tmp_path):
     assert provider.fetch_all_entries() == []
     provider._client.get.assert_called_once()
     assert "/ott/v1/entries" in provider._client.get.call_args[0][0]
+
+
+def test_fetch_all_entries_uses_static_profile_when_service_unavailable(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+        responses=[
+            _mock_response(None, 404),
+            _mock_response(
+                {
+                    "entries": [
+                        {
+                            "entry_id": "book_1",
+                            "source_key": "book",
+                            "title": "静态书",
+                            "preview": "开头",
+                            "char_count": 2000,
+                            "content_mode": "segmented",
+                            "current_revision_id": "rev_static",
+                            "segment_count": 2,
+                            "segment_size_hint": 1000,
+                        }
+                    ],
+                    "total": 1,
+                }
+            ),
+        ],
+    )
+    result = provider.fetch_all_entries()
+    assert len(result) == 1
+    assert result[0]["entry_id"] == "book_1"
+    assert result[0]["authority"] == "cdn.example.com"
+    calls = [call.args[0] for call in provider._client.get.call_args_list]
+    assert calls == [
+        "https://cdn.example.com/ott/v1/entries?page=1&limit=200",
+        "https://cdn.example.com/entries.json",
+    ]
+
+
+def test_fetch_text_by_entry_id_uses_static_profile_when_service_unavailable(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+        responses=[
+            _mock_response(None, 404),
+            _mock_response(
+                {
+                    "entry_id": "book_1",
+                    "source_key": "book",
+                    "title": "静态书",
+                    "content_mode": "inline",
+                    "current_revision_id": "rev_static",
+                    "content_hash": "sha256:static",
+                    "content": "静态正文",
+                }
+            ),
+        ],
+    )
+    result = provider.fetch_text_by_entry_id("book_1")
+    assert result is not None
+    assert result.content == "静态正文"
+    calls = [call.args[0] for call in provider._client.get.call_args_list]
+    assert calls == [
+        "https://cdn.example.com/ott/v1/entries/book_1",
+        "https://cdn.example.com/entries/book_1.json",
+    ]
 
 
 def test_fetch_ott_segment_returns_content(tmp_path):
@@ -321,6 +407,27 @@ def test_fetch_ott_segment_returns_content(tmp_path):
     assert result["content"] == "分段正文"
     assert result["start_char"] == 0
     assert result["end_char"] == 4
+
+
+def test_fetch_ott_segment_uses_static_profile_text(tmp_path):
+    provider = _make_provider(
+        tmp_path,
+        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+        responses=[
+            _mock_response(None, 404),
+            _mock_text_response("静态分段"),
+        ],
+    )
+    result = provider.fetch_ott_segment("book_1", "rev_static", 2)
+    assert result is not None
+    assert result["content"] == "静态分段"
+    assert result["start_char"] == 1000
+    assert result["end_char"] == 1004
+    calls = [call.args[0] for call in provider._client.get.call_args_list]
+    assert calls == [
+        "https://cdn.example.com/ott/v1/entries/book_1/revisions/rev_static/segments/2",
+        "https://cdn.example.com/segments/rev_static/2.txt",
+    ]
 
 
 # ---------------------------------------------------------------------------

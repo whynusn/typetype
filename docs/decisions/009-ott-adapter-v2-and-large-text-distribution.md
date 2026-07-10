@@ -16,6 +16,17 @@
 
 本 ADR 的目标不是让 OTT 贴合 typetype 现状，而是定义一套可被 typetype、其他打字客户端、静态文件服务、本地适配器共同实现的 OTT 协议边界。
 
+版本命名约定：
+
+| 名称 | 当前值 | 含义 |
+|:---|:---|:---|
+| OTT Core | `1.0` | 数据模型与只读分发协议版本 |
+| Service Profile 路径 | `/ott/v1` | Core v1 的 HTTP 命名空间 |
+| OTT adapter 包版本 | `0.5.0` | 参考实现发布版本 |
+| 旧索引 schema | `registry_index.json version: 2` | 历史兼容索引，不是 OTT Core 版本 |
+
+因此当前不是“OTT v2”；“v2”只应出现在旧索引 schema 或历史 adapter 文案中。
+
 ## 问题判断
 
 ### 1. 标准核心与参考实现混在一起
@@ -272,11 +283,12 @@ GET /ott/v1/entries/{entry_id}/revisions/{revision_id}/segments/{index}
 ```text
 /ott.json
 /sources.json
+/entries.json
 /entries/{entry_id}.json
 /segments/{revision_id}/{index}.txt
 ```
 
-`/ott.json` 是静态能力声明，`/entries/{entry_id}.json` 返回 `EntryDetail`。如果 `content_mode=segmented`，客户端按 `segments/{revision_id}/{index}.txt` 读取分段正文。
+`/ott.json` 是静态能力声明，`/entries.json` 是 `EntrySummary` 发现清单，`/entries/{entry_id}.json` 返回 `EntryDetail`。如果 `content_mode=segmented`，客户端按 `segments/{revision_id}/{index}.txt` 读取分段正文。
 
 Static Profile 允许 GitHub Pages、nginx、本地文件服务等只读托管方式存在，但不要求任何抓取或管理能力。
 
@@ -382,11 +394,12 @@ ott:{authority}:{entry_id}@{revision_id}
 - typetype 的开源文库列表改为优先使用 `/ott/v1/entries`，不再把 `/api/entries` 作为标准 fallback。
 - typetype inline OTT 条目通过显式 `loadOttEntry(entry_id)` 加载；segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线。
 - typetype OTT 续练 key 改为 `ott:{authority}:{entry_id}@{revision_id}`。
+- OTT adapter 生成 Static Profile：`/ott.json`、`/sources.json`、`/entries.json`、`/entries/{entry_id}.json`、`/segments/{revision_id}/{index}.txt`。
+- typetype 新增 `OttClient`，按 Service Profile → Static Profile → legacy static registry/content 的顺序读取。
 
 仍未完成：
 
-- Static Profile 的 `/ott.json`、`/sources.json`、`/entries/{entry_id}.json`、`/segments/{revision_id}/{index}.txt` 生成与客户端实现。
-- `RegistryTextProvider` 到 `OttClient` / `OttTextProvider` 的命名迁移。
+- `RegistryTextProvider` 到 `OttTextProvider` 的完整命名迁移。
 - `/ott-admin/v1` 命名空间拆分；当前管理 API 仍在 legacy `/api`。
 - JSON Schema 与跨实现兼容测试样例。
 
