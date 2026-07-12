@@ -366,10 +366,10 @@ onActiveChanged: {
 
 **正确做法**：
 - 新增 OTT 客户端能力 → 先扩展 `/ott/v1` 或 Static Profile，再改 typetype
-- 管理/脚本能力 → 留在 adapter-private `/api` 或未来 `/ott-admin/v1`，typetype 只读客户端不要依赖
+- 管理/脚本能力 → 留在 adapter Admin Profile `/ott-admin/v1`（旧 `/api` 仅兼容），typetype 只读客户端不要依赖
 - 大文本 → 使用服务端定义 segment；不要在 typetype 侧拉完整正文再自行切片
 
-**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移。
+**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移与 OTT adapter `/ott-admin/v1` 管理面拆分。
 
 ### ⚠️ 晴发文（Wenlai）不得 CI 化，必须保持即时拉取
 

@@ -387,7 +387,7 @@ ott:{authority}:{entry_id}@{revision_id}
 
 ## 当前实施状态
 
-截至 2026-07-10 已完成第一轮落地：
+截至 2026-07-12 已完成：
 
 - OTT 仓库新增 `OTT_SPEC.md`，并实现 `/ott/v1/capabilities`、`/ott/v1/sources`、summary-only `/ott/v1/entries`、entry detail、segment endpoint。
 - OTT 列表摘要由索引中的 `ott_entries` 提供；segmented detail 默认不返回全文；`/api` 仍保留为 adapter-private / legacy。
@@ -397,10 +397,10 @@ ott:{authority}:{entry_id}@{revision_id}
 - OTT adapter 生成 Static Profile：`/ott.json`、`/sources.json`、`/entries.json`、`/entries/{entry_id}.json`、`/segments/{revision_id}/{index}.txt`。
 - typetype 新增 `OttClient`，按 Service Profile → Static Profile → legacy static registry/content 的顺序读取。
 - typetype 正式实现迁移为 `OttTextProvider`；`registry` 配置键与 Loader 值继续兼容，旧 provider 模块只做导入转发。
+- OTT adapter 新增 `/ott-admin/v1` Admin Profile，Web UI 已迁到该前缀；旧 `/api` 仅作为 legacy 兼容别名保留。
 
 仍未完成：
 
-- `/ott-admin/v1` 命名空间拆分；当前管理 API 仍在 legacy `/api`。
 - JSON Schema 与跨实现兼容测试样例。
 
 ## 删除或降级的设计
