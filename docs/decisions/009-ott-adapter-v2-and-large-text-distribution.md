@@ -306,7 +306,7 @@ OttClient
   get_segment(entry_id, revision_id, index)
 ```
 
-`RegistryTextProvider` 逐步降级为 legacy 兼容层；长期命名应迁移到 `OttTextProvider` / `OttClient`。
+`OttTextProvider` 承担缓存与 legacy fallback；旧 `RegistryTextProvider` 模块只保留导入兼容。
 
 ### 载文入口演进
 
@@ -376,7 +376,7 @@ ott:{authority}:{entry_id}@{revision_id}
 - 新增 `OttClient` / `OttTextProvider`。
 - `loadRegistryEntries()` 迁移到 summary list。
 - 选择条目后按 `EntryDetail.content_mode` 决定 launchKind。
-- `RegistryTextProvider` 保留 legacy fallback。
+- `OttTextProvider` 保留 legacy fallback；旧 `RegistryTextProvider` 仅作为导入兼容别名。
 
 ### Phase 4：typetype 大文本接入
 
@@ -396,10 +396,10 @@ ott:{authority}:{entry_id}@{revision_id}
 - typetype OTT 续练 key 改为 `ott:{authority}:{entry_id}@{revision_id}`。
 - OTT adapter 生成 Static Profile：`/ott.json`、`/sources.json`、`/entries.json`、`/entries/{entry_id}.json`、`/segments/{revision_id}/{index}.txt`。
 - typetype 新增 `OttClient`，按 Service Profile → Static Profile → legacy static registry/content 的顺序读取。
+- typetype 正式实现迁移为 `OttTextProvider`；`registry` 配置键与 Loader 值继续兼容，旧 provider 模块只做导入转发。
 
 仍未完成：
 
-- `RegistryTextProvider` 到 `OttTextProvider` 的完整命名迁移。
 - `/ott-admin/v1` 命名空间拆分；当前管理 API 仍在 legacy `/api`。
 - JSON Schema 与跨实现兼容测试样例。
 

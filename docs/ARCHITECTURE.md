@@ -290,7 +290,7 @@ onActivated → Qt.callLater() 延迟触发信号
 > 决策依据：ADR-008（`docs/decisions/008-text-source-three-layer-model.md`）。
 > 按「数据如何到达客户端」划分三层，不强行统一。
 >
-> **命名约定**：第 2 层的用户-facing 名称是**开源文库**；标准边界是 OTT Core v1。`/ott/v1` 是协议路径版本，OTT adapter 当前包版本是独立的 `0.5.0`；不要把旧 adapter 文案中的 “v2” 当成协议版本。当前 typetype 内部仍使用历史 `Registry` 命名（如 `RegistryTextProvider`、`registry.primary_url`），OTT 读取已抽到 `OttClient`，后续再完成 `OttTextProvider` 命名迁移。
+> **命名约定**：第 2 层的用户-facing 名称是**开源文库**；标准边界是 OTT Core v1。`/ott/v1` 是协议路径版本，OTT adapter 当前包版本是独立的 `0.5.0`；不要把旧 adapter 文案中的 “v2” 当成协议版本。实现类型为 `OttTextProvider` + `OttClient`。`registry.primary_url` 和 `Loader.REGISTRY` 仅作为已有配置兼容标识保留，旧 `RegistryTextProvider` 是导入兼容别名。
 
 ### 三层职责对照
 
@@ -302,7 +302,7 @@ onActivated → Qt.callLater() 延迟触发信号
 | **网络韧性要求** | 无 | 低（离线读缓存兜底）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（TTL + stale-while-revalidate） | 不需要 |
 | **账号要求** | 无 | 无 | 用户自有账号（token_store）|
-| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider` + `OttSegmentProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
+| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `OttTextProvider` + `OttSegmentProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
 | **Loader 路由** | `text_source_config.py` `Loader.LOCAL_FILE` | `Loader.REGISTRY` | `Loader.REMOTE_API` |
 
 ### 文本源扩展路径
@@ -352,7 +352,7 @@ onActivated → Qt.callLater() 延迟触发信号
 
 ### 开源文库缓存层
 
-内部实现为 `RegistryTextProvider` + `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/entries.json` 等) → 旧静态 `registry_index.json` + `content/{source_key}.json` 兼容布局的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
+内部实现为 `OttTextProvider` + `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/entries.json` 等) → 旧静态 `registry_index.json` + `content/{source_key}.json` 兼容布局的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
 
 缓存层五层决策树：
 

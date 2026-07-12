@@ -18,7 +18,7 @@ TypeType 的文本来源由两个正交维度定义：
 |----|------|------------------|
 | `local_file` | 读本地文件 | `LocalTextLoader` |
 | `remote_api` | 调用服务端 API | `RemoteTextProvider` |
-| `registry` | CDN 注册表 | `RegistryTextProvider` |
+| `registry` | OTT 开源文库（历史配置值） | `OttTextProvider` |
 
 ### 可用的 leaderboard_mode 值
 

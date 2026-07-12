@@ -1171,7 +1171,7 @@ class Bridge(QObject):
     def loadLibraryText(self, source_key: str) -> None:
         """从开源文库加载文本（完全独立于服务端 API）。
 
-        开源文库（第 2 层，内部实现为 RegistryTextProvider）文本由用户本地运行脚本生成，
+        开源文库（第 2 层，内部实现为 OttTextProvider）文本由用户本地运行脚本生成，
         通过 HTTP 服务暴露，客户端拉取，与服务端数据库无关。
 
         结果通过 textContentLoaded 信号返回，失败通过 textLoadFailed。

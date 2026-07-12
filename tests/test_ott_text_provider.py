@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from src.backend.config.runtime_config import RegistryConfig
-from src.backend.integration.registry_text_provider import RegistryTextProvider
+from src.backend.integration.ott_text_provider import OttTextProvider
 from src.backend.models.dto.fetched_text import FetchedText
 from src.backend.models.dto.text_catalog_item import TextCatalogItem
 
@@ -45,7 +45,7 @@ def _make_provider(
     tmp_path: Path,
     config: RegistryConfig | None = None,
     responses: list | None = None,
-) -> RegistryTextProvider:
+) -> OttTextProvider:
     """构造 provider 用于测试。tmp_path 为必传，避免污染 /tmp。"""
     cfg = config or RegistryConfig(primary_url="https://cdn.example.com")
     cache = tmp_path / "registry_cache"
@@ -55,8 +55,8 @@ def _make_provider(
             client.get.return_value = responses[0]
         else:
             client.get.side_effect = responses
-        return RegistryTextProvider(cfg, cache, http_client=client)
-    return RegistryTextProvider(cfg, cache)
+        return OttTextProvider(cfg, cache, http_client=client)
+    return OttTextProvider(cfg, cache)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ def test_get_catalog_returns_empty_on_http_error(tmp_path):
 def test_get_catalog_returns_empty_on_connect_error(tmp_path):
     client = MagicMock(spec=httpx.Client)
     client.get.side_effect = httpx.ConnectError("no route")
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com"),
         tmp_path / "cache",
         http_client=client,
@@ -495,7 +495,7 @@ def _make_index_response(source_key: str = "daily") -> dict:
     return {"sources": [{"source_key": source_key, "label": source_key}]}
 
 
-def _age_cache_file(provider: RegistryTextProvider, cache_key: str, seconds_old: float):
+def _age_cache_file(provider: OttTextProvider, cache_key: str, seconds_old: float):
     """将缓存文件的 mtime 设置为指定秒数之前，模拟过期。"""
     path = provider._cache_path(cache_key)
     if path.exists():
@@ -528,7 +528,7 @@ def test_cache_hit_returns_cached_without_network(tmp_path):
     """TTL 内第二次请求不打网络，返回缓存。"""
     client = MagicMock(spec=httpx.Client)
     client.get.return_value = _mock_response(_make_content_response())
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=3600),
         tmp_path / "cache",
         http_client=client,
@@ -555,7 +555,7 @@ def test_cache_expired_refetches_network(tmp_path):
         _mock_response(_make_content_response("缓存测试")),
         _mock_response(_make_content_response("新内容")),
     ]
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=60),
         tmp_path / "cache",
         http_client=client,
@@ -596,7 +596,7 @@ def test_offline_returns_stale_cache(tmp_path):
         _mock_response(_make_content_response("原始内容")),
         httpx.ConnectError("offline"),
     ]
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=60),
         tmp_path / "cache",
         http_client=client,
@@ -617,7 +617,7 @@ def test_offline_no_cache_returns_none(tmp_path):
     """网络失败 + 无缓存 → None。"""
     client = MagicMock(spec=httpx.Client)
     client.get.side_effect = httpx.ConnectError("offline")
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com"),
         tmp_path / "cache",
         http_client=client,
@@ -657,7 +657,7 @@ def test_cache_write_failure_does_not_crash(tmp_path):
     client = MagicMock(spec=httpx.Client)
     client.get.return_value = _mock_response(_make_content_response("网络内容"))
     cache_dir = tmp_path / "cache"
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com"),
         cache_dir,
         http_client=client,
@@ -677,7 +677,7 @@ def test_cache_corrupted_refetches_network(tmp_path):
     """缓存文件损坏（非 JSON）→ 视为 miss，重新打网络。"""
     client = MagicMock(spec=httpx.Client)
     client.get.return_value = _mock_response(_make_content_response("网络内容"))
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=3600),
         tmp_path / "cache",
         http_client=client,
@@ -697,7 +697,7 @@ def test_index_and_content_use_separate_cache_files(tmp_path):
     """index 和 content 缓存到不同文件。"""
     client = MagicMock(spec=httpx.Client)
     client.get.return_value = _mock_response(_make_content_response())
-    provider = RegistryTextProvider(
+    provider = OttTextProvider(
         RegistryConfig(primary_url="https://cdn.example.com"),
         tmp_path / "cache",
         http_client=client,

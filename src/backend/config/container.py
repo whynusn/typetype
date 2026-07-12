@@ -56,7 +56,7 @@ if TYPE_CHECKING:
     from ..integration.file_ziti_repository import FileZitiRepository
     from ..integration.leaderboard_fetcher import LeaderboardFetcher
     from ..integration.qt_local_text_loader import QtLocalTextLoader
-    from ..integration.registry_text_provider import RegistryTextProvider
+    from ..integration.ott_text_provider import OttTextProvider
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.secure_token_store import SecureTokenStore
     from ..integration.text_uploader import TextUploader
@@ -100,7 +100,7 @@ class Repos:
 @dataclass
 class Providers:
     text: RemoteTextProvider
-    registry: RegistryTextProvider | None
+    registry: OttTextProvider | None
     wenlai: WenlaiProvider
     llm: LlmTextProvider
 
@@ -199,7 +199,7 @@ def create_repos() -> Repos:
 
 def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..infrastructure.api_client import ApiClient
-    from ..integration.registry_text_provider import RegistryTextProvider
+    from ..integration.ott_text_provider import OttTextProvider
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
@@ -229,7 +229,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
             api_client=infra.api_client,
             token_provider=_get_jwt_token,
         ),
-        registry=RegistryTextProvider(
+        registry=OttTextProvider(
             config=runtime_config.registry,
             cache_dir=registry_cache_dir(),
             http_client=httpx.Client(timeout=10.0, trust_env=False),

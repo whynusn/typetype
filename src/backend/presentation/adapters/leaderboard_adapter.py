@@ -62,7 +62,7 @@ class LeaderboardAdapter(QObject):
         self._submit_workers: set = set()
 
     def _init_registry_provider(self) -> None:
-        """运行时根据当前配置延迟创建 RegistryTextProvider。
+        """运行时根据当前配置延迟创建 OttTextProvider。
 
         用户在设置页面填写 registry URL 时，registry_provider 尚未创建
         （启动时 URL 为空 → container.py 中 else None），此处按需创建。
@@ -77,11 +77,11 @@ class LeaderboardAdapter(QObject):
             )
             return
         try:
-            from ...integration.registry_text_provider import RegistryTextProvider
+            from ...integration.ott_text_provider import OttTextProvider
             from ...config.app_paths import registry_cache_dir
             import httpx
 
-            self._registry_provider = RegistryTextProvider(
+            self._registry_provider = OttTextProvider(
                 config=self._runtime_config.registry,
                 cache_dir=registry_cache_dir(),
                 http_client=httpx.Client(timeout=10.0, trust_env=False),
@@ -298,7 +298,7 @@ class LeaderboardAdapter(QObject):
     @Slot()
     def refreshCatalog(self) -> None:
         """清除缓存并重新从服务端加载文本来源目录。
-        同时清除 RegistryTextProvider 的磁盘缓存，确保 URL 变更后不走旧缓存。
+        同时清除 OttTextProvider 的磁盘缓存，确保 URL 变更后不走旧缓存。
         """
         self._catalog_cache = None
         # 清除 registry 磁盘缓存

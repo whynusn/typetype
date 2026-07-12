@@ -336,10 +336,10 @@ onActiveChanged: {
 
 ### ⚠️ 开源文库缓存层必须读缓存，禁止直打网络
 
-**问题**：开源文库的内部实现 `RegistryTextProvider` 的 `_cache_dir` 长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
+**问题**：开源文库 provider 的 `_cache_dir` 曾长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
 
 **现状**（Phase 1a/1b 实现后）：
-- `RegistryTextProvider._fetch_json_with_cache()` 实现五层决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底
+- `OttTextProvider._fetch_json_with_cache()` 实现五层决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底
 - 基于文件 mtime + `cache_ttl_seconds`（默认 3600s）判断过期
 - 原子写：tmp + `Path.replace`，全方法 `try/except OSError` 兜底
 - 后台刷新：`QtAsyncExecutor` + `threading.Lock` 去重防重复刷新
@@ -357,18 +357,19 @@ onActiveChanged: {
 
 **现状**（2026-07-10 ADR-009 首轮落地）：
 - OTT 标准客户端边界是 `/ott/v1` Service Profile 或 Static Profile
-- `RegistryTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
+- `OttTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
 - `/ott/v1` 不可用时按 Static Profile → 旧静态 `registry_index.json` + `content/{source_key}.json` fallback，不 fallback `/api/entries`
 - inline OTT 条目通过 `loadOttEntry(entry_id)` 显式加载，不靠 `entry_id` 前缀猜测
 - segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
-- `OttClient` 负责 Service Profile / Static Profile 读取顺序；`RegistryTextProvider` 暂时保留历史命名和缓存实现
+- `OttClient` 负责 Service Profile / Static Profile 读取顺序；`OttTextProvider` 负责缓存与 legacy fallback
+- `registry_text_provider.RegistryTextProvider` 只保留兼容导出，新代码禁止继续依赖旧模块名
 
 **正确做法**：
 - 新增 OTT 客户端能力 → 先扩展 `/ott/v1` 或 Static Profile，再改 typetype
 - 管理/脚本能力 → 留在 adapter-private `/api` 或未来 `/ott-admin/v1`，typetype 只读客户端不要依赖
 - 大文本 → 使用服务端定义 segment；不要在 typetype 侧拉完整正文再自行切片
 
-**历史**：2026-07-10 ADR-009 首轮实现。
+**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移。
 
 ### ⚠️ 晴发文（Wenlai）不得 CI 化，必须保持即时拉取
 

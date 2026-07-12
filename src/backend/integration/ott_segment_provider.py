@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .registry_text_provider import RegistryTextProvider
+from .ott_text_provider import OttTextProvider
 
 
 class OttSegmentProvider:
@@ -8,7 +8,7 @@ class OttSegmentProvider:
 
     def __init__(
         self,
-        registry_provider: RegistryTextProvider,
+        registry_provider: OttTextProvider,
         entry_id: str,
         revision_id: str,
         total_chars: int,

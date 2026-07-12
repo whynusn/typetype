@@ -32,7 +32,7 @@
 |----|---------|-------------|
 | `local_file` | 读本地文件 | `LocalTextLoader` / `FileSegmentProvider` |
 | `remote_api` | 调用服务端 API | `RemoteTextProvider` |
-| `registry` | 开源文库（第 2 层，本地运行脚本生成的只读 JSON） | `RegistryTextProvider` |
+| `registry` | 开源文库（第 2 层，历史 Loader 值） | `OttTextProvider` |
 
 ## LeaderboardMode 枚举
 
