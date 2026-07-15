@@ -1,5 +1,5 @@
 # TypeType 架构设计手册
-<!-- 状态: active | 最后验证: 2026-06-04 -->
+<!-- 状态: active | 最后验证: 2026-07-13 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -11,7 +11,7 @@
 
 ---
 
-> 最后更新：2026-06-04
+> 最后更新：2026-07-13
 
 ---
 
@@ -352,7 +352,7 @@ onActivated → Qt.callLater() 延迟触发信号
 
 ### 开源文库缓存层
 
-内部实现为 `OttTextProvider` + `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/entries.json` 等) → 旧静态 `registry_index.json` + `content/{source_key}.json` 兼容布局的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
+内部实现为 `OttTextProvider` + `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/sources.json`、`/entries.json` 等) → 旧静态 `registry_index.json` + `content/{source_key}.json` 兼容布局的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
 
 缓存层五层决策树：
 

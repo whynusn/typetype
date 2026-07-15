@@ -7,9 +7,11 @@ now so this can be introduced without changing the persistence model.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from urllib.parse import urlencode
 
+from .ott_normalization import normalize_source, normalize_summary, safe_int
 
 FetchJson = Callable[[str, str, str | None, int], dict | None]
 FetchText = Callable[[str, str, str | None, int], str | None]
@@ -46,6 +48,16 @@ class OttClient:
                 return static
         return None
 
+    def list_sources(self) -> list[dict] | None:
+        for base_url in self._profile_base_urls():
+            service = self._list_service_sources(base_url)
+            if service is not None:
+                return service
+            static = self._list_static_sources(base_url)
+            if static is not None:
+                return static
+        return None
+
     def get_entry(self, entry_id: str) -> dict | None:
         for base_url in self._profile_base_urls():
             service = self._get_service_entry(base_url, entry_id)
@@ -57,7 +69,11 @@ class OttClient:
         return None
 
     def get_segment(
-        self, entry_id: str, revision_id: str, segment_index: int
+        self,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size_hint: int = DEFAULT_STATIC_SEGMENT_SIZE,
     ) -> dict | None:
         for base_url in self._profile_base_urls():
             service = self._get_service_segment(
@@ -66,7 +82,11 @@ class OttClient:
             if service is not None:
                 return service
             static = self._get_static_segment(
-                base_url, entry_id, revision_id, segment_index
+                base_url,
+                entry_id,
+                revision_id,
+                segment_index,
+                segment_size_hint,
             )
             if static is not None:
                 return static
@@ -97,9 +117,11 @@ class OttClient:
             if not isinstance(raw, list):
                 return None if not result else result
             result.extend(
-                self._normalize_summary(e) for e in raw if isinstance(e, dict)
+                normalize_summary(e, self._authority)
+                for e in raw
+                if isinstance(e, dict)
             )
-            pages = int(data.get("pages", page) or page)
+            pages = safe_int(data.get("pages"), page)
             if page >= pages or not raw:
                 break
             page += 1
@@ -117,7 +139,37 @@ class OttClient:
         raw = data.get("entries", [])
         if not isinstance(raw, list):
             return None
-        return [self._normalize_summary(e) for e in raw if isinstance(e, dict)]
+        return [
+            normalize_summary(e, self._authority) for e in raw if isinstance(e, dict)
+        ]
+
+    def _list_service_sources(self, base_url: str) -> list[dict] | None:
+        data = self._fetch_json(
+            "ott/service/sources",
+            f"{base_url}/ott/v1/sources",
+            None,
+            self._max_content_bytes,
+        )
+        if data is None:
+            return None
+        raw = data.get("sources", [])
+        if not isinstance(raw, list):
+            return None
+        return [normalize_source(e) for e in raw if isinstance(e, dict)]
+
+    def _list_static_sources(self, base_url: str) -> list[dict] | None:
+        data = self._fetch_json(
+            "ott/static/sources",
+            f"{base_url}/sources.json",
+            None,
+            self._max_content_bytes,
+        )
+        if data is None:
+            return None
+        raw = data.get("sources", [])
+        if not isinstance(raw, list):
+            return None
+        return [normalize_source(e) for e in raw if isinstance(e, dict)]
 
     def _get_service_entry(self, base_url: str, entry_id: str) -> dict | None:
         return self._fetch_json(
@@ -149,7 +201,12 @@ class OttClient:
         )
 
     def _get_static_segment(
-        self, base_url: str, entry_id: str, revision_id: str, segment_index: int
+        self,
+        base_url: str,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size_hint: int,
     ) -> dict | None:
         content = self._fetch_text(
             f"ott/static/segments/{revision_id}/{segment_index}",
@@ -159,7 +216,8 @@ class OttClient:
         )
         if content is None:
             return None
-        start = (segment_index - 1) * DEFAULT_STATIC_SEGMENT_SIZE
+        segment_size = max(1, segment_size_hint)
+        start = (segment_index - 1) * segment_size
         return {
             "entry_id": entry_id,
             "revision_id": revision_id,
@@ -167,32 +225,7 @@ class OttClient:
             "start_char": start,
             "end_char": start + len(content),
             "char_count": len(content),
-            "content_hash": "",
+            "content_hash": "sha256:"
+            + hashlib.sha256(content.encode("utf-8")).hexdigest(),
             "content": content,
-        }
-
-    def _normalize_summary(self, entry: dict) -> dict:
-        char_count = int(entry.get("char_count", entry.get("charCount", 0)) or 0)
-        return {
-            "entry_id": str(entry.get("entry_id", "") or ""),
-            "title": str(entry.get("title", "") or ""),
-            "preview": str(entry.get("preview", "") or ""),
-            "source_key": str(entry.get("source_key", "") or ""),
-            "source_label": str(entry.get("source_label", "") or ""),
-            "charCount": char_count,
-            "char_count": char_count,
-            "fetched_at": str(
-                entry.get("fetched_at", entry.get("updated_at", "")) or ""
-            ),
-            "category": str(entry.get("category", "") or ""),
-            "tags": entry.get("tags", [])
-            if isinstance(entry.get("tags", []), list)
-            else [],
-            "content_mode": str(entry.get("content_mode", "inline") or "inline"),
-            "current_revision_id": str(entry.get("current_revision_id", "") or ""),
-            "segment_count": int(entry.get("segment_count", 0) or 0),
-            "segment_size_hint": int(entry.get("segment_size_hint", 0) or 0),
-            "authority": str(
-                entry.get("authority", self._authority) or self._authority
-            ),
         }

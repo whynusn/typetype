@@ -1,22 +1,5 @@
-"""OTT 文本提供器 - 第 2 层文本源实现。
-
-用户-facing 名称为"开源文库"，配置和 Loader 保留历史 `registry` 标识。
-实现 TextProvider Protocol。客户端只依赖 OTT Core v1 只读分发面，不执行远程脚本。
-
-缓存层设计：
-- Phase 1a：磁盘缓存 + TTL 过期 + 离线兜底 + 原子写（tmp + replace）
-- Phase 1b：stale-while-revalidate（过期时返回 stale + 后台刷新）
-
-缓存文件布局：
-- {cache_dir}/index.json          ← registry_index.json 的缓存
-- {cache_dir}/content/{key}.json  ← 单篇正文缓存
-"""
-
 from __future__ import annotations
 
-import json
-import threading
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -26,8 +9,11 @@ import httpx
 from ..config.runtime_config import RegistryConfig
 from ..models.dto.fetched_text import FetchedText
 from ..models.dto.text_catalog_item import TextCatalogItem
-from ..utils.logger import log_info, log_warning
+from .ott_cached_fetcher import OttCachedFetcher
+from .ott_catalog import catalog_items_from_sources
 from .ott_client import OttClient
+from .ott_legacy import legacy_static_entries
+from .ott_normalization import safe_int
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -41,13 +27,18 @@ class OttTextProvider:
         config: RegistryConfig,
         cache_dir: Path,
         http_client: httpx.Client | None = None,
-        async_executor: "AsyncExecutor" | None = None,
-    ):
+        async_executor: AsyncExecutor | None = None,
+    ) -> None:
         self._config = config
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = http_client or httpx.Client(timeout=10.0)
-        self._async_executor = async_executor
+        self._cache = OttCachedFetcher(
+            self._config,
+            self._cache_dir,
+            self._client,
+            async_executor,
+        )
         self._ott_client = OttClient(
             primary_url=self._config.primary_url,
             mirror_url=self._config.mirror_url,
@@ -56,31 +47,12 @@ class OttTextProvider:
             fetch_text=self._fetch_text_with_cache,
             max_content_bytes=self._config.max_content_bytes,
         )
-        # 后台刷新去重：防止同一 key 的多个过期请求触发重复刷新
-        self._refresh_locks: dict[str, threading.Lock] = {}
-        self._refresh_locks_lock = threading.Lock()
 
     def get_catalog(self) -> list[TextCatalogItem]:
-        data = self._fetch_registry_index()
-        if data is None:
-            return []
-        sources = data.get("sources", [])
-        if not isinstance(sources, list):
-            return []
-        return [
-            TextCatalogItem(
-                id=item.get("id", 0),
-                source_key=item["source_key"],
-                label=item.get("label", item["source_key"]),
-                description=item.get("description", ""),
-                charCount=int(item.get("charCount", 0) or 0),
-                has_ranking=bool(item.get("has_ranking", False)),
-                category=str(item.get("category", "") or ""),
-                update_freq=str(item.get("update_freq", "") or ""),
-            )
-            for item in sources
-            if isinstance(item, dict) and item.get("source_key")
-        ]
+        sources = self._fetch_ott_sources()
+        if sources is None:
+            sources = self._fetch_legacy_sources()
+        return catalog_items_from_sources(sources)
 
     def fetch_text_by_key(self, source_key: str) -> FetchedText | None:
         if not self._validate_source_key(source_key):
@@ -124,13 +96,6 @@ class OttTextProvider:
         return None
 
     def fetch_all_entries(self) -> list[dict]:
-        """获取 OTT 聚合条目列表。
-
-        优先使用 OTT Core v1 summary-only `/ott/v1/entries`，不可用时先
-        fallback 到 Static Profile，再 fallback 到旧静态
-        `registry_index.json` + `content/{source_key}.json` 布局。
-        不再把 adapter-private `/api/entries` 作为标准客户端路径。
-        """
         entries = self._fetch_ott_entry_summaries()
         if entries is not None:
             return entries
@@ -138,61 +103,17 @@ class OttTextProvider:
         return self._fetch_legacy_static_entries()
 
     def _fetch_legacy_static_entries(self) -> list[dict]:
-        """Fallback for old static registry_index/content layout, not /api."""
         data = self._fetch_registry_index()
         if data is None:
             return []
-        sources = data.get("sources", [])
-        if not isinstance(sources, list):
-            return []
-        result: list[dict] = []
-        for item in sources:
-            if not isinstance(item, dict) or not item.get("source_key"):
-                continue
-            source_key = str(item.get("source_key", "") or "")
-            content_data = self._fetch_content(source_key)
-            if content_data is None:
-                continue
-            result.extend(
-                self._normalize_legacy_content_entries(source_key, item, content_data)
-            )
-        return result
-
-    def _normalize_legacy_content_entries(
-        self, source_key: str, source_item: dict, data: dict
-    ) -> list[dict]:
-        source_label = str(source_item.get("label", source_key) or source_key)
-        raw = data.get("entries", [])
-        if not isinstance(raw, list) or not raw:
-            content = data.get("content", "")
-            raw = [
-                {
-                    "title": data.get("title", source_label),
-                    "content": content,
-                    "fetched_at": data.get("fetched_at", ""),
-                    "metadata": data.get("metadata", {}),
-                }
-            ]
-        return [
-            {
-                "entry_id": "",
-                "title": str(e.get("title", "") or source_label),
-                "content": self._sanitize_content(str(e.get("content", ""))),
-                "source_key": source_key,
-                "source_label": source_label,
-                "charCount": len(str(e.get("content", "") or "")),
-                "char_count": len(str(e.get("content", "") or "")),
-                "fetched_at": str(e.get("fetched_at", "")),
-                "category": str(source_item.get("category", "")),
-                "content_mode": "inline",
-                "authority": self.authority,
-            }
-            for e in raw
-            if isinstance(e, dict) and e.get("content")
-        ]
+        return legacy_static_entries(
+            data,
+            self._fetch_content,
+            self._sanitize_content,
+            self.authority,
+        )
 
     def fetch_text_by_entry_id(self, entry_id: str) -> FetchedText | None:
-        """Fetch an OTT Core v1 entry detail by stable entry_id."""
         if not self._validate_identifier(entry_id):
             return None
         data = self._fetch_ott_entry_detail(entry_id)
@@ -216,21 +137,29 @@ class OttTextProvider:
             ),
             content_hash=str(data.get("content_hash", "") or ""),
             content_mode=mode,
-            segment_count=int(data.get("segment_count", 0) or 0),
-            segment_size_hint=int(data.get("segment_size_hint", 0) or 0),
+            segment_count=safe_int(data.get("segment_count")),
+            segment_size_hint=safe_int(data.get("segment_size_hint")),
         )
 
     def fetch_ott_segment(
-        self, entry_id: str, revision_id: str, segment_index: int
+        self,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        source_segment_size: int = 1000,
     ) -> dict | None:
-        """Fetch one server-defined OTT segment content."""
         if (
             not self._validate_identifier(entry_id)
             or not self._validate_identifier(revision_id)
             or segment_index < 1
         ):
             return None
-        data = self._ott_client.get_segment(entry_id, revision_id, segment_index)
+        data = self._ott_client.get_segment(
+            entry_id,
+            revision_id,
+            segment_index,
+            max(1, source_segment_size),
+        )
         if data is None:
             return None
         content = data.get("content", "")
@@ -239,10 +168,10 @@ class OttTextProvider:
         return {
             "entry_id": str(data.get("entry_id", entry_id) or entry_id),
             "revision_id": str(data.get("revision_id", revision_id) or revision_id),
-            "index": int(data.get("index", segment_index) or segment_index),
-            "start_char": int(data.get("start_char", 0) or 0),
-            "end_char": int(data.get("end_char", 0) or 0),
-            "char_count": int(data.get("char_count", len(content)) or len(content)),
+            "index": safe_int(data.get("index"), segment_index),
+            "start_char": safe_int(data.get("start_char")),
+            "end_char": safe_int(data.get("end_char")),
+            "char_count": safe_int(data.get("char_count"), len(content)),
             "content_hash": str(data.get("content_hash", "") or ""),
             "content": self._sanitize_content(content),
         }
@@ -279,8 +208,20 @@ class OttTextProvider:
     def _fetch_ott_entry_summaries(self) -> list[dict] | None:
         return self._ott_client.list_entries()
 
+    def _fetch_ott_sources(self) -> list[dict] | None:
+        return self._ott_client.list_sources()
+
     def _fetch_ott_entry_detail(self, entry_id: str) -> dict | None:
         return self._ott_client.get_entry(entry_id)
+
+    def _fetch_legacy_sources(self) -> list[dict]:
+        data = self._fetch_registry_index()
+        if data is None:
+            return []
+        sources = data.get("sources", [])
+        if not isinstance(sources, list):
+            return []
+        return [item for item in sources if isinstance(item, dict)]
 
     def _fetch_json_with_cache(
         self,
@@ -289,97 +230,7 @@ class OttTextProvider:
         mirror_url: str | None = None,
         max_bytes: int = 0,
     ) -> dict | None:
-        """带缓存决策的 JSON 获取。
-
-        决策树：
-        1. cache hit + 未过期 → 返回缓存
-        2. cache hit + 过期 → 返回 stale + 后台刷新（stale-while-revalidate）
-        3. cache miss → 打网络（primary → mirror fallback）
-        4. 网络成功 → 写缓存并返回
-        5. 网络失败 + 有 stale 缓存 → 返回 stale（无视 TTL 兜底）
-        6. 完全无缓存 → None
-        """
-        cached = self._read_cache(cache_key)
-        if cached is not None:
-            if not self._is_cache_expired(cache_key):
-                return cached
-            # cache hit + expired → stale-while-revalidate
-            self._maybe_refresh_in_background(cache_key, url, mirror_url, max_bytes)
-            return cached
-
-        data = self._fetch_json(url, max_bytes=max_bytes)
-        if data is None and mirror_url:
-            data = self._fetch_json(mirror_url, max_bytes=max_bytes)
-
-        if data is not None:
-            self._write_cache(cache_key, data)
-            return data
-
-        # 网络失败 + 有 stale 缓存 → 离线兜底
-        if cached is not None:
-            log_warning(f"[OttTextProvider] 网络失败，返回过期缓存: {cache_key}")
-            return cached
-
-        return None
-
-    def _maybe_refresh_in_background(
-        self,
-        cache_key: str,
-        url: str,
-        mirror_url: str | None,
-        max_bytes: int,
-    ) -> None:
-        """过期时启动后台刷新（stale-while-revalidate），去重防重复刷新。"""
-        if self._async_executor is None:
-            return
-
-        # 获取该 key 的刷新锁（懒创建 + 去重）
-        with self._refresh_locks_lock:
-            lock = self._refresh_locks.get(cache_key)
-            if lock is None:
-                lock = threading.Lock()
-                self._refresh_locks[cache_key] = lock
-            # 如果锁被持有，说明已有刷新在进行中，不再提交新任务
-            if not lock.acquire(blocking=False):
-                return  # 已有后台任务在处理
-
-        def _refresh() -> None:
-            try:
-                data = self._fetch_json(url, max_bytes=max_bytes)
-                if data is None and mirror_url:
-                    data = self._fetch_json(mirror_url, max_bytes=max_bytes)
-                if data is not None:
-                    self._write_cache(cache_key, data)
-                    log_info(f"[OttTextProvider] 后台刷新成功: {cache_key}")
-                else:
-                    log_warning(f"[OttTextProvider] 后台刷新失败: {cache_key}")
-            except Exception:
-                log_warning(f"[OttTextProvider] 后台刷新异常: {cache_key}")
-            finally:
-                lock.release()
-                # 清理锁避免内存泄漏
-                with self._refresh_locks_lock:
-                    self._refresh_locks.pop(cache_key, None)
-
-        self._async_executor.submit(_refresh)
-
-    def _fetch_json(self, url: str, max_bytes: int = 0) -> dict | None:
-        try:
-            response = self._client.get(url)
-            response.raise_for_status()
-            if max_bytes > 0 and len(response.content) > max_bytes:
-                log_warning(
-                    f"[OttTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})"
-                )
-                return None
-            data = response.json()
-            return data if isinstance(data, dict) else None
-        except httpx.HTTPError as e:
-            log_warning(f"[OttTextProvider] HTTP 请求失败: {url} — {e}")
-            return None
-        except (ValueError, TypeError, OSError) as e:
-            log_warning(f"[OttTextProvider] 响应解析失败: {url} — {e}")
-            return None
+        return self._cache.fetch_json_with_cache(cache_key, url, mirror_url, max_bytes)
 
     def _fetch_text_with_cache(
         self,
@@ -388,126 +239,26 @@ class OttTextProvider:
         mirror_url: str | None = None,
         max_bytes: int = 0,
     ) -> str | None:
-        cached = self._read_cache(cache_key)
-        if cached is not None and isinstance(cached.get("content"), str):
-            if not self._is_cache_expired(cache_key):
-                return str(cached["content"])
-            self._maybe_refresh_text_in_background(
-                cache_key, url, mirror_url, max_bytes
-            )
-            return str(cached["content"])
-
-        content = self._fetch_text(url, max_bytes=max_bytes)
-        if content is None and mirror_url:
-            content = self._fetch_text(mirror_url, max_bytes=max_bytes)
-        if content is not None:
-            self._write_cache(cache_key, {"content": content})
-            return content
-        return None
-
-    def _maybe_refresh_text_in_background(
-        self,
-        cache_key: str,
-        url: str,
-        mirror_url: str | None,
-        max_bytes: int,
-    ) -> None:
-        if self._async_executor is None:
-            return
-        with self._refresh_locks_lock:
-            lock = self._refresh_locks.get(cache_key)
-            if lock is None:
-                lock = threading.Lock()
-                self._refresh_locks[cache_key] = lock
-            if not lock.acquire(blocking=False):
-                return
-
-        def _refresh() -> None:
-            try:
-                content = self._fetch_text(url, max_bytes=max_bytes)
-                if content is None and mirror_url:
-                    content = self._fetch_text(mirror_url, max_bytes=max_bytes)
-                if content is not None:
-                    self._write_cache(cache_key, {"content": content})
-                    log_info(f"[OttTextProvider] 后台刷新成功: {cache_key}")
-                else:
-                    log_warning(f"[OttTextProvider] 后台刷新失败: {cache_key}")
-            except Exception:
-                log_warning(f"[OttTextProvider] 后台刷新异常: {cache_key}")
-            finally:
-                lock.release()
-                with self._refresh_locks_lock:
-                    self._refresh_locks.pop(cache_key, None)
-
-        self._async_executor.submit(_refresh)
-
-    def _fetch_text(self, url: str, max_bytes: int = 0) -> str | None:
-        try:
-            response = self._client.get(url)
-            response.raise_for_status()
-            if max_bytes > 0 and len(response.content) > max_bytes:
-                log_warning(
-                    f"[OttTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})"
-                )
-                return None
-            return response.text
-        except httpx.HTTPError as e:
-            log_warning(f"[OttTextProvider] HTTP 请求失败: {url} — {e}")
-            return None
+        return self._cache.fetch_text_with_cache(cache_key, url, mirror_url, max_bytes)
 
     # ------------------------------------------------------------------
     # 缓存读写
     # ------------------------------------------------------------------
 
     def _cache_path(self, cache_key: str) -> Path:
-        """缓存文件路径。cache_key 为 'index' 或 'content/{source_key}'。"""
-        return self._cache_dir / f"{cache_key}.json"
+        return self._cache.cache_path(cache_key)
 
     def clear_cache(self) -> None:
-        """清除所有磁盘缓存（index + 所有 content），URL 变更时调用。"""
-        import shutil
-
-        try:
-            if self._cache_dir.exists():
-                shutil.rmtree(self._cache_dir)
-                self._cache_dir.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            log_warning("[OttTextProvider] 清除缓存失败")
+        self._cache.clear_cache()
 
     def _read_cache(self, cache_key: str) -> dict | None:
-        """读取缓存文件，失败返回 None。"""
-        path = self._cache_path(cache_key)
-        try:
-            if not path.exists():
-                return None
-            with path.open(encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            return None
-        return data if isinstance(data, dict) else None
+        return self._cache.read_cache(cache_key)
 
     def _write_cache(self, cache_key: str, data: dict) -> None:
-        """原子写入缓存文件（tmp + replace）。"""
-        path = self._cache_path(cache_key)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = path.with_suffix(f"{path.suffix}.tmp")
-            with tmp_path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            tmp_path.replace(path)
-        except OSError:
-            pass  # 缓存写入失败不影响主流程
+        self._cache.write_cache(cache_key, data)
 
     def _is_cache_expired(self, cache_key: str) -> bool:
-        """基于文件 mtime 判断缓存是否过期。"""
-        path = self._cache_path(cache_key)
-        try:
-            if not path.exists():
-                return True
-            mtime = path.stat().st_mtime
-        except OSError:
-            return True
-        return (time.time() - mtime) > self._config.cache_ttl_seconds
+        return self._cache.is_cache_expired(cache_key)
 
     # ------------------------------------------------------------------
     # 安全与清洗
@@ -531,30 +282,6 @@ class OttTextProvider:
     @staticmethod
     def _sanitize_content(content: str) -> str:
         return "".join(c for c in content if c >= " " or c in "\n\r\t")
-
-    def _normalize_ott_entry_summary(self, entry: dict) -> dict:
-        char_count = int(entry.get("char_count", entry.get("charCount", 0)) or 0)
-        return {
-            "entry_id": str(entry.get("entry_id", "") or ""),
-            "title": str(entry.get("title", "") or ""),
-            "preview": str(entry.get("preview", "") or ""),
-            "source_key": str(entry.get("source_key", "") or ""),
-            "source_label": str(entry.get("source_label", "") or ""),
-            "charCount": char_count,
-            "char_count": char_count,
-            "fetched_at": str(
-                entry.get("fetched_at", entry.get("updated_at", "")) or ""
-            ),
-            "category": str(entry.get("category", "") or ""),
-            "tags": entry.get("tags", [])
-            if isinstance(entry.get("tags", []), list)
-            else [],
-            "content_mode": str(entry.get("content_mode", "inline") or "inline"),
-            "current_revision_id": str(entry.get("current_revision_id", "") or ""),
-            "segment_count": int(entry.get("segment_count", 0) or 0),
-            "segment_size_hint": int(entry.get("segment_size_hint", 0) or 0),
-            "authority": str(entry.get("authority", self.authority) or self.authority),
-        }
 
     @staticmethod
     def _looks_like_ott_entry_detail(data: dict) -> bool:

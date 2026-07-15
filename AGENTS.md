@@ -1,5 +1,5 @@
 # typetype 项目开发指南
-<!-- 状态: active | 最后验证: 2026-06-04 -->
+<!-- 状态: active | 最后验证: 2026-07-13 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -357,6 +357,7 @@ onActiveChanged: {
 
 **现状**（2026-07-10 ADR-009 首轮落地）：
 - OTT 标准客户端边界是 `/ott/v1` Service Profile 或 Static Profile
+- `OttTextProvider.get_catalog()` 优先读 `/ott/v1/sources`，再 fallback 到 Static `/sources.json`，最后 fallback 到旧 `registry_index.json`
 - `OttTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
 - `/ott/v1` 不可用时按 Static Profile → 旧静态 `registry_index.json` + `content/{source_key}.json` fallback，不 fallback `/api/entries`
 - inline OTT 条目通过 `loadOttEntry(entry_id)` 显式加载，不靠 `entry_id` 前缀猜测
@@ -369,7 +370,7 @@ onActiveChanged: {
 - 管理/脚本能力 → 留在 adapter Admin Profile `/ott-admin/v1`（旧 `/api` 仅兼容），typetype 只读客户端不要依赖
 - 大文本 → 使用服务端定义 segment；不要在 typetype 侧拉完整正文再自行切片
 
-**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移与 OTT adapter `/ott-admin/v1` 管理面拆分。
+**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移与 OTT adapter `/ott-admin/v1` 管理面拆分；2026-07-13 完成 source catalog、schema/validator、兼容测试包收口。
 
 ### ⚠️ 晴发文（Wenlai）不得 CI 化，必须保持即时拉取
 

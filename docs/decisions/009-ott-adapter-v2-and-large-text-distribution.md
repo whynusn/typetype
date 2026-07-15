@@ -1,6 +1,6 @@
 # ADR-009: OTT Core v1 与 typetype 客户端演进
 
-<!-- 状态: accepted | 决策日期: 2026-07-09 | 最后验证: 2026-07-10 -->
+<!-- 状态: accepted | 决策日期: 2026-07-09 | 最后验证: 2026-07-13 -->
 
 > 本 ADR 是 ADR-008 的后续修订。核心结论：**OTT 是标准协议与参考实现，typetype 是 OTT 客户端之一**。typetype 应适配 OTT 标准，而不是让 OTT 为 typetype 当前实现让步。
 
@@ -12,7 +12,7 @@
 - 用户运行 `ott-adapter` 后，本地暴露 `http://127.0.0.1:18888`。
 - typetype 当前通过 `registry.primary_url` 读取该本地服务。
 
-这暴露出一个标准化问题：当前 typetype 已经依赖 OTT 适配器的 `/api/entries`，但 OTT README / SPEC 公开稳定面仍主要是 `/registry_index.json` 和 `/content/{source_key}.json`。同时，`/api/entries` 是条目分页，不是单篇大文本分块；它默认仍可返回完整正文。
+这暴露出一个标准化问题：本 ADR 提出时，typetype 曾依赖 OTT 适配器的 `/api/entries`，但 OTT README / SPEC 公开稳定面仍主要是 `/registry_index.json` 和 `/content/{source_key}.json`。同时，`/api/entries` 是条目分页，不是单篇大文本分块；它默认仍可返回完整正文。
 
 本 ADR 的目标不是让 OTT 贴合 typetype 现状，而是定义一套可被 typetype、其他打字客户端、静态文件服务、本地适配器共同实现的 OTT 协议边界。
 
@@ -387,7 +387,7 @@ ott:{authority}:{entry_id}@{revision_id}
 
 ## 当前实施状态
 
-截至 2026-07-12 已完成：
+截至 2026-07-13 已完成：
 
 - OTT 仓库新增 `OTT_SPEC.md`，并实现 `/ott/v1/capabilities`、`/ott/v1/sources`、summary-only `/ott/v1/entries`、entry detail、segment endpoint。
 - OTT 列表摘要由索引中的 `ott_entries` 提供；segmented detail 默认不返回全文；`/api` 仍保留为 adapter-private / legacy。
@@ -398,10 +398,9 @@ ott:{authority}:{entry_id}@{revision_id}
 - typetype 新增 `OttClient`，按 Service Profile → Static Profile → legacy static registry/content 的顺序读取。
 - typetype 正式实现迁移为 `OttTextProvider`；`registry` 配置键与 Loader 值继续兼容，旧 provider 模块只做导入转发。
 - OTT adapter 新增 `/ott-admin/v1` Admin Profile，Web UI 已迁到该前缀；旧 `/api` 仅作为 legacy 兼容别名保留。
-
-仍未完成：
-
-- JSON Schema 与跨实现兼容测试样例。
+- typetype `get_catalog()` 已改为优先读取 `/ott/v1/sources`，再 fallback 到 Static `/sources.json`，最后 fallback 到旧 `registry_index.json`。
+- OTT 仓库新增 `schemas/`、`tests/fixtures/ott/` canonical compatibility pack、`ott-adapter validate`、`ott-adapter validate-script` 与无真实抓取 CI。
+- typetype 新增跨仓兼容测试，读取 OTT canonical expected normalized outputs 与导出的 Static Profile fixture，验证 entry summary/detail/segment 可被当前 `OttTextProvider` 消费。
 
 ## 删除或降级的设计
 
@@ -413,7 +412,7 @@ ott:{authority}:{entry_id}@{revision_id}
 | Core v1 引入 `Collection` | 降级 | 先用 `source_key` + `tags` / `category` 表达分组 |
 | source 级固定 launchKind | 删除 | OTT 同一来源可同时包含 inline 和 segmented entry |
 | 强制 CAS / SQLite 存储 | 删除 | 标准要求 hash 和分段结果，不规定存储引擎 |
-| 先做 Client SDK | 降级 | 先冻结 JSON Schema、协议文档、兼容测试 |
+| 先做 Client SDK | 降级 | JSON Schema、协议文档、兼容测试已冻结基础合同，SDK 仍等第二个客户端需求出现后再做 |
 
 ## 反模式
 

@@ -46,6 +46,7 @@ class OttSegmentProvider:
             self._entry_id,
             self._revision_id,
             index,
+            self._source_segment_size,
         )
         if segment is None:
             raise RuntimeError(f"无法获取 OTT 分段: {index}")
