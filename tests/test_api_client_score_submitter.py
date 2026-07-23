@@ -13,7 +13,7 @@ import time
 
 from src.backend.integration.api_client_score_submitter import ApiClientScoreSubmitter
 from src.backend.models.entity.session_stat import SessionStat
-from src.backend.workers.score_submit_worker import SubmitTask
+from src.backend.workers.score_submit_worker import ScoreSubmitQueue, SubmitTask
 
 
 class MockApiClient:
@@ -30,6 +30,47 @@ class MockApiClient:
         self.request_method = method
         self.request_kwargs = kwargs
         return {"code": 200, "message": "success", "data": None}
+
+
+def test_idle_score_queue_stops_without_waiting_for_poll_timeout() -> None:
+    """空闲工作线程应被停止信号立即唤醒，而不是等待 queue.get 超时。"""
+    submit_queue = ScoreSubmitQueue(submit_fn=lambda payload: True)
+    submit_queue.start()
+
+    # 等待工作线程进入阻塞的 queue.get()。
+    time.sleep(0.05)
+    started_at = time.monotonic()
+    submit_queue.stop()
+
+    assert time.monotonic() - started_at < 0.5
+
+
+def test_score_queue_can_restart_after_fast_stop() -> None:
+    """停止信号不得污染队列或阻止后续重新启动。"""
+    submitted_payloads = []
+    submit_queue = ScoreSubmitQueue(
+        submit_fn=lambda payload: submitted_payloads.append(payload) is None
+    )
+
+    submit_queue.start()
+    time.sleep(0.05)
+    submit_queue.stop()
+    submit_queue.start()
+
+    stat = SessionStat(
+        text_id=123,
+        time=1.0,
+        key_stroke_count=2,
+        char_count=1,
+    )
+    assert submit_queue.enqueue(stat, text_id=123) is True
+
+    deadline = time.monotonic() + 1.0
+    while not submitted_payloads and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    submit_queue.stop()
+    assert submitted_payloads[0]["textId"] == 123
 
 
 def test_build_payload_v2_pure_raw_contract():
