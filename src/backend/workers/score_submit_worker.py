@@ -106,7 +106,9 @@ class ScoreSubmitQueue:
         """
         self._submit_fn = submit_fn
         self._retry_store = retry_store
-        self._queue: queue.Queue[SubmitTask] = queue.Queue(maxsize=self.MAX_QUEUE_SIZE)
+        self._queue: queue.Queue[SubmitTask | None] = queue.Queue(
+            maxsize=self.MAX_QUEUE_SIZE
+        )
         self._running = False
         self._worker_thread: threading.Thread | None = None
         self._stats = {"submitted": 0, "failed": 0, "retried": 0}
@@ -131,6 +133,11 @@ class ScoreSubmitQueue:
         """停止工作线程，等待队列清空。"""
         self._running = False
         if self._worker_thread and self._worker_thread.is_alive():
+            try:
+                self._queue.put_nowait(None)
+            except queue.Full:
+                # 队列已满时，工作线程不会阻塞在 get()。
+                pass
             self._worker_thread.join(timeout=timeout)
         log_info(
             f"[ScoreSubmitQueue] 已停止，统计: "
@@ -177,9 +184,15 @@ class ScoreSubmitQueue:
             try:
                 # 🎓 get() 会阻塞直到有数据或超时
                 # 超时是为了定期检查 self._running 标志
-                task = self._queue.get(timeout=1.0)
+                item = self._queue.get(timeout=1.0)
             except queue.Empty:
                 continue
+
+            if item is None:
+                self._queue.task_done()
+                break
+
+            task = item
 
             # 计算退避时间（如果需要重试）
             if task.retry_count > 0:
