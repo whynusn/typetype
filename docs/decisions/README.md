@@ -24,6 +24,7 @@
 | 007 | [回改/退格统计指标](./007-backspace-correction-stats.md) | 2026-06-04 | accepted |
 | 008 | [文本源三层模型（本地/Registry/即时）](./008-text-source-three-layer-model.md) | 2026-07-05 | accepted |
 | 009 | [OTT Core v1 与 typetype 客户端演进](./009-ott-adapter-v2-and-large-text-distribution.md) | 2026-07-09 | accepted |
+| 010 | [去中心化文本源生态（OTT Repo 控制面）](./010-decentralized-source-ecosystem.md) | 2026-07-26 | proposed |
 
 ---
 
