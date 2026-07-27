@@ -109,8 +109,8 @@ class AiConfig:
 class RegistryConfig:
     """开源文库（Registry/OTT）配置。"""
 
-    primary_url: str = "https://cdn.jsdelivr.net/gh/whynusn/open-typing-texts@main"
-    mirror_url: str = "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
+    primary_url: str = ""
+    mirror_url: str = ""
     cache_ttl_seconds: int = 3600
     max_content_bytes: int = 1_048_576
 
@@ -135,6 +135,58 @@ class RegistryConfig:
             self.cache_ttl_seconds = 3600
         if self.max_content_bytes < 0:
             self.max_content_bytes = 1_048_576
+
+
+@dataclass
+class SourceRepoEntry:
+    """单个源仓库订阅条目（OTT Repo 控制面）。"""
+
+    url: str
+    enabled: bool = True
+    trust_state: str = "unverified"  # verified | unverified | failed
+    pinned_pubkey: str = ""
+    refresh_ttl_seconds: int = 86400
+    etag: str = ""
+    added_at: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.url, str) or not self.url.strip():
+            self.url = ""
+        else:
+            self.url = self.url.strip().rstrip("/")
+        if not isinstance(self.enabled, bool):
+            self.enabled = True
+        if self.trust_state not in {"verified", "unverified", "failed"}:
+            self.trust_state = "unverified"
+        if not isinstance(self.pinned_pubkey, str):
+            self.pinned_pubkey = ""
+        if (
+            not isinstance(self.refresh_ttl_seconds, int)
+            or self.refresh_ttl_seconds <= 0
+        ):
+            self.refresh_ttl_seconds = 86400
+        if not isinstance(self.etag, str):
+            self.etag = ""
+        if not isinstance(self.added_at, str):
+            self.added_at = ""
+
+
+@dataclass
+class SourceReposConfig:
+    """多 authority 源仓库订阅列表（OTT Repo 控制面）。
+
+    旧 RegistryConfig.primary_url 在加载时自动迁移为一条等价订阅。
+    """
+
+    repos: list[SourceRepoEntry] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.repos, list):
+            self.repos = []
+
+    @property
+    def enabled_repos(self) -> list[SourceRepoEntry]:
+        return [r for r in self.repos if r.enabled and r.url]
 
 
 @dataclass
@@ -164,6 +216,7 @@ class RuntimeConfig:
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
     registry: RegistryConfig = field(default_factory=RegistryConfig)
+    source_repos: SourceReposConfig = field(default_factory=SourceReposConfig)
     ai: AiConfig = field(default_factory=AiConfig)
     text_session: TextSessionConfig = field(default_factory=TextSessionConfig)
     catalog_items: list[TextCatalogItem] = field(
@@ -188,9 +241,25 @@ class RuntimeConfig:
                 return cls(_config_path=str(user_config_path()))
             config = cls._from_dict(data)
             config._config_path = config_path
-            return config
+        else:
+            config = cls(_config_path=str(user_config_path()))
 
-        return cls(_config_path=str(user_config_path()))
+        # 确保默认订阅：无任何有效订阅时，自动订阅官方默认源
+        config._ensure_default_subscription()
+        return config
+
+    def _ensure_default_subscription(self) -> None:
+        """确保有至少一个订阅。全新用户自动订阅官方内置默认源。"""
+        # 一次性迁移：移除已知的测试/占位订阅
+        stale = [r for r in self.source_repos.repos if "example.org" in r.url]
+        for r in stale:
+            self.remove_source_repo(r.url)
+
+        if self.source_repos.repos:
+            return
+        default_url = self._default_repo_url()
+        if default_url:
+            self.add_source_repo(default_url)
 
     @classmethod
     def ensure_user_config_exists(cls) -> str:
@@ -303,6 +372,25 @@ class RuntimeConfig:
             max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),
         )
 
+        # 解析 source_repos，并在缺少时从旧 registry.primary_url 自动迁移。
+        # 联邦聚合层（OttFederationProvider）取代旧单实例 OttTextProvider 的 discovery 职责，
+        # 因此只要 source_repos 非空即清空 primary_url，避免旧 provider 向旧地址发起 discovery 请求。
+        source_repos = cls._parse_source_repos(data.get("source_repos"))
+        if not source_repos.repos and registry.primary_url:
+            source_repos = SourceReposConfig(
+                repos=[
+                    SourceRepoEntry(
+                        url=registry.primary_url,
+                        enabled=True,
+                        trust_state="unverified",
+                        refresh_ttl_seconds=registry.cache_ttl_seconds,
+                    )
+                ]
+            )
+        if source_repos.repos and registry.primary_url:
+            registry.primary_url = ""
+            registry.mirror_url = ""
+
         ts_data = data.get("text_session", {})
         if not isinstance(ts_data, dict):
             ts_data = {}
@@ -340,10 +428,38 @@ class RuntimeConfig:
             text_source_config=text_source_config,
             wenlai=wenlai,
             registry=registry,
+            source_repos=source_repos,
             ai=ai,
             text_session=text_session,
             ui=ui_data,
         )
+
+    @classmethod
+    def _parse_source_repos(cls, raw: Any) -> SourceReposConfig:
+        """从 JSON 解析 source_repos 订阅列表。"""
+        if not isinstance(raw, list):
+            return SourceReposConfig()
+        repos: list[SourceRepoEntry] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            repos.append(
+                SourceRepoEntry(
+                    url=url,
+                    enabled=bool(item.get("enabled", True)),
+                    trust_state=cls._safe_str(item.get("trust_state"), "unverified"),
+                    pinned_pubkey=cls._safe_str(item.get("pinned_pubkey"), ""),
+                    refresh_ttl_seconds=cls._safe_int(
+                        item.get("refresh_ttl_seconds"), 86400
+                    ),
+                    etag=cls._safe_str(item.get("etag"), ""),
+                    added_at=cls._safe_str(item.get("added_at"), ""),
+                )
+            )
+        return SourceReposConfig(repos=repos)
 
     def _ui_get(self, *keys: str, default: Any = "") -> Any:
         """安全读取嵌套 ui 字段，如 config._ui_get("reader_font_path")。"""
@@ -353,6 +469,21 @@ class RuntimeConfig:
                 return default
             val = val.get(key, default)
         return val
+
+    @classmethod
+    def _default_repo_url(cls) -> str:
+        """官方默认 ott-repo manifest 地址。
+
+        优先使用本地内置 manifest（离线可用），CDN 作为远程更新源。
+        """
+        from .app_paths import builtin_ott_repo_dir
+
+        builtin_dir = builtin_ott_repo_dir()
+        builtin_manifest = builtin_dir / "ott-repo.json"
+        if builtin_manifest.exists():
+            return builtin_manifest.as_uri()
+        # fallback 到 CDN（需要联网）
+        return "https://cdn.jsdelivr.net/gh/whynusn/typetype@main/public-ott-repo/ott-repo.json"
 
     @staticmethod
     def _safe_int(value, default: int = 0) -> int:
@@ -423,6 +554,73 @@ class RuntimeConfig:
             self.registry.mirror_url = mirror_url.rstrip("/") if mirror_url else ""
         self._save_to_file()
 
+    def add_source_repo(self, url: str, *, added_at: str = "") -> SourceRepoEntry:
+        """添加一条源仓库订阅并持久化。"""
+        url = url.strip().rstrip("/") if url else ""
+        # 去重：同 url 不重复添加，改为启用
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                repo.enabled = True
+                self._save_to_file()
+                return repo
+        from datetime import datetime, timezone
+
+        entry = SourceRepoEntry(
+            url=url,
+            enabled=True,
+            trust_state="unverified",
+            added_at=added_at or datetime.now(timezone.utc).isoformat(),
+        )
+        self.source_repos.repos.append(entry)
+        self._save_to_file()
+        return entry
+
+    def remove_source_repo(self, url: str) -> bool:
+        """移除一条源仓库订阅并持久化。"""
+        url = url.strip().rstrip("/") if url else ""
+        new_repos = [r for r in self.source_repos.repos if r.url != url]
+        if len(new_repos) == len(self.source_repos.repos):
+            return False
+        self.source_repos.repos = new_repos
+        self._save_to_file()
+        return True
+
+    def set_source_repo_enabled(self, url: str, enabled: bool) -> None:
+        """启用/禁用一条源仓库订阅并持久化。"""
+        url = url.strip().rstrip("/") if url else ""
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                repo.enabled = enabled
+                self._save_to_file()
+                return
+
+    def set_source_repo_trust(
+        self, url: str, trust_state: str, pinned_pubkey: str = ""
+    ) -> None:
+        """更新订阅的信任状态并持久化。"""
+        url = url.strip().rstrip("/") if url else ""
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                repo.trust_state = trust_state
+                if pinned_pubkey:
+                    repo.pinned_pubkey = pinned_pubkey
+                self._save_to_file()
+                return
+
+    def update_source_repo_refresh(
+        self, url: str, *, etag: str = "", trust_state: str = ""
+    ) -> None:
+        """由缓存层更新订阅的 etag 与信任状态。"""
+        url = url.strip().rstrip("/") if url else ""
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                if etag:
+                    repo.etag = etag
+                if trust_state:
+                    repo.trust_state = trust_state
+                self._save_to_file()
+                return
+
     def _save_to_file(self) -> None:
         """将当前配置持久化到 config.json。
 
@@ -479,6 +677,7 @@ class RuntimeConfig:
             self.text_source_config = updated.text_source_config
             self.wenlai = updated.wenlai
             self.registry = updated.registry
+            self.source_repos = updated.source_repos
             self.ai = updated.ai
             self.text_session = updated.text_session
             self.ui = updated.ui
@@ -512,6 +711,22 @@ class RuntimeConfig:
                 "cache_ttl_seconds": self.registry.cache_ttl_seconds,
                 "max_content_bytes": self.registry.max_content_bytes,
             },
+            "source_repos": [
+                {
+                    "url": repo.url,
+                    "enabled": repo.enabled,
+                    "trust_state": repo.trust_state,
+                    **(
+                        {"pinned_pubkey": repo.pinned_pubkey}
+                        if repo.pinned_pubkey
+                        else {}
+                    ),
+                    "refresh_ttl_seconds": repo.refresh_ttl_seconds,
+                    **({"etag": repo.etag} if repo.etag else {}),
+                    **({"added_at": repo.added_at} if repo.added_at else {}),
+                }
+                for repo in self.source_repos.repos
+            ],
             "wenlai": {
                 "base_url": self.wenlai.base_url,
                 "length": self.wenlai.length,

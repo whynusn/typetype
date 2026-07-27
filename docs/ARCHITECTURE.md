@@ -364,6 +364,92 @@ fetch_text_by_key(key)
   └─ cache miss + 离线 → 返回 stale（无视 TTL 兜底）
 ```
 
+## OTT Repo 控制面（Phase 1，多 authority 联邦聚合）
+
+> 决策依据：ADR-0010（`docs/decisions/010-decentralized-source-ecosystem.md`），设计文档 `docs/designs/decentralized-source-ecosystem.md`。
+> OTT Core v1 **数据面不变**；本节是独立的 **OTT Repo 控制面**（订阅、信任、发现），按 Phase 1「零协议变更」落地。
+
+### 架构定位
+
+```
+Directory（可选，发现层）                ← 未来 Phase 2+
+  └─ Repo（源仓库 / 订阅）               ← 控制面核心（本节）
+       └─ Instance / Rule / Bridge（源）
+            └─ Entry / Segment          ← OTT Core v1 数据面（不变）
+```
+
+| 组件 | 位置 | 职责 |
+|:---|:---|:---|
+| `SourceRepoEntry` / `SourceReposConfig` | `runtime_config.py` | 订阅列表数据模型 + 旧 `registry.primary_url` 自动迁移 |
+| `RepoManifestCache` | `integration/ott_repo_manifest.py` | 单订阅 manifest 拉取与缓存（TTL/stale/原子写/后台刷新） |
+| `validate_repo_manifest()` | `integration/ott_repo_manifest.py` | manifest 校验与归一化（遵循 OTT Repo v1 草案） |
+| `OttFederationProvider` | `integration/ott_federation_provider.py` | 多 repo 联邦聚合（ott-instance + ott-rule）、authority 命名空间隔离、priority + 健康度 failover |
+| `_RuleClient` | `integration/ott_federation_provider.py` | ott-rule 客户端封装，调用 L1 解释器执行声明式规则 |
+| `OttRuleInterpreter` | `integration/ott_rule_interpreter.py` | L1 声明式规则解释器（JSON path / 正则 / CSS 选择器 + transform 管道） |
+| `_ScriptClient` | `integration/ott_federation_provider.py` | ott-script 客户端封装（下载 + AST 检查 + 沙箱执行） |
+| `ScriptSandbox` | `integration/ott_script_client.py` | ott-script 沙箱执行（import 白名单 + 受限 builtins） |
+| `ScriptCache` | `integration/ott_script_client.py` | 脚本下载缓存（TTL + AST 校验 + 原子写 + 离线回退） |
+| `validate_script_source()` | `integration/ott_script_safety.py` | 脚本 AST 安全检查（黑名单 import/call + 动态导入检测） |
+| `RegistryAdapter` | `presentation/adapters/registry_adapter.py` | 订阅管理 + 条目聚合的 Qt 适配层（Worker 异步） |
+| `ReposManagementPanel` | `components/ReposManagementPanel.qml` | 载文中心「源仓库」标签页 UI |
+
+### 订阅数据流
+
+```
+config.json.source_repos[]
+  │
+  ├─ RepoManifestCache.get_manifest(repo)
+  │     ├─ cache hit fresh → 返回
+  │     ├─ cache hit stale → 返回缓存 + 后台刷新
+  │     └─ miss → HTTP GET url → validate → 原子写
+  │
+  └─ OttFederationProvider.list_all_entries()
+        └─ 遍历 enabled repos → manifest.sources[type=ott-instance]
+              └─ 每 authority 建 _InstanceClient（OttClient × endpoints）
+                    └─ priority 排序 + 健康度指数退避 failover
+                          └─ 合并条目（authority 命名空间去重）
+```
+
+### 四级信任模型（客户端强制）
+
+| 级 | 形态 | 执行面 | 分发方式 |
+|:---|:---|:---|:---|
+| L0 | OTT 数据实例 | 零执行 | 订阅即用 |
+| L1 | 声明式规则源（ott-rule） | 受限解释器 | 未来 Phase 3 |
+| L2 | 桥接源（ott-bridge，即时 API） | 协议化 adapter，凭据本地 | 未来 Phase 3 |
+| L3 | 抓取脚本 | 代码执行 | **协议禁止进入 Repo 分发**，仅用户本地 |
+
+不变式：客户端从网络订阅的一切内容均无任意代码执行面。
+
+### 目录结构（新增文件）
+
+```
+src/backend/config/runtime_config.py        # + SourceRepoEntry, SourceReposConfig, _parse_source_repos, 迁移逻辑
+src/backend/integration/
+  ├─ ott_repo_manifest.py                   # RepoManifestCache + validate_repo_manifest
+  ├─ ott_federation_provider.py             # OttFederationProvider + _InstanceClient + _RuleClient + _ScriptClient
+  ├─ ott_rule_interpreter.py                # OttRuleInterpreter（L1 声明式规则解释器）
+  ├─ ott_script_client.py                   # ScriptSandbox + ScriptCache（L3 脚本源）
+  └─ ott_script_safety.py                   # validate_script_source（AST 安全检查）
+src/backend/presentation/adapters/
+  └─ registry_adapter.py                    # RegistryAdapter（Qt 适配层）
+src/backend/config/container.py             # + manifest_cache, federation, registry_adapter
+src/qml/components/ReposManagementPanel.qml # 源仓库管理面板
+src/qml/helpers/TextSourceBehaviors.js      # + repos 来源分派
+src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + reposItems
+```
+
+### 配置字段
+
+见 [config.md](reference/config.md) `source_repos` 子字段表。旧 `registry.primary_url` 加载时自动迁移为一条等价订阅。
+
+### 客户端约束
+
+- 订阅 manifest 拉取与联邦聚合均走 Worker（不阻塞 UI）
+- 离线时返回缓存 manifest（无视 TTL 兜底）
+- 签名（minisign/ed25519 + TOFU）为未来 Phase 4，当前信任状态仅作 UI 徽章展示
+- authority 冲突时按 repo 分组并列展示，由用户选择
+
 ---
 
 ## 后续方向

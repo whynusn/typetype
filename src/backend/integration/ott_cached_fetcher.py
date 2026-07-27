@@ -150,6 +150,9 @@ class OttCachedFetcher:
             self._refresh_locks.pop(cache_key, None)
 
     def _fetch_json(self, url: str, max_bytes: int = 0) -> dict | None:
+        # 支持 file:// 协议读取本地文件
+        if url.startswith("file://"):
+            return self._read_local_json(url, max_bytes=max_bytes)
         try:
             response = self._client.get(url)
             response.raise_for_status()
@@ -168,6 +171,8 @@ class OttCachedFetcher:
         return data if isinstance(data, dict) else None
 
     def _fetch_text(self, url: str, max_bytes: int = 0) -> str | None:
+        if url.startswith("file://"):
+            return self._read_local_text(url, max_bytes=max_bytes)
         try:
             response = self._client.get(url)
             response.raise_for_status()
@@ -180,6 +185,34 @@ class OttCachedFetcher:
             log_warning(f"[OttTextProvider] HTTP 请求失败: {url} — {e}")
             return None
         return response.text
+
+    @staticmethod
+    def _read_local_json(url: str, max_bytes: int = 0) -> dict | None:
+        from urllib.parse import urlparse
+        try:
+            path = Path(urlparse(url).path)
+            if not path.exists():
+                return None
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if max_bytes > 0 and path.stat().st_size > max_bytes:
+                return None
+        except (OSError, ValueError, TypeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    @staticmethod
+    def _read_local_text(url: str, max_bytes: int = 0) -> str | None:
+        from urllib.parse import urlparse
+        try:
+            path = Path(urlparse(url).path)
+            if not path.exists():
+                return None
+            text = path.read_text(encoding="utf-8")
+            if max_bytes > 0 and len(text) > max_bytes:
+                text = text[:max_bytes]
+        except (OSError, ValueError):
+            return None
+        return text
 
     def cache_path(self, cache_key: str) -> Path:
         return self._cache_dir / f"{cache_key}.json"

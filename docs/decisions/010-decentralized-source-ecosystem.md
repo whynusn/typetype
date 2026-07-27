@@ -1,6 +1,8 @@
 # ADR-010: 去中心化文本源生态（OTT Repo 控制面）
 
-<!-- 状态: proposed | 决策日期: 2026-07-26 | 最后验证: 2026-07-26 -->
+<!-- 状态: accepted | 决策日期: 2026-07-26 | 最后验证: 2026-07-27 -->
+
+> Phase 1（多 authority 客户端，零协议变更）已于 2026-07-26 落地。Phase 2（OTT Repo v1 定稿：spec + schema + fixtures + authority_id/repo_url 增量字段）已于 2026-07-27 落地。Phase 3（L1 声明式规则解释器 + L3 ott-script 沙箱脚本源）已于 2026-07-27 落地。Phase 4+（签名信任、官方默认目录、ott:// 深链）待后续推进。
 
 > 本 ADR 是 ADR-009 的后续。核心结论：**OTT Core v1 数据面保持不变；新增独立的 OTT Repo 协议构件承载控制面（订阅、信任、发现）**，使 typetype 演进为 mihon / kazumi / 开源阅读式的去中心化文本源生态客户端。完整设计见 [docs/designs/decentralized-source-ecosystem.md](../designs/decentralized-source-ecosystem.md)，协议草案见 open-typing-texts 仓 `docs/repo-manifest-spec-draft.md`。
 

@@ -82,6 +82,7 @@ def main():
         char_stats_adapter=adapters.char_stats,
         upload_text_adapter=adapters.upload_text,
         leaderboard_adapter=adapters.leaderboard,
+        registry_adapter=adapters.registry,
         wenlai_adapter=adapters.wenlai,
         ai_text_adapter=adapters.ai_text,
         local_article_adapter=adapters.local_article,

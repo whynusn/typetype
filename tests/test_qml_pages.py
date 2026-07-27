@@ -67,20 +67,21 @@ def test_text_load_hub_uses_expected_bridge_contract():
     assert "property bool active: false" in qml_source
     assert "textListLoading" in refs and "textListLoading" in BRIDGE_PROPERTIES
     assert "localArticleLoading" in refs and "localArticleLoading" in BRIDGE_PROPERTIES
-    assert "catalogLoading" in refs and "catalogLoading" in BRIDGE_PROPERTIES
     assert "trainerLoading" in refs and "trainerLoading" in BRIDGE_PROPERTIES
     assert "loadTextList" in refs and "loadTextList" in BRIDGE_SLOTS
     assert "loadLocalArticles" in refs and "loadLocalArticles" in BRIDGE_SLOTS
-    assert "loadCatalog" in BRIDGE_SLOTS or "loadRegistryEntries" in BRIDGE_SLOTS
-    assert "loadRegistryEntries" in refs
+    assert "loadCatalog" in BRIDGE_SLOTS
     assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
-    assert "loadLibraryText" in refs and "loadLibraryText" in BRIDGE_SLOTS
-    assert "loadOttEntry" in refs and "loadOttEntry" in BRIDGE_SLOTS
     assert (
         "loadLocalArticleSegment" in refs and "loadLocalArticleSegment" in BRIDGE_SLOTS
     )
     assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
     assert "loadOttEntrySegment" in refs and "loadOttEntrySegment" in BRIDGE_SLOTS
+    # OTT 源仓库联邦聚合 Slot
+    assert "addRepo" in refs and "addRepo" in BRIDGE_SLOTS
+    assert "removeRepo" in refs and "removeRepo" in BRIDGE_SLOTS
+    assert "setRepoEnabled" in refs and "setRepoEnabled" in BRIDGE_SLOTS
+    assert "refreshRepos" in refs and "refreshRepos" in BRIDGE_SLOTS
     assert "SliceCriteriaPanel" in qml_source
     assert "TextInfoCard" in qml_source
     assert (
@@ -105,7 +106,7 @@ def test_text_load_hub_routes_text_sources_through_slice_launcher():
     assert "function startTypingFromRequest(request, rp)" in source
     assert "function startMaterializedText(request, rp)" in source
     assert "function startSegmentedSource(request, rp)" in source
-    assert "root.startTypingFromRequest({" in source
+    assert "startTypingFromRequest(buildLaunchRequest()" in source
     assert "var fullText = !root.sliceModeChecked" in source
 
     custom_start = source.index("function startCustomTyping")

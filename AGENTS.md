@@ -316,6 +316,25 @@ onActiveChanged: {
 
 **历史**：2026-07-04 多相位重构。
 
+### ⚠️ OTT Repo 控制面订阅走 `source_repos`，不走 `registry.primary_url`
+
+**问题**：ADR-0010 落地后，客户端多 authority 订阅统一走 `RuntimeConfig.source_repos`（`SourceReposConfig`）。旧的 `registry.primary_url` / `mirror_url` 仍保留为兼容标识（单实例 OTT 数据面仍可用），但新订阅能力必须写 `source_repos`。
+
+**现状**（Phase 1）：
+- `SourceReposConfig` 是一组 `SourceRepoEntry`（url / enabled / trust_state / pinned_pubkey / refresh_ttl_seconds / etag / added_at）
+- 旧 `registry.primary_url` 在加载时**自动迁移**为一条等价 `source_repos` 订阅（TTL 沿用 `cache_ttl_seconds`）；已存在 `source_repos` 时不迁移
+- 订阅增删改通过 `RuntimeConfig.add_source_repo / remove_source_repo / set_source_repo_enabled / set_source_repo_trust`，不要直接操作 `source_repos.repos` 列表
+- manifest 拉取与缓存在 `RepoManifestCache`（TTL/stale-while-revalidate/原子写/后台刷新，复用 OTT Core v1 缓存决策树）
+- 联邦聚合在 `OttFederationProvider`：按 authority 命名空间隔离，同 authority 多镜像按 priority + 健康度指数退避 failover
+
+**正确做法**：
+- 新增订阅 → `runtime_config.add_source_repo(url)`
+- 扩展 manifest 能力 → 改 `validate_repo_manifest()` + `SourceRepoEntry`，遵循 OTT Repo v1 草案
+- 消费订阅列表 → 通过 `RegistryAdapter`（Worker 异步），不要在主线程拉取 manifest
+- 新子配置字段 → 加在 `SourceRepoEntry` + `_parse_source_repos` + `_to_dict`，保持 RuntimeConfig 为唯一序列化者
+
+**历史**：2026-07-26 Phase 1 落地（ADR-0010）。
+
 ### ⚠️ TextSource 使用 Loader + LeaderboardMode 二维正交模型
 
 **问题**：旧的 `SourceType` 枚举（`NETWORK / REGISTRY / LOCAL_RANKED / LOCAL_PRACTICE`）把"加载方式"和"排行榜行为"耦合在单一枚举中，导致 `LOCAL_RANKED` 和 `LOCAL_PRACTICE` 的区别不是本质性的（都是读本地文件），且新增来源类型时必须扩展枚举和 if 分支。
@@ -388,6 +407,45 @@ onActiveChanged: {
 - 不得将晴发文纳入 Registry/CI 体系或 `TextSourceConfig.sources`
 
 **历史**：2026-07-05 ADR-008 §4.1 决策。
+
+### ⚠️ L1 规则解释器必须保持无图灵完备性
+
+**问题**：OTT Repo `ott-rule` 允许 repo 维护者在 manifest 中内联声明式抓取规则。如果解释器设计不当，可能引入任意代码执行面，破坏"客户端从网络订阅的一切内容均无任意代码执行"的不变式。
+
+**现状**（2026-07-27 实现）：
+- 解释器：`src/backend/integration/ott_rule_interpreter.py`（`OttRuleInterpreter`）
+- `extract` 仅限 JSON path（`$.a.b`）、命名正则（`(?P<name>...)`）、CSS 选择器三选一
+- `transform` 仅限 `trim` / `replace` / `truncate` 固定管道
+- `request.url` 仅允许公网 http(s)；禁 `file:`、环回、私有地址（`validate_url()`）
+- 单次 fetch ≤ 1 MB；总条目 ≤ 1000；max_pages 硬限制 20
+- 调试工具：`scripts/debug_rule.py`（离线 CLI，不启动 UI）
+
+**正确做法**：
+- 扩展提取能力 → 仍走声明式（新增 JSON path 语法或 CSS 伪类），不得引入 JS/Python/动态 URL 计算
+- 新增 transform 操作 → 在 `apply_transforms_to_entry()` 白名单中添加，不得允许任意字符串运算
+- 规则源产出 entry 的 authority = `rule:{rule_id}`，进度键 `ott:rule:{rule_id}:{entry_id}@{revision_id}`
+- 不得在解释器中执行网络请求以外的 I/O（禁文件写入、禁子进程）
+
+**历史**：2026-07-27 ADR-010 Phase 3 落地。
+
+### ⚠️ ott-script 必须经过 AST 安全检查 + 沙箱执行
+
+**问题**：OTT Repo `ott-script` 允许 repo 维护者分发 Python 脚本到客户端执行。如果沙箱设计不当，恶意脚本可以执行任意系统命令、窃取数据。
+
+**现状**（2026-07-27 实现）：
+- 安全检查：`src/backend/integration/ott_script_safety.py`（`validate_script_source()`）
+- 沙箱执行：`src/backend/integration/ott_script_client.py`（`ScriptSandbox`）
+- 禁止：`eval`/`exec`/`compile`、`os.system`/`subprocess`/`socket`/`ctypes`、`importlib.import_module` 动态导入
+- 允许：`httpx`/`json`/`re`/`hashlib`/`base64`/`Crypto`/`bs4` 等白名单模块
+- 脚本必须定义 `fetch_entries() -> list[dict]`，返回标准化 entry
+- 缓存：`ScriptCache`（TTL + AST 校验 + 原子写 + 离线回退）
+
+**正确做法**：
+- 新增脚本能力 → 在 `ALLOWED_MODULES` 白名单中扩展，不得绕过 AST 检查
+- 脚本产出 entry 的 authority = `script`，进度键 `ott:script:{entry_id}@{revision_id}`
+- 不得在沙箱中开放文件系统写入（除临时目录）、子进程创建、原始网络监听
+
+**历史**：2026-07-27 ADR-010 Phase 3 落地。
 
 ---
 

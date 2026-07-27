@@ -629,3 +629,100 @@ def test_rinui_ui_save_does_not_roll_back_runtime_urls(tmp_path: Path):
     assert saved["ai"]["base_url"] == "https://new.ai"
     assert saved["ai"]["model"] == "new-model"
     assert saved["ui"]["theme"]["current_theme"] == "Dark"
+
+
+# ---------------------------------------------------------------------------
+# OTT Repo 控制面：SourceReposConfig + 旧配置迁移
+# ---------------------------------------------------------------------------
+
+
+def test_source_repos_default_empty():
+    config = RuntimeConfig()
+    assert config.source_repos.repos == []
+    assert config.source_repos.enabled_repos == []
+
+
+def test_add_source_repo_dedup_and_enable():
+    config = RuntimeConfig()
+    config.add_source_repo("https://example.org/ott-repo.json")
+    config.add_source_repo("https://example.org/ott-repo.json")  # 重复
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://example.org/ott-repo.json"
+    # 禁用后再 add → 重新启用而非新增
+    config.set_source_repo_enabled("https://example.org/ott-repo.json", False)
+    assert config.source_repos.repos[0].enabled is False
+    config.add_source_repo("https://example.org/ott-repo.json")
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is True
+
+
+def test_remove_and_toggle_source_repo():
+    config = RuntimeConfig()
+    config.add_source_repo("https://a.org/r.json")
+    config.add_source_repo("https://b.org/r.json")
+    assert config.remove_source_repo("https://a.org/r.json") is True
+    assert len(config.source_repos.repos) == 1
+    assert config.remove_source_repo("https://not.exist") is False
+    config.set_source_repo_enabled("https://b.org/r.json", False)
+    assert config.source_repos.enabled_repos == []
+
+
+def test_migration_from_old_registry_primary_url(tmp_path):
+    """旧 registry.primary_url 在加载时自动迁移为一条 source_repo 订阅。"""
+    cfg = {
+        "registry": {
+            "primary_url": "https://cdn.example.com/old",
+            "mirror_url": "",
+            "cache_ttl_seconds": 7200,
+            "max_content_bytes": 1048576,
+        }
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://cdn.example.com/old"
+    assert config.source_repos.repos[0].refresh_ttl_seconds == 7200
+
+
+def test_no_migration_when_source_repos_present(tmp_path):
+    """已存在 source_repos 时不做迁移，避免覆盖用户数据。"""
+    cfg = {
+        "registry": {"primary_url": "https://cdn.example.com/old"},
+        "source_repos": [{"url": "https://x.org/repo.json", "enabled": False}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://x.org/repo.json"
+    assert config.source_repos.repos[0].enabled is False
+
+
+def test_source_repos_serialization_roundtrip(tmp_path):
+    config = RuntimeConfig()
+    config.add_source_repo("https://example.org/ott-repo.json")
+    config.set_source_repo_trust("https://example.org/ott-repo.json", "verified", "ed25519:abc")
+    data = config._to_dict()
+    assert data["source_repos"][0]["url"] == "https://example.org/ott-repo.json"
+    assert data["source_repos"][0]["trust_state"] == "verified"
+    assert data["source_repos"][0]["pinned_pubkey"] == "ed25519:abc"
+    # 反序列化
+    config2 = RuntimeConfig._from_dict(data)
+    assert config2.source_repos.repos[0].url == "https://example.org/ott-repo.json"
+    assert config2.source_repos.repos[0].trust_state == "verified"
+
+
+def test_parse_source_repos_ignores_invalid_entries():
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {"url": "https://valid.org/r.json"},
+                {"url": ""},  # 无效：空 URL
+                "not-a-dict",  # 无效：非 dict
+                {"enabled": True},  # 无效：缺 url
+            ]
+        }
+    )
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://valid.org/r.json"

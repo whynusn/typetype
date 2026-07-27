@@ -164,6 +164,22 @@
 | `refreshWenlaiCategories` | 无 | 刷新晴发文分类列表 |
 | `updateWenlaiConfig` | `(str baseUrl, int length, int difficultyLevel, str category, str segmentMode, bool strictLength)` | 更新并持久化晴发文配置 |
 
+### OTT Repo 联邦目录 Slot（Phase 1）
+
+| 方法 | 参数 | 说明 |
+|------|------|------|
+| `getRepos` | → `list[dict]` | 返回订阅摘要列表（同步，走 manifest 缓存） |
+| `addRepo` | `(str url)` | 添加源仓库订阅（ott-repo.json URL） |
+| `removeRepo` | `(str url)` | 移除订阅并清除其 manifest 缓存 |
+| `setRepoEnabled` | `(str url, bool enabled)` | 启用/禁用订阅 |
+| `refreshRepos` | 无 | 重新加载所有订阅的 manifest 摘要（后台 Worker） |
+| `refreshRepo` | `(str url)` | 强制刷新单条订阅的 manifest（后台 Worker） |
+| `loadFederatedEntries` | 无 | 加载联邦聚合的全部条目（后台 Worker） |
+
+对应 Properties：`reposLoading`（bool）、`federatedEntriesLoading`（bool）。
+
+对应 Signals：`reposChanged(list)`、`reposLoadFailed(str)`、`registryFederatedEntriesLoaded(list)`、`registryFederatedEntriesLoadFailed(str)`。
+
 ## 载文模式 Properties
 
 | 属性 | 类型 | 说明 |

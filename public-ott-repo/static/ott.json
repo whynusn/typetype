@@ -1,0 +1,14 @@
+{
+  "protocol": "ott",
+  "version": "1.0",
+  "profiles": ["static"],
+  "adapter_version": "1.0.0",
+  "updated_at": "2026-07-27T00:00:00+08:00",
+  "features": {
+    "entry_summary": true,
+    "inline_content": true,
+    "segmented_content": false,
+    "search": false,
+    "static_fallback": false
+  }
+}

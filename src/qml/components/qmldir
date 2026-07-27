@@ -1,2 +1,3 @@
 module components
 AppText 254.0 AppText.qml
+ReposManagementPanel 254.0 ReposManagementPanel.qml

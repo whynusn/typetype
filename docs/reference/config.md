@@ -92,6 +92,24 @@
 
 > 推荐：使用 [open-typing-texts](https://github.com/whynusn/open-typing-texts) 开源文库仓库的脚本在本地运行服务，`primary_url` 设为 `http://127.0.0.1:18888`。
 
+> **迁移**：旧 `registry.primary_url` 在加载时自动迁移为一条等价 `source_repos` 订阅（TTL 沿用 `cache_ttl_seconds`）。已存在 `source_repos` 时不做迁移。
+
+## source_repos 子字段（OTT Repo 控制面）
+
+多 authority 源仓库订阅列表（`SourceReposConfig`）。客户端从每个订阅 URL 拉取 `ott-repo.json` manifest，聚合所有 ott-instance 源。
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `source_repos[].url` | `str` | — | 订阅 URL（ott-repo.json 地址，必填） |
+| `source_repos[].enabled` | `bool` | `true` | 是否启用 |
+| `source_repos[].trust_state` | `str` | `"unverified"` | 信任状态：`verified` / `unverified` / `failed` |
+| `source_repos[].pinned_pubkey` | `str` | `""` | TOFU 固定的公钥（ed25519） |
+| `source_repos[].refresh_ttl_seconds` | `int` | `86400` | manifest 刷新 TTL（秒） |
+| `source_repos[].etag` | `str` | `""` | HTTP ETag（缓存优化，自动管理） |
+| `source_repos[].added_at` | `str` | `""` | 订阅添加时间（ISO 8601） |
+
+> 协议细节见 open-typing-texts 仓 `docs/repo-manifest-spec-draft.md`（OTT Repo v1 草案）。
+
 ## UI 子字段
 
 | 字段 | 类型 | 默认值 | 说明 |

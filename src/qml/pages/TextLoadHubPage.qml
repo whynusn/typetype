@@ -24,17 +24,17 @@ FluentPage {
     property string currentSource: initialSource || "local"
 
     // ---- 来源定义 ----
-    readonly property var sourceKeys: ["local", "registry", "trainer", "custom", "jisubei"]
+    readonly property var sourceKeys: ["local", "repos", "trainer", "custom", "jisubei"]
     readonly property var sourceLabels: [
         qsTr("本地文库"),
-        qsTr("开源文库"),
+        qsTr("源仓库"),
         qsTr("练单器"),
         qsTr("自定义"),
         qsTr("极速杯")
     ]
     readonly property var sourceIcons: [
         "ic_fluent_library_20_regular",
-        "ic_fluent_text_bullet_list_20_regular",
+        "ic_fluent_cloud_arrow_down_20_regular",
         "ic_fluent_apps_list_detail_20_regular",
         "ic_fluent_edit_20_regular",
         "ic_fluent_document_text_20_regular"
@@ -42,7 +42,6 @@ FluentPage {
 
     readonly property int currentSourceIndex: sourceKeys.indexOf(currentSource)
     readonly property bool isListSource: currentSource !== "custom"
-    readonly property bool isRegistry: currentSource === "registry"
 
     // ---- 响应式断点 ----
     readonly property bool wideMode: width >= 840
@@ -50,7 +49,7 @@ FluentPage {
     // ---- 列表数据 ----
     property var jisubeiItems: []
     property var localItems: []
-    property var registryItems: []
+    property var reposItems: []
     property var trainerItems: []
 
     // ---- 当前选中项 ----
@@ -61,8 +60,11 @@ FluentPage {
     property string errorMessage: ""
     property bool sliceModeChecked: true
     property bool hasProgress: false
-    property bool catalogLoading: false  // 开源文库目录加载状态
-    property bool registryLoading: false  // 开源文库单篇加载状态
+    property bool catalogLoading: false  // 目录加载状态
+    property bool reposLoading: false    // 源仓库订阅列表加载状态
+    property var federatedEntries: []    // 联邦聚合的条目（所有 repo 的条目）
+    property string _pendingSourceLabel: ""
+    property var _pendingAuthorities: []
 
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
@@ -82,7 +84,6 @@ FluentPage {
         serverTextId = 0
         errorMessage = ""
         statusMessage = ""
-        registryLoading = false
         hasProgress = false
         if (active) loadCurrentSource()
     }
@@ -147,7 +148,6 @@ FluentPage {
         serverTextId = 0
         errorMessage = ""
         statusMessage = qsTr("已选择：%1").arg(itemDisplayTitle())
-        if (source === "registry") registryLoading = false  // 仅 registry 使用
         hasProgress = false
 
         // needsContentPrefetch == true 的来源点选即异步拉取内容预览
@@ -306,37 +306,6 @@ FluentPage {
 
         if (!selectedItem) { errorMessage = qsTr("请选择一个项目"); return null }
 
-        if (currentSource === "registry") {
-            var contentMode = selectedItem.contentMode || "inline"
-            var entryIdentifier = selectedItem.entryId || SrcBehav.entrySourceKey(selectedItem)
-            if (contentMode === "segmented") {
-                if (!entryIdentifier || !selectedItem.revisionId) {
-                    errorMessage = qsTr("OTT 长文缺少 entry/revision 标识")
-                    return null
-                }
-                return {
-                    source: "registry",
-                    launchKind: "segmented_source",
-                    identifier: entryIdentifier,
-                    revisionId: selectedItem.revisionId,
-                    authority: selectedItem.authority || "local",
-                    title: selectedItem.entryTitle || itemDisplayTitle(),
-                    fullSize: selectedItem.charCount || 0,
-                    sourceSegmentSize: selectedItem.segmentSizeHint || 1000,
-                    loadSegmentMethod: "loadOttEntrySegment"
-                }
-            }
-            return {
-                source: "registry",
-                launchKind: "materialized_text",
-                text: selectedItem.entryContent || "",
-                sourceKey: entryIdentifier,
-                entryId: selectedItem.entryId || "",
-                title: selectedItem.entryTitle || itemDisplayTitle(),
-                textId: 0,
-                deferLoad: !(selectedItem.entryContent || "")
-            }
-        }
 
         if (currentSource === "jisubei") {
             if (!previewContent) { errorMessage = qsTr("文本内容尚未加载"); return null }
@@ -421,15 +390,6 @@ FluentPage {
 
     function startMaterializedText(request, rp) {
         if (!appBridge || !request) return
-        if (request.deferLoad) {
-            registryLoading = true
-            if (request.source === "registry" && request.entryId)
-                appBridge.loadOttEntry(request.entryId)
-            else
-                appBridge.loadLibraryText(request.sourceKey)
-            statusMessage = qsTr("正在从开源文库加载...")
-            return
-        }
         if (!request.text) return
 
         var s = rp || {}
@@ -460,8 +420,6 @@ FluentPage {
         if (!appBridge) return false
         // custom 来源字数校验（依赖 textLoadPanel，留在 hub）
         if (currentSource === "custom") return SrcBehav.customTextLen() > 0
-        // registry 额外等待单篇加载完成
-        if (currentSource === "registry") return selectedItem !== null && !registryLoading
         // jisubei 需要服务端内容提前拉回（loadSelectedItem 依赖 previewContent）
         if (currentSource === "jisubei")
             return selectedItem !== null && previewContent.length > 0
@@ -592,18 +550,25 @@ FluentPage {
                 }
             }
 
-            // index 1: registry — 开源文库
-            TextSourceListPanel {
-                title: qsTr("文本列表")
-                icon: "ic_fluent_text_bullet_list_20_regular"
-                sourceItems: root.registryItems
-                loading: root.currentSource === "registry" && (appBridge ? appBridge.catalogLoading : false)
-                emptyText: qsTr("暂无文本")
-                onItemClicked: function(originalIndex) { root.selectListItem("registry", originalIndex) }
-                onRefreshRequested: { if (appBridge) appBridge.refreshCatalog() }
+            // index 1: repos — 源仓库订阅管理
+            ReposManagementPanel {
+                repos: root.reposItems
+                loading: root.currentSource === "repos" && root.reposLoading
+                onAddRepoRequested: function(url) { if (appBridge) appBridge.addRepo(url) }
+                onRemoveRepoRequested: function(url) { if (appBridge) appBridge.removeRepo(url) }
+                onToggleRepoRequested: function(url, enabled) { if (appBridge) appBridge.setRepoEnabled(url, enabled) }
+                onRefreshRepoRequested: function(url) { if (appBridge) appBridge.refreshRepo(url) }
+                onRefreshAllRequested: { if (appBridge) appBridge.refreshRepos() }
+                onOpenSourceRequested: function(sourceLabel, authorities) {
+                    if (!appBridge) return
+                    // 保存当前选中的 authorities，加载条目后跳转
+                    root._pendingSourceLabel = sourceLabel
+                    root._pendingAuthorities = authorities || []
+                    appBridge.loadFederatedEntries()
+                }
             }
 
-            // index 2: trainer — 练单器
+            // index 3: trainer — 练单器
             TextSourceListPanel {
                 title: qsTr("词库")
                 icon: "ic_fluent_apps_list_detail_20_regular"
@@ -886,44 +851,42 @@ FluentPage {
                 root.statusMessage = qsTr("已载入：%1").arg(title || root.itemDisplayTitle())
                 root.errorMessage = ""
                 root.checkProgress()
-            } else if (root.currentSource === "registry" && root.registryLoading) {
-                root.registryLoading = false
-                root.previewContent = content || ""
-                root.statusMessage = qsTr("已载入：%1").arg(title || root.itemDisplayTitle())
+            }
+        }
+        function onReposChanged(repos) {
+            if (root.currentSource === "repos") {
+                root._syncToCurrentList(repos)
                 root.errorMessage = ""
-                if (content) {
-                    root.startTypingFromRequest({
-                        source: "registry",
-                        launchKind: "materialized_text",
-                        text: content,
-                        sourceKey: SrcBehav.entrySourceKey(root.selectedItem),
-                        title: title || root.itemDisplayTitle(),
-                        textId: 0
-                    }, null)
-                }
             }
         }
-        function onRegistryEntriesLoaded(sourceKey, entries) {
-            // 已废弃 — entries 现在通过 onCatalogLoaded 直接加载
-        }
-        function onTextLoadFailed(message) {
-            if (root.currentSource === "registry" && root.registryLoading) {
-                root.registryLoading = false
-                root.errorMessage = message
-            }
-        }
-        function onCatalogLoaded(catalog) {
-            if (root.active && root.currentSource === "registry") {
-                root._syncToCurrentList(catalog)
-                root.errorMessage = ""
-                // hubMode 下 TextLoadPanel 不处理 catalog（字段格式不同）
-            }
-        }
-        function onCatalogLoadFailed(message) {
-            if (root.active && root.currentSource === "registry") {
-                root.catalogLoading = false
+        function onReposLoadFailed(message) {
+            if (root.currentSource === "repos") {
                 root.errorMessage = message
                 root.statusMessage = ""
+            }
+        }
+        function onRegistryFederatedEntriesLoaded(entries) {
+            root.federatedEntries = entries || []
+            // 如果有待跳转的源，加载完成后跳转到条目列表页
+            var auths = root._pendingAuthorities
+            if (auths && auths.length > 0) {
+                var label = root._pendingSourceLabel
+                var filtered = []
+                for (var i = 0; i < entries.length; i++) {
+                    var entryAuth = entries[i].authority || ""
+                    for (var j = 0; j < auths.length; j++) {
+                        if (entryAuth === auths[j]) {
+                            filtered.push(entries[i])
+                            break
+                        }
+                    }
+                }
+                root._pendingAuthorities = []
+                root._pendingSourceLabel = ""
+                Window.window.navigationView.push(Qt.resolvedUrl("RepoEntriesPage.qml"), {
+                    sourceLabel: label,
+                    entries: filtered
+                })
             }
         }
         function onLocalArticlesLoaded(articles) {

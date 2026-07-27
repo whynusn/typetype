@@ -1,0 +1,19 @@
+{
+  "type": "ott-rule",
+  "rule_id": "hitokoto",
+  "label": "一言（Hitokoto）",
+  "rule": {
+    "kind": "json-api",
+    "request": {
+      "url": "https://v1.hitokoto.cn/?c=i",
+      "method": "GET",
+      "headers": {"Accept": "application/json"}
+    },
+    "extract": {
+      "title": "$.from",
+      "content": "$.hitokoto"
+    },
+    "transform": ["trim"]
+  },
+  "tags": ["quote", "chinese"]
+}

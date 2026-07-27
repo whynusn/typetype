@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from .adapters.char_stats_adapter import CharStatsAdapter
     from .adapters.leaderboard_adapter import LeaderboardAdapter
     from .adapters.local_article_adapter import LocalArticleAdapter
+    from .adapters.registry_adapter import RegistryAdapter
     from .adapters.text_adapter import TextAdapter
     from .adapters.trainer_adapter import TrainerAdapter
     from .adapters.typing_adapter import TypingAdapter
@@ -104,6 +105,13 @@ class Bridge(QObject):
     registryEntriesLoaded = Signal(
         str, list
     )  # (source_key, entries[{title, content, fetched_at}])
+    # OTT Repo 联邦目录信号
+    reposChanged = Signal(list)  # list of repo summary dicts
+    reposLoadFailed = Signal(str)
+    reposLoadingChanged = Signal()
+    registryFederatedEntriesLoaded = Signal(list)  # list of entry dicts
+    registryFederatedEntriesLoadFailed = Signal(str)
+    registryFederatedEntriesLoadingChanged = Signal()
     # 会话状态机信号
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
@@ -171,6 +179,7 @@ class Bridge(QObject):
         char_stats_adapter: CharStatsAdapter,
         upload_text_adapter: UploadTextAdapter | None = None,
         leaderboard_adapter: LeaderboardAdapter | None = None,
+        registry_adapter: "RegistryAdapter | None" = None,
         wenlai_adapter: WenlaiAdapter | None = None,
         ai_text_adapter: "AiTextAdapter | None" = None,
         local_article_adapter: LocalArticleAdapter | None = None,
@@ -191,6 +200,7 @@ class Bridge(QObject):
         self._char_stats_adapter = char_stats_adapter
         self._upload_text_adapter = upload_text_adapter
         self._leaderboard_adapter = leaderboard_adapter
+        self._registry_adapter = registry_adapter
         self._wenlai_adapter = wenlai_adapter
         self._ai_text_adapter = ai_text_adapter
         self._local_article_adapter = local_article_adapter
@@ -232,6 +242,7 @@ class Bridge(QObject):
         self._connect_char_stats_signals()
         self._connect_upload_signals()
         self._connect_leaderboard_signals()
+        self._connect_registry_signals()
         self._connect_wenlai_signals()
         self._connect_ai_text_signals()
         self._connect_local_article_signals()
@@ -443,6 +454,23 @@ class Bridge(QObject):
             )
             self._leaderboard_adapter.catalogLoadingChanged.connect(
                 self.catalogLoadingChanged.emit
+            )
+
+    def _connect_registry_signals(self) -> None:
+        if self._registry_adapter:
+            self._registry_adapter.reposChanged.connect(self.reposChanged.emit)
+            self._registry_adapter.reposLoadFailed.connect(self.reposLoadFailed.emit)
+            self._registry_adapter.reposLoadingChanged.connect(
+                self.reposLoadingChanged.emit
+            )
+            self._registry_adapter.entriesLoaded.connect(
+                self.registryFederatedEntriesLoaded.emit
+            )
+            self._registry_adapter.entriesLoadFailed.connect(
+                self.registryFederatedEntriesLoadFailed.emit
+            )
+            self._registry_adapter.entriesLoadingChanged.connect(
+                self.registryFederatedEntriesLoadingChanged.emit
             )
 
     def _connect_wenlai_signals(self) -> None:
@@ -748,6 +776,18 @@ class Bridge(QObject):
     def catalogLoading(self) -> bool:
         if self._leaderboard_adapter:
             return self._leaderboard_adapter.catalog_loading
+        return False
+
+    @Property(bool, notify=reposLoadingChanged)
+    def reposLoading(self) -> bool:
+        if self._registry_adapter:
+            return self._registry_adapter.repos_loading
+        return False
+
+    @Property(bool, notify=registryFederatedEntriesLoadingChanged)
+    def federatedEntriesLoading(self) -> bool:
+        if self._registry_adapter:
+            return self._registry_adapter.entries_loading
         return False
 
     @Property(int, notify=textIdChanged)
@@ -2490,6 +2530,53 @@ class Bridge(QObject):
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
         self.registryUrlChanged.emit()
+
+    # ------------------------------------------------------------------
+    # OTT Repo 联邦目录 Slot
+    # ------------------------------------------------------------------
+
+    @Slot(result=list)
+    def getRepos(self) -> list:
+        """返回所有订阅的摘要列表。"""
+        if self._registry_adapter:
+            return self._registry_adapter.getRepos()
+        return []
+
+    @Slot(str)
+    def addRepo(self, url: str) -> None:
+        """添加一条源仓库订阅。"""
+        if self._registry_adapter:
+            self._registry_adapter.addRepo(url)
+
+    @Slot(str)
+    def removeRepo(self, url: str) -> None:
+        """移除一条源仓库订阅。"""
+        if self._registry_adapter:
+            self._registry_adapter.removeRepo(url)
+
+    @Slot(str, bool)
+    def setRepoEnabled(self, url: str, enabled: bool) -> None:
+        """启用/禁用一条源仓库订阅。"""
+        if self._registry_adapter:
+            self._registry_adapter.setRepoEnabled(url, enabled)
+
+    @Slot()
+    def refreshRepos(self) -> None:
+        """重新加载所有订阅的 manifest 摘要。"""
+        if self._registry_adapter:
+            self._registry_adapter.refreshRepos()
+
+    @Slot(str)
+    def refreshRepo(self, url: str) -> None:
+        """强制刷新单条订阅的 manifest。"""
+        if self._registry_adapter:
+            self._registry_adapter.refreshRepo(url)
+
+    @Slot()
+    def loadFederatedEntries(self) -> None:
+        """加载联邦聚合的全部条目。"""
+        if self._registry_adapter:
+            self._registry_adapter.loadAllEntries()
 
     @Slot(str, str)
     def loginWenlai(self, username: str, password: str) -> None:
