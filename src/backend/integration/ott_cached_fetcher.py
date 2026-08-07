@@ -11,6 +11,7 @@ import httpx
 
 from ..config.runtime_config import RegistryConfig
 from ..utils.logger import log_info, log_warning
+from .ott_normalization import redact_url
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -158,15 +159,15 @@ class OttCachedFetcher:
             response.raise_for_status()
             if max_bytes > 0 and len(response.content) > max_bytes:
                 log_warning(
-                    f"[OttTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})"
+                    f"[OttTextProvider] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"
                 )
                 return None
             data = response.json()
         except httpx.HTTPError as e:
-            log_warning(f"[OttTextProvider] HTTP 请求失败: {url} — {e}")
+            log_warning(f"[OttTextProvider] HTTP 请求失败: {redact_url(url)} — {e}")
             return None
         except (ValueError, TypeError, OSError) as e:
-            log_warning(f"[OttTextProvider] 响应解析失败: {url} — {e}")
+            log_warning(f"[OttTextProvider] 响应解析失败: {redact_url(url)} — {e}")
             return None
         return data if isinstance(data, dict) else None
 
@@ -178,11 +179,11 @@ class OttCachedFetcher:
             response.raise_for_status()
             if max_bytes > 0 and len(response.content) > max_bytes:
                 log_warning(
-                    f"[OttTextProvider] 响应体超限: {url} ({len(response.content)} > {max_bytes})"
+                    f"[OttTextProvider] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"
                 )
                 return None
         except httpx.HTTPError as e:
-            log_warning(f"[OttTextProvider] HTTP 请求失败: {url} — {e}")
+            log_warning(f"[OttTextProvider] HTTP 请求失败: {redact_url(url)} — {e}")
             return None
         return response.text
 

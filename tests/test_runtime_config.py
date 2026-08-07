@@ -699,6 +699,34 @@ def test_no_migration_when_source_repos_present(tmp_path):
     assert config.source_repos.repos[0].enabled is False
 
 
+def test_load_does_not_auto_subscribe_when_empty(tmp_path):
+    """0.A7：空订阅配置加载后不自动订阅任何远程源，订阅必须用户显式添加。"""
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert config.source_repos.repos == []
+
+
+def test_load_cleans_example_org_placeholder(tmp_path):
+    """0.A7：加载时仅清理 example.org 占位订阅，不清用户真实订阅。"""
+    cfg = {
+        "source_repos": [
+            {"url": "https://example.org/ott-repo.json", "enabled": True},
+            {"url": "https://real.example.com/repo.json", "enabled": True},
+        ],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert [r.url for r in config.source_repos.repos] == [
+        "https://real.example.com/repo.json"
+    ]
+
+
 def test_source_repos_serialization_roundtrip(tmp_path):
     config = RuntimeConfig()
     config.add_source_repo("https://example.org/ott-repo.json")

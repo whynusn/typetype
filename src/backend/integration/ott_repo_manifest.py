@@ -26,6 +26,7 @@ import httpx
 
 from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
+from .ott_normalization import redact_url
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -302,7 +303,7 @@ class RepoManifestCache:
             return self._read_cache(cache_key)
         validated = validate_repo_manifest(data)
         if validated is None:
-            log_warning(f"[RepoManifest] manifest 校验失败: {repo.url}")
+            log_warning(f"[RepoManifest] manifest 校验失败: {redact_url(repo.url)}")
             return self._read_cache(cache_key)
         self._write_cache(cache_key, validated)
         # 签名校验并更新订阅的 trust_state（TOFU）
@@ -318,10 +319,10 @@ class RepoManifestCache:
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPError as e:
-            log_warning(f"[RepoManifest] HTTP 请求失败: {url} — {e}")
+            log_warning(f"[RepoManifest] HTTP 请求失败: {redact_url(url)} — {e}")
             return None
         except (ValueError, TypeError, OSError) as e:
-            log_warning(f"[RepoManifest] 响应解析失败: {url} — {e}")
+            log_warning(f"[RepoManifest] 响应解析失败: {redact_url(url)} — {e}")
             return None
         return data if isinstance(data, dict) else None
 
@@ -336,7 +337,7 @@ class RepoManifestCache:
                 return None
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError) as e:
-            log_warning(f"[RepoManifest] 本地文件读取失败: {url} — {e}")
+            log_warning(f"[RepoManifest] 本地文件读取失败: {redact_url(url)} — {e}")
             return None
         if not isinstance(data, dict):
             return None
@@ -368,11 +369,15 @@ class RepoManifestCache:
                     if validated is not None:
                         self._write_cache(cache_key, validated)
                         self._verify_trust(validated, repo)
-                        log_info(f"[RepoManifest] 后台刷新成功: {repo.url}")
+                        log_info(f"[RepoManifest] 后台刷新成功: {redact_url(repo.url)}")
                     else:
-                        log_warning(f"[RepoManifest] 后台刷新校验失败: {repo.url}")
+                        log_warning(
+                            f"[RepoManifest] 后台刷新校验失败: {redact_url(repo.url)}"
+                        )
                 else:
-                    log_warning(f"[RepoManifest] 后台刷新网络失败: {repo.url}")
+                    log_warning(
+                        f"[RepoManifest] 后台刷新网络失败: {redact_url(repo.url)}"
+                    )
             finally:
                 self._release_refresh_lock(cache_key, lock)
 
@@ -467,7 +472,7 @@ class RepoManifestCache:
         try:
             valid = self._verify_ed25519_signature(manifest, pubkey, signature)
         except Exception as e:
-            log_warning(f"[RepoManifest] 签名校验异常: {repo.url} — {e}")
+            log_warning(f"[RepoManifest] 签名校验异常: {redact_url(repo.url)} — {e}")
             self._runtime_config.set_source_repo_trust(repo.url, "failed")
             return
 
@@ -484,7 +489,7 @@ class RepoManifestCache:
         elif repo.pinned_pubkey != pubkey:
             # 公钥变更 → 验证失败（需用户显式确认）
             self._runtime_config.set_source_repo_trust(repo.url, "failed")
-            log_warning(f"[RepoManifest] 公钥变更: {repo.url}")
+            log_warning(f"[RepoManifest] 公钥变更: {redact_url(repo.url)}")
         else:
             self._runtime_config.set_source_repo_trust(repo.url, "verified")
 

@@ -235,7 +235,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     manifest_async_executor = QtAsyncExecutor()
     manifest_cache = RepoManifestCache(
         cache_dir=registry_cache_dir() / "repos",
-        http_client=httpx.Client(timeout=10.0, trust_env=False),
+        http_client=httpx.Client(timeout=10.0, trust_env=False, follow_redirects=False),
         async_executor=manifest_async_executor,
         runtime_config=runtime_config,
     )
@@ -254,7 +254,9 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
         registry=OttTextProvider(
             config=runtime_config.registry,
             cache_dir=registry_cache_dir(),
-            http_client=httpx.Client(timeout=10.0, trust_env=False),
+            http_client=httpx.Client(
+                timeout=10.0, trust_env=False, follow_redirects=False
+            ),
             async_executor=registry_async_executor,
         )
         if runtime_config.registry.primary_url

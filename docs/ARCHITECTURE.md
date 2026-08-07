@@ -452,6 +452,13 @@ src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + rep
 - 签名（minisign/ed25519 + TOFU）为未来 Phase 4，当前信任状态仅作 UI 徽章展示
 - authority 冲突时按 repo 分组并列展示，由用户选择
 
+### L1 规则（ott-rule）URL 约束
+
+- 仅接受公网 `http://` / `https://`；`file:`、环回、私有/保留地址（含编码、进制数值 IP、IPv4 映射 IPv6、link-local）一律拒绝
+- 非 80/443 端口、DNS 解析失败（离线/内网解析）拒绝——规则源必须解析到公网 IP 才能请求
+- HTTP 请求做 DNS pin（IP 直连 + 原 Host 头）；HTTPS 不 pin（TLS 证书按域名校验，内网 IP 无合法证书，天然防 rebinding）
+- 全部请求显式 `follow_redirects=False`（4 处 httpx.Client）
+
 ---
 
 ## 后续方向

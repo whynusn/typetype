@@ -472,7 +472,23 @@ class TestOttRuleInterpreter:
 
 
 class TestDnsPin:
-    def test_fetch_requests_pinned_ip_with_host_header(self) -> None:
+    def test_http_requests_pinned_ip_with_host_header(self) -> None:
+        client = _mock_client([{"title": "T", "content": "C"}])
+        interp = OttRuleInterpreter(client)
+        rule = {
+            "request": {"url": "http://example.com/api", "method": "GET"},
+            "extract": {"title": "$.title", "content": "$.content"},
+            "transform": [],
+            "pagination": {},
+        }
+        interp.list_entries(rule, "r1", max_pages=1)
+        url = client.get.call_args.args[0]
+        assert url.startswith("http://93.184.216.34:")
+        assert "example.com" not in url
+        assert client.get.call_args.kwargs["headers"]["Host"] == "example.com"
+
+    def test_https_keeps_domain_url(self) -> None:
+        """HTTPS 不 pin：TLS 证书按域名校验，内网 IP 无合法证书，天然防 rebinding。"""
         client = _mock_client([{"title": "T", "content": "C"}])
         interp = OttRuleInterpreter(client)
         rule = {
@@ -483,9 +499,8 @@ class TestDnsPin:
         }
         interp.list_entries(rule, "r1", max_pages=1)
         url = client.get.call_args.args[0]
-        assert url.startswith("https://93.184.216.34:")
-        assert "example.com" not in url
-        assert client.get.call_args.kwargs["headers"]["Host"] == "example.com"
+        assert url == "https://example.com/api"
+        assert "Host" not in client.get.call_args.kwargs["headers"]
 
     def test_pin_url_rejects_blocked_resolution(self) -> None:
         interp = OttRuleInterpreter(_mock_client())
@@ -493,7 +508,7 @@ class TestDnsPin:
             "src.backend.integration.ott_rule_interpreter.socket.getaddrinfo",
             return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 0))],
         ):
-            pinned, _ = interp._pin_url("https://example.com/api", {})
+            pinned, _ = interp._pin_url("http://example.com/api", {})
         assert pinned is None
 
     def test_pin_url_rejects_resolution_failure(self) -> None:
@@ -502,5 +517,5 @@ class TestDnsPin:
             "src.backend.integration.ott_rule_interpreter.socket.getaddrinfo",
             side_effect=socket.gaierror("no such host"),
         ):
-            pinned, _ = interp._pin_url("https://example.com/api", {})
+            pinned, _ = interp._pin_url("http://example.com/api", {})
         assert pinned is None

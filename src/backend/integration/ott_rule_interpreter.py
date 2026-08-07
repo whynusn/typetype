@@ -574,12 +574,17 @@ class OttRuleInterpreter:
     # ---- 内部 ----
 
     def _pin_url(self, url: str, headers: dict) -> tuple[str | None, dict]:
-        """DNS pin：解析为 IP 直连并携带原 Host 头，防 DNS rebinding。
+        """DNS pin：HTTP 请求解析为 IP 直连并携带原 Host 头，防 DNS rebinding。
 
+        HTTPS 不 pin：TLS 证书按域名（而非 Host 头/IP）校验，rebinding 到内网后
+        内网 IP 拿不到合法证书，证书验证天然拦截；能通过证书验证的攻击者
+        已在 TLS 信任模型内，不属于 rebinding 威胁。
         域名在请求时重新解析可能指向内网（校验与请求间 DNS 变化），
-        因此请求前再次解析并校验；命中内网/解析失败则放弃请求。
+        因此 HTTP 请求前再次解析并校验；命中内网/解析失败则放弃请求。
         """
         parsed = urlparse(url)
+        if parsed.scheme == "https":
+            return url, headers
         hostname = parsed.hostname
         if not hostname:
             return url, headers
