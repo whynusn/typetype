@@ -96,8 +96,8 @@ L1 声明式规则（`ott-rule`）为无图灵完备的抓取描述：
 | `sha1` | `sha1(v: bytes) -> str` | SHA-1 十六进制摘要 |
 | `sha256` | `sha256(v: bytes) -> str` | SHA-256 十六进制摘要 |
 | `hmac_sha256` | `hmac_sha256(key: bytes, msg: bytes) -> str` | HMAC-SHA256 十六进制 |
-| `aes_cbc_encrypt` | `aes_cbc_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes` | AES-128-CBC 加密（PKCS7 填充） |
-| `aes_cbc_decrypt` | `aes_cbc_decrypt(key: bytes, iv: bytes, data: bytes) -> bytes` | AES-128-CBC 解密（PKCS7 去填充） |
+| `aes_cbc_encrypt` | `aes_cbc_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes` | AES-128-CBC 加密（ZeroPadding，与现网 `crypt.py` 一致） |
+| `aes_cbc_decrypt` | `aes_cbc_decrypt(key: bytes, iv: bytes, data: bytes) -> bytes` | AES-128-CBC 解密（ZeroPadding 去填充） |
 | `xor` | `xor(a: bytes, b: bytes) -> bytes` | 字节逐位异或（长度取短者） |
 
 加密原语为纯计算，无密钥存储（密钥来自规则字面量或上层注入，见 §5 `permissions`）。
@@ -167,6 +167,6 @@ L1 声明式规则（`ott-rule`）为无图灵完备的抓取描述：
 
 ## 待评审问题
 
-1. `aes_cbc_*` 固定 128 位密钥（极速杯现状）还是支持 256 位？
+1. ~~AES 密钥位宽：固定 128 还是支持 256？~~ → **已定 128**（现网 `crypt.py` 用 16 字节密钥 `c9ec834c80f77237`，ZeroPadding 而非 PKCS7，已同步原语签名）
 2. `request.body` 用 `{ref}` 模板还是直接 JSON 引用表达式？
 3. 加密原语是否需要密钥来自规则外（如订阅配置）的注入通道？
