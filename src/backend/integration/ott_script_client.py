@@ -209,6 +209,7 @@ class ScriptSandbox:
                 [sys.executable, str(runner_path), str(script_path)],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=SCRIPT_EXEC_TIMEOUT_S,
             )
         except subprocess.TimeoutExpired:
