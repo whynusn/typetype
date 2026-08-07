@@ -728,3 +728,33 @@ def test_parse_source_repos_ignores_invalid_entries():
     )
     assert len(config.source_repos.repos) == 1
     assert config.source_repos.repos[0].url == "https://valid.org/r.json"
+
+
+def test_registry_scripts_enabled_default_follows_platform(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    cfg = RuntimeConfig()
+    assert cfg.registry.scripts_enabled is True
+
+
+def test_registry_scripts_enabled_default_disabled_on_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    cfg = RuntimeConfig()
+    assert cfg.registry.scripts_enabled is False
+
+
+def test_registry_scripts_enabled_from_dict():
+    cfg_false = RuntimeConfig._from_dict({"registry": {"scripts_enabled": False}})
+    assert cfg_false.registry.scripts_enabled is False
+    cfg_str = RuntimeConfig._from_dict({"registry": {"scripts_enabled": "false"}})
+    assert cfg_str.registry.scripts_enabled is False
+    cfg_default = RuntimeConfig._from_dict({})
+    assert cfg_default.registry.scripts_enabled == (sys.platform != "win32")
+
+
+def test_registry_scripts_enabled_to_dict_round_trip():
+    cfg = RuntimeConfig()
+    cfg.registry.scripts_enabled = False
+    data = cfg._to_dict()
+    assert data["registry"]["scripts_enabled"] is False
+    reloaded = RuntimeConfig._from_dict(data)
+    assert reloaded.registry.scripts_enabled is False

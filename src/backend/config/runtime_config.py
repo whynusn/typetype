@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
@@ -105,6 +106,11 @@ class AiConfig:
             self.max_chars = 50
 
 
+def _default_scripts_enabled() -> bool:
+    """ott-script（L3）默认开关：Windows 默认禁用（无 Landlock/Job Object 沙箱）。"""
+    return sys.platform != "win32"
+
+
 @dataclass
 class RegistryConfig:
     """开源文库（Registry/OTT）配置。"""
@@ -113,6 +119,7 @@ class RegistryConfig:
     mirror_url: str = ""
     cache_ttl_seconds: int = 3600
     max_content_bytes: int = 1_048_576
+    scripts_enabled: bool = field(default_factory=_default_scripts_enabled)
 
     def __post_init__(self) -> None:
         # 确保 primary_url 是合法字符串，否则视为禁用
@@ -135,6 +142,8 @@ class RegistryConfig:
             self.cache_ttl_seconds = 3600
         if self.max_content_bytes < 0:
             self.max_content_bytes = 1_048_576
+        if not isinstance(self.scripts_enabled, bool):
+            self.scripts_enabled = _default_scripts_enabled()
 
 
 @dataclass
@@ -244,22 +253,16 @@ class RuntimeConfig:
         else:
             config = cls(_config_path=str(user_config_path()))
 
-        # 确保默认订阅：无任何有效订阅时，自动订阅官方默认源
-        config._ensure_default_subscription()
+        # 清理已知的测试/占位订阅（客户端不自动订阅任何远程源，
+        # 订阅必须由用户显式添加）
+        config._cleanup_stale_subscriptions()
         return config
 
-    def _ensure_default_subscription(self) -> None:
-        """确保有至少一个订阅。全新用户自动订阅官方内置默认源。"""
-        # 一次性迁移：移除已知的测试/占位订阅
+    def _cleanup_stale_subscriptions(self) -> None:
+        """移除已知的测试/占位订阅。"""
         stale = [r for r in self.source_repos.repos if "example.org" in r.url]
         for r in stale:
             self.remove_source_repo(r.url)
-
-        if self.source_repos.repos:
-            return
-        default_url = self._default_repo_url()
-        if default_url:
-            self.add_source_repo(default_url)
 
     @classmethod
     def ensure_user_config_exists(cls) -> str:
@@ -370,6 +373,9 @@ class RuntimeConfig:
             else "",
             cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 3600),
             max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),
+            scripts_enabled=cls._safe_bool(
+                r_data.get("scripts_enabled"), _default_scripts_enabled()
+            ),
         )
 
         # 解析 source_repos，并在缺少时从旧 registry.primary_url 自动迁移。
@@ -470,21 +476,6 @@ class RuntimeConfig:
             val = val.get(key, default)
         return val
 
-    @classmethod
-    def _default_repo_url(cls) -> str:
-        """官方默认 ott-repo manifest 地址。
-
-        优先使用本地内置 manifest（离线可用），CDN 作为远程更新源。
-        """
-        from .app_paths import builtin_ott_repo_dir
-
-        builtin_dir = builtin_ott_repo_dir()
-        builtin_manifest = builtin_dir / "ott-repo.json"
-        if builtin_manifest.exists():
-            return builtin_manifest.as_uri()
-        # fallback 到 CDN（需要联网）
-        return "https://cdn.jsdelivr.net/gh/whynusn/typetype@main/public-ott-repo/ott-repo.json"
-
     @staticmethod
     def _safe_int(value, default: int = 0) -> int:
         if value is None or value == "":
@@ -501,6 +492,14 @@ class RuntimeConfig:
         if not allow_empty and not value.strip():
             return default
         return value
+
+    @staticmethod
+    def _safe_bool(value, default: bool = False) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None or value == "":
+            return default
+        return str(value).strip().lower() not in ("0", "false", "no", "off")
 
     @property
     def default_text_source_key(self) -> str:
@@ -552,6 +551,11 @@ class RuntimeConfig:
             self.registry.primary_url = primary_url.rstrip("/") if primary_url else ""
         if mirror_url is not None:
             self.registry.mirror_url = mirror_url.rstrip("/") if mirror_url else ""
+        self._save_to_file()
+
+    def update_scripts_enabled(self, enabled: bool) -> None:
+        """更新 ott-script（L3）开关并持久化到 config.json。"""
+        self.registry.scripts_enabled = bool(enabled)
         self._save_to_file()
 
     def add_source_repo(self, url: str, *, added_at: str = "") -> SourceRepoEntry:
@@ -710,6 +714,7 @@ class RuntimeConfig:
                 "mirror_url": self.registry.mirror_url,
                 "cache_ttl_seconds": self.registry.cache_ttl_seconds,
                 "max_content_bytes": self.registry.max_content_bytes,
+                "scripts_enabled": self.registry.scripts_enabled,
             },
             "source_repos": [
                 {

@@ -32,7 +32,7 @@ class OttTextProvider:
         self._config = config
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        self._client = http_client or httpx.Client(timeout=10.0)
+        self._client = http_client or httpx.Client(timeout=10.0, follow_redirects=False)
         self._cache = OttCachedFetcher(
             self._config,
             self._cache_dir,

@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
+
+def redact_url(url: str) -> str:
+    """日志脱敏：仅保留 scheme://host，丢弃路径与查询参数。"""
+    try:
+        parsed = urlparse(url)
+    except (ValueError, OSError):
+        return "<invalid-url>"
+    if not parsed.scheme or not parsed.hostname:
+        return "<invalid-url>"
+    return f"{parsed.scheme}://{parsed.hostname}"
+
 
 def safe_int(value: str | int | bool | None, default: int = 0) -> int:
     if isinstance(value, bool):

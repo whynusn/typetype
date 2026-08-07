@@ -606,6 +606,38 @@ FluentPage {
                     onClicked: applyRegistryUrl()
                 }
             }
+
+            RowLayout {
+                spacing: 8
+
+                Text {
+                    typography: Typography.Caption
+                    text: qsTr("远程脚本")
+                    Layout.preferredWidth: 48
+                }
+
+                Switch {
+                    id: ottScriptsSwitch
+                    checked: appBridge ? appBridge.scriptsEnabled : false
+                    onCheckedChanged: {
+                        if (appBridge) appBridge.setScriptsEnabled(checked)
+                    }
+                }
+
+                Text {
+                    typography: Typography.Caption
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("执行开源文库分发的 ott-script 脚本（Windows 默认关闭：沙箱隔离强度不足）")
+                }
+
+                Text {
+                    typography: Typography.Caption
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("TypeType 为中立打字工具，不含广告与聚合搜索；对订阅来源的内容与脚本不承担审核责任，请仅订阅可信来源。")
+                }
+            }
         }
     }
 

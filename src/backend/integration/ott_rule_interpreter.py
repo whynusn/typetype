@@ -41,14 +41,71 @@ REGEX_MAX_INPUT_CHARS = 50_000  # ReDoS 防护：正则匹配输入截断上限
 # ---------------------------------------------------------------------------
 
 
+def _parse_numeric_ip_literal(hostname: str) -> int | None:
+    """解析非点分形式 IPv4 字面量为整数；非字面量返回 None。
+
+    2130706433 / 0x7f000001 / 017700000001 均等价 127.0.0.1，需拦截。
+    int(hostname, 0) 不接受 0177... 前导零形式，须显式按 8 解析。
+    """
+    if re.fullmatch(r"0[xX][0-9a-fA-F]+", hostname):
+        base = 16
+    elif re.fullmatch(r"0[0-7]+", hostname):
+        base = 8
+    elif re.fullmatch(r"[1-9]\d*", hostname):
+        base = 10
+    else:
+        return None
+    try:
+        value = int(hostname, base)
+    except ValueError:
+        return None
+    if 0 <= value <= 0xFFFFFFFF:
+        return value
+    return None
+
+
+def _is_blocked_address(addr: ipaddress._BaseAddress) -> bool:
+    """环回/私有/保留/链路本地/IPv4 映射地址一律拦截。
+
+    Python 的 IPv6Address.is_loopback 不识别 ::ffff:127.0.0.1 等映射地址，
+    必须显式检查 ipv4_mapped。
+    """
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        mapped = addr.ipv4_mapped
+        return (
+            mapped.is_private
+            or mapped.is_loopback
+            or mapped.is_reserved
+            or mapped.is_link_local
+        )
+    return addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local
+
+
+def _resolve_host(hostname: str) -> list[str]:
+    """DNS 解析 host 为 IP 列表；失败返回空列表。"""
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+    except (socket.gaierror, OSError):
+        return []
+    return [
+        sockaddr[0]
+        for family, _, _, _, sockaddr in resolved
+        if family in (socket.AF_INET, socket.AF_INET6)
+    ]
+
+
 def validate_url(url: str) -> bool:
     """校验规则请求 URL 是否允许执行。
 
     拒绝：
     - 非 http/https scheme
     - file: scheme
-    - 环回 / 私有 / 保留 IP
+    - 非 80/443 端口
+    - host 含 %（URL 编码混淆）或非 ASCII（IDN）
     - localhost 字面量
+    - 环回 / 私有 / 保留 / 链路本地地址，含编码、进制混淆、
+      IPv4 映射 IPv6（::ffff:127.0.0.1）与非点分数值字面量
+    - DNS 解析失败（不放行，防"校验过、请求挂"的假通过）
     """
     if not isinstance(url, str) or not url.strip():
         return False
@@ -60,35 +117,48 @@ def validate_url(url: str) -> bool:
     if parsed.scheme not in ("http", "https"):
         return False
 
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    if port not in (None, 80, 443):
+        return False
+
     hostname = parsed.hostname
     if not hostname:
+        return False
+    # urlparse 不做 percent-decode，host 出现 % 即视为编码混淆，直接拒绝
+    if "%" in hostname or any(ord(ch) > 127 for ch in hostname):
         return False
 
     hostname_lower = hostname.lower().rstrip(".")
     if hostname_lower in ("localhost", "localhost.localdomain"):
         return False
 
-    try:
-        addr = ipaddress.ip_address(hostname)
-    except ValueError:
-        # 不是字面 IP，尝试 DNS 解析
-        try:
-            resolved = socket.getaddrinfo(hostname, None)
-        except (socket.gaierror, OSError):
-            return True  # 解析失败不阻断，运行时再报错
-        for family, _, _, _, sockaddr in resolved:
-            if family not in (socket.AF_INET, socket.AF_INET6):
-                continue
-            try:
-                addr = ipaddress.ip_address(sockaddr[0])
-            except ValueError:
-                continue
-            if addr.is_private or addr.is_loopback or addr.is_reserved:
-                return False
-        return True
+    numeric_value = _parse_numeric_ip_literal(hostname_lower)
+    if numeric_value is not None:
+        return not _is_blocked_address(ipaddress.ip_address(numeric_value))
 
-    if addr.is_private or addr.is_loopback or addr.is_reserved:
+    try:
+        addr = ipaddress.ip_address(hostname_lower)
+    except ValueError:
+        addr = None
+
+    if addr is not None:
+        # 字面 IP：无 DNS 环节，直接判地址
+        return not _is_blocked_address(addr)
+
+    # 域名：DNS 解析全部结果逐一校验；解析失败一律拒绝
+    addrs = _resolve_host(hostname_lower)
+    if not addrs:
         return False
+    for addr_text in addrs:
+        try:
+            addr = ipaddress.ip_address(addr_text)
+        except ValueError:
+            continue
+        if _is_blocked_address(addr):
+            return False
     return True
 
 
@@ -373,6 +443,34 @@ def apply_transforms_to_entry(
 # ---------------------------------------------------------------------------
 
 
+MAX_JSON_DEPTH = 256
+
+
+def _json_depth_exceeds(text: str, limit: int) -> bool:
+    """预扫 JSON 括号深度是否超限（防深度炸弹触发 RecursionError）。"""
+    depth = 0
+    in_string = False
+    escape = False
+    for ch in text:
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > limit:
+                return True
+        elif ch in "]}":
+            depth = max(depth - 1, 0)
+    return False
+
+
 class OttRuleInterpreter:
     """OTT Repo L1 声明式规则解释器。"""
 
@@ -475,15 +573,57 @@ class OttRuleInterpreter:
 
     # ---- 内部 ----
 
+    def _pin_url(self, url: str, headers: dict) -> tuple[str | None, dict]:
+        """DNS pin：解析为 IP 直连并携带原 Host 头，防 DNS rebinding。
+
+        域名在请求时重新解析可能指向内网（校验与请求间 DNS 变化），
+        因此请求前再次解析并校验；命中内网/解析失败则放弃请求。
+        """
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+        if not hostname:
+            return url, headers
+        # 字面 IP 无需 pin（validate_url 已拦截内网地址）
+        try:
+            ipaddress.ip_address(hostname)
+        except ValueError:
+            pass
+        else:
+            return url, headers
+
+        addrs = _resolve_host(hostname)
+        if not addrs:
+            return None, {}
+        for addr_text in addrs:
+            try:
+                addr = ipaddress.ip_address(addr_text)
+            except ValueError:
+                continue
+            if _is_blocked_address(addr):
+                return None, {}
+
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        target = addrs[0]
+        if ":" in target:
+            target = f"[{target}]"
+        pinned = parsed._replace(netloc=f"{target}:{port}").geturl()
+        pin_headers = dict(headers)
+        host_value = hostname if port in (80, 443) else f"{hostname}:{port}"
+        pin_headers.setdefault("Host", host_value)
+        return pinned, pin_headers
+
     def _fetch(self, url: str, method: str, headers: dict) -> str | None:
         try:
+            request_url, pin_headers = self._pin_url(url, headers)
+            if request_url is None:
+                return None
             if method == "POST":
                 response = self._client.post(
-                    url, headers=headers, timeout=TOTAL_FETCH_TIMEOUT_S
+                    request_url, headers=pin_headers, timeout=TOTAL_FETCH_TIMEOUT_S
                 )
             else:
                 response = self._client.get(
-                    url, headers=headers, timeout=TOTAL_FETCH_TIMEOUT_S
+                    request_url, headers=pin_headers, timeout=TOTAL_FETCH_TIMEOUT_S
                 )
             response.raise_for_status()
             # Streaming 截断：边读边累积，到达 max_bytes 立即停止。
@@ -508,6 +648,8 @@ class OttRuleInterpreter:
     def _parse_response(self, text: str) -> list[Any]:
         """解析响应为条目列表。JSON 数组或含 entries/items 键的对象优先。"""
         # 尝试 JSON
+        if _json_depth_exceeds(text, MAX_JSON_DEPTH):
+            return []
         try:
             data = json.loads(text)
         except (ValueError, TypeError):

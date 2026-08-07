@@ -66,6 +66,29 @@ class TestScriptSandbox:
         entries = sandbox.execute(source, "test://script")
         assert entries == []
 
+    def test_rejects_urllib_request_at_runtime(self) -> None:
+        """防御纵深：即使绕过 AST 检查，runner 受限 __import__ 也拒绝 urllib.request。"""
+        source = (
+            "import urllib.request\n"
+            "def fetch_entries():\n"
+            "    data = urllib.request.urlopen('file:///etc/passwd').read()\n"
+            '    return [{"title": "T", "content": data.decode()}]\n'
+        )
+        sandbox = ScriptSandbox()
+        entries = sandbox.execute(source, "test://script")
+        assert entries == []
+
+    def test_allows_urllib_parse_at_runtime(self) -> None:
+        source = (
+            "from urllib.parse import unquote\n"
+            "def fetch_entries():\n"
+            '    return [{"title": "T", "content": unquote("a%20b")}]\n'
+        )
+        sandbox = ScriptSandbox()
+        entries = sandbox.execute(source, "test://script")
+        assert len(entries) == 1
+        assert entries[0]["content"] == "a b"
+
     def test_entry_has_required_fields(self) -> None:
         source = 'def fetch_entries():\n    return [{"title": "T", "content": "C"}]\n'
         sandbox = ScriptSandbox()
@@ -194,3 +217,16 @@ class TestScriptCache:
         result = cache.get_script("https://example.com/s.py", ttl_seconds=0)
         # 网络失败但缓存存在 → 返回缓存
         assert result == safe_source
+
+
+class TestScriptDisabled:
+    def test_cache_disabled_returns_none_without_fetch(self, tmp_path) -> None:
+        mock_http = MagicMock(spec=httpx.Client)
+        cache = ScriptCache(tmp_path / "scripts", mock_http, enabled=False)
+        assert cache.get_script("https://example.com/s.py") is None
+        mock_http.get.assert_not_called()
+
+    def test_sandbox_disabled_returns_empty(self) -> None:
+        sandbox = ScriptSandbox(enabled=False)
+        source = 'def fetch_entries():\n    return [{"content": "x"}]\n'
+        assert sandbox.execute(source, "test://script") == []

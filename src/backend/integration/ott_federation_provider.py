@@ -24,6 +24,7 @@ import httpx
 from ..config.runtime_config import RuntimeConfig
 from ..utils.logger import log_info, log_warning
 from .ott_cached_fetcher import OttCachedFetcher
+from .ott_normalization import redact_url
 from .ott_client import OttClient, FetchJson, FetchText
 from .ott_repo_manifest import RepoManifestCache
 from .ott_rule_interpreter import OttRuleInterpreter
@@ -112,7 +113,7 @@ class _InstanceClient:
                 entries = client.list_entries()
             except Exception as e:
                 log_warning(
-                    f"[Federation] list_entries 异常 {self.authority}@{url}: {e}"
+                    f"[Federation] list_entries 异常 {self.authority}@{redact_url(url)}: {e}"
                 )
                 self._record_failure(url)
                 continue
@@ -129,7 +130,7 @@ class _InstanceClient:
                 sources = client.list_sources()
             except Exception as e:
                 log_warning(
-                    f"[Federation] list_sources 异常 {self.authority}@{url}: {e}"
+                    f"[Federation] list_sources 异常 {self.authority}@{redact_url(url)}: {e}"
                 )
                 self._record_failure(url)
                 continue
@@ -145,7 +146,9 @@ class _InstanceClient:
             try:
                 detail = client.get_entry(entry_id)
             except Exception as e:
-                log_warning(f"[Federation] get_entry 异常 {self.authority}@{url}: {e}")
+                log_warning(
+                    f"[Federation] get_entry 异常 {self.authority}@{redact_url(url)}: {e}"
+                )
                 self._record_failure(url)
                 continue
             if detail is not None:
@@ -169,7 +172,7 @@ class _InstanceClient:
                 )
             except Exception as e:
                 log_warning(
-                    f"[Federation] get_segment 异常 {self.authority}@{url}: {e}"
+                    f"[Federation] get_segment 异常 {self.authority}@{redact_url(url)}: {e}"
                 )
                 self._record_failure(url)
                 continue
@@ -279,12 +282,12 @@ class _ScriptClient:
     def list_entries(self) -> list[dict] | None:
         source = self._cache.get_script(self.url)
         if source is None:
-            log_warning(f"[Federation] script 下载失败: {self.url}")
+            log_warning(f"[Federation] script 下载失败: {redact_url(self.url)}")
             return None
         try:
             entries = self._sandbox.execute(source, self.url)
         except Exception as e:
-            log_warning(f"[Federation] script 执行异常 {self.url}: {e}")
+            log_warning(f"[Federation] script 执行异常 {redact_url(self.url)}: {e}")
             return None
         if not entries:
             return []
@@ -366,14 +369,19 @@ class OttFederationProvider:
         clients: dict[str, _InstanceClient | _RuleClient | _ScriptClient] = {}
         # 复用同一个解释器/沙箱实例（内部无状态）
         interpreter = OttRuleInterpreter(
-            http_client=httpx.Client(timeout=10.0, trust_env=False),
+            http_client=httpx.Client(
+                timeout=10.0, trust_env=False, follow_redirects=False
+            ),
             max_bytes=self._max_content_bytes,
         )
         script_cache = ScriptCache(
             cache_dir=self._script_cache_dir(),
-            http_client=httpx.Client(timeout=10.0, trust_env=False),
+            http_client=httpx.Client(
+                timeout=10.0, trust_env=False, follow_redirects=False
+            ),
+            enabled=self._runtime_config.registry.scripts_enabled,
         )
-        sandbox = ScriptSandbox()
+        sandbox = ScriptSandbox(enabled=self._runtime_config.registry.scripts_enabled)
 
         for repo in self._runtime_config.source_repos.enabled_repos:
             manifest = self._manifest_cache.get_manifest(repo)
@@ -419,7 +427,9 @@ class OttFederationProvider:
         cache = OttCachedFetcher(
             config=self._runtime_config.registry,
             cache_dir=cache_dir,
-            http_client=httpx.Client(timeout=10.0, trust_env=False),
+            http_client=httpx.Client(
+                timeout=10.0, trust_env=False, follow_redirects=False
+            ),
             async_executor=None,
         )
         clients[authority] = _InstanceClient(

@@ -58,9 +58,9 @@ def _script_manifest():
 
 def _federation_with_script(tmp_path):
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = MagicMock(spec=RegistryConfig)
-    config.registry.cache_ttl_seconds = 3600
-    config.registry.max_content_bytes = 1_048_576
+    config.registry = RegistryConfig(
+        cache_ttl_seconds=3600, max_content_bytes=1_048_576
+    )
 
     repo_entry = SourceRepoEntry(
         url="https://script-test.example.org/ott-repo.json",

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,7 +24,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from ..utils.logger import log_warning
-from .ott_normalization import normalize_summary
+from .ott_normalization import normalize_summary, redact_url
 from .ott_script_safety import validate_script_source
 
 if TYPE_CHECKING:
@@ -44,7 +46,6 @@ ALLOWED_MODULES = frozenset(
         "datetime",
         "hashlib",
         "base64",
-        "urllib",
         "urllib.parse",
         "http",
         "email",
@@ -77,12 +78,17 @@ def script_cache_key(url: str) -> str:
 class ScriptCache:
     """脚本下载与缓存。"""
 
-    def __init__(self, cache_dir: Path, http_client: httpx.Client) -> None:
+    def __init__(
+        self, cache_dir: Path, http_client: httpx.Client, enabled: bool = True
+    ) -> None:
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = http_client
+        self._enabled = enabled
 
     def get_script(self, url: str, ttl_seconds: int = 3600) -> str | None:
+        if not self._enabled:
+            return None
         cache_key = script_cache_key(url)
         cached = self._read_cache(cache_key)
         if cached is not None:
@@ -96,14 +102,14 @@ class ScriptCache:
             response.raise_for_status()
             source = response.text[:SCRIPT_MAX_BYTES]
         except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
-            log_warning(f"[ScriptCache] 下载失败: {url} — {e}")
+            log_warning(f"[ScriptCache] 下载失败: {redact_url(url)} — {e}")
             return self._read_cache(cache_key)
 
         # AST 安全检查
         report = validate_script_source(source, url)
         if not report.valid:
             codes = [i.code for i in report.issues]
-            log_warning(f"[ScriptCache] AST 检查失败: {url} — {codes}")
+            log_warning(f"[ScriptCache] AST 检查失败: {redact_url(url)} — {codes}")
             return self._read_cache(cache_key)
 
         self._write_cache(cache_key, source)
@@ -141,6 +147,16 @@ class ScriptCache:
         return (time.time() - mtime) > ttl_seconds
 
 
+def _is_owner(path: Path) -> bool:
+    """文件属主必须是当前用户，防其他用户预置替换脚本。"""
+    if not hasattr(os, "getuid"):
+        return True  # Windows 无 uid 概念，跳过
+    try:
+        return path.stat().st_uid == os.getuid()
+    except OSError:
+        return False
+
+
 # ── 沙箱执行 ────────────────────────────────────────────────────────────
 
 
@@ -151,24 +167,39 @@ class ScriptSandbox:
     ott_script_runner.py。资源限制（内存/CPU/proc）由 runner 在子进程内设置。
     """
 
-    def __init__(self, allowed_modules: frozenset[str] = ALLOWED_MODULES) -> None:
+    def __init__(
+        self, allowed_modules: frozenset[str] = ALLOWED_MODULES, enabled: bool = True
+    ) -> None:
         self._allowed = allowed_modules
+        self._enabled = enabled
 
     def execute(self, source: str, script_url: str) -> list[dict]:
         """执行脚本并返回 fetch_entries() 的结果。"""
-        # 把脚本写到临时文件供子进程读取
-        tmp_dir = Path(tempfile.gettempdir())
-        tmp_path = (
-            tmp_dir
-            / f"ott-script-{hashlib.sha256(script_url.encode()).hexdigest()[:16]}.py"
+        if not self._enabled:
+            return []
+        # 私有临时目录（mkdtemp 默认 0700）+ 脚本文件 0600，防其他用户窥探或替换
+        try:
+            tmp_dir = Path(tempfile.mkdtemp(prefix="ott-sandbox-"))
+        except OSError as e:
+            log_warning(f"[ScriptSandbox] 创建临时目录失败: {e}")
+            return []
+        tmp_path = tmp_dir / (
+            f"script-{hashlib.sha256(script_url.encode()).hexdigest()[:16]}.py"
         )
         try:
             tmp_path.write_text(source, encoding="utf-8")
+            os.chmod(tmp_path, 0o600)
+            if not _is_owner(tmp_path):
+                log_warning("[ScriptSandbox] 临时脚本属主校验失败，拒绝执行")
+                return []
         except OSError as e:
             log_warning(f"[ScriptSandbox] 写临时脚本失败: {e}")
             return []
 
-        return self._execute_in_subprocess(tmp_path)
+        try:
+            return self._execute_in_subprocess(tmp_path)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _execute_in_subprocess(self, script_path: Path) -> list[dict]:
         """在子进程中执行脚本。"""

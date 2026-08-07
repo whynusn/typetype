@@ -262,8 +262,10 @@ def _make_safe_import():
     """创建一个受限的 __import__，仅允许白名单模块。"""
 
     def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
-        root = name.split(".", maxsplit=1)[0]
-        if root not in ALLOWED_MODULES:
+        if not any(
+            name == allowed or name.startswith(allowed + ".")
+            for allowed in ALLOWED_MODULES
+        ):
             raise ImportError(f"模块 {name!r} 不在沙箱白名单中")
         return __import__(name, globals, locals, fromlist, level)
 
@@ -290,7 +292,6 @@ ALLOWED_MODULES = frozenset(
         "datetime",
         "hashlib",
         "base64",
-        "urllib",
         "urllib.parse",
         "http",
         "email",
@@ -314,8 +315,10 @@ ALLOWED_MODULES = frozenset(
 
 def _import_allowed_module(mod_name: str):
     """导入白名单模块，返回模块对象或 None。"""
-    root = mod_name.split(".", maxsplit=1)[0]
-    if root not in ALLOWED_MODULES:
+    if not any(
+        mod_name == allowed or mod_name.startswith(allowed + ".")
+        for allowed in ALLOWED_MODULES
+    ):
         return None
     try:
         parts = mod_name.split(".")

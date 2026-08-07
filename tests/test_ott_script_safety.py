@@ -101,3 +101,26 @@ class TestScriptSafety:
         )
         report = validate_script_source(source)
         assert report.valid, report.to_dict()
+
+    def test_rejects_urllib_request_import(self) -> None:
+        """urllib.request 可 urlopen file:// 读本地文件，必须拒绝。"""
+        source = (
+            "import urllib.request\n"
+            "def fetch_entries():\n"
+            "    data = urllib.request.urlopen('file:///etc/passwd').read()\n"
+            '    return [{"title": "T", "content": data.decode()}]\n'
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_import" for i in report.issues)
+
+    def test_allows_urllib_parse(self) -> None:
+        """urllib.parse 纯 URL 编解码，无 I/O，允许。"""
+        source = (
+            "from urllib.parse import unquote\n"
+            "def fetch_entries():\n"
+            "    text = unquote('a%20b')\n"
+            '    return [{"title": "T", "content": text}]\n'
+        )
+        report = validate_script_source(source)
+        assert report.valid, report.to_dict()

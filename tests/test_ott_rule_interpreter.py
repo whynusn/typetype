@@ -3,19 +3,34 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock
+import socket
+from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 
 from src.backend.integration.ott_rule_interpreter import (
+    MAX_JSON_DEPTH,
     MAX_TOTAL_ENTRIES,
     OttRuleInterpreter,
+    _json_depth_exceeds,
     apply_transform,
     apply_transforms_to_entry,
     extract_field,
     extract_fields,
     validate_url,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mock_dns(monkeypatch):
+    """域名解析固定为公网 IP，保证全部测试离线且确定。"""
+    monkeypatch.setattr(
+        "src.backend.integration.ott_rule_interpreter.socket.getaddrinfo",
+        lambda _host, _port: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +69,67 @@ class TestValidateUrl:
 
     def test_accepts_public_http(self) -> None:
         assert validate_url("http://example.com/api") is True
+
+    def test_rejects_percent_encoded_host(self) -> None:
+        assert validate_url("http://127.0.0.1.%2e/api") is False
+        assert validate_url("http://%31%32%37.0.0.1/api") is False
+
+    def test_rejects_non_ascii_host(self) -> None:
+        assert validate_url("http://例え.テスト/api") is False
+
+    def test_rejects_non_standard_port(self) -> None:
+        assert validate_url("http://example.com:8080/api") is False
+        assert validate_url("https://example.com:444/api") is False
+        assert validate_url("http://example.com:80/api") is True
+        assert validate_url("https://example.com:443/api") is True
+
+    def test_rejects_numeric_ip_literals(self) -> None:
+        assert validate_url("http://2130706433/api") is False
+        assert validate_url("http://0x7f000001/api") is False
+        assert validate_url("http://017700000001/api") is False
+
+    def test_rejects_ipv4_mapped_ipv6_loopback(self) -> None:
+        assert validate_url("http://[::ffff:127.0.0.1]/api") is False
+        assert validate_url("http://[::ffff:10.0.0.1]/api") is False
+        assert validate_url("http://[0:0:0:0:0:ffff:7f00:1]/api") is False
+
+    def test_rejects_link_local(self) -> None:
+        assert validate_url("http://169.254.169.254/latest/meta-data") is False
+        assert validate_url("http://[fe80::1]/api") is False
+
+    def test_rejects_dns_resolution_failure(self) -> None:
+        with patch(
+            "src.backend.integration.ott_rule_interpreter.socket.getaddrinfo",
+            side_effect=socket.gaierror("no such host"),
+        ):
+            assert validate_url("http://example.com/api") is False
+
+
+# ---------------------------------------------------------------------------
+# JSON 深度守卫
+# ---------------------------------------------------------------------------
+
+
+class TestJsonDepthGuard:
+    def test_depth_scan_rejects_deep_nesting(self) -> None:
+        assert _json_depth_exceeds("[" * 100_000, MAX_JSON_DEPTH) is True
+        assert _json_depth_exceeds("[" * 256, MAX_JSON_DEPTH) is False
+        assert _json_depth_exceeds("[" * 257, MAX_JSON_DEPTH) is True
+
+    def test_depth_scan_ignores_brackets_inside_strings(self) -> None:
+        assert _json_depth_exceeds('"[{[{"', 256) is False
+
+    def test_deep_bomb_parse_returns_empty_without_recursion(self) -> None:
+        interp = OttRuleInterpreter(httpx.Client())
+        bomb = "[" * 100_000 + "]" * 100_000
+        assert interp._parse_response(bomb) == []
+
+    def test_normal_json_still_parses(self) -> None:
+        interp = OttRuleInterpreter(httpx.Client())
+        entries = interp._parse_response(
+            '{"entries": [{"title": "a"}, {"title": "b"}]}'
+        )
+        assert [e["title"] for e in entries] == ["a", "b"]
 
 
 # ---------------------------------------------------------------------------
@@ -388,3 +464,43 @@ class TestOttRuleInterpreter:
         entries = interp.list_entries(rule, "r1")
         # extract 为空 → extract_fields 返回 {} → 跳过
         assert entries == []
+
+
+# ---------------------------------------------------------------------------
+# DNS pin（0.A3）
+# ---------------------------------------------------------------------------
+
+
+class TestDnsPin:
+    def test_fetch_requests_pinned_ip_with_host_header(self) -> None:
+        client = _mock_client([{"title": "T", "content": "C"}])
+        interp = OttRuleInterpreter(client)
+        rule = {
+            "request": {"url": "https://example.com/api", "method": "GET"},
+            "extract": {"title": "$.title", "content": "$.content"},
+            "transform": [],
+            "pagination": {},
+        }
+        interp.list_entries(rule, "r1", max_pages=1)
+        url = client.get.call_args.args[0]
+        assert url.startswith("https://93.184.216.34:")
+        assert "example.com" not in url
+        assert client.get.call_args.kwargs["headers"]["Host"] == "example.com"
+
+    def test_pin_url_rejects_blocked_resolution(self) -> None:
+        interp = OttRuleInterpreter(_mock_client())
+        with patch(
+            "src.backend.integration.ott_rule_interpreter.socket.getaddrinfo",
+            return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", 0))],
+        ):
+            pinned, _ = interp._pin_url("https://example.com/api", {})
+        assert pinned is None
+
+    def test_pin_url_rejects_resolution_failure(self) -> None:
+        interp = OttRuleInterpreter(_mock_client())
+        with patch(
+            "src.backend.integration.ott_rule_interpreter.socket.getaddrinfo",
+            side_effect=socket.gaierror("no such host"),
+        ):
+            pinned, _ = interp._pin_url("https://example.com/api", {})
+        assert pinned is None

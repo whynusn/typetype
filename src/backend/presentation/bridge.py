@@ -160,6 +160,7 @@ class Bridge(QObject):
     eligibilityReasonChanged = Signal(str)
     baseUrlChanged = Signal()
     registryUrlChanged = Signal()
+    scriptsEnabledChanged = Signal()
     windowTitleChanged = Signal()
     textTitleChanged = Signal()
     textSourceOptionsChanged = Signal()
@@ -861,6 +862,11 @@ class Bridge(QObject):
     def registryMirrorUrl(self) -> str:
         """注册表镜像地址。"""
         return self._text_adapter._runtime_config.registry.mirror_url
+
+    @Property(bool, notify=scriptsEnabledChanged)
+    def scriptsEnabled(self) -> bool:
+        """ott-script（L3）脚本是否启用。"""
+        return self._text_adapter._runtime_config.registry.scripts_enabled
 
     @Property(str, notify=windowTitleChanged)
     def windowTitle(self) -> str:
@@ -2695,6 +2701,12 @@ class Bridge(QObject):
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
         self.registryUrlChanged.emit()
+
+    @Slot(bool)
+    def setScriptsEnabled(self, enabled: bool) -> None:
+        """更新 ott-script（L3）开关并持久化。"""
+        self._text_adapter._runtime_config.update_scripts_enabled(enabled)
+        self.scriptsEnabledChanged.emit()
 
     # ------------------------------------------------------------------
     # OTT Repo 联邦目录 Slot

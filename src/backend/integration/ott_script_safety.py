@@ -89,7 +89,6 @@ ALLOWED_MODULES = frozenset(
         "datetime",
         "hashlib",
         "base64",
-        "urllib",
         "urllib.parse",
         "http",
         "email",
@@ -170,15 +169,17 @@ def validate_script_source(
 
 
 def _validate_import(module: str, lineno: int) -> list[ValidationIssue]:
-    """白名单逻辑：仅允许 ALLOWED_MODULES 中的模块。"""
-    root = module.split(".", maxsplit=1)[0]
-    if root in ALLOWED_MODULES:
+    """白名单逻辑：仅允许 ALLOWED_MODULES 中的模块或其子模块。"""
+    if any(
+        module == allowed or module.startswith(allowed + ".")
+        for allowed in ALLOWED_MODULES
+    ):
         return []
     return [
         ValidationIssue(
             "banned_import",
             f"line {lineno}",
-            f"script imports non-whitelisted module {root}",
+            f"script imports non-whitelisted module {module}",
         )
     ]
 
