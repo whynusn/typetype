@@ -99,7 +99,7 @@ def _has_nested_quantifier(pattern: str) -> bool:
     return False
 
 
-def _run(pattern: str, text: str) -> dict:
+def _run(pattern: str, text: str, op: str = "search", repl: str = "") -> dict:
     if (
         len(pattern) > REGEX_WORKER_MAX_INPUT_CHARS
         or len(text) > REGEX_WORKER_MAX_INPUT_CHARS
@@ -108,6 +108,8 @@ def _run(pattern: str, text: str) -> dict:
     if _has_nested_quantifier(pattern):
         return {"ok": False, "error": "nested_quantifier"}
     try:
+        if op == "replace":
+            return {"ok": True, "content": re.sub(pattern, repl, text, flags=re.DOTALL)}
         match = re.search(pattern, text, re.DOTALL)
     except re.error:
         return {"ok": False, "error": "regex_error"}
@@ -130,10 +132,15 @@ def main() -> int:
         payload = json.loads(sys.stdin.read() or "{}")
         pattern = payload.get("pattern", "")
         text = payload.get("text", "")
+        op = payload.get("op", "search")
+        repl = payload.get("repl", "")
         if not isinstance(pattern, str) or not isinstance(text, str):
             print(json.dumps({"ok": False, "error": "bad_input"}))
             return 0
-        result = _run(pattern, text)
+        if op not in ("search", "replace") or not isinstance(repl, str):
+            print(json.dumps({"ok": False, "error": "bad_input"}))
+            return 0
+        result = _run(pattern, text, op, repl)
     except (json.JSONDecodeError, ValueError, OSError):
         result = {"ok": False, "error": "bad_input"}
     print(json.dumps(result))
