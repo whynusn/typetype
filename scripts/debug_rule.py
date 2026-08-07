@@ -59,7 +59,9 @@ def main() -> None:
     parser.add_argument("--rule-file", help="rule JSON 文件路径")
     parser.add_argument("--rule-json", help="rule JSON 字符串")
     parser.add_argument("--max-pages", type=int, default=3, help="最大分页数（默认 3）")
-    parser.add_argument("--max-bytes", type=int, default=1_048_576, help="单页最大字节（默认 1MB）")
+    parser.add_argument(
+        "--max-bytes", type=int, default=1_048_576, help="单页最大字节（默认 1MB）"
+    )
     args = parser.parse_args()
 
     rule, rule_id = load_rule(args)

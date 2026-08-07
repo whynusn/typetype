@@ -49,17 +49,27 @@ def _rule_manifest():
         "type": "repository",
         "repo_id": "rule-test.example.org",
         "name": "Rule Test Repo",
-        "mirrors": [{"url": "https://rule-test.example.org/ott-repo.json", "priority": 1}],
+        "mirrors": [
+            {"url": "https://rule-test.example.org/ott-repo.json", "priority": 1}
+        ],
         "sources": [
             {
                 "type": "ott-rule",
                 "rule_id": "sample-rule",
                 "label": "Sample Rule",
                 "rule": {
-                    "request": {"url": "https://example.com/api?page={page}", "method": "GET"},
+                    "request": {
+                        "url": "https://example.com/api?page={page}",
+                        "method": "GET",
+                    },
                     "extract": {"title": "$.title", "content": "$.content"},
                     "transform": [],
-                    "pagination": {"param": "page", "start": 1, "step": 1, "max_pages": 3},
+                    "pagination": {
+                        "param": "page",
+                        "start": 1,
+                        "step": 1,
+                        "max_pages": 3,
+                    },
                 },
                 "tags": ["test"],
             }
@@ -112,20 +122,26 @@ class TestRuleClient:
         resp1.text = json.dumps(page1)
         resp1.headers = {"content-length": "100"}
         resp1.raise_for_status = MagicMock()
+        resp1.iter_text = MagicMock(return_value=iter([json.dumps(page1)]))
 
         resp_empty = MagicMock(spec=httpx.Response)
         resp_empty.status_code = 200
         resp_empty.text = json.dumps([])
         resp_empty.headers = {"content-length": "2"}
         resp_empty.raise_for_status = MagicMock()
+        resp_empty.iter_text = MagicMock(return_value=iter([json.dumps([])]))
 
         mock_client.get.side_effect = [resp1, resp_empty]
 
         interp = OttRuleInterpreter(mock_client)
-        client = _RuleClient(rule_id="r1", rule={
-            "request": {"url": "https://example.com/api"},
-            "extract": {"title": "$.title", "content": "$.content"},
-        }, interpreter=interp)
+        client = _RuleClient(
+            rule_id="r1",
+            rule={
+                "request": {"url": "https://example.com/api"},
+                "extract": {"title": "$.title", "content": "$.content"},
+            },
+            interpreter=interp,
+        )
         entries = client.list_entries()
         assert entries is not None
         assert len(entries) == 1
@@ -135,10 +151,14 @@ class TestRuleClient:
 
     def test_returns_empty_list_when_no_entries(self) -> None:
         interp = OttRuleInterpreter(_mock_http([]))
-        client = _RuleClient(rule_id="r1", rule={
-            "request": {"url": "https://example.com/api"},
-            "extract": {"title": "$.title"},
-        }, interpreter=interp)
+        client = _RuleClient(
+            rule_id="r1",
+            rule={
+                "request": {"url": "https://example.com/api"},
+                "extract": {"title": "$.title"},
+            },
+            interpreter=interp,
+        )
         entries = client.list_entries()
         assert entries == []
 
@@ -159,37 +179,46 @@ class TestFederationWithRules:
         provider = _federation_with_rule(tmp_path)
         # mock 规则解释器的 HTTP 响应
         with patch.object(OttRuleInterpreter, "__init__", lambda self, **kw: None):
-            with patch.object(OttRuleInterpreter, "list_entries", return_value=[
-                {
-                    "entry_id": "rule-entry-1",
-                    "title": "RuleTitle",
-                    "content": "RuleContent",
-                    "char_count": 11,
-                    "authority": "rule:sample-rule",
-                    "source_key": "rule:sample-rule",
-                    "source_label": "Sample Rule",
-                    "current_revision_id": "rev1",
-                    "content_mode": "inline",
-                }
-            ]):
+            with patch.object(
+                OttRuleInterpreter,
+                "list_entries",
+                return_value=[
+                    {
+                        "entry_id": "rule-entry-1",
+                        "title": "RuleTitle",
+                        "content": "RuleContent",
+                        "char_count": 11,
+                        "authority": "rule:sample-rule",
+                        "source_key": "rule:sample-rule",
+                        "source_label": "Sample Rule",
+                        "current_revision_id": "rev1",
+                        "content_mode": "inline",
+                    }
+                ],
+            ):
                 entries = provider.list_all_entries()
 
         # 至少包含 rule 来源的条目
-        rule_entries = [e for e in entries if e.get("authority", "").startswith("rule:")]
+        rule_entries = [
+            e for e in entries if e.get("authority", "").startswith("rule:")
+        ]
         assert len(rule_entries) >= 1
         assert rule_entries[0]["title"] == "RuleTitle"
 
     def test_build_clients_creates_rule_client(self, tmp_path) -> None:
         provider = _federation_with_rule(tmp_path)
         clients = provider._build_clients()
-        assert "rule:sample-rule" in clients
-        assert isinstance(clients["rule:sample-rule"], _RuleClient)
+        # 上游规范：rule:{repo_id}:{rule_id}
+        assert "rule:rule-test.example.org:sample-rule" in clients
+        assert isinstance(
+            clients["rule:rule-test.example.org:sample-rule"], _RuleClient
+        )
 
     def test_rule_authority_isolation(self, tmp_path) -> None:
         """rule authority 与 instance authority 命名空间隔离。"""
         provider = _federation_with_rule(tmp_path)
         clients = provider._build_clients()
-        # 没有 instance authority，只有 rule
-        assert "rule:sample-rule" in clients
+        # 没有 instance authority，只有 rule（含 repo_id 命名空间）
+        assert "rule:rule-test.example.org:sample-rule" in clients
         # 不存在裸 "sample-rule" 作为 instance authority
         assert "sample-rule" not in clients

@@ -13,17 +13,23 @@ FluentPage {
     // ---- 输出 ----
     signal entryClicked(var entry)
 
+    // ---- 内部状态 ----
+    property bool loading: false
+    property string errorMessage: ""
+
     title: root.sourceLabel || qsTr("条目列表")
 
+    Component.onCompleted: {
+        console.log("[RepoEntriesPage] created, entries:", root.entries.length, "label:", root.sourceLabel)
+    }
+
     // ---- 内容 ----
-    ScrollView {
+    QQC.ScrollView {
         anchors.fill: parent
         clip: true
 
         ColumnLayout {
-            width: root.width
             spacing: 8
-            anchors.margins: 16
 
             // 条目列表
             Repeater {
@@ -37,7 +43,7 @@ FluentPage {
                     border.color: Theme.currentTheme.colors.cardBorderColor
                     border.width: 1
 
-                    ColumnLayout {
+                    Column {
                         id: entryCol
                         anchors.left: parent.left
                         anchors.right: parent.right
@@ -47,9 +53,9 @@ FluentPage {
 
                         Text {
                             text: modelData.title || modelData.entry_id || ""
+                            width: parent.width
                             typography: Typography.BodyStrong
                             color: Theme.currentTheme.colors.textColor
-                            Layout.fillWidth: true
                             elide: Text.ElideRight
                         }
 
@@ -60,14 +66,21 @@ FluentPage {
                         }
 
                         Text {
-                            text: modelData.content ? modelData.content.substring(0, 120) : ""
+                            text: modelData.authority ? "@" + modelData.authority : ""
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
-                            Layout.fillWidth: true
+                            visible: !!modelData.authority
+                        }
+
+                        Text {
+                            text: modelData.content ? modelData.content.substring(0, 120) : ""
+                            width: parent.width
+                            typography: Typography.Caption
+                            color: Theme.currentTheme.colors.textSecondaryColor
                             wrapMode: Text.Wrap
                             maximumLineCount: 2
                             elide: Text.ElideRight
-                            visible: modelData.content
+                            visible: !!modelData.content
                         }
                     }
 
@@ -83,10 +96,10 @@ FluentPage {
             Text {
                 visible: root.entries.length === 0
                 text: qsTr("暂无条目")
-                typography: Typography.Caption
-                color: Theme.currentTheme.colors.textSecondaryColor
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 40
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.textSecondaryColor
             }
         }
     }

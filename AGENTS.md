@@ -318,7 +318,7 @@ onActiveChanged: {
 
 ### ⚠️ OTT Repo 控制面订阅走 `source_repos`，不走 `registry.primary_url`
 
-**问题**：ADR-0010 落地后，客户端多 authority 订阅统一走 `RuntimeConfig.source_repos`（`SourceReposConfig`）。旧的 `registry.primary_url` / `mirror_url` 仍保留为兼容标识（单实例 OTT 数据面仍可用），但新订阅能力必须写 `source_repos`。
+**问题**：ADR-010 落地后，客户端多 authority 订阅统一走 `RuntimeConfig.source_repos`（`SourceReposConfig`）。旧的 `registry.primary_url` / `mirror_url` 仍保留为兼容标识（单实例 OTT 数据面仍可用），但新订阅能力必须写 `source_repos`。
 
 **现状**（Phase 1）：
 - `SourceReposConfig` 是一组 `SourceRepoEntry`（url / enabled / trust_state / pinned_pubkey / refresh_ttl_seconds / etag / added_at）
@@ -333,7 +333,7 @@ onActiveChanged: {
 - 消费订阅列表 → 通过 `RegistryAdapter`（Worker 异步），不要在主线程拉取 manifest
 - 新子配置字段 → 加在 `SourceRepoEntry` + `_parse_source_repos` + `_to_dict`，保持 RuntimeConfig 为唯一序列化者
 
-**历史**：2026-07-26 Phase 1 落地（ADR-0010）。
+**历史**：2026-07-26 Phase 1 落地（ADR-010）。
 
 ### ⚠️ TextSource 使用 Loader + LeaderboardMode 二维正交模型
 
@@ -423,7 +423,7 @@ onActiveChanged: {
 **正确做法**：
 - 扩展提取能力 → 仍走声明式（新增 JSON path 语法或 CSS 伪类），不得引入 JS/Python/动态 URL 计算
 - 新增 transform 操作 → 在 `apply_transforms_to_entry()` 白名单中添加，不得允许任意字符串运算
-- 规则源产出 entry 的 authority = `rule:{rule_id}`，进度键 `ott:rule:{rule_id}:{entry_id}@{revision_id}`
+- 规则源产出 entry 的 authority = `rule:{repo_id}:{rule_id}`（上游规范，防跨 repo 冲突），进度键 `ott:rule:{repo_id}:{rule_id}:{entry_id}@{revision_id}`
 - 不得在解释器中执行网络请求以外的 I/O（禁文件写入、禁子进程）
 
 **历史**：2026-07-27 ADR-010 Phase 3 落地。
@@ -432,10 +432,11 @@ onActiveChanged: {
 
 **问题**：OTT Repo `ott-script` 允许 repo 维护者分发 Python 脚本到客户端执行。如果沙箱设计不当，恶意脚本可以执行任意系统命令、窃取数据。
 
-**现状**（2026-07-27 实现）：
-- 安全检查：`src/backend/integration/ott_script_safety.py`（`validate_script_source()`）
-- 沙箱执行：`src/backend/integration/ott_script_client.py`（`ScriptSandbox`）
-- 禁止：`eval`/`exec`/`compile`、`os.system`/`subprocess`/`socket`/`ctypes`、`importlib.import_module` 动态导入
+**现状**（2026-07-27 实现，含子进程沙箱修复）：
+- 安全检查（第一道关卡）：`src/backend/integration/ott_script_safety.py`（`validate_script_source()`）— AST 白名单 import + 别名解析 + `__builtins__` 检测
+- 沙箱调度：`src/backend/integration/ott_script_client.py`（`ScriptSandbox`）— 写临时文件 + 启动子进程 + 解析 stdout JSON
+- 子进程沙箱（最后防线）：`src/backend/integration/ott_script_runner.py` — 独立 Python 进程 + 资源限制（256MB 内存 / 30s CPU / RLIMIT_NPROC=0 / 10MB 文件写入）+ 受限 builtins + 白名单模块注入 + Landlock 文件系统白名单（ctypes 直调 syscall，本机无 `os.landlock_*`）+ stdout JSON 序列化
+- 禁止：`eval`/`exec`/`compile`、`open`、`os`/`subprocess`/`socket`/`ctypes`/`import`（均不在白名单）、`__builtins__` 引用
 - 允许：`httpx`/`json`/`re`/`hashlib`/`base64`/`Crypto`/`bs4` 等白名单模块
 - 脚本必须定义 `fetch_entries() -> list[dict]`，返回标准化 entry
 - 缓存：`ScriptCache`（TTL + AST 校验 + 原子写 + 离线回退）
@@ -443,7 +444,7 @@ onActiveChanged: {
 **正确做法**：
 - 新增脚本能力 → 在 `ALLOWED_MODULES` 白名单中扩展，不得绕过 AST 检查
 - 脚本产出 entry 的 authority = `script`，进度键 `ott:script:{entry_id}@{revision_id}`
-- 不得在沙箱中开放文件系统写入（除临时目录）、子进程创建、原始网络监听
+- 安全边界为子进程隔离：脚本逃逸最多获得 256MB 内存 + 30s CPU，无法写主进程内存；`RLIMIT_NPROC=0` 禁止 fork；网络可访问（抓取需要）但受 CPU 时间约束；Landlock（内核 5.13+，不可用时静默降级）将文件系统访问限制在脚本目录 + `sys.prefix` + `/etc` + `/dev` 白名单，逃逸读取任意文件被内核拒绝
 
 **历史**：2026-07-27 ADR-010 Phase 3 落地。
 

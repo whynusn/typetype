@@ -14,6 +14,7 @@
 
 ### Added
 
+- **OTT Repo 控制面（ADR-010）**：去中心化文本源订阅生态。多 authority 联邦聚合（`OttFederationConfig`）、订阅管理 UI（`ReposManagementPanel`）、声明式规则源（L1 `OttRuleInterpreter`）、ott-script 脚本源（L3 子进程沙箱）、旧 `registry.primary_url` 自动迁移
 - **打词率（word typing rate）指标**：统计会话中 CJK 字符被作为词组输入的比例。
   算法将间隔 ≤ 300ms 的连续 CJK 字符视为词组输入，打词率 = 词组字符数 / 总 CJK 字符数 × 100。
   - ：记录每个字符的提交时间戳
@@ -25,6 +26,8 @@
 
 ### Fixed
 
+- **ott-script 沙箱逃逸（严重）**：原进程内 `exec()` + 模块注入可被 `json.__builtins__['open']` 单行逃逸。重写为独立 Python 子进程（`ott_script_runner.py`），资源限制（256MB 内存 / 30s CPU / RLIMIT_NPROC=0）+ AST 白名单 import + 别名解析 + `__builtins__` 检测
+- **规则解释器 ReDoS 与 fetch 大小绕过**：正则匹配输入截断至 50KB 防灾难性回溯；`_fetch()` 改为 streaming 截断（不依赖 `content-length` 头，堵住 chunked 传输绕过）
 - **用户配置写入路径污染**：`RuntimeConfig._save_to_file()` 尊重显式加载的 `_config_path`，避免测试或临时配置写入真实 `~/.config/typetype/config.json`
 - **启动默认载文报错**：首次进入跟打页时优先使用本地可用来源自动载文，避免默认远程来源（如 `old`）在服务端不可用时每次启动弹出“无法获取网络文本”
 - **启动默认网络载文误报失败**：远程文本解析兼容 `content`/`text`/`textContent`/`articleContent` 与顶层响应格式，避免 `/api/v1/texts/latest/{sourceKey}` 返回 200 时仍显示“无法获取网络文本”

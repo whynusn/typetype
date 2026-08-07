@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from ..config.runtime_config import RuntimeConfig
-from ..utils.logger import log_warning
+from ..utils.logger import log_info, log_warning
 from .ott_cached_fetcher import OttCachedFetcher
 from .ott_client import OttClient, FetchJson, FetchText
 from .ott_repo_manifest import RepoManifestCache
@@ -192,10 +192,13 @@ class _RuleClient:
         rule_id: str,
         rule: dict,
         interpreter: OttRuleInterpreter,
+        authority: str = "",
     ) -> None:
         self.rule_id = rule_id
         self._rule = rule
         self._interpreter = interpreter
+        # authority 格式：rule:{repo_id}:{rule_id}（上游规范）
+        self.authority = authority or f"rule:{rule_id}"
 
     def list_entries(self) -> list[dict] | None:
         try:
@@ -206,9 +209,52 @@ class _RuleClient:
         if not entries:
             return []
         for e in entries:
-            e["authority"] = f"rule:{self.rule_id}"
+            e["authority"] = self.authority
             e["_authority"] = e["authority"]
         return entries
+
+    def get_entry(self, entry_id: str) -> dict | None:
+        """按 entry_id 从规则产出中查找单条。"""
+        entries = self.list_entries()
+        if entries is None:
+            return None
+        for e in entries:
+            if e.get("entry_id") == entry_id:
+                return e
+        return None
+
+    def get_segment(
+        self,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size: int = 1000,
+    ) -> dict | None:
+        """获取规则源单条的内容分段。"""
+        entry = self.get_entry(entry_id)
+        if entry is None:
+            return None
+        content = entry.get("content", "")
+        if not content:
+            return None
+        seg_size = max(1, segment_size)
+        start = (segment_index - 1) * seg_size
+        end = start + seg_size
+        segment_content = content[start:end]
+        if not segment_content:
+            return None
+        return {
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "index": segment_index,
+            "start_char": start,
+            "end_char": start + len(segment_content),
+            "char_count": len(segment_content),
+            "content_hash": "sha256:"
+            + hashlib.sha256(segment_content.encode("utf-8")).hexdigest(),
+            "content": segment_content,
+            "total_chars": len(content),
+        }
 
 
 class _ScriptClient:
@@ -247,6 +293,49 @@ class _ScriptClient:
             e["_authority"] = "script"
             e["source_label"] = self.label or e.get("source_label", "脚本源")
         return entries
+
+    def get_entry(self, entry_id: str) -> dict | None:
+        """按 entry_id 从脚本产出中查找单条。"""
+        entries = self.list_entries()
+        if entries is None:
+            return None
+        for e in entries:
+            if e.get("entry_id") == entry_id:
+                return e
+        return None
+
+    def get_segment(
+        self,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size: int = 1000,
+    ) -> dict | None:
+        """获取脚本源单条的内容分段。"""
+        entry = self.get_entry(entry_id)
+        if entry is None:
+            return None
+        content = entry.get("content", "")
+        if not content:
+            return None
+        seg_size = max(1, segment_size)
+        start = (segment_index - 1) * seg_size
+        end = start + seg_size
+        segment_content = content[start:end]
+        if not segment_content:
+            return None
+        return {
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "index": segment_index,
+            "start_char": start,
+            "end_char": start + len(segment_content),
+            "char_count": len(segment_content),
+            "content_hash": "sha256:"
+            + hashlib.sha256(segment_content.encode("utf-8")).hexdigest(),
+            "content": segment_content,
+            "total_chars": len(content),
+        }
 
 
 class OttFederationProvider:
@@ -290,18 +379,20 @@ class OttFederationProvider:
             manifest = self._manifest_cache.get_manifest(repo)
             if manifest is None:
                 continue
+            repo_id = manifest.get("repo_id", "")
             for source in manifest.get("sources", []):
                 source_type = source.get("type")
                 if source_type == "ott-instance":
                     self._build_instance_client(clients, source)
                 elif source_type == "ott-rule":
-                    self._build_rule_client(clients, source, interpreter)
+                    self._build_rule_client(clients, source, interpreter, repo_id)
                 elif source_type == "ott-script":
                     self._build_script_client(clients, source, script_cache, sandbox)
         return clients
 
     def _script_cache_dir(self) -> Path:
         from ..config.app_paths import registry_cache_dir
+
         return registry_cache_dir() / "scripts"
 
     def _build_instance_client(
@@ -343,18 +434,21 @@ class OttFederationProvider:
         clients: dict[str, _InstanceClient | _RuleClient],
         source: dict,
         interpreter: OttRuleInterpreter,
+        repo_id: str = "",
     ) -> None:
         rule_id = source.get("rule_id", "")
         rule = source.get("rule")
         if not rule_id or not isinstance(rule, dict):
             return
-        authority = f"rule:{rule_id}"
+        # 上游规范：rule:{repo_id}:{rule_id}（含 repo_id 命名空间，防跨 repo 冲突）
+        authority = f"rule:{repo_id}:{rule_id}" if repo_id else f"rule:{rule_id}"
         if authority in clients:
-            return  # 同名 rule_id 已存在
+            return  # 同名 rule 已存在
         clients[authority] = _RuleClient(
             rule_id=rule_id,
             rule=rule,
             interpreter=interpreter,
+            authority=authority,
         )
 
     @staticmethod
@@ -396,7 +490,17 @@ class OttFederationProvider:
             return []
         all_entries: list[dict] = []
         for authority, client in clients.items():
-            entries = client.list_entries()
+            log_info(
+                f"[Federation] listing entries for {authority} ({type(client).__name__})"
+            )
+            try:
+                entries = client.list_entries()
+            except Exception as e:
+                log_warning(f"[Federation] list_entries 异常 {authority}: {e}")
+                continue
+            log_info(
+                f"[Federation] {authority}: {len(entries) if entries else 0} entries"
+            )
             if entries:
                 for e in entries:
                     if isinstance(e, dict):
@@ -473,7 +577,12 @@ class OttFederationProvider:
                     elif source.get("type") == "ott-rule":
                         rule_id = source.get("rule_id", "")
                         if rule_id:
-                            authorities.append(f"rule:{rule_id}")
+                            repo_id = manifest.get("repo_id", "")
+                            authorities.append(
+                                f"rule:{repo_id}:{rule_id}"
+                                if repo_id
+                                else f"rule:{rule_id}"
+                            )
                     elif source.get("type") == "ott-script":
                         authorities.append("script")
             summary = {

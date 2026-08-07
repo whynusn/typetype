@@ -61,10 +61,11 @@ FluentPage {
     property bool sliceModeChecked: true
     property bool hasProgress: false
     property bool catalogLoading: false  // 目录加载状态
-    property bool reposLoading: false    // 源仓库订阅列表加载状态
+    property bool reposLoading: appBridge ? appBridge.reposLoading : false
     property var federatedEntries: []    // 联邦聚合的条目（所有 repo 的条目）
     property string _pendingSourceLabel: ""
     property var _pendingAuthorities: []
+    property bool _pendingFederatedContent: false
 
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
@@ -271,6 +272,57 @@ FluentPage {
     function navigateToTyping() {
         if (Window.window && Window.window.navigationView)
             Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))
+    }
+
+    /* 跳转到联邦条目列表页（在主作用域中访问 Window.window） */
+    function navigateToRepoEntries(filtered, label) {
+        if (!Window.window || !Window.window.navigationView) {
+            root.errorMessage = qsTr("导航未就绪")
+            return
+        }
+        console.log("[ReposPanel] pushing RepoEntriesPage with", filtered.length, "entries")
+        Window.window.navigationView.push(Qt.resolvedUrl("RepoEntriesPage.qml"), {
+            sourceLabel: label,
+            entries: filtered
+        })
+        /* push() 无返回值，用 callLater 等待页面创建后连接信号 */
+        Qt.callLater(function() {
+            var nav = Window.window.navigationView
+            var pageInstances = nav.pageInstances
+            var keys = Object.keys(pageInstances)
+            for (var i = 0; i < keys.length; i++) {
+                var instance = pageInstances[keys[i]]
+                if (instance && instance.objectName === "RepoEntriesPage") {
+                    console.log("[ReposPanel] connecting entryClicked signal")
+                    instance.entryClicked.connect(function(entry) {
+                        if (!appBridge || !entry) return
+                        var authority = entry._authority || entry.authority || ""
+                        var entryId = entry.entry_id || ""
+                        var revisionId = entry.current_revision_id || entry.revision_id || "v1"
+                        var totalChars = entry.char_count || entry.charCount || 0
+                        var title = entry.title || entry.source_label || qsTr("联邦文本")
+                        var segSize = entry.source_segment_size || entry.segment_size || 1000
+                        if (!authority || !entryId) {
+                            root.errorMessage = qsTr("条目缺少 authority 或 entry_id")
+                            return
+                        }
+                        /* 根据内容模式选择加载方式 */
+                        if (entry.content_mode === "segmented") {
+                            appBridge.loadFederatedEntrySegment(
+                                authority, entryId, revisionId,
+                                1, root.sliceModeChecked ? sliceSettingsPanel.sliceSize : totalChars,
+                                totalChars, segSize, title
+                            )
+                        } else {
+                            /* inline 模式（规则/脚本源）直接加载内容 */
+                            root._pendingFederatedContent = true
+                            appBridge.loadFederatedInlineEntry(authority, entryId, revisionId, title)
+                        }
+                    })
+                    break
+                }
+            }
+        })
     }
 
     // 当前来源的加载状态（来源感知，不再把其它来源的 loading 混进来）
@@ -560,10 +612,15 @@ FluentPage {
                 onRefreshRepoRequested: function(url) { if (appBridge) appBridge.refreshRepo(url) }
                 onRefreshAllRequested: { if (appBridge) appBridge.refreshRepos() }
                 onOpenSourceRequested: function(sourceLabel, authorities) {
-                    if (!appBridge) return
+                    console.log("[ReposPanel] openSourceRequested:", sourceLabel, JSON.stringify(authorities))
+                    if (!appBridge) {
+                        console.log("[ReposPanel] appBridge is null")
+                        return
+                    }
                     // 保存当前选中的 authorities，加载条目后跳转
                     root._pendingSourceLabel = sourceLabel
                     root._pendingAuthorities = authorities || []
+                    console.log("[ReposPanel] calling loadFederatedEntries, loading=", appBridge.federatedEntriesLoading)
                     appBridge.loadFederatedEntries()
                 }
             }
@@ -851,6 +908,17 @@ FluentPage {
                 root.statusMessage = qsTr("已载入：%1").arg(title || root.itemDisplayTitle())
                 root.errorMessage = ""
                 root.checkProgress()
+            } else if (root._pendingFederatedContent) {
+                /* 联邦 inline 条目内容加载完成，开始打字 */
+                root._pendingFederatedContent = null
+                root.startMaterializedText({
+                    source: "custom",
+                    launchKind: "materialized_text",
+                    text: content,
+                    sourceKey: "federated",
+                    title: title || qsTr("联邦文本"),
+                    textId: 0
+                }, {})
             }
         }
         function onReposChanged(repos) {
@@ -865,8 +933,22 @@ FluentPage {
                 root.statusMessage = ""
             }
         }
+        function onRegistryFederatedEntriesLoadingChanged() {
+            if (appBridge && appBridge.federatedEntriesLoading) {
+                root.statusMessage = qsTr("正在加载条目…")
+                root.errorMessage = ""
+            }
+        }
+        function onRegistryFederatedEntriesLoadFailed(message) {
+            root.errorMessage = message
+            root.statusMessage = ""
+        }
         function onRegistryFederatedEntriesLoaded(entries) {
+            console.log("[ReposPanel] entries loaded:", entries ? entries.length : 0)
             root.federatedEntries = entries || []
+            if (appBridge && appBridge.federatedEntriesLoading) {
+                root.statusMessage = ""
+            }
             // 如果有待跳转的源，加载完成后跳转到条目列表页
             var auths = root._pendingAuthorities
             if (auths && auths.length > 0) {
@@ -883,10 +965,9 @@ FluentPage {
                 }
                 root._pendingAuthorities = []
                 root._pendingSourceLabel = ""
-                Window.window.navigationView.push(Qt.resolvedUrl("RepoEntriesPage.qml"), {
-                    sourceLabel: label,
-                    entries: filtered
-                })
+                console.log("[ReposPanel] filtering done, filtered:", filtered.length)
+                // 调用主作用域的方法来完成导航（可访问 Window.window）
+                root.navigateToRepoEntries(filtered, label)
             }
         }
         function onLocalArticlesLoaded(articles) {

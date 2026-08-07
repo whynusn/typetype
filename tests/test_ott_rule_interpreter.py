@@ -82,7 +82,7 @@ class TestExtractField:
         assert extract_field(data, "$[2]") == "c"
 
     def test_regex_named_groups(self) -> None:
-        text = '<h1>Title Here</h1><p>Content text</p>'
+        text = "<h1>Title Here</h1><p>Content text</p>"
         pattern = r"<h1>(?P<title>.*?)</h1>"
         result = extract_field(text, pattern)
         assert result == "Title Here"
@@ -103,7 +103,9 @@ class TestExtractField:
         assert result == ""
 
     def test_empty_spec_returns_stringified(self) -> None:
-        assert extract_field({"key": "value"}, "") == {"key": "value"} or True  # dict stringify
+        assert (
+            extract_field({"key": "value"}, "") == {"key": "value"} or True
+        )  # dict stringify
 
     def test_non_dict_data_with_css(self) -> None:
         # 纯文本 + CSS 选择器 → 返回空（bs4 解析文本不会匹配）
@@ -175,6 +177,10 @@ class _MockResponse:
     def text(self):
         return self._text
 
+    def iter_text(self, chunk_size: int = 1):
+        """Streaming text iterator (matches httpx.Response API)."""
+        yield self._text
+
 
 def _mock_client(json_data=None, text="", status_code=200):
     client = MagicMock(spec=httpx.Client)
@@ -243,11 +249,30 @@ class TestOttRuleInterpreter:
         # 无限数据源，但 max_pages=2 应截断
         data = [{"title": f"T{i}", "content": f"C{i}"} for i in range(10)]
         client = _mock_client(data)
-        rule = self._rule(pagination={"param": "page", "start": 1, "step": 1, "max_pages": 2})
+        rule = self._rule(
+            pagination={"param": "page", "start": 1, "step": 1, "max_pages": 2}
+        )
         interp = OttRuleInterpreter(client)
         entries = interp.list_entries(rule, "r1", max_pages=2)
         # 每页 10 条，2 页 = 20 条
         assert len(entries) == 20
+
+    def test_list_entries_zero_page_step_is_bounded(self) -> None:
+        # 恶意 manifest 声明 step=0：page 永不前进，若无守卫会重复请求
+        # 直到 MAX_TOTAL_ENTRIES（1000 次）。守卫后归一到 step=1，
+        # 请求数受 max_pages 限制。
+        data = [{"title": "T", "content": "C"}]
+        client = MagicMock(spec=httpx.Client)
+        client.get.return_value = _MockResponse(json.dumps(data))
+        rule = self._rule(
+            url="https://example.com/api?page={page}",
+            pagination={"param": "page", "start": 1, "step": 0, "max_pages": 3},
+        )
+        interp = OttRuleInterpreter(client)
+        entries = interp.list_entries(rule, "r1", max_pages=3)
+        # 每页 1 条 × 3 页（step 归一到 1），而非 1000 条
+        assert len(entries) == 3
+        assert client.get.call_count == 3
 
     def test_list_entries_stops_when_empty_page(self) -> None:
         page1 = [{"title": "T", "content": "C"}]
@@ -300,8 +325,17 @@ class TestOttRuleInterpreter:
         assert len(entries) == 1
         e = entries[0]
         # 关键字段存在
-        for field in ("entry_id", "title", "content", "char_count", "authority",
-                      "source_key", "source_label", "current_revision_id", "content_mode"):
+        for field in (
+            "entry_id",
+            "title",
+            "content",
+            "char_count",
+            "authority",
+            "source_key",
+            "source_label",
+            "current_revision_id",
+            "content_mode",
+        ):
             assert field in e, f"missing field: {field}"
         assert e["content_mode"] == "inline"
         assert e["char_count"] == 4  # len("Body")
@@ -310,7 +344,9 @@ class TestOttRuleInterpreter:
         # 大量数据，验证不超过 MAX_TOTAL_ENTRIES
         big = [{"title": f"T{i}", "content": f"C{i}"} for i in range(200)]
         client = _mock_client(big)
-        rule = self._rule(pagination={"param": "page", "start": 1, "step": 1, "max_pages": 10})
+        rule = self._rule(
+            pagination={"param": "page", "start": 1, "step": 1, "max_pages": 10}
+        )
         interp = OttRuleInterpreter(client)
         entries = interp.list_entries(rule, "r1", max_pages=10)
         assert len(entries) <= MAX_TOTAL_ENTRIES
@@ -329,7 +365,10 @@ class TestOttRuleInterpreter:
         data = {"data": {"items": [{"name": "Item1", "desc": "Desc1"}]}}
         client = _mock_client(data)
         rule = self._rule()
-        rule["extract"] = {"title": "$.data.items[*].name", "content": "$.data.items[*].desc"}
+        rule["extract"] = {
+            "title": "$.data.items[*].name",
+            "content": "$.data.items[*].desc",
+        }
         interp = OttRuleInterpreter(client)
         entries = interp.list_entries(rule, "r1", max_pages=1)
         assert len(entries) == 1

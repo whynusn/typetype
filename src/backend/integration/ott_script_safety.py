@@ -45,63 +45,75 @@ class ValidationReport:
 # ── 黑名单 ──────────────────────────────────────────────────────────────
 
 # 危险模块（禁止 import）
-BANNED_IMPORTS = frozenset({
-    "ctypes",
-    "pty",
-    "socket",
-    "subprocess",
-    "multiprocessing",
-})
+BANNED_IMPORTS = frozenset(
+    {
+        "ctypes",
+        "pty",
+        "socket",
+        "subprocess",
+        "multiprocessing",
+    }
+)
 
 # 危险内置函数
 BANNED_BUILTIN_CALLS = frozenset({"eval", "exec", "compile", "__import__"})
 
 # 危险属性调用：(模块, 函数名)
-BANNED_ATTRIBUTE_CALLS = frozenset({
-    ("os", "system"),
-    ("os", "popen"),
-    ("os", "execv"),
-    ("os", "execl"),
-    ("os", "spawn"),
-})
+BANNED_ATTRIBUTE_CALLS = frozenset(
+    {
+        ("os", "system"),
+        ("os", "popen"),
+        ("os", "execv"),
+        ("os", "execl"),
+        ("os", "spawn"),
+    }
+)
 
 # 危险 from-import
-BANNED_FROM_IMPORTS = frozenset({
-    ("os", "system"),
-    ("os", "popen"),
-    ("subprocess", "Popen"),
-    ("subprocess", "call"),
-    ("subprocess", "run"),
-})
+BANNED_FROM_IMPORTS = frozenset(
+    {
+        ("os", "system"),
+        ("os", "popen"),
+        ("subprocess", "Popen"),
+        ("subprocess", "call"),
+        ("subprocess", "run"),
+    }
+)
 
-# 允许白名单（即使出现在黑名单模块中，这些子模块也允许）
-ALLOWED_MODULES = frozenset({
-    "json",
-    "re",
-    "time",
-    "datetime",
-    "hashlib",
-    "base64",
-    "urllib",
-    "http",
-    "email",
-    "collections",
-    "itertools",
-    "functools",
-    "math",
-    "random",
-    "string",
-    "textwrap",
-    "unicodedata",
-    "Crypto",        # pycryptodome
-    "Crypto.Cipher",
-    "Crypto.Util",
-    "bs4",
-    "BeautifulSoup",
-})
+# 允许白名单（import 仅允许这些模块）
+ALLOWED_MODULES = frozenset(
+    {
+        "json",
+        "re",
+        "time",
+        "datetime",
+        "hashlib",
+        "base64",
+        "urllib",
+        "urllib.parse",
+        "http",
+        "email",
+        "collections",
+        "itertools",
+        "functools",
+        "math",
+        "random",
+        "string",
+        "textwrap",
+        "unicodedata",
+        "httpx",
+        "Crypto",  # pycryptodome
+        "Crypto.Cipher",
+        "Crypto.Util",
+        "Crypto.Util.Padding",
+        "bs4",
+        "BeautifulSoup",
+    }
+)
 
 
 # ── 公开 API ────────────────────────────────────────────────────────────
+
 
 def validate_script_source(
     source: str, display_path: str = "<source>"
@@ -133,23 +145,40 @@ def validate_script_source(
             dynamic_issue = _validate_dynamic_import(node, target)
             if dynamic_issue is not None:
                 issues.append(dynamic_issue)
+        elif isinstance(node, ast.Constant) and node.value == "__builtins__":
+            # 检测 __builtins__ 字面量（常用于沙箱逃逸）
+            issues.append(
+                ValidationIssue(
+                    "banned_builtins_ref",
+                    f"line {getattr(node, 'lineno', '?')}",
+                    "script references __builtins__",
+                )
+            )
+        elif isinstance(node, ast.Name) and node.id == "__builtins__":
+            issues.append(
+                ValidationIssue(
+                    "banned_builtins_ref",
+                    f"line {node.lineno}",
+                    "script references __builtins__",
+                )
+            )
 
     return ValidationReport(tuple(issues))
 
 
 # ── 内部实现 ────────────────────────────────────────────────────────────
 
+
 def _validate_import(module: str, lineno: int) -> list[ValidationIssue]:
+    """白名单逻辑：仅允许 ALLOWED_MODULES 中的模块。"""
     root = module.split(".", maxsplit=1)[0]
     if root in ALLOWED_MODULES:
-        return []
-    if root not in BANNED_IMPORTS:
         return []
     return [
         ValidationIssue(
             "banned_import",
             f"line {lineno}",
-            f"script imports high-risk module {root}",
+            f"script imports non-whitelisted module {root}",
         )
     ]
 
@@ -203,7 +232,7 @@ def _validate_dynamic_import(
             "script dynamically imports a non-literal module",
         )
     root = module.split(".", maxsplit=1)[0]
-    if root in ALLOWED_MODULES or root not in BANNED_IMPORTS:
+    if root in ALLOWED_MODULES:
         return None
     return ValidationIssue(
         "banned_dynamic_import",
@@ -255,24 +284,30 @@ def _resolve_call_target(
     import_aliases: dict[str, str],
     assignments: dict[str, ast.AST],
 ) -> _CallTarget:
-    """解析调用目标为 (module, attr)。"""
+    """解析调用目标为 (module, attr)。
+
+    使用 import_aliases 和 assignments 解析别名，检测 e=eval; e(...) 类绕过。
+    """
     if isinstance(func, ast.Name):
-        # 直接函数调用：eval()、exec()
         name = func.id
+        # 先查 import 别名
         if name in import_aliases:
             full = import_aliases[name]
             parts = full.rsplit(".", 1)
             return _CallTarget(parts[0], parts[1] if len(parts) > 1 else name)
+        # 再查赋值别名（e = eval → e(...) 视为 builtins.eval）
+        if name in assignments:
+            assigned = assignments[name]
+            if isinstance(assigned, ast.Name) and assigned.id in BANNED_BUILTIN_CALLS:
+                return _CallTarget("builtins", assigned.id)
         return _CallTarget("builtins", name)
     if isinstance(func, ast.Attribute):
-        # 属性调用：os.system()、json.loads()
         if isinstance(func.value, ast.Name):
             base = func.value.id
             if base in import_aliases:
                 return _CallTarget(import_aliases[base], func.attr)
             return _CallTarget(base, func.attr)
         if isinstance(func.value, ast.Attribute):
-            # 链式调用：a.b.c() → 取最外层
             if isinstance(func.value.value, ast.Name):
                 base = func.value.value.id
                 if base in import_aliases:

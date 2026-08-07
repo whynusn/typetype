@@ -178,6 +178,15 @@ class RegistryAdapter(QObject):
         worker = BaseWorker(task=_load, error_prefix="加载条目列表失败")
         worker.signals.succeeded.connect(self._on_entries_loaded)
         worker.signals.failed.connect(self._on_entries_load_failed)
+        # 超时保护：15 秒后强制结束，防止网络请求卡死
+        from PySide6.QtCore import QTimer
+
+        def _timeout():
+            if self._entries_loading:
+                log_warning("[RegistryAdapter] loadAllEntries 超时")
+                self._on_entries_load_failed("加载超时，请检查网络")
+
+        QTimer.singleShot(15000, _timeout)
         self._thread_pool.start(worker)
 
     def _on_entries_loaded(self, entries: list[dict]) -> None:

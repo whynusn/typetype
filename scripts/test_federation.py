@@ -11,14 +11,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-import httpx
+import httpx  # noqa: E402
 
 
 def main():
@@ -52,7 +51,9 @@ def main():
             print(f"      endpoints={len(source.get('endpoints', []))}")
         elif stype == "ott-rule":
             print(f"      rule_id={source.get('rule_id')}")
-            print(f"      extract={list(source.get('rule', {}).get('extract', {}).keys())}")
+            print(
+                f"      extract={list(source.get('rule', {}).get('extract', {}).keys())}"
+            )
         elif stype == "ott-script":
             print(f"      url={source.get('url')}")
 
@@ -65,7 +66,9 @@ def main():
             SourceRepoEntry,
             SourceReposConfig,
         )
-        from src.backend.integration.ott_federation_provider import OttFederationProvider
+        from src.backend.integration.ott_federation_provider import (
+            OttFederationProvider,
+        )
         from src.backend.integration.ott_repo_manifest import RepoManifestCache
         import tempfile
 
@@ -145,14 +148,22 @@ def main():
                 _ScriptClient,
             )
 
-            with patch.object(_InstanceClient, "list_entries", return_value=instance_entries):
-                with patch.object(_RuleClient, "list_entries", return_value=rule_entries):
-                    with patch.object(_ScriptClient, "list_entries", return_value=script_entries):
+            with patch.object(
+                _InstanceClient, "list_entries", return_value=instance_entries
+            ):
+                with patch.object(
+                    _RuleClient, "list_entries", return_value=rule_entries
+                ):
+                    with patch.object(
+                        _ScriptClient, "list_entries", return_value=script_entries
+                    ):
                         all_entries = provider.list_all_entries()
 
             print(f"聚合条目数: {len(all_entries)}")
             for e in all_entries:
-                print(f"  [{e.get('authority')}] {e.get('title')!r} ({e.get('char_count', 0)} 字)")
+                print(
+                    f"  [{e.get('authority')}] {e.get('title')!r} ({e.get('char_count', 0)} 字)"
+                )
 
             http_client.close()
             print("\n✓ 联邦聚合测试通过")
@@ -160,6 +171,7 @@ def main():
     except Exception as e:
         print(f"联邦测试失败: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

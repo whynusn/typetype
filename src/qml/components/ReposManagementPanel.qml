@@ -36,9 +36,26 @@ Frame {
     }
 
     function _trustColor(trustState) {
-        if (trustState === "verified") return Theme.currentTheme.colors.successColor
-        if (trustState === "failed") return Theme.currentTheme.colors.errorColor
+        if (trustState === "verified") return Theme.currentTheme.colors.systemSuccessColor
+        if (trustState === "failed") return Theme.currentTheme.colors.systemCriticalColor
         return Theme.currentTheme.colors.textSecondaryColor
+    }
+
+    function _sourceTypeSummary(repo) {
+        if (!repo) return qsTr("暂无来源")
+        var auths = repo.authorities || []
+        var instances = 0, rules = 0, scripts = 0
+        for (var i = 0; i < auths.length; i++) {
+            var a = auths[i]
+            if (a.indexOf("rule:") === 0) rules = rules + 1
+            else if (a === "script") scripts = scripts + 1
+            else instances = instances + 1
+        }
+        var parts = []
+        if (instances > 0) parts.push(qsTr("%1 个书库").arg(instances))
+        if (rules > 0) parts.push(qsTr("%1 个规则").arg(rules))
+        if (scripts > 0) parts.push(qsTr("%1 个脚本").arg(scripts))
+        return parts.join(" · ") || qsTr("暂无来源")
     }
 
     ColumnLayout {
@@ -115,18 +132,21 @@ Frame {
                 delegate: Rectangle {
                     id: delegateRoot
                     width: repoList.width
-                    height: col.height + 16
                     radius: 6
-                    color: Theme.currentTheme.colors.cardColor
-                    border.color: Theme.currentTheme.colors.cardBorderColor
+                    color: mouseArea.containsMouse ? Theme.currentTheme.colors.controlColor : Theme.currentTheme.colors.cardColor
+                    border.color: mouseArea.containsMouse ? Theme.currentTheme.colors.textAccentColor : Theme.currentTheme.colors.cardBorderColor
                     border.width: 1
 
                     property var repo: modelData
+                    /* 高度由 ColumnLayout 的 implicitHeight 驱动，底部留 16px 边距 */
+                    height: col.implicitHeight + 16
 
                     // 点击卡片进入条目列表（在内容下方，Switch/按钮优先响应）
                     MouseArea {
+                        id: mouseArea
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
+                        hoverEnabled: true
                         onClicked: {
                             var r = delegateRoot.repo.raw || delegateRoot.repo
                             root.openSourceRequested(r.name || r.url || "", r.authorities || [])
@@ -135,23 +155,26 @@ Frame {
 
                     ColumnLayout {
                         id: col
-                        anchors.fill: parent
-                        anchors.margins: 8
-                        spacing: 6
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: 10
+                        spacing: 8
 
-                        // 第一行：URL + 信任徽章 + 启用开关
+                        // 第一行：名称 + 信任徽章
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 8
 
                             Text {
-                                text: delegateRoot.repo.raw ? (delegateRoot.repo.raw.url || "") : ""
-                                typography: Typography.Caption
+                                text: {
+                                    var r = delegateRoot.repo.raw || delegateRoot.repo
+                                    return r.name || r.url || qsTr("未命名源")
+                                }
+                                typography: Typography.BodyStrong
                                 color: Theme.currentTheme.colors.textColor
                                 Layout.fillWidth: true
-                                wrapMode: Text.WrapAnywhere
-                                maximumLineCount: 2
-                                elide: Text.ElideMiddle
+                                elide: Text.ElideRight
                             }
 
                             Rectangle {
@@ -168,40 +191,66 @@ Frame {
                                     color: root._trustColor(delegateRoot.repo.raw ? (delegateRoot.repo.raw.trust_state || delegateRoot.repo.raw.trustState) : "")
                                 }
                             }
-
-                            Switch {
-                                checked: delegateRoot.repo.raw ? delegateRoot.repo.raw.enabled : false
-                                enabled: !root.loading
-                                onCheckedChanged: root.toggleRepoRequested(delegateRoot.repo.raw ? delegateRoot.repo.raw.url : "", checked)
-                            }
                         }
 
-                        // 第二行：名称/描述 + 操作按钮
+                        // 第二行：来源类型统计
+                        Text {
+                            property var __repo2: delegateRoot.repo.raw || delegateRoot.repo
+                            property bool __hasError2: __repo2.error !== undefined && __repo2.error !== null && __repo2.error !== ""
+                            text: __hasError2 ? __repo2.error : root._sourceTypeSummary(__repo2)
+                            typography: Typography.Caption
+                            color: Theme.currentTheme.colors.textSecondaryColor
+                            Layout.fillWidth: true
+                        }
+
+                        // 第三行：描述（如有）
+                        Text {
+                            text: (delegateRoot.repo.raw || delegateRoot.repo).description || ""
+                            typography: Typography.Caption
+                            color: Theme.currentTheme.colors.textSecondaryColor
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 2
+                            elide: Text.ElideRight
+                            visible: text !== ""
+                        }
+
+                        // 第四行：操作行（浏览 + 开关 + 刷新/删除）
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: 6
+                            spacing: 8
 
-                            Text {
-                                text: {
+                            // 浏览按钮 — 最醒目的入口
+                            Button {
+                                text: qsTr("浏览文本")
+                                highlighted: !root.loading
+                                enabled: !root.loading
+                                onClicked: {
                                     var r = delegateRoot.repo.raw || delegateRoot.repo
-                                    if (r.error) return r.error
-                                    var parts = []
-                                    if (r.name) parts.push(r.name)
-                                    var cnt = r.instance_count !== undefined ? r.instance_count : r.instanceCount
-                                    if (cnt !== undefined) parts.push(qsTr("%1 个源").arg(cnt))
-                                    return parts.join(" · ")
+                                    root.openSourceRequested(r.name || r.url || "", r.authorities || [])
                                 }
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                Layout.fillWidth: true
-                                wrapMode: Text.Wrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
+                            }
+
+                            Item { Layout.fillWidth: true }
+
+                            // 启用开关 + 标签
+                            RowLayout {
+                                spacing: 4
+                                Text {
+                                    text: qsTr("启用")
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                }
+                                Switch {
+                                    checked: delegateRoot.repo.raw ? delegateRoot.repo.raw.enabled : false
+                                    enabled: !root.loading
+                                    onCheckedChanged: root.toggleRepoRequested(delegateRoot.repo.raw ? delegateRoot.repo.raw.url : "", checked)
+                                }
                             }
 
                             ToolButton {
-                                Layout.preferredWidth: 26
-                                Layout.preferredHeight: 26
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
                                 icon.name: "ic_fluent_arrow_sync_16_regular"
                                 flat: true
                                 enabled: !root.loading
@@ -209,13 +258,13 @@ Frame {
                                 ToolTip { text: qsTr("刷新"); visible: parent.hovered }
                             }
                             ToolButton {
-                                Layout.preferredWidth: 26
-                                Layout.preferredHeight: 26
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
                                 icon.name: "ic_fluent_delete_16_regular"
                                 flat: true
                                 enabled: !root.loading
                                 onClicked: root.removeRepoRequested((delegateRoot.repo.raw || delegateRoot.repo).url)
-                                ToolTip { text: qsTr("移除"); visible: parent.hovered }
+                                ToolTip { text: qsTr("移除订阅"); visible: parent.hovered }
                             }
                         }
                     }

@@ -237,6 +237,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
         cache_dir=registry_cache_dir() / "repos",
         http_client=httpx.Client(timeout=10.0, trust_env=False),
         async_executor=manifest_async_executor,
+        runtime_config=runtime_config,
     )
     federation = OttFederationProvider(
         runtime_config=runtime_config,

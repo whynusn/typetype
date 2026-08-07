@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ..config.runtime_config import SourceRepoEntry
+from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
 
 if TYPE_CHECKING:
@@ -137,7 +137,13 @@ def _normalize_maintainer(value: Any) -> dict:
 def _normalize_source(source: dict) -> dict | None:
     """归一化 manifest 中的一条 source 条目。"""
     kind = source.get("type")
-    if kind not in ("ott-instance", "ott-rule", "ott-bridge", "ott-script", "repository-ref"):
+    if kind not in (
+        "ott-instance",
+        "ott-rule",
+        "ott-bridge",
+        "ott-script",
+        "repository-ref",
+    ):
         return None
 
     if kind == "repository-ref":
@@ -258,11 +264,13 @@ class RepoManifestCache:
         cache_dir: Path,
         http_client: httpx.Client,
         async_executor: "AsyncExecutor | None",
+        runtime_config: "RuntimeConfig | None" = None,
     ) -> None:
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = http_client
         self._async_executor = async_executor
+        self._runtime_config = runtime_config
         self._refresh_locks: dict[str, threading.Lock] = {}
         self._refresh_locks_lock = threading.Lock()
 
@@ -297,6 +305,8 @@ class RepoManifestCache:
             log_warning(f"[RepoManifest] manifest 校验失败: {repo.url}")
             return self._read_cache(cache_key)
         self._write_cache(cache_key, validated)
+        # 签名校验并更新订阅的 trust_state（TOFU）
+        self._verify_trust(validated, repo)
         return validated
 
     def _fetch_manifest(self, url: str) -> dict | None:
@@ -337,6 +347,7 @@ class RepoManifestCache:
     def _resolve_builtin_paths(data: dict, base_dir: Path) -> dict:
         """将 manifest 中的 __BUILTIN_DIR__ 占位符替换为实际路径。"""
         import copy
+
         result = copy.deepcopy(data)
         str_data = json.dumps(result)
         if "__BUILTIN_DIR__" in str_data:
@@ -356,6 +367,7 @@ class RepoManifestCache:
                     validated = validate_repo_manifest(data)
                     if validated is not None:
                         self._write_cache(cache_key, validated)
+                        self._verify_trust(validated, repo)
                         log_info(f"[RepoManifest] 后台刷新成功: {repo.url}")
                     else:
                         log_warning(f"[RepoManifest] 后台刷新校验失败: {repo.url}")
@@ -438,3 +450,77 @@ class RepoManifestCache:
                     path.unlink()
         except OSError:
             log_warning("[RepoManifest] 清除缓存失败")
+
+    def _verify_trust(self, manifest: dict, repo: SourceRepoEntry) -> None:
+        """校验 manifest 签名并更新 repo.trust_state（TOFU）。"""
+        if self._runtime_config is None:
+            return
+        trust = manifest.get("trust") or {}
+        signature = trust.get("signature", "")
+        pubkey = trust.get("pubkey", "")
+
+        if not signature or not pubkey:
+            # 无签名信息 → 未验证
+            self._runtime_config.set_source_repo_trust(repo.url, "unverified")
+            return
+
+        try:
+            valid = self._verify_ed25519_signature(manifest, pubkey, signature)
+        except Exception as e:
+            log_warning(f"[RepoManifest] 签名校验异常: {repo.url} — {e}")
+            self._runtime_config.set_source_repo_trust(repo.url, "failed")
+            return
+
+        if not valid:
+            self._runtime_config.set_source_repo_trust(repo.url, "failed")
+            return
+
+        # TOFU：首次信任固定公钥，变更则标记 failed
+        if not repo.pinned_pubkey:
+            # 首次订阅：固定公钥
+            self._runtime_config.set_source_repo_trust(
+                repo.url, "verified", pinned_pubkey=pubkey
+            )
+        elif repo.pinned_pubkey != pubkey:
+            # 公钥变更 → 验证失败（需用户显式确认）
+            self._runtime_config.set_source_repo_trust(repo.url, "failed")
+            log_warning(f"[RepoManifest] 公钥变更: {repo.url}")
+        else:
+            self._runtime_config.set_source_repo_trust(repo.url, "verified")
+
+    @staticmethod
+    def _verify_ed25519_signature(
+        manifest: dict, pubkey_str: str, signature: str
+    ) -> bool:
+        """验证 ed25519 签名。
+
+        pubkey 格式: "ed25519:<hex>" 或裸 hex；签名格式: "ed25519:<hex>" 或裸 hex。
+        签名对象为剔除 trust 字段的 manifest 的 canonical JSON。
+        """
+        # 解析公钥
+        pubkey_clean = pubkey_str.split(":", 1)[1] if ":" in pubkey_str else pubkey_str
+        sig_clean = signature.split(":", 1)[1] if ":" in signature else signature
+
+        try:
+            pubkey_bytes = bytes.fromhex(pubkey_clean.strip())
+            sig_bytes = bytes.fromhex(sig_clean.strip())
+        except ValueError:
+            return False
+
+        # 构建 canonical bytes：剔除 trust 字段后的 manifest
+        canonical = {k: v for k, v in manifest.items() if k != "trust"}
+        canonical_bytes = json.dumps(
+            canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")
+
+        try:
+            from cryptography.exceptions import InvalidSignature
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+                Ed25519PublicKey,
+            )
+
+            key = Ed25519PublicKey.from_public_bytes(pubkey_bytes)
+            key.verify(sig_bytes, canonical_bytes)
+            return True
+        except (InvalidSignature, ValueError, Exception):
+            return False

@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -49,7 +48,9 @@ def create_app():
             content_type = "application/octet-stream"
 
         # 文本文件用 UTF-8
-        if content_type.startswith(("text/", "application/json", "application/javascript")):
+        if content_type.startswith(
+            ("text/", "application/json", "application/javascript")
+        ):
             content_type += "; charset=utf-8"
             data = file_path.read_bytes()
         else:
@@ -72,7 +73,9 @@ def create_app():
 def main():
     parser = argparse.ArgumentParser(description="OTT Repo 本地测试服务器")
     parser.add_argument("--port", type=int, default=18888, help="端口（默认 18888）")
-    parser.add_argument("--host", default="127.0.0.1", help="绑定地址（默认 127.0.0.1）")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="绑定地址（默认 127.0.0.1）"
+    )
     args = parser.parse_args()
 
     if not PUBLIC_DIR.exists():

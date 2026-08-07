@@ -160,7 +160,13 @@ def test_validate_ott_bridge_source():
 def test_validate_skips_invalid_source_entries():
     m = _valid_manifest()
     m["sources"] = [
-        {"type": "ott-instance", "authority": "good", "endpoints": [{"url": "https://good.org/", "profile": "static", "priority": 1}]},
+        {
+            "type": "ott-instance",
+            "authority": "good",
+            "endpoints": [
+                {"url": "https://good.org/", "profile": "static", "priority": 1}
+            ],
+        },
         {"type": "ott-instance", "authority": ""},  # 无效：缺 authority
         {"type": "unknown"},  # 无效 type
     ]

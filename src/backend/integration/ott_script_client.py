@@ -3,20 +3,25 @@
 脚本必须定义 fetch_entries() -> list[dict]，返回标准化 entry 列表。
 沙箱限制：
 - 仅允许白名单模块（httpx/json/Crypto/bs4 等）
-- 禁止文件系统写入（除临时目录）
-- 禁止子进程/网络监听
+- 在独立 Python 子进程中执行（subprocess.run + 资源限制）
+- 子进程资源限制：256MB 内存 / 30s CPU / 禁止 fork / 10MB 文件写入
+- AST 安全检查作为第一道关卡（拦截明显恶意，减少子进程启动开销）
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+import subprocess
+import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 
-from ..utils.logger import log_info, log_warning
+from ..utils.logger import log_warning
 from .ott_normalization import normalize_summary
 from .ott_script_safety import validate_script_source
 
@@ -30,36 +35,39 @@ SCRIPT_EXEC_TIMEOUT_S = 30.0
 MAX_ENTRIES_PER_SCRIPT = 1000
 
 # 沙箱允许的模块白名单
-ALLOWED_MODULES = frozenset({
-    "builtins",
-    "json",
-    "re",
-    "time",
-    "datetime",
-    "hashlib",
-    "base64",
-    "urllib",
-    "urllib.parse",
-    "http",
-    "email",
-    "collections",
-    "itertools",
-    "functools",
-    "math",
-    "random",
-    "string",
-    "textwrap",
-    "unicodedata",
-    "httpx",
-    "Crypto",
-    "Crypto.Cipher",
-    "Crypto.Util",
-    "Crypto.Util.Padding",
-    "bs4",
-})
+ALLOWED_MODULES = frozenset(
+    {
+        "builtins",
+        "json",
+        "re",
+        "time",
+        "datetime",
+        "hashlib",
+        "base64",
+        "urllib",
+        "urllib.parse",
+        "http",
+        "email",
+        "collections",
+        "itertools",
+        "functools",
+        "math",
+        "random",
+        "string",
+        "textwrap",
+        "unicodedata",
+        "httpx",
+        "Crypto",
+        "Crypto.Cipher",
+        "Crypto.Util",
+        "Crypto.Util.Padding",
+        "bs4",
+    }
+)
 
 
 # ── 缓存 ────────────────────────────────────────────────────────────────
+
 
 def script_cache_key(url: str) -> str:
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
@@ -135,69 +143,71 @@ class ScriptCache:
 
 # ── 沙箱执行 ────────────────────────────────────────────────────────────
 
+
 class ScriptSandbox:
-    """受限的脚本执行环境。"""
+    """受限的脚本执行环境（子进程隔离）。
+
+    脚本在独立 Python 子进程中执行，通过 subprocess.run() 启动
+    ott_script_runner.py。资源限制（内存/CPU/proc）由 runner 在子进程内设置。
+    """
 
     def __init__(self, allowed_modules: frozenset[str] = ALLOWED_MODULES) -> None:
         self._allowed = allowed_modules
 
     def execute(self, source: str, script_url: str) -> list[dict]:
         """执行脚本并返回 fetch_entries() 的结果。"""
-        # 构建受限 globals
-        safe_globals = {
-            "__builtins__": self._build_safe_builtins(),
-            "__name__": "__ott_script__",
-        }
-
-        # 预导入白名单模块
-        for mod_name in self._allowed:
-            if mod_name in ("builtins",):
-                continue
-            try:
-                parts = mod_name.split(".")
-                mod = __import__(mod_name, fromlist=[parts[-1]])
-                safe_globals[parts[0]] = mod
-            except ImportError:
-                pass
-
-        # 编译 + 执行
+        # 把脚本写到临时文件供子进程读取
+        tmp_dir = Path(tempfile.gettempdir())
+        tmp_path = (
+            tmp_dir
+            / f"ott-script-{hashlib.sha256(script_url.encode()).hexdigest()[:16]}.py"
+        )
         try:
-            code = compile(source, filename=f"<ott-script:{script_url}>", mode="exec")
-        except SyntaxError:
+            tmp_path.write_text(source, encoding="utf-8")
+        except OSError as e:
+            log_warning(f"[ScriptSandbox] 写临时脚本失败: {e}")
             return []
 
-        exec(code, safe_globals)
+        return self._execute_in_subprocess(tmp_path)
 
-        # 调用 fetch_entries()
-        fetch_fn = safe_globals.get("fetch_entries")
-        if not callable(fetch_fn):
-            return []
-
+    def _execute_in_subprocess(self, script_path: Path) -> list[dict]:
+        """在子进程中执行脚本。"""
+        runner_path = Path(__file__).parent / "ott_script_runner.py"
         try:
-            result = fetch_fn()
-        except Exception as e:
-            log_warning(f"[ScriptSandbox] fetch_entries 异常: {e}")
+            result = subprocess.run(
+                [sys.executable, str(runner_path), str(script_path)],
+                capture_output=True,
+                text=True,
+                timeout=SCRIPT_EXEC_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            log_warning(f"[ScriptSandbox] 脚本执行超时 ({SCRIPT_EXEC_TIMEOUT_S}s)")
+            return []
+        except OSError as e:
+            log_warning(f"[ScriptSandbox] 子进程启动失败: {e}")
             return []
 
-        if not isinstance(result, list):
+        if result.returncode != 0:
+            # 截取最后几行 stderr 用于日志
+            err_tail = (
+                "\n".join(result.stderr.strip().splitlines()[-5:])
+                if result.stderr
+                else ""
+            )
+            log_warning(f"[ScriptSandbox] 脚本退出码 {result.returncode}: {err_tail}")
             return []
 
-        return self._normalize_entries(result)
+        # 解析 stdout JSON
+        try:
+            raw_entries = json.loads(result.stdout)
+        except (json.JSONDecodeError, ValueError):
+            log_warning("[ScriptSandbox] 脚本 stdout 不是合法 JSON")
+            return []
 
-    def _build_safe_builtins(self) -> dict:
-        """构建受限的 builtins 字典。"""
-        import builtins as _builtins
-        safe = {}
-        for name in dir(_builtins):
-            if name in ("eval", "exec", "compile", "__import__", "open"):
-                continue
-            obj = getattr(_builtins, name)
-            # 允许 print 但重定向到日志
-            if name == "print":
-                safe[name] = _safe_print
-                continue
-            safe[name] = obj
-        return safe
+        if not isinstance(raw_entries, list):
+            return []
+
+        return self._normalize_entries(raw_entries)
 
     def _normalize_entries(self, raw_entries: list) -> list[dict]:
         """将脚本返回的原始数据标准化为 entry 格式。"""
@@ -210,7 +220,8 @@ class ScriptSandbox:
             if "content" not in item:
                 continue
             entry = {
-                "entry_id": item.get("entry_id") or hashlib.sha256(
+                "entry_id": item.get("entry_id")
+                or hashlib.sha256(
                     str(item.get("content", "")).encode("utf-8")
                 ).hexdigest()[:16],
                 "title": str(item.get("title", "")),
@@ -221,7 +232,9 @@ class ScriptSandbox:
                 "current_revision_id": item.get("revision_id", "v1"),
                 "source_key": item.get("source_key", "script"),
                 "source_label": item.get("source_label", "脚本源"),
-                "tags": item.get("tags", []) if isinstance(item.get("tags"), list) else [],
+                "tags": item.get("tags", [])
+                if isinstance(item.get("tags"), list)
+                else [],
                 "fetched_at": item.get("fetched_at", ""),
                 "category": str(item.get("category", "")),
                 "authority": "script",
@@ -234,13 +247,8 @@ class ScriptSandbox:
         return result
 
 
-def _safe_print(*args, **kwargs) -> None:
-    """沙箱内的 print 重定向到日志。"""
-    msg = " ".join(str(a) for a in args)
-    log_info(f"[ott-script] {msg}")
-
-
 # ── 便捷函数 ────────────────────────────────────────────────────────────
+
 
 def execute_script(source: str, script_url: str) -> list[dict]:
     """一次性执行脚本并返回 entry 列表。"""

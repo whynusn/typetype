@@ -702,7 +702,9 @@ def test_no_migration_when_source_repos_present(tmp_path):
 def test_source_repos_serialization_roundtrip(tmp_path):
     config = RuntimeConfig()
     config.add_source_repo("https://example.org/ott-repo.json")
-    config.set_source_repo_trust("https://example.org/ott-repo.json", "verified", "ed25519:abc")
+    config.set_source_repo_trust(
+        "https://example.org/ott-repo.json", "verified", "ed25519:abc"
+    )
     data = config._to_dict()
     assert data["source_repos"][0]["url"] == "https://example.org/ott-repo.json"
     assert data["source_repos"][0]["trust_state"] == "verified"

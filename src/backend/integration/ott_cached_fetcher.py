@@ -189,6 +189,7 @@ class OttCachedFetcher:
     @staticmethod
     def _read_local_json(url: str, max_bytes: int = 0) -> dict | None:
         from urllib.parse import urlparse
+
         try:
             path = Path(urlparse(url).path)
             if not path.exists():
@@ -203,6 +204,7 @@ class OttCachedFetcher:
     @staticmethod
     def _read_local_text(url: str, max_bytes: int = 0) -> str | None:
         from urllib.parse import urlparse
+
         try:
             path = Path(urlparse(url).path)
             if not path.exists():

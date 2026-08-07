@@ -92,6 +92,7 @@ class TestLegacyScriptAsRule:
         resp.text = json.dumps(hitokoto_data)
         resp.headers = {"content-length": "100"}
         resp.raise_for_status = MagicMock()
+        resp.iter_text = MagicMock(return_value=iter([json.dumps(hitokoto_data)]))
         mock_client.get.return_value = resp
 
         interp = OttRuleInterpreter(mock_client)

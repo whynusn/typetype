@@ -42,7 +42,9 @@ def _script_manifest():
         "type": "repository",
         "repo_id": "script-test.example.org",
         "name": "Script Test Repo",
-        "mirrors": [{"url": "https://script-test.example.org/ott-repo.json", "priority": 1}],
+        "mirrors": [
+            {"url": "https://script-test.example.org/ott-repo.json", "priority": 1}
+        ],
         "sources": [
             {
                 "type": "ott-script",
@@ -75,6 +77,7 @@ def _federation_with_script(tmp_path):
     )
     # 预写缓存，避免网络请求（mock 在 test 环境下行为不一致）
     from src.backend.integration.ott_repo_manifest import repo_cache_key
+
     cache_key = repo_cache_key(repo_entry.url)
     manifest_cache._write_cache(cache_key, _script_manifest())
 
@@ -89,8 +92,8 @@ class TestScriptClient:
     def test_produces_entries(self, tmp_path) -> None:
         script_source = (
             "def fetch_entries():\n"
-            "    return [{\"title\": \"S1\", "\
-            "\"content\": \"ScriptContent\"}]\n"
+            '    return [{"title": "S1", '
+            '"content": "ScriptContent"}]\n'
         )
         mock_http = MagicMock(spec=httpx.Client)
         resp = MagicMock(spec=httpx.Response)
@@ -133,7 +136,9 @@ class TestFederationWithScripts:
     def test_build_clients_creates_script_client(self, tmp_path) -> None:
         provider = _federation_with_script(tmp_path)
         clients = provider._build_clients()
-        script_clients = {k: v for k, v in clients.items() if isinstance(v, _ScriptClient)}
+        script_clients = {
+            k: v for k, v in clients.items() if isinstance(v, _ScriptClient)
+        }
         assert len(script_clients) == 1
 
     def test_list_all_entries_includes_script(self, tmp_path) -> None:

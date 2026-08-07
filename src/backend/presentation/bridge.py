@@ -44,6 +44,49 @@ if TYPE_CHECKING:
 from .text_load_coordinator import TextLoadCoordinator
 
 
+class _FederationSegmentAdapter:
+    """把 OttFederationProvider 适配成 OttSegmentProvider 所需的接口。
+
+    OttSegmentProvider 通过 ``fetch_ott_segment(entry_id, revision_id, index, size)``
+    获取分段内容；本适配器将调用转发到
+    ``federation.get_segment(authority, entry_id, revision_id, index, size)``。
+    """
+
+    def __init__(self, federation, authority: str) -> None:
+        self._federation = federation
+        self.authority = authority
+
+    def fetch_ott_segment(
+        self,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        source_segment_size: int = 1000,
+    ) -> dict | None:
+        data = self._federation.get_segment(
+            self.authority,
+            entry_id,
+            revision_id,
+            segment_index,
+            source_segment_size,
+        )
+        if data is None:
+            return None
+        content = data.get("content", "")
+        if not isinstance(content, str):
+            return None
+        return {
+            "entry_id": str(data.get("entry_id", entry_id)),
+            "revision_id": str(data.get("revision_id", revision_id)),
+            "index": int(data.get("index", segment_index)),
+            "start_char": int(data.get("start_char", 0)),
+            "end_char": int(data.get("end_char", len(content))),
+            "char_count": int(data.get("char_count", len(content))),
+            "content_hash": str(data.get("content_hash", "")),
+            "content": content,
+        }
+
+
 def _compute_progress_key(key_type: str, identifier: str) -> str:
     """统一的进度 key 生成。key_type: "local_article" / "trainer" / "custom_text"。"""
     if key_type == "local_article":
@@ -1307,6 +1350,128 @@ class Bridge(QObject):
             on_result=self._on_ott_segment_session_started,
             on_error=lambda msg: self.textLoadFailed.emit(msg),
         )
+
+    @Slot(str, str, str, int, int, int, int, str)
+    def loadFederatedEntrySegment(
+        self,
+        authority: str,
+        entryId: str,
+        revisionId: str,
+        segmentIndex: int,
+        segmentSize: int,
+        totalChars: int,
+        sourceSegmentSize: int,
+        title: str,
+    ) -> None:
+        """从联邦聚合的指定 authority 加载 OTT 文本分段。"""
+        if not self._registry_adapter or not self._text_adapter:
+            return
+
+        federation = getattr(self._registry_adapter, "_federation", None)
+        if federation is None:
+            self.textLoadFailed.emit("联邦文本源未配置")
+            return
+
+        adapter = _FederationSegmentAdapter(federation, authority)
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._build_federated_segment_session(
+                adapter=adapter,
+                entry_id=entryId,
+                revision_id=revisionId,
+                segment_index=segmentIndex,
+                segment_size=segmentSize,
+                total_chars=totalChars,
+                source_segment_size=sourceSegmentSize or segmentSize or 1000,
+                title=title,
+                authority=authority,
+            ),
+            on_result=self._on_ott_segment_session_started,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    @Slot(str, str, str, str)
+    def loadFederatedInlineEntry(
+        self,
+        authority: str,
+        entryId: str,
+        revisionId: str,
+        title: str,
+    ) -> None:
+        """从联邦聚合加载 inline 内容（规则/脚本源）。"""
+        if not self._registry_adapter:
+            return
+        federation = getattr(self._registry_adapter, "_federation", None)
+        if federation is None:
+            self.textLoadFailed.emit("联邦文本源未配置")
+            return
+
+        def _load() -> dict | None:
+            return federation.get_entry(authority, entryId)
+
+        def _on_result(detail: dict | None) -> None:
+            if detail is None:
+                self.textLoadFailed.emit("无法加载条目")
+                return
+            content = detail.get("content", "")
+            if not content:
+                self.textLoadFailed.emit("条目无内容")
+                return
+            # textContentLoaded 信号第一个参数是 int 类型的 text_id
+            # 联邦条目没有服务端 text_id，使用 hash 或 0
+            text_id = 0
+            self.textContentLoaded.emit(text_id, content, title)
+
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=_load,
+            on_result=_on_result,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    def _build_federated_segment_session(
+        self,
+        adapter: "_FederationSegmentAdapter",
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size: int,
+        total_chars: int,
+        source_segment_size: int,
+        title: str,
+        authority: str,
+    ) -> dict:
+        from src.backend.integration.ott_segment_provider import OttSegmentProvider
+        from src.backend.models.dto.text_session import TextKind
+
+        provider = OttSegmentProvider(
+            adapter,
+            entry_id,
+            revision_id,
+            total_chars,
+            source_segment_size,
+        )
+        built = self._text_adapter.buildProviderTextSession(
+            provider=provider,
+            kind=TextKind.OTT,
+            identifier=f"{entry_id}@{revision_id}",
+            title=title,
+            version=revision_id,
+            slice_size=segment_size,
+            start_slice=segment_index,
+            source_key="ott",
+        )
+        if built is None:
+            raise RuntimeError("无法加载联邦文本分段")
+        usecase, result = built
+        return {
+            "usecase": usecase,
+            "result": result,
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "segment_size": segment_size,
+            "source_segment_size": source_segment_size,
+            "title": title,
+            "authority": authority,
+        }
 
     def _build_ott_segment_session(
         self,

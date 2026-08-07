@@ -32,12 +32,14 @@ from .ott_normalization import normalize_summary
 MAX_TOTAL_ENTRIES = 1000
 DEFAULT_MAX_BYTES = 1_048_576
 DEFAULT_MAX_PAGES = 5
-TOTAL_FETCH_TIMEOUT_S = 30.0
+TOTAL_FETCH_TIMEOUT_S = 10.0
+REGEX_MAX_INPUT_CHARS = 50_000  # ReDoS 防护：正则匹配输入截断上限
 
 
 # ---------------------------------------------------------------------------
 # URL 校验
 # ---------------------------------------------------------------------------
+
 
 def validate_url(url: str) -> bool:
     """校验规则请求 URL 是否允许执行。
@@ -93,6 +95,7 @@ def validate_url(url: str) -> bool:
 # ---------------------------------------------------------------------------
 # 提取
 # ---------------------------------------------------------------------------
+
 
 def _extract_json_path(data: Any, path: str) -> str:
     """从 JSON 数据中按 $.a.b 或 items[*].title 简写提取文本。"""
@@ -168,7 +171,7 @@ def _navigate_parts(data: Any, parts: list[str], i: int) -> Any:
                 return None
             # 剩余路径 = 当前 part [*] 之后 + 后续 parts
             remaining = []
-            after = part[bracket_idx + 4:].lstrip(".")
+            after = part[bracket_idx + 4 :].lstrip(".")
             if after:
                 remaining.append(after)
             remaining.extend(parts[i + 1 :])
@@ -216,9 +219,16 @@ def _stringify(value: Any) -> str:
 
 
 def _extract_regex(text: str, pattern: str) -> dict[str, str]:
-    """用命名正则提取字段。失败返回空 dict。"""
+    """用命名正则提取字段。失败返回空 dict。
+
+    ReDoS 防护：输入文本超过 REGEX_MAX_INPUT_CHARS 时截断，
+    避免恶意正则 (a+)+$ 类灾难性回溯。
+    """
     if not pattern or not text:
         return {}
+    # 截断输入以缓解 ReDoS（正则匹配在超长文本上即使模式无害也慢）
+    if len(text) > REGEX_MAX_INPUT_CHARS:
+        text = text[:REGEX_MAX_INPUT_CHARS]
     try:
         match = re.search(pattern, text, re.DOTALL)
     except re.error:
@@ -317,6 +327,7 @@ def extract_fields(data: Any, extract_spec: dict[str, str]) -> dict[str, str]:
 # 变换
 # ---------------------------------------------------------------------------
 
+
 def apply_transform(value: str, transforms: list[str] | None) -> str:
     """对单个值应用变换管道。"""
     if not transforms or not isinstance(value, str):
@@ -333,7 +344,9 @@ def apply_transform(value: str, transforms: list[str] | None) -> str:
 
 
 def apply_transforms_to_entry(
-    entry: dict[str, str], transforms: list[str] | None, replace_map: dict[str, str] | None = None
+    entry: dict[str, str],
+    transforms: list[str] | None,
+    replace_map: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """对 entry 的所有字符串字段应用变换。"""
     if not transforms:
@@ -358,6 +371,7 @@ def apply_transforms_to_entry(
 # ---------------------------------------------------------------------------
 # 解释器
 # ---------------------------------------------------------------------------
+
 
 class OttRuleInterpreter:
     """OTT Repo L1 声明式规则解释器。"""
@@ -403,16 +417,33 @@ class OttRuleInterpreter:
             headers = {}
 
         # 分页参数
-        page_param = pagination.get("param", "page") if isinstance(pagination, dict) else "page"
-        page_start = int(pagination.get("start", 1)) if isinstance(pagination, dict) else 1
-        page_step = int(pagination.get("step", 1)) if isinstance(pagination, dict) else 1
-        rule_max_pages = int(pagination.get("max_pages", max_pages)) if isinstance(pagination, dict) else max_pages
+        page_param = (
+            pagination.get("param", "page") if isinstance(pagination, dict) else "page"
+        )
+        page_start = (
+            int(pagination.get("start", 1)) if isinstance(pagination, dict) else 1
+        )
+        page_step = (
+            int(pagination.get("step", 1)) if isinstance(pagination, dict) else 1
+        )
+        rule_max_pages = (
+            int(pagination.get("max_pages", max_pages))
+            if isinstance(pagination, dict)
+            else max_pages
+        )
         effective_max_pages = min(int(max_pages), int(rule_max_pages), 20)
+        if page_step <= 0:
+            # 不可信 manifest 可能声明 step=0：page 永不前进，循环只会被
+            # MAX_TOTAL_ENTRIES 截断 → 同 URL 重复请求。归一到 1。
+            page_step = 1
 
         all_entries: list[dict] = []
         page = page_start
 
-        while len(all_entries) < MAX_TOTAL_ENTRIES and page < page_start + effective_max_pages:
+        while (
+            len(all_entries) < MAX_TOTAL_ENTRIES
+            and page < page_start + effective_max_pages
+        ):
             url = url_template.replace("{" + page_param + "}", str(page))
             # 二次校验（分页后 URL 可能变化）
             if not validate_url(url):
@@ -434,9 +465,7 @@ class OttRuleInterpreter:
                 extracted = extract_fields(item, extract_spec)
                 if not extracted:
                     continue
-                entry = self._build_entry(
-                    extracted, rule, rule_id, page, url
-                )
+                entry = self._build_entry(extracted, rule, rule_id, page, url)
                 entry = apply_transforms_to_entry(entry, transforms, replace_map)
                 all_entries.append(entry)
 
@@ -449,15 +478,30 @@ class OttRuleInterpreter:
     def _fetch(self, url: str, method: str, headers: dict) -> str | None:
         try:
             if method == "POST":
-                response = self._client.post(url, headers=headers, timeout=TOTAL_FETCH_TIMEOUT_S)
+                response = self._client.post(
+                    url, headers=headers, timeout=TOTAL_FETCH_TIMEOUT_S
+                )
             else:
-                response = self._client.get(url, headers=headers, timeout=TOTAL_FETCH_TIMEOUT_S)
+                response = self._client.get(
+                    url, headers=headers, timeout=TOTAL_FETCH_TIMEOUT_S
+                )
             response.raise_for_status()
-            # 大小限制
-            content_length = response.headers.get("content-length")
-            if content_length and int(content_length) > self._max_bytes:
-                return response.text[: self._max_bytes]
-            return response.text
+            # Streaming 截断：边读边累积，到达 max_bytes 立即停止。
+            # 不依赖 content-length 头（chunked 传输可绕过该检查）。
+            chunks: list[str] = []
+            total = 0
+            for chunk in response.iter_text():
+                if not chunk:
+                    continue
+                remaining = self._max_bytes - total
+                if remaining <= 0:
+                    break
+                if len(chunk) > remaining:
+                    chunks.append(chunk[:remaining])
+                    break
+                chunks.append(chunk)
+                total += len(chunk)
+            return "".join(chunks)
         except (httpx.HTTPError, httpx.InvalidURL, OSError):
             return None
 
@@ -494,13 +538,11 @@ class OttRuleInterpreter:
             title = content[:60]
 
         # 确定性 ID：sha256(content + page) 前 16 hex
-        entry_id_raw = hashlib.sha256(
-            f"{content}:{page}".encode("utf-8")
-        ).hexdigest()[:16]
+        entry_id_raw = hashlib.sha256(f"{content}:{page}".encode("utf-8")).hexdigest()[
+            :16
+        ]
 
-        revision_raw = hashlib.sha256(
-            f"{url}:{page}".encode("utf-8")
-        ).hexdigest()[:12]
+        revision_raw = hashlib.sha256(f"{url}:{page}".encode("utf-8")).hexdigest()[:12]
 
         authority = f"rule:{rule_id}"
         source_key = f"rule:{rule_id}"
@@ -534,6 +576,7 @@ class OttRuleInterpreter:
 # ---------------------------------------------------------------------------
 # 便捷函数
 # ---------------------------------------------------------------------------
+
 
 def interpret_rule(
     rule: dict,
