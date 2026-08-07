@@ -377,6 +377,14 @@ def run_script(script_path: str) -> list:
 
 
 def main(argv: list[str]) -> int:
+    # Windows 下子进程 stdout/stderr 默认继承 locale 编码（cp1252），
+    # ensure_ascii=False 输出中文 JSON 会 UnicodeEncodeError，强制 UTF-8。
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
     if len(argv) < 2:
         print("用法: python ott_script_runner.py <script_path>", file=sys.stderr)
         return 1
