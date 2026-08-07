@@ -128,6 +128,7 @@ class TestScriptSandbox:
         # （家目录）的文件 —— 被 Landlock 拒绝。注意目标不能放在 /tmp 下：
         # 沙箱脚本目录在 /tmp，路径规则是层级性的，/tmp 整树被放行。
         secret = Path.home() / ".cache" / f"typetype-escape-{os.getpid()}.tmp"
+        secret.parent.mkdir(parents=True, exist_ok=True)
         secret.write_text("SECRET")
         try:
             target = repr(str(secret))

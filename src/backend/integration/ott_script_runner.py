@@ -154,7 +154,7 @@ def landlock_available() -> bool:
     try:
         # handled=0 会触发内核 ENOMSG（空 access），必须用有效位探测
         ruleset_fd = _landlock_create(_LANDLOCK_FS_READ_FILE)
-    except (OSError, AttributeError):
+    except (OSError, AttributeError, TypeError):
         return False
     os.close(ruleset_fd)
     return True
