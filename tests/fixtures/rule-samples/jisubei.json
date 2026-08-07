@@ -1,0 +1,72 @@
+{
+  "type": "ott-rule",
+  "rule_id": "jisubei",
+  "label": "极速杯（赛文 API）",
+  "rule": {
+    "kind": "json-api",
+    "request": {
+      "url": "https://www.jsxiaoshi.com/index.php/Api/Text/getContent",
+      "method": "POST",
+      "headers": {"Content-Type": "application/json"},
+      "body": null
+    },
+    "steps": [
+      {
+        "fn": "concat",
+        "args": [
+          {
+            "fn": "concat",
+            "args": [
+              "{\"0\": \"",
+              {
+                "fn": "regex_replace",
+                "args": [
+                  {
+                    "fn": "base64_encode",
+                    "args": [
+                      {
+                        "fn": "aes_cbc_encrypt",
+                        "args": [
+                          {"fn": "utf8_encode", "args": ["c9ec834c80f77237"]},
+                          {"fn": "utf8_encode", "args": ["db4d6bfde3057dca"]},
+                          {
+                            "fn": "utf8_encode",
+                            "args": [
+                              {
+                                "fn": "concat",
+                                "args": [
+                                  {
+                                    "fn": "concat",
+                                    "args": [
+                                      "{\"competitionType\": 0, \"snumflag\": \"1\", \"from\": \"web\", \"timestamp\": ",
+                                      {"fn": "str", "args": [{"fn": "now_unix", "args": []}]}
+                                    ]
+                                  },
+                                  ", \"version\": \"v2.1.5\", \"subversions\": 17108}"
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  "^.",
+                  ""
+                ]
+              }
+            ]
+          },
+          "\"}"
+        ]
+      }
+    ],
+    "permissions": {"network": ["www.jsxiaoshi.com"]},
+    "rights": {"min_api_level": 2},
+    "extract": {
+      "title": "$.msg.a_name",
+      "content": "$.msg.0"
+    }
+  },
+  "tags": ["typing", "jisubei", "chinese"]
+}

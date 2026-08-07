@@ -139,11 +139,20 @@ L1 声明式规则（`ott-rule`）为无图灵完备的抓取描述：
 - `rights.min_api_level`：客户端低于声明 API level 时整条规则标记不兼容。
 - 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限（MAX_STEPS/MAX_CALLS/1MB）。
 
-## 7. 极速杯迁移验证（Phase 1.4）
+## 7. 极速杯迁移验证（Phase 1.4，已完成 2026-08-07）
 
-- 新 `tests/fixtures/rule-samples/jisubei.json`：用 DSL 表达极速杯请求（时间戳 → 签名 → AES 请求体构造）并跑通 mock。
-- **前置（待确认）**：www.jsxiaoshi.com 可用性与抓取许可。未确认前仅做 mock 验证，不发起真实请求。
-- 验收：mock 服务端收到与现网一致格式的请求体；组合矩阵用例全过。
+- 新 `tests/fixtures/rule-samples/jisubei.json`：用 DSL 表达极速杯请求并跑通 mock，零引擎改动。
+- **实现要点**：
+  - `request.body: null` + 单步全嵌套表达式：`base64_encode(aes_cbc_encrypt(utf8_encode(KEY), utf8_encode(IV), utf8_encode(json 模板)))` → `regex_replace("^." → "")` 去 base64 首字符 → 嵌套 `concat` 拼 `{"0": "..."}`。
+  - 因 `aes_cbc_encrypt` 的 data 非首参，**不能**用多步管道（会前置首参）；`body: null` 时 `run_steps` 首步不前置，单步全嵌套表达式可直接求值。
+  - key/iv 为二进制 16 字节，JSON 只能以 str 表达 → 用 `utf8_encode("c9ec834c80f77237")` 还原字节。
+  - `timestamp` 用 `str(now_unix())` 经 concat 注入；payload 为 ASCII → `utf8_encode` 与参考脚本 `latin-1` 编码字节等价。
+  - **零填充差异（已确认可接受）**：参考脚本 `_zero_pad` 对齐时跳过填充；DSL `_zero_pad` 恒补满块。本 payload 长度 mod 16 = 15，两种实现均补 1 字节，结果一致。若未来 payload 恰好 16 字节对齐，两实现相差一个整块，需要求值器对齐参考行为。
+  - 响应明文：`msg["0"]` 为正文、`msg["a_name"]` 为标题；`extract: {"title": "$.msg.a_name", "content": "$.msg.0"}`（`_navigate_parts` 用 `current.get(part)`，数字键 `$.msg.0` 按字符串键取）。
+  - `request.headers` 显式声明 `Content-Type: application/json`（对应参考脚本 `json=post_payload`，schema v2 要求 body 类型由规则声明）。
+  - `permissions.network: ["www.jsxiaoshi.com"]` + `rights.min_api_level: 2`（`CLIENT_API_LEVEL=2`，federation 装配已传 `api_level=CLIENT_API_LEVEL`）。
+- 验证：`TestJisubeiRule`（`tests/test_ott_rule_interpreter.py`）patch `time.time` 固定时间戳，字节级断言请求体与参考脚本算法一致，并断言响应提取。
+- 验收：mock 服务端收到与现网一致格式的请求体（字节级等价）；组合矩阵用例全过。
 
 ## 8. 安全边界（复用 L1 红线）
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import socket
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -741,3 +742,94 @@ class TestSchemaV2:
         interp = OttRuleInterpreter(client)
         rule = self._v2_rule(steps=None, body=object())
         assert interp.list_entries(rule, "r1") == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 1.4：极速杯（赛文 API）规则 fixture 端到端验证
+# ---------------------------------------------------------------------------
+
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+
+
+class TestJisubeiRule:
+    """极速杯迁移验证：DSL 单步全嵌套表达式 + body:null + 字节级请求体断言。
+
+    参考协议：docs/decisions/registry-repo-template/scripts/fetch_jisubei.py
+    （AES-CBC / ZeroPadding / Latin1 / Base64，post_payload={"0": enc[1:]}）。
+    """
+
+    FIXED_TS = 1_752_000_000
+
+    def _rule(self) -> dict:
+        path = FIXTURES_DIR / "rule-samples" / "jisubei.json"
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _reference_body(self) -> str:
+        """用参考脚本算法计算期望请求体（固定时间戳）。
+
+        payload 全 ASCII → utf8_encode 与 latin-1 字节等价；
+        长度 111 mod 16 = 15 → DSL 恒补块与参考脚本对齐跳过两种
+        zero_pad 在此 case 结果一致。
+        """
+        import base64
+
+        from Crypto.Cipher import AES
+
+        payload_data = {
+            "competitionType": 0,
+            "snumflag": "1",
+            "from": "web",
+            "timestamp": self.FIXED_TS,
+            "version": "v2.1.5",
+            "subversions": 17108,
+        }
+        raw = json.dumps(payload_data, ensure_ascii=False).encode("latin-1")
+        padded = raw + b"\x00" * (16 - len(raw) % 16)
+        cipher = AES.new(b"c9ec834c80f77237", AES.MODE_CBC, b"db4d6bfde3057dca")
+        encrypted = cipher.encrypt(padded)
+        b64 = base64.b64encode(encrypted).decode("ascii")
+        return json.dumps({"0": b64[1:]})
+
+    def _run(self) -> list[dict]:
+        rule = self._rule()
+        mock_response = {
+            "error": 0,
+            "msg": {"0": "今日正文内容", "a_name": "极速杯 2026-08-07"},
+        }
+        client = _mock_client(mock_response)
+        interp = OttRuleInterpreter(client, api_level=2)
+        with patch(
+            "src.backend.integration.ott_dsl.time.time", return_value=self.FIXED_TS
+        ):
+            entries = interp.list_entries(rule["rule"], rule["rule_id"], max_pages=1)
+        return entries, client
+
+    def test_fixture_is_valid_schema_v2(self) -> None:
+        rule = self._rule()
+        assert rule["type"] == "ott-rule"
+        assert rule["rule_id"] == "jisubei"
+        assert rule["rule"]["request"]["method"] == "POST"
+        assert rule["rule"]["request"]["body"] is None
+        assert rule["rule"]["permissions"]["network"] == ["www.jsxiaoshi.com"]
+        assert rule["rule"]["rights"]["min_api_level"] == 2
+        assert rule["rule"]["extract"] == {
+            "title": "$.msg.a_name",
+            "content": "$.msg.0",
+        }
+
+    def test_request_body_matches_reference_byte_for_byte(self) -> None:
+        entries, client = self._run()
+        assert len(entries) == 1
+        assert client.post.called
+        content = client.post.call_args.kwargs["content"]
+        assert content == self._reference_body()
+        # 响应提取：$.msg.a_name / $.msg.0 数字键
+        assert entries[0]["title"] == "极速杯 2026-08-07"
+        assert entries[0]["content"] == "今日正文内容"
+        assert entries[0]["authority"] == "rule:jisubei"
+
+    def test_request_headers_declared(self) -> None:
+        _, client = self._run()
+        headers = client.post.call_args.kwargs["headers"]
+        assert headers["Content-Type"] == "application/json"
