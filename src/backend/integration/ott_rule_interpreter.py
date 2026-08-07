@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .ott_dsl import DslError, run_steps
 from .ott_normalization import normalize_summary
 from .regex_worker import _has_nested_quantifier
 
@@ -169,6 +170,37 @@ def validate_url(url: str) -> bool:
         if _is_blocked_address(addr):
             return False
     return True
+
+
+def _url_allowed_by_permissions(url: str, permissions: dict) -> bool:
+    """permissions.network 域名白名单（声明时生效）。
+
+    规则未声明 ``permissions`` 或未声明 ``network`` 列表 → 返回 True
+    （无白名单约束，回退 validate_url 基线）。声明了 ``network`` 且 URL
+    不在白名单内 → False。子域匹配：条目 ``example.com`` 允许
+    ``api.example.com``。条目可为裸域名或完整 URL（取 host）。规则作者
+    自行声明信任边界，白名单过宽（如 ``com``）风险自担。
+    """
+    if not isinstance(permissions, dict):
+        return True
+    network = permissions.get("network")
+    if not isinstance(network, list) or not network:
+        return True
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    if not host:
+        return False
+    for entry in network:
+        if not isinstance(entry, str) or not entry.strip():
+            continue
+        allowed = entry.strip().lower().rstrip(".")
+        if "://" in allowed:
+            allowed = urlparse(allowed).hostname or allowed
+            allowed = allowed.lower().rstrip(".")
+        if not allowed:
+            continue
+        if host == allowed or host.endswith("." + allowed):
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -499,9 +531,11 @@ class OttRuleInterpreter:
         self,
         http_client: httpx.Client,
         max_bytes: int = DEFAULT_MAX_BYTES,
+        api_level: int = 1,
     ) -> None:
         self._client = http_client
         self._max_bytes = max_bytes
+        self._api_level = api_level
 
     # ---- 公开入口 ----
 
@@ -520,12 +554,27 @@ class OttRuleInterpreter:
         transforms = rule.get("transform") or []
         pagination = rule.get("pagination") or {}
         replace_map = rule.get("replace") or {}
+        steps = rule.get("steps")
+        permissions = rule.get("permissions") or {}
+        rights = rule.get("rights") or {}
 
         if not isinstance(request_spec, dict) or not isinstance(extract_spec, dict):
             return []
 
+        # schema v2 校验拒绝：transform 与 steps 并存
+        if steps is not None and (transforms or replace_map):
+            return []
+        # rights.min_api_level：客户端低于声明值 → 规则不兼容，跳过
+        if isinstance(rights, dict):
+            min_level = rights.get("min_api_level", 1)
+            if not isinstance(min_level, int) or min_level > self._api_level:
+                return []
+
         url_template = request_spec.get("url", "")
         if not url_template or not validate_url(url_template):
+            return []
+        # permissions.network 白名单（声明时生效）：URL 必须落在白名单内
+        if not _url_allowed_by_permissions(url_template, permissions):
             return []
 
         method = request_spec.get("method", "GET").upper()
@@ -534,6 +583,10 @@ class OttRuleInterpreter:
         headers = request_spec.get("headers") or {}
         if not isinstance(headers, dict):
             headers = {}
+        body = self._build_request_body(request_spec.get("body", ""), steps)
+        if body is None:
+            # steps 求值失败（超限/未知原语）→ 整条规则跳过
+            return []
 
         # 分页参数
         page_param = (
@@ -568,7 +621,7 @@ class OttRuleInterpreter:
             if not validate_url(url):
                 break
 
-            text = self._fetch(url, method, headers)
+            text = self._fetch(url, method, headers, body)
             if text is None:
                 break
 
@@ -638,14 +691,39 @@ class OttRuleInterpreter:
         pin_headers.setdefault("Host", host_value)
         return pinned, pin_headers
 
-    def _fetch(self, url: str, method: str, headers: dict) -> str | None:
+    def _build_request_body(self, body_template: str, steps: Any) -> str | bytes | None:
+        """构造 POST 请求体。
+
+        无 ``steps`` 时返回 ``body_template`` 字面量；有 ``steps`` 时执行
+        DSL 管道，末步输出作为请求体。求值失败（超限/未知原语）返回 None。
+        """
+        if not isinstance(body_template, str):
+            body_template = ""
+        if steps is None:
+            return body_template
+        try:
+            output = run_steps(steps, initial=body_template)
+        except DslError:
+            return None
+        if isinstance(output, bytes):
+            return output
+        if isinstance(output, str):
+            return output
+        return str(output)
+
+    def _fetch(
+        self, url: str, method: str, headers: dict, body: str | bytes | None = None
+    ) -> str | None:
         try:
             request_url, pin_headers = self._pin_url(url, headers)
             if request_url is None:
                 return None
             if method == "POST":
                 response = self._client.post(
-                    request_url, headers=pin_headers, timeout=TOTAL_FETCH_TIMEOUT_S
+                    request_url,
+                    headers=pin_headers,
+                    content=body,
+                    timeout=TOTAL_FETCH_TIMEOUT_S,
                 )
             else:
                 response = self._client.get(

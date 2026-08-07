@@ -585,3 +585,135 @@ class TestRegexWorkerProtocol:
         out = json.loads(proc.stdout)
         assert out["ok"] is False
         assert out["error"] == "nested_quantifier"
+
+
+# ---------------------------------------------------------------------------
+# schema v2（Phase 1.3）：steps / request.body / permissions / rights
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaV2:
+    def _v2_rule(self, **overrides):
+        body = overrides.pop("body", None)
+        request_ov = overrides.pop("request", None)
+        rule = {
+            "request": {
+                "url": "https://example.com/api",
+                "method": "POST",
+                "body": "",
+            },
+            "steps": [{"fn": "concat", "args": ["!"]}],
+            "extract": {"title": "$.title", "content": "$.content"},
+            "permissions": {"network": ["example.com"]},
+            "rights": {"min_api_level": 1},
+        }
+        if body is not None:
+            rule["request"]["body"] = body
+        if request_ov is not None:
+            rule["request"].update(request_ov)
+        rule.update(overrides)
+        return rule
+
+    def test_steps_output_becomes_post_body(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(body="a")
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+        assert client.post.call_args.kwargs["content"] == "a!"
+
+    def test_steps_ref_body_placeholder(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(
+            steps=[
+                {"fn": "utf8_encode", "args": [{"ref": "body"}]},
+                {"fn": "sha256", "args": []},
+            ],
+            body="secret",
+        )
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+        import hashlib
+
+        expected = hashlib.sha256(b"secret").hexdigest()
+        assert client.post.call_args.kwargs["content"] == expected
+
+    def test_rule_without_steps_uses_literal_body(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(steps=None, body="raw-literal")
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+        assert client.post.call_args.kwargs["content"] == "raw-literal"
+
+    def test_transform_and_steps_conflict_rejected(self) -> None:
+        client = _mock_client([])
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(transform=["trim"])
+        assert interp.list_entries(rule, "r1") == []
+
+    def test_rights_min_api_level_greater_than_client_rejected(self) -> None:
+        client = _mock_client([])
+        interp = OttRuleInterpreter(client, api_level=1)
+        rule = self._v2_rule(rights={"min_api_level": 2})
+        assert interp.list_entries(rule, "r1") == []
+
+    def test_permissions_network_mismatch_rejected(self) -> None:
+        client = _mock_client([])
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(permissions={"network": ["other.com"]})
+        assert interp.list_entries(rule, "r1") == []
+
+    def test_permissions_network_subdomain_allowed(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(
+            request={
+                "url": "https://api.example.com/v1",
+                "method": "POST",
+                "body": "x",
+            }
+        )
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+
+    def test_missing_permissions_falls_back_to_validate_url(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(permissions={})
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+
+    def test_dsl_failure_skips_rule(self) -> None:
+        client = _mock_client([])
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(steps=[{"fn": "not_a_primitive", "args": []}])
+        assert interp.list_entries(rule, "r1") == []
+
+    def test_steps_limit_exceeded_skips_rule(self) -> None:
+        client = _mock_client([])
+        interp = OttRuleInterpreter(client)
+        from src.backend.integration.ott_dsl import MAX_STEPS
+
+        rule = self._v2_rule(
+            steps=[{"fn": "str", "args": [1]} for _ in range(MAX_STEPS + 1)]
+        )
+        assert interp.list_entries(rule, "r1") == []
+
+    def test_get_method_ignores_body(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(
+            request={"url": "https://example.com/api", "method": "GET"}, steps=None
+        )
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+        assert client.get.called
+        assert client.post.called is False

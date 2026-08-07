@@ -420,13 +420,20 @@ onActiveChanged: {
 - 单次 fetch ≤ 1 MB；总条目 ≤ 1000；max_pages 硬限制 20
 - 调试工具：`scripts/debug_rule.py`（离线 CLI，不启动 UI）
 
+**schema v2**（2026-08-07 Phase 1.3 落地，设计见 `docs/designs/ott-dsl.md`）：
+- `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），`{"ref": "body"}` 引用 `request.body` 字面量，末步输出作为 POST 请求体
+- `permissions.network`：域名白名单（子域匹配），声明时生效——URL 不在白名单内整条规则拒绝；未声明回退 `validate_url`
+- `rights.min_api_level`：客户端 API level 低于声明值 → 规则不兼容跳过
+- 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限 → 整条规则跳过
+
 **正确做法**：
 - 扩展提取能力 → 仍走声明式（新增 JSON path 语法或 CSS 伪类），不得引入 JS/Python/动态 URL 计算
 - 新增 transform 操作 → 在 `apply_transforms_to_entry()` 白名单中添加，不得允许任意字符串运算
 - 规则源产出 entry 的 authority = `rule:{repo_id}:{rule_id}`（上游规范，防跨 repo 冲突），进度键 `ott:rule:{repo_id}:{rule_id}:{entry_id}@{revision_id}`
 - 不得在解释器中执行网络请求以外的 I/O（禁文件写入、禁子进程）
+- 扩展 DSL 原语 → 在 `ott_dsl.py` 的 `PRIMITIVES` 注册表添加，保持纯函数无状态；引擎约束常量（`MAX_VALUE_BYTES`/`MAX_DEPTH`/`MAX_CALLS`/`MAX_STEPS`）不得放松
 
-**历史**：2026-07-27 ADR-010 Phase 3 落地。
+**历史**：2026-07-27 ADR-010 Phase 3 落地；2026-08-07 Phase 1.1/1.2 受限原语引擎 + Phase 1.3 schema v2。
 
 ### ⚠️ ott-script 必须经过 AST 安全检查 + 沙箱执行
 

@@ -432,8 +432,27 @@ def evaluate(expr: Any) -> Any:
     return _evaluate(expr, _Budget())
 
 
+def _resolve_refs(args: list, ref_value: Any) -> list:
+    """将 args 中的 {"ref": "body"} 引用对象替换为 ref_value。
+
+    显式 ref 声明意图，替换后不再额外前置首参（避免重复）；无 ref 的
+    args 维持管道前置语义，由调用方处理。
+    """
+    out: list = []
+    for a in args:
+        if isinstance(a, dict) and a.get("ref") == "body":
+            out.append(ref_value)
+        else:
+            out.append(a)
+    return out
+
+
 def run_steps(steps: Any, initial: Any = None) -> Any:
-    """顺序管道：前一步输出作为后一步首参。返回末步结果。"""
+    """顺序管道：前一步输出作为后一步首参。返回末步结果。
+
+    args 中的 ``{"ref": "body"}`` 引用对象被替换为 initial；该步不再
+    前置首参（ref 显式声明了数据来源）。
+    """
     if not isinstance(steps, list) or not steps:
         raise DslError
     if len(steps) > MAX_STEPS:
@@ -451,8 +470,10 @@ def run_steps(steps: Any, initial: Any = None) -> Any:
         args = step.get("args", [])
         if not isinstance(args, list):
             raise DslError
-        args = [result] + args if result is not None else args
-        result = _evaluate({"fn": step["fn"], "args": args}, budget)
+        resolved = _resolve_refs(args, initial)
+        if not any(isinstance(a, dict) and a.get("ref") == "body" for a in args):
+            resolved = [result] + resolved if result is not None else resolved
+        result = _evaluate({"fn": step["fn"], "args": resolved}, budget)
         transferred += _value_bytes(result)
         if transferred > MAX_STEP_TRANSFER_BYTES:
             raise DslError

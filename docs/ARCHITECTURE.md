@@ -459,6 +459,17 @@ src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + rep
 - HTTP 请求做 DNS pin（IP 直连 + 原 Host 头）；HTTPS 不 pin（TLS 证书按域名校验，内网 IP 无合法证书，天然防 rebinding）
 - 全部请求显式 `follow_redirects=False`（4 处 httpx.Client）
 
+### L1 规则 schema v2（Phase 1.3）
+
+规则可选用 v2 字段（设计见 `docs/designs/ott-dsl.md`）：
+
+- `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），前步输出作为后步首参，`{"ref": "body"}` 引用 `request.body` 字面量；末步输出作为 POST 请求体
+- `request.body`：无 `steps` 时为字面量；有 `steps` 时经管道构造
+- `permissions.network`：域名白名单（子域匹配），**声明时生效**——URL 不在白名单内 → 整条规则拒绝；未声明回退 `validate_url` 基线
+- `rights.min_api_level`：客户端 API level（`OttRuleInterpreter(api_level=...)`）低于声明值 → 规则标记不兼容跳过
+- 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限（`MAX_STEPS`/`MAX_CALLS`/1MB 值）→ 整条规则跳过
+- 引擎约束：单值 ≤1MB、深度 ≤32、调用 ≤1000、步数 ≤8、步间数据 ≤2MB；正则原语复用 0.B1 子进程方案
+
 ---
 
 ## 后续方向
