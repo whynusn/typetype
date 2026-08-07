@@ -27,7 +27,7 @@ from .ott_cached_fetcher import OttCachedFetcher
 from .ott_normalization import redact_url
 from .ott_client import OttClient, FetchJson, FetchText
 from .ott_repo_manifest import RepoManifestCache
-from .ott_rule_interpreter import OttRuleInterpreter
+from .ott_rule_interpreter import CLIENT_API_LEVEL, OttRuleInterpreter
 from .ott_script_client import ScriptCache, ScriptSandbox
 
 if TYPE_CHECKING:
@@ -373,6 +373,7 @@ class OttFederationProvider:
                 timeout=10.0, trust_env=False, follow_redirects=False
             ),
             max_bytes=self._max_content_bytes,
+            api_level=CLIENT_API_LEVEL,
         )
         script_cache = ScriptCache(
             cache_dir=self._script_cache_dir(),

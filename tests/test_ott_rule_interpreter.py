@@ -717,3 +717,27 @@ class TestSchemaV2:
         assert len(entries) == 1
         assert client.get.called
         assert client.post.called is False
+
+    def test_dict_literal_body_serialized_as_json(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(steps=None, body={"0": "abc"})
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+        assert client.post.call_args.kwargs["content"] == '{"0": "abc"}'
+
+    def test_dict_steps_output_serialized_as_json(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(steps=[{"fn": "json_decode", "args": []}], body="{}")
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+        assert client.post.call_args.kwargs["content"] == "{}"
+
+    def test_unsupported_body_type_skips_rule(self) -> None:
+        client = _mock_client([])
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(steps=None, body=object())
+        assert interp.list_entries(rule, "r1") == []

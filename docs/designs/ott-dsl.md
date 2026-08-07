@@ -133,11 +133,11 @@ L1 声明式规则（`ott-rule`）为无图灵完备的抓取描述：
 }
 ```
 
-- `request.body`：字符串模板，可含 `{ref}` 占位符引用 steps 中间值（`{"ref": "body"}`）。
-- `steps` 输出经 `request.body` 模板构造请求体；无 `steps` 时 `body` 为字面量。
-- `permissions.network`：域名白名单，`request.url` 与请求重定向都必须落在白名单内；缺省拒绝。
+- `request.body`：无 `steps` 时为字面量，有 `steps` 时经管道构造。body 类型规范化：str/bytes 直传、dict/list → JSON 序列化、int/bool 字符串化、其余类型规则拒绝。`{"ref": "body"}` 引用 body 字面量作为 steps 输入。
+- `steps` 输出经 `request.body` 模板构造请求体；`Content-Type` 等 HTTP 头必须由规则在 `request.headers` 显式声明（`httpx content=` 不自动添加 JSON 头）。
+- `permissions.network`：域名白名单（子域匹配），**声明时生效**——URL 不在白名单内整条规则拒绝；未声明回退 `validate_url` 基线。
 - `rights.min_api_level`：客户端低于声明 API level 时整条规则标记不兼容。
-- 校验拒绝：`transform` 与 `steps` 并存、未知原语、`permissions` 声明与 `request` 不一致。
+- 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限（MAX_STEPS/MAX_CALLS/1MB）。
 
 ## 7. 极速杯迁移验证（Phase 1.4）
 

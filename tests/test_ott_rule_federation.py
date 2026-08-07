@@ -222,3 +222,16 @@ class TestFederationWithRules:
         assert "rule:rule-test.example.org:sample-rule" in clients
         # 不存在裸 "sample-rule" 作为 instance authority
         assert "sample-rule" not in clients
+
+    def test_build_clients_uses_client_api_level(self, tmp_path) -> None:
+        """federation 创建的 interpreter 必须携带客户端 API level。"""
+        provider = _federation_with_rule(tmp_path)
+        clients = provider._build_clients()
+        rule_client = clients["rule:rule-test.example.org:sample-rule"]
+        interp = rule_client._interpreter
+        from src.backend.integration.ott_rule_interpreter import CLIENT_API_LEVEL
+
+        assert interp._api_level == CLIENT_API_LEVEL
+        rule = _rule_manifest()["sources"][0]["rule"]
+        rule = {**rule, "rights": {"min_api_level": CLIENT_API_LEVEL + 1}}
+        assert interp.list_entries(rule, "r1") == []

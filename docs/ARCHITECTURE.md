@@ -464,9 +464,10 @@ src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + rep
 规则可选用 v2 字段（设计见 `docs/designs/ott-dsl.md`）：
 
 - `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），前步输出作为后步首参，`{"ref": "body"}` 引用 `request.body` 字面量；末步输出作为 POST 请求体
-- `request.body`：无 `steps` 时为字面量；有 `steps` 时经管道构造
+- `request.body`：无 `steps` 时为字面量；有 `steps` 时经管道构造。body 类型规范化：str/bytes 直传、dict/list → JSON 序列化、int/bool 字符串化、其余类型规则拒绝
 - `permissions.network`：域名白名单（子域匹配），**声明时生效**——URL 不在白名单内 → 整条规则拒绝；未声明回退 `validate_url` 基线
-- `rights.min_api_level`：客户端 API level（`OttRuleInterpreter(api_level=...)`）低于声明值 → 规则标记不兼容跳过
+- `rights.min_api_level`：客户端 API level（`OttRuleInterpreter(api_level=...)`，生产经 `CLIENT_API_LEVEL`）低于声明值 → 规则标记不兼容跳过
+- `request.headers`：`Content-Type` 等 HTTP 头必须由规则显式声明（`httpx content=` 不自动添加 JSON 头）
 - 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限（`MAX_STEPS`/`MAX_CALLS`/1MB 值）→ 整条规则跳过
 - 引擎约束：单值 ≤1MB、深度 ≤32、调用 ≤1000、步数 ≤8、步间数据 ≤2MB；正则原语复用 0.B1 子进程方案
 

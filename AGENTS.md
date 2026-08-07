@@ -423,7 +423,8 @@ onActiveChanged: {
 **schema v2**（2026-08-07 Phase 1.3 落地，设计见 `docs/designs/ott-dsl.md`）：
 - `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），`{"ref": "body"}` 引用 `request.body` 字面量，末步输出作为 POST 请求体
 - `permissions.network`：域名白名单（子域匹配），声明时生效——URL 不在白名单内整条规则拒绝；未声明回退 `validate_url`
-- `rights.min_api_level`：客户端 API level 低于声明值 → 规则不兼容跳过
+- `rights.min_api_level`：客户端 API level（`CLIENT_API_LEVEL` 常量，federation 创建 interpreter 时传入）低于声明值 → 规则不兼容跳过
+- body 类型规范化：str/bytes 直传、dict/list → JSON 序列化、int/bool 字符串化、其余类型规则拒绝；`Content-Type` 必须由规则 `request.headers` 显式声明
 - 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限 → 整条规则跳过
 
 **正确做法**：

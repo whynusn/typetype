@@ -38,6 +38,9 @@ MAX_TOTAL_ENTRIES = 1000
 DEFAULT_MAX_BYTES = 1_048_576
 DEFAULT_MAX_PAGES = 5
 TOTAL_FETCH_TIMEOUT_S = 10.0
+# 客户端实现的 DSL API level（schema v2 rights.min_api_level 对照值）。
+# DSL 引擎（43 原语）+ schema v2 已落地 → 2；未来新增能力递增。
+CLIENT_API_LEVEL = 2
 # ReDoS 防护（安全红线 3）：正则输入截断 ≤10KB；子进程执行 + 1s 硬超时
 REGEX_MAX_INPUT_CHARS = 10_000
 REGEX_TIMEOUT_S = 1.0
@@ -691,25 +694,37 @@ class OttRuleInterpreter:
         pin_headers.setdefault("Host", host_value)
         return pinned, pin_headers
 
-    def _build_request_body(self, body_template: str, steps: Any) -> str | bytes | None:
+    def _build_request_body(self, body_template: Any, steps: Any) -> str | bytes | None:
         """构造 POST 请求体。
 
         无 ``steps`` 时返回 ``body_template`` 字面量；有 ``steps`` 时执行
-        DSL 管道，末步输出作为请求体。求值失败（超限/未知原语）返回 None。
+        DSL 管道，末步输出作为请求体。body 类型规范化：str/bytes 直传，
+        dict/list → JSON 序列化，int/bool → 字符串化，其余返回 None。
+        求值失败（超限/未知原语/不支持类型）返回 None。
         """
-        if not isinstance(body_template, str):
-            body_template = ""
         if steps is None:
-            return body_template
+            return self._normalize_body(body_template)
         try:
             output = run_steps(steps, initial=body_template)
         except DslError:
             return None
-        if isinstance(output, bytes):
-            return output
-        if isinstance(output, str):
-            return output
-        return str(output)
+        return self._normalize_body(output)
+
+    @staticmethod
+    def _normalize_body(value: Any) -> str | bytes | None:
+        """将 body 值规范化为可发送的 str/bytes；不支持类型返回 None。"""
+        if value is None:
+            return None
+        if isinstance(value, (str, bytes)):
+            return value
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, ensure_ascii=False)
+            except (TypeError, ValueError):
+                return None
+        if isinstance(value, (int, float, bool)):
+            return str(value)
+        return None
 
     def _fetch(
         self, url: str, method: str, headers: dict, body: str | bytes | None = None
