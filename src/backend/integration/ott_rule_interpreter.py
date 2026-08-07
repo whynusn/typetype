@@ -17,13 +17,17 @@ import ipaddress
 import json
 import re
 import socket
+import subprocess
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from .ott_normalization import normalize_summary
+from .regex_worker import _has_nested_quantifier
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -33,7 +37,12 @@ MAX_TOTAL_ENTRIES = 1000
 DEFAULT_MAX_BYTES = 1_048_576
 DEFAULT_MAX_PAGES = 5
 TOTAL_FETCH_TIMEOUT_S = 10.0
-REGEX_MAX_INPUT_CHARS = 50_000  # ReDoS 防护：正则匹配输入截断上限
+# ReDoS 防护（安全红线 3）：正则输入截断 ≤10KB；子进程执行 + 1s 硬超时
+REGEX_MAX_INPUT_CHARS = 10_000
+REGEX_TIMEOUT_S = 1.0
+# ponytail: 跟随 ott_script_client 的子进程模式（sys.executable + 脚本）；
+# 打包版若需支持正则需改用独立可执行/嵌入式 worker
+REGEX_WORKER_PATH = Path(__file__).with_name("regex_worker.py")
 
 
 # ---------------------------------------------------------------------------
@@ -291,28 +300,40 @@ def _stringify(value: Any) -> str:
 def _extract_regex(text: str, pattern: str) -> dict[str, str]:
     """用命名正则提取字段。失败返回空 dict。
 
-    ReDoS 防护：输入文本超过 REGEX_MAX_INPUT_CHARS 时截断，
-    避免恶意正则 (a+)+$ 类灾难性回溯。
+    ReDoS 防护（安全红线 3）：正则不在宿主进程执行，由 regex_worker 子进程
+    执行并受 1s 硬超时；输入截断 ≤10KB；嵌套量词静态拒绝。
     """
     if not pattern or not text:
         return {}
-    # 截断输入以缓解 ReDoS（正则匹配在超长文本上即使模式无害也慢）
     if len(text) > REGEX_MAX_INPUT_CHARS:
         text = text[:REGEX_MAX_INPUT_CHARS]
+    if _has_nested_quantifier(pattern):
+        return {}
+    payload = json.dumps({"pattern": pattern, "text": text}).encode("utf-8")
     try:
-        match = re.search(pattern, text, re.DOTALL)
-    except re.error:
+        proc = subprocess.run(
+            [sys.executable, str(REGEX_WORKER_PATH)],
+            input=payload,
+            capture_output=True,
+            timeout=REGEX_TIMEOUT_S,
+        )
+    except (subprocess.TimeoutExpired, OSError):
         return {}
-    if match is None:
+    if proc.returncode != 0:
         return {}
-    groups = match.groupdict()
-    if not groups:
-        # 无命名组：用 group(1) 作为 content
-        try:
-            return {"content": match.group(1)}
-        except IndexError:
-            return {}
-    return {k: (v if v is not None else "") for k, v in groups.items()}
+    try:
+        result = json.loads(proc.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return {}
+    if not isinstance(result, dict) or not result.get("ok"):
+        return {}
+    groups = result.get("groups")
+    if isinstance(groups, dict):
+        return {k: (v if v is not None else "") for k, v in groups.items()}
+    content = result.get("content")
+    if isinstance(content, str):
+        return {"content": content}
+    return {}
 
 
 def _first_group_value(result: dict[str, str] | None) -> str:

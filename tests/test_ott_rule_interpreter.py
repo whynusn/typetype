@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -20,6 +21,7 @@ from src.backend.integration.ott_rule_interpreter import (
     extract_fields,
     validate_url,
 )
+from src.backend.integration.regex_worker import _has_nested_quantifier
 
 
 @pytest.fixture(autouse=True)
@@ -167,6 +169,23 @@ class TestExtractField:
         text = "Name: John Doe"
         result = extract_field(text, "/Name: (?P<name>.*)/")
         assert result == "John Doe"
+
+    def test_regex_nested_quantifier_rejected(self) -> None:
+        # (a+)+$ 灾难性回溯模式：静态拒绝，1s 内返回空
+        text = "a" * 10_000
+        start = time.monotonic()
+        result = extract_field(text, "(a+)+$")
+        elapsed = time.monotonic() - start
+        assert result == ""
+        assert elapsed < 1.0
+
+    def test_regex_worker_timeout_fallback_empty(self) -> None:
+        # 子进程执行失败/超时时静默返回空，不抛错
+        start = time.monotonic()
+        result = extract_field("hello world", "(a|b|ab|c|d|e|f|g|h|i|j|k|l|m)*$")
+        elapsed = time.monotonic() - start
+        assert result == ""
+        assert elapsed < 1.0
 
     def test_css_selector(self) -> None:
         html = '<div class="content"><p>Hello World</p></div>'
@@ -519,3 +538,50 @@ class TestDnsPin:
         ):
             pinned, _ = interp._pin_url("http://example.com/api", {})
         assert pinned is None
+
+
+class TestRegexWorkerProtocol:
+    def test_has_nested_quantifier_detects_catastrophic(self) -> None:
+        for bad in ["(a+)+", "(a*)*", "(a|a)+", "(a{1,3}){2}", "((a+)+)+"]:
+            assert _has_nested_quantifier(bad), bad
+
+    def test_has_nested_quantifier_allows_safe(self) -> None:
+        for ok in ["a+", "(ab)+", "(a|b)+", "[a+]+", "a{2}", r"\(a+\)+"]:
+            assert not _has_nested_quantifier(ok), ok
+
+    def test_worker_runs_subprocess(self) -> None:
+        import subprocess
+        import sys
+
+        from src.backend.integration.ott_rule_interpreter import REGEX_WORKER_PATH
+
+        payload = json.dumps(
+            {"pattern": "<h1>(?P<title>.*?)</h1>", "text": "<h1>Hi</h1>"}
+        ).encode()
+        proc = subprocess.run(
+            [sys.executable, str(REGEX_WORKER_PATH)],
+            input=payload,
+            capture_output=True,
+            timeout=5,
+        )
+        assert proc.returncode == 0
+        out = json.loads(proc.stdout)
+        assert out["ok"] is True
+        assert out["groups"]["title"] == "Hi"
+
+    def test_worker_rejects_nested_quantifier(self) -> None:
+        import subprocess
+        import sys
+
+        from src.backend.integration.ott_rule_interpreter import REGEX_WORKER_PATH
+
+        payload = json.dumps({"pattern": "(a+)+", "text": "aaa"}).encode()
+        proc = subprocess.run(
+            [sys.executable, str(REGEX_WORKER_PATH)],
+            input=payload,
+            capture_output=True,
+            timeout=5,
+        )
+        out = json.loads(proc.stdout)
+        assert out["ok"] is False
+        assert out["error"] == "nested_quantifier"
