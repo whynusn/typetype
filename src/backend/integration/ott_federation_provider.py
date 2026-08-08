@@ -15,8 +15,10 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -33,6 +35,60 @@ from .ott_script_client import ScriptCache, ScriptSandbox
 
 if TYPE_CHECKING:
     pass
+
+
+CLIENT_OTT_CORE_VERSION = "1.0"
+CLIENT_FEATURES = frozenset({"entry_summary", "inline_content", "segmented_content"})
+_VERSION_CONSTRAINT_RE = re.compile(r"^(>=|<=|>|<|==|=)?\s*(\d+(?:\.\d+)*)$")
+_VERSION_OPERATIONS: dict[str, Callable[[int], bool]] = {
+    "": lambda c: c == 0,
+    "=": lambda c: c == 0,
+    "==": lambda c: c == 0,
+    ">": lambda c: c > 0,
+    ">=": lambda c: c >= 0,
+    "<": lambda c: c < 0,
+    "<=": lambda c: c <= 0,
+}
+
+
+def _compare_versions(a: str, b: str) -> int:
+    a_parts = tuple(int(p) for p in a.split("."))
+    b_parts = tuple(int(p) for p in b.split("."))
+    if a_parts > b_parts:
+        return 1
+    if a_parts < b_parts:
+        return -1
+    return 0
+
+
+def _satisfies_ott_core(constraint: str, version: str) -> bool:
+    match = _VERSION_CONSTRAINT_RE.match(constraint.strip())
+    if match is None:
+        return False
+    op, required = match.groups()
+    cmp_result = _compare_versions(version, required)
+    return _VERSION_OPERATIONS[op or ""](cmp_result)
+
+
+def _repo_incompatibility(manifest: dict) -> str | None:
+    requires = manifest.get("requires")
+    if not isinstance(requires, dict):
+        return None
+    ott_core = requires.get("ott_core")
+    if (
+        isinstance(ott_core, str)
+        and ott_core
+        and not _satisfies_ott_core(ott_core, CLIENT_OTT_CORE_VERSION)
+    ):
+        return f"需要 OTT Core {ott_core}，客户端为 {CLIENT_OTT_CORE_VERSION}"
+    features = requires.get("client_features")
+    if isinstance(features, list):
+        missing = sorted(
+            f for f in features if isinstance(f, str) and f and f not in CLIENT_FEATURES
+        )
+        if missing:
+            return f"缺少客户端能力: {', '.join(missing)}"
+    return None
 
 
 class _EntryCache:
@@ -437,6 +493,12 @@ class OttFederationProvider:
             manifest = self._manifest_for(repo)
             if manifest is None:
                 continue
+            reason = _repo_incompatibility(manifest)
+            if reason is not None:
+                log_warning(
+                    f"[Federation] 仓库不兼容跳过: {redact_url(repo.url)} — {reason}"
+                )
+                continue
             repo_id = manifest.get("repo_id", "")
             for source in manifest.get("sources", []):
                 if not source.get("default_enabled", True):
@@ -671,6 +733,25 @@ class OttFederationProvider:
             if not repo.url:
                 continue
             manifest = self._manifest_for(repo)
+            reason = _repo_incompatibility(manifest) if manifest else None
+            if manifest is not None and reason is not None:
+                result.append(
+                    {
+                        "url": repo.url,
+                        "enabled": repo.enabled,
+                        "trust_state": repo.trust_state,
+                        "added_at": repo.added_at,
+                        "loaded": True,
+                        "name": manifest.get("name", ""),
+                        "description": manifest.get("description", ""),
+                        "repo_id": manifest.get("repo_id", ""),
+                        "authorities": [],
+                        "instance_count": 0,
+                        "error": None,
+                        "incompatible_reason": reason,
+                    }
+                )
+                continue
             # 收集 manifest 中所有源的 authority
             authorities: list[str] = []
             if manifest:
@@ -710,6 +791,7 @@ class OttFederationProvider:
                     else 0
                 ),
                 "error": None if manifest else "加载失败",
+                "incompatible_reason": None,
             }
             result.append(summary)
         return result

@@ -19,6 +19,7 @@
 - **default_enabled 消费（ADR-011 Phase 3.4）**：联邦聚合按 manifest 声明的 `default_enabled` 启用/禁用 ott-instance 源，未声明时默认启用
 - **manifest 条件请求与镜像 failover（ADR-011 Phase 3.1/3.2）**：拉取携带 `If-None-Match`，304 刷新缓存 mtime 不换内容；主地址失败时按已缓存 manifest 的 http(s) mirrors 依次回退，ETag 持久化到订阅
 - **联邦客户端复用与结果缓存（ADR-011 Phase 3.9）**：rule/script 共用单个 `httpx.Client`，按订阅+manifest mtime 签名复用客户端实例；rule/script 条目结果按 `cache_ttl_seconds` 缓存，避免每次查询全量重抓
+- **requires 协商（ADR-011 Phase 3.3）**：manifest 声明 `ott_core` 版本约束与 `client_features`，不满足整仓标记不兼容并跳过，订阅列表显示 `incompatible_reason`，不再静默部分启用
 - **OTT Repo 控制面（ADR-010）**：去中心化文本源订阅生态。多 authority 联邦聚合（`OttFederationConfig`）、订阅管理 UI（`ReposManagementPanel`）、声明式规则源（L1 `OttRuleInterpreter`）、ott-script 脚本源（L3 子进程沙箱）、旧 `registry.primary_url` 自动迁移
 - **打词率（word typing rate）指标**：统计会话中 CJK 字符被作为词组输入的比例。
   算法将间隔 ≤ 300ms 的连续 CJK 字符视为词组输入，打词率 = 词组字符数 / 总 CJK 字符数 × 100。
