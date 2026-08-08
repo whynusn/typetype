@@ -136,6 +136,33 @@ def test_typing_page_renders_ziti_hint_from_bridge():
     assert "zitiHintText" in source
 
 
+def test_text_load_hub_clears_pending_federated_flag_on_failure():
+    """联邦 inline 加载失败或中途返回时，_pendingFederatedContent 必须清零。
+
+    残留 flag 会把后续任意 textContentLoaded（如正常载文）误判成联邦内容
+    启动打字。修复要求：独立联邦 Connections 里处理 textLoadFailed 清除
+    flag，且 onActiveChanged 激活时（中途返回场景）也清除。
+    """
+    page_qml = QML_DIR / "pages/TextLoadHubPage.qml"
+    source = page_qml.read_text(encoding="utf-8")
+    assert "textLoadFailed" in BRIDGE_SIGNALS
+    assert "function onTextLoadFailed" in source
+    # onActiveChanged 在 root 作用域内直接写 flag（无前缀）；联邦 Connections
+    # 成功/失败 handler 在组件外部需 root. 前缀，失败分支同样清除 flag
+    assert "_pendingFederatedContent = false" in source
+    assert "root._pendingFederatedContent = null" in source
+    # 失败 handler 必须在 flag 置位之后且与成功 handler 同处联邦 Connections，
+    # 且失败分支内要有 flag 清除（onTextLoadFailed 函数体含 = null）
+    failed_at = source.index("function onTextLoadFailed")
+    failed_body = source[failed_at : source.index("\n        }", failed_at)]
+    assert "root._pendingFederatedContent = null" in failed_body
+    # 失败分支必须在联邦 Connections（不依赖 root.active）内，与成功分支同处
+    failed_at = source.index("function onTextLoadFailed")
+    success_at = source.index("function onTextContentLoaded")
+    flag_set_at = source.index("root._pendingFederatedContent = true")
+    assert failed_at > flag_set_at and success_at > flag_set_at
+
+
 def test_settings_page_exposes_ziti_controls():
     page_qml = QML_DIR / "pages/SettingsPage.qml"
     source = page_qml.read_text(encoding="utf-8")

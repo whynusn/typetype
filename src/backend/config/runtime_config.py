@@ -379,8 +379,6 @@ class RuntimeConfig:
         )
 
         # 解析 source_repos，并在缺少时从旧 registry.primary_url 自动迁移。
-        # 联邦聚合层（OttFederationProvider）取代旧单实例 OttTextProvider 的 discovery 职责，
-        # 因此只要 source_repos 非空即清空 primary_url，避免旧 provider 向旧地址发起 discovery 请求。
         source_repos = cls._parse_source_repos(data.get("source_repos"))
         if not source_repos.repos and registry.primary_url:
             source_repos = SourceReposConfig(
@@ -394,8 +392,12 @@ class RuntimeConfig:
                 ]
             )
         if source_repos.repos and registry.primary_url:
-            registry.primary_url = ""
-            registry.mirror_url = ""
+            # 仅当 primary_url 不匹配任何订阅（陈旧地址）时才清空；
+            # 与订阅一致的 primary_url 保留，作为跨重启"旧 primary"识别依据，
+            # 供 update_registry_url 换地址/清空时移除旧订阅（僵尸订阅清理）。
+            if not any(r.url == registry.primary_url for r in source_repos.repos):
+                registry.primary_url = ""
+                registry.mirror_url = ""
 
         ts_data = data.get("text_session", {})
         if not isinstance(ts_data, dict):
@@ -548,18 +550,27 @@ class RuntimeConfig:
     ) -> None:
         """更新 Registry 服务地址并持久化到 config.json。
 
-        联邦聚合以 source_repos 为唯一消费入口，_from_dict 加载时只要
-        source_repos 非空就会清空旧 registry.primary_url/mirror_url。
-        因此设置 primary_url 时必须同步落一条 source_repos 订阅，否则
-        下次启动该 URL 会被静默清除（设置页填的地址丢失）。
+        _from_dict 加载时仅清空不匹配任何订阅的陈旧 primary_url，与订阅
+        一致的地址保留（跨重启识别旧 primary 用）。primary_url 变更必须
+        与 source_repos 订阅双向同步：
+        - 设置新地址 → 落一条订阅（去重复用），并移除旧 primary 对应订阅
+        - 清空地址（设置页语义"留空则禁用"）→ 移除对应订阅，避免僵尸订阅
+        否则下次启动该 URL 会被静默清除（设置页填的地址丢失）。
         """
+        old_primary = self.registry.primary_url
         if primary_url is not None:
             self.registry.primary_url = primary_url.rstrip("/") if primary_url else ""
         if mirror_url is not None:
             self.registry.mirror_url = mirror_url.rstrip("/") if mirror_url else ""
-        if primary_url and primary_url.strip().rstrip("/"):
+        new_primary = self.registry.primary_url
+        # 换地址或清空时，移除旧 primary 对应的订阅（僵尸订阅清理）。
+        # _from_dict 加载时仅清空不匹配任何订阅的陈旧 primary_url，
+        # 与订阅一致的 primary_url 保留，故此处 old_primary 跨重启有值。
+        if old_primary and old_primary != new_primary:
+            self.remove_source_repo(old_primary)
+        if new_primary:
             # 同步订阅：同 url 已存在则复用（add_source_repo 内部去重并启用）
-            self.add_source_repo(primary_url.rstrip("/"))
+            self.add_source_repo(new_primary)
         else:
             self._save_to_file()
 

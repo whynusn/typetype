@@ -71,6 +71,10 @@ FluentPage {
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
         if (active) {
+            // 中途返回场景：联邦 inline 加载未完成就回到 hub，残留的
+            // _pendingFederatedContent 会把后续任意 textContentLoaded 误判成
+            // 联邦内容启动打字。激活时清 flag，废弃未完成的联邦载文流程。
+            _pendingFederatedContent = false
             if (initialSource) {
                 currentSource = initialSource
                 initialSource = ""
@@ -1018,6 +1022,14 @@ FluentPage {
                 title: title || qsTr("联邦文本"),
                 textId: 0
             }, {})
+        }
+        function onTextLoadFailed(message) {
+            /* 联邦 inline 加载失败：清除 flag，防止残留的 _pendingFederatedContent
+               把后续任意 textContentLoaded（如正常载文）误判成联邦内容 */
+            if (!root._pendingFederatedContent) return
+            root._pendingFederatedContent = null
+            root.errorMessage = message
+            root.statusMessage = ""
         }
         function onRegistryFederatedEntriesLoadingChanged() {
             if (appBridge && appBridge.federatedEntriesLoading) {

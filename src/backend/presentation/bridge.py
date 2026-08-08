@@ -855,8 +855,20 @@ class Bridge(QObject):
 
     @Property(str, notify=registryUrlChanged)
     def registryPrimaryUrl(self) -> str:
-        """注册表主地址。"""
-        return self._text_adapter._runtime_config.registry.primary_url
+        """注册表主地址。
+
+        _from_dict 加载时仅清空不匹配任何订阅的陈旧 primary_url（避免旧
+        OttTextProvider 向旧地址发起 discovery）。设置页字段绑定本属性，
+        因此 primary_url 为空时从第一个 enabled 订阅反推显示，保证用户
+        设置的主地址在重启后仍可见。
+        """
+        cfg = self._text_adapter._runtime_config
+        if cfg.registry.primary_url:
+            return cfg.registry.primary_url
+        for repo in cfg.source_repos.repos:
+            if repo.enabled:
+                return repo.url
+        return ""
 
     @Property(str, notify=registryUrlChanged)
     def registryMirrorUrl(self) -> str:
