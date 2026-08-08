@@ -221,6 +221,7 @@ class RuntimeConfig:
         20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
     )
     typing_history_max_records: int = 2000  # 打字历史最多保留条数
+    blocked_content_hashes: list[str] = field(default_factory=list)
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -247,7 +248,7 @@ class RuntimeConfig:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 log_error(f"[RuntimeConfig] 配置文件损坏，使用默认配置: {config_path}")
-                config = cls(_config_path=str(user_config_path()))
+                config = cls(_config_path=config_path)
                 config._ensure_builtin_default_repo()
                 return config
             config = cls._from_dict(data)
@@ -255,7 +256,7 @@ class RuntimeConfig:
                 config._ensure_builtin_default_repo()
             config._config_path = config_path
         else:
-            config = cls(_config_path=str(user_config_path()))
+            config = cls(_config_path=config_path)
             config._ensure_builtin_default_repo()
 
         # 清理已知的测试/占位订阅（客户端不自动订阅任何远程源，
@@ -449,12 +450,19 @@ class RuntimeConfig:
         if not isinstance(ui_data, dict):
             ui_data = {}
 
+        raw_blocked = data.get("blocked_content_hashes")
+        blocked_content_hashes = (
+            [h for h in raw_blocked if isinstance(h, str) and h]
+            if isinstance(raw_blocked, list)
+            else []
+        )
         return cls(
             base_url=base_url,
             api_timeout=api_timeout,
             typing_history_max_records=cls._safe_int(
                 data.get("typing_history_max_records"), 2000
             ),
+            blocked_content_hashes=blocked_content_hashes,
             text_source_config=text_source_config,
             wenlai=wenlai,
             registry=registry,
@@ -614,6 +622,23 @@ class RuntimeConfig:
         self.registry.scripts_enabled = bool(enabled)
         self._save_to_file()
 
+    def add_blocked_content_hash(self, content_hash: str) -> None:
+        """加入本地内容屏蔽清单（takedown 生效）并持久化。"""
+        cleaned = content_hash.strip()
+        if cleaned and cleaned not in self.blocked_content_hashes:
+            self.blocked_content_hashes.append(cleaned)
+            self._save_to_file()
+
+    def remove_blocked_content_hash(self, content_hash: str) -> bool:
+        """从本地内容屏蔽清单移除；存在才持久化并返回 True。"""
+        cleaned = content_hash.strip()
+        remaining = [h for h in self.blocked_content_hashes if h != cleaned]
+        if len(remaining) == len(self.blocked_content_hashes):
+            return False
+        self.blocked_content_hashes = remaining
+        self._save_to_file()
+        return True
+
     def add_source_repo(self, url: str, *, added_at: str = "") -> SourceRepoEntry:
         """添加一条源仓库订阅并持久化。"""
         url = url.strip().rstrip("/") if url else ""
@@ -741,6 +766,7 @@ class RuntimeConfig:
             self.base_url = updated.base_url
             self.api_timeout = updated.api_timeout
             self.typing_history_max_records = updated.typing_history_max_records
+            self.blocked_content_hashes = updated.blocked_content_hashes
             self.text_source_config = updated.text_source_config
             self.wenlai = updated.wenlai
             self.registry = updated.registry
@@ -763,6 +789,7 @@ class RuntimeConfig:
             "default_text_source_key": self.default_text_source_key,
             "api_timeout": self.api_timeout,
             "typing_history_max_records": self.typing_history_max_records,
+            "blocked_content_hashes": list(self.blocked_content_hashes),
             "text_sources": {
                 key: {
                     "label": source.label,

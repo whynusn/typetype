@@ -549,6 +549,12 @@ class OttFederationProvider:
         signature.append(self._runtime_config.registry.scripts_enabled)
         return tuple(signature)
 
+    def _blocked_content_hashes(self) -> set[str]:
+        raw = getattr(self._runtime_config, "blocked_content_hashes", None)
+        if not isinstance(raw, list):
+            return set()
+        return {h for h in raw if isinstance(h, str) and h}
+
     def _manifest_for(self, repo: SourceRepoEntry) -> dict | None:
         """本地内置订阅直读 manifest，远程订阅走缓存。"""
         if repo.url.startswith("file://"):
@@ -678,7 +684,10 @@ class OttFederationProvider:
                             e["authority"] = authority
                 all_entries.extend(entries)
         seen: dict[str, dict] = {}
+        blocked = self._blocked_content_hashes()
         for e in all_entries:
+            if e.get("content_hash") in blocked:
+                continue
             key = f"{e.get('_authority', '')}:{e.get('entry_id', '')}"
             if key in seen:
                 continue
@@ -714,7 +723,12 @@ class OttFederationProvider:
         client = clients.get(authority)
         if client is None:
             return None
-        return client.get_entry(entry_id)
+        detail = client.get_entry(entry_id)
+        if detail is None:
+            return None
+        if detail.get("content_hash") in self._blocked_content_hashes():
+            return None
+        return detail
 
     def get_segment(
         self,

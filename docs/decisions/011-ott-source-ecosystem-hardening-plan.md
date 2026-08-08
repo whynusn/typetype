@@ -172,6 +172,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 7.3 官方适配器仓库 | GitHub 组织 | 收稿红线：源所有者自荐/授权或公开 API；逆向类不收 |
 | 7.4 合规复核 | 外部 | 律师评审后放行 L3 分发 |
 
+> 状态（2026-08-08）：**7.1-7.3 文档与本地屏蔽机制已落地**（`docs/guides/ott-repo-governance.md` + `blocked_content_hashes` 本地清单）；7.2 的协议级 `revocations[]` 依赖 Phase 2.7；7.4 外部律师评审未启动。
+
 ## 全局安全红线（不可协商）
 
 1. 不提供 `eval`/`exec`/`compile`/动态函数调用/反射/对象模型访问/任意 import。

@@ -304,11 +304,10 @@ def test_registry_source_type_survives_to_dict_round_trip():
     rt = config._to_dict()
     assert rt["text_sources"]["registry_test"]["loader"] == "registry"
     config2 = RuntimeConfig._from_dict(rt)
-    assert config2.get_text_source("registry_test") is not None
-    assert config2.get_text_source("registry_test").loader == Loader.REGISTRY
-    assert config2.get_text_source("registry_test").leaderboard_mode == (
-        LeaderboardMode.SERVER_RESOLVED
-    )
+    source = config2.get_text_source("registry_test")
+    assert source is not None
+    assert source.loader == Loader.REGISTRY
+    assert source.leaderboard_mode == (LeaderboardMode.SERVER_RESOLVED)
 
 
 def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
@@ -345,8 +344,9 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
 
     config.reload()
     assert "b" in config.text_source_config.sources
-    assert config.get_text_source("b") is not None
-    assert config.get_text_source("b").loader == Loader.LOCAL_FILE
+    source = config.get_text_source("b")
+    assert source is not None
+    assert source.loader == Loader.LOCAL_FILE
 
 
 def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
@@ -640,6 +640,18 @@ def test_source_repos_default_empty():
     config = RuntimeConfig()
     assert config.source_repos.repos == []
     assert config.source_repos.enabled_repos == []
+
+
+def test_blocked_content_hashes_roundtrip(tmp_path):
+    path = tmp_path / "config.json"
+    config = RuntimeConfig.load_from_file(str(path))
+    config.add_blocked_content_hash("sha256:abc")
+    config.add_blocked_content_hash("sha256:abc")
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.blocked_content_hashes == ["sha256:abc"]
+    assert config2.remove_blocked_content_hash("sha256:abc") is True
+    config3 = RuntimeConfig.load_from_file(str(path))
+    assert config3.blocked_content_hashes == []
 
 
 def test_add_source_repo_dedup_and_enable():

@@ -106,3 +106,21 @@ def test_local_path_from_file_uri_strips_windows_drive_slash() -> None:
     path = local_path_from_file_uri("file:///D:/a/b.json")
     normalized = str(path).replace("\\", "/")
     assert normalized == "D:/a/b.json"
+
+
+def test_blocked_content_hash_blocks_entry_detail(tmp_path) -> None:
+    config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
+    detail_file = (
+        builtin_ott_repo_dir() / "static" / "entries" / "classic_sentences.json"
+    )
+    blocked_hash = _load_json(detail_file)["content_hash"]
+    config.blocked_content_hashes = [blocked_hash]
+    manifest_cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=httpx.Client(timeout=10.0),
+        async_executor=None,
+        runtime_config=config,
+    )
+    federation = OttFederationProvider(config, manifest_cache)
+    detail = federation.get_entry("typetype-builtin-static", "classic_sentences")
+    assert detail is None
