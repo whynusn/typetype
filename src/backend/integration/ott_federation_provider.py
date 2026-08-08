@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,12 +27,36 @@ from ..utils.logger import log_info, log_warning
 from .ott_cached_fetcher import OttCachedFetcher
 from .ott_normalization import redact_url
 from .ott_client import OttClient, FetchJson, FetchText
-from .ott_repo_manifest import RepoManifestCache
+from .ott_repo_manifest import RepoManifestCache, repo_cache_key
 from .ott_rule_interpreter import CLIENT_API_LEVEL, OttRuleInterpreter
 from .ott_script_client import ScriptCache, ScriptSandbox
 
 if TYPE_CHECKING:
     pass
+
+
+class _EntryCache:
+    """rule/script 条目结果 TTL 缓存（复用 registry.cache_ttl_seconds）。"""
+
+    def __init__(self, ttl_seconds: int) -> None:
+        self._ttl_seconds = max(1, ttl_seconds)
+        self._items: dict[str, tuple[float, list[dict]]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> list[dict] | None:
+        with self._lock:
+            item = self._items.get(key)
+            if item is None:
+                return None
+            timestamp, entries = item
+            if time.time() - timestamp > self._ttl_seconds:
+                self._items.pop(key, None)
+                return None
+            return entries
+
+    def set(self, key: str, entries: list[dict]) -> None:
+        with self._lock:
+            self._items[key] = (time.time(), entries)
 
 
 class _InstanceClient:
@@ -196,14 +221,20 @@ class _RuleClient:
         rule: dict,
         interpreter: OttRuleInterpreter,
         authority: str = "",
+        entry_cache: _EntryCache | None = None,
     ) -> None:
         self.rule_id = rule_id
         self._rule = rule
         self._interpreter = interpreter
+        self._entry_cache = entry_cache
         # authority 格式：rule:{repo_id}:{rule_id}（上游规范）
         self.authority = authority or f"rule:{rule_id}"
 
     def list_entries(self) -> list[dict] | None:
+        cache_key = f"rule:{self.authority}"
+        cached = self._entry_cache.get(cache_key) if self._entry_cache else None
+        if cached is not None:
+            return cached
         try:
             entries = self._interpreter.list_entries(self._rule, self.rule_id)
         except Exception as e:
@@ -214,6 +245,8 @@ class _RuleClient:
         for e in entries:
             e["authority"] = self.authority
             e["_authority"] = e["authority"]
+        if self._entry_cache is not None:
+            self._entry_cache.set(cache_key, entries)
         return entries
 
     def get_entry(self, entry_id: str) -> dict | None:
@@ -273,13 +306,19 @@ class _ScriptClient:
         label: str,
         script_cache: ScriptCache,
         sandbox: ScriptSandbox,
+        entry_cache: _EntryCache | None = None,
     ) -> None:
         self.url = url
         self.label = label
         self._cache = script_cache
         self._sandbox = sandbox
+        self._entry_cache = entry_cache
 
     def list_entries(self) -> list[dict] | None:
+        cache_key = f"script:{self.url}"
+        cached = self._entry_cache.get(cache_key) if self._entry_cache else None
+        if cached is not None:
+            return cached
         source = self._cache.get_script(self.url)
         if source is None:
             log_warning(f"[Federation] script 下载失败: {redact_url(self.url)}")
@@ -295,6 +334,8 @@ class _ScriptClient:
             e["authority"] = "script"
             e["_authority"] = "script"
             e["source_label"] = self.label or e.get("source_label", "脚本源")
+        if self._entry_cache is not None:
+            self._entry_cache.set(cache_key, entries)
         return entries
 
     def get_entry(self, entry_id: str) -> dict | None:
@@ -357,6 +398,12 @@ class OttFederationProvider:
         self._runtime_config = runtime_config
         self._manifest_cache = manifest_cache
         self._max_content_bytes = max_content_bytes
+        self._entry_cache = _EntryCache(runtime_config.registry.cache_ttl_seconds)
+        self._clients_cache: (
+            dict[str, _InstanceClient | _RuleClient | _ScriptClient] | None
+        ) = None
+        self._clients_cache_signature: tuple[object, ...] | None = None
+        self._shared_client: httpx.Client | None = None
 
     # ------------------------------------------------------------------
     # 内部：从 manifest 构建 authority → _InstanceClient 映射
@@ -366,20 +413,22 @@ class OttFederationProvider:
         self,
     ) -> dict[str, _InstanceClient | _RuleClient | _ScriptClient]:
         """遍历所有已启用订阅，提取 ott-instance / ott-rule / ott-script，按 authority 建客户端。"""
+        signature = self._clients_signature()
+        if (
+            self._clients_cache is not None
+            and signature == self._clients_cache_signature
+        ):
+            return self._clients_cache
         clients: dict[str, _InstanceClient | _RuleClient | _ScriptClient] = {}
         # 复用同一个解释器/沙箱实例（内部无状态）
         interpreter = OttRuleInterpreter(
-            http_client=httpx.Client(
-                timeout=10.0, trust_env=False, follow_redirects=False
-            ),
+            http_client=self._shared_http_client(),
             max_bytes=self._max_content_bytes,
             api_level=CLIENT_API_LEVEL,
         )
         script_cache = ScriptCache(
             cache_dir=self._script_cache_dir(),
-            http_client=httpx.Client(
-                timeout=10.0, trust_env=False, follow_redirects=False
-            ),
+            http_client=self._shared_http_client(),
             enabled=self._runtime_config.registry.scripts_enabled,
         )
         sandbox = ScriptSandbox(enabled=self._runtime_config.registry.scripts_enabled)
@@ -396,10 +445,43 @@ class OttFederationProvider:
                 if source_type == "ott-instance":
                     self._build_instance_client(clients, source)
                 elif source_type == "ott-rule":
-                    self._build_rule_client(clients, source, interpreter, repo_id)
+                    self._build_rule_client(
+                        clients, source, interpreter, repo_id, self._entry_cache
+                    )
                 elif source_type == "ott-script":
-                    self._build_script_client(clients, source, script_cache, sandbox)
+                    self._build_script_client(
+                        clients,
+                        source,
+                        script_cache,
+                        sandbox,
+                        self._entry_cache,
+                    )
+        self._clients_cache = clients
+        self._clients_cache_signature = self._clients_signature()
         return clients
+
+    def _shared_http_client(self) -> httpx.Client:
+        if self._shared_client is None:
+            self._shared_client = httpx.Client(
+                timeout=10.0, trust_env=False, follow_redirects=False
+            )
+        return self._shared_client
+
+    def _clients_signature(self) -> tuple[object, ...]:
+        signature: list[object] = []
+        for repo in self._runtime_config.source_repos.repos:
+            mtime = 0.0
+            try:
+                mtime = (
+                    self._manifest_cache.cache_path(repo_cache_key(repo.url))
+                    .stat()
+                    .st_mtime
+                )
+            except OSError:
+                pass
+            signature.append((repo.url, repo.enabled, mtime))
+        signature.append(self._runtime_config.registry.scripts_enabled)
+        return tuple(signature)
 
     def _manifest_for(self, repo: SourceRepoEntry) -> dict | None:
         """本地内置订阅直读 manifest，远程订阅走缓存。"""
@@ -436,9 +518,7 @@ class OttFederationProvider:
         cache = OttCachedFetcher(
             config=self._runtime_config.registry,
             cache_dir=cache_dir,
-            http_client=httpx.Client(
-                timeout=10.0, trust_env=False, follow_redirects=False
-            ),
+            http_client=self._shared_http_client(),
             async_executor=None,
         )
         clients[authority] = _InstanceClient(
@@ -454,6 +534,7 @@ class OttFederationProvider:
         source: dict,
         interpreter: OttRuleInterpreter,
         repo_id: str = "",
+        entry_cache: _EntryCache | None = None,
     ) -> None:
         rule_id = source.get("rule_id", "")
         rule = source.get("rule")
@@ -468,6 +549,7 @@ class OttFederationProvider:
             rule=rule,
             interpreter=interpreter,
             authority=authority,
+            entry_cache=entry_cache,
         )
 
     @staticmethod
@@ -476,6 +558,7 @@ class OttFederationProvider:
         source: dict,
         script_cache: ScriptCache,
         sandbox: ScriptSandbox,
+        entry_cache: _EntryCache | None = None,
     ) -> None:
         url = source.get("url", "")
         if not url:
@@ -490,6 +573,7 @@ class OttFederationProvider:
             label=label,
             script_cache=script_cache,
             sandbox=sandbox,
+            entry_cache=entry_cache,
         )
 
     def _instance_cache_dir(self, authority: str) -> Path:

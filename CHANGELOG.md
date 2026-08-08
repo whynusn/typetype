@@ -18,6 +18,7 @@
 - **OTT DSL 组合安全加固（ADR-011 Phase 1.5）**：整数纳入单值字节上限（`bit_length` 估算），超大位移直接拒绝，字面量/结果超限检查前置到求值器内部；新增组合矩阵 + 固定种子模糊测试，随机表达式只可能成功或抛 `DslError`
 - **default_enabled 消费（ADR-011 Phase 3.4）**：联邦聚合按 manifest 声明的 `default_enabled` 启用/禁用 ott-instance 源，未声明时默认启用
 - **manifest 条件请求与镜像 failover（ADR-011 Phase 3.1/3.2）**：拉取携带 `If-None-Match`，304 刷新缓存 mtime 不换内容；主地址失败时按已缓存 manifest 的 http(s) mirrors 依次回退，ETag 持久化到订阅
+- **联邦客户端复用与结果缓存（ADR-011 Phase 3.9）**：rule/script 共用单个 `httpx.Client`，按订阅+manifest mtime 签名复用客户端实例；rule/script 条目结果按 `cache_ttl_seconds` 缓存，避免每次查询全量重抓
 - **OTT Repo 控制面（ADR-010）**：去中心化文本源订阅生态。多 authority 联邦聚合（`OttFederationConfig`）、订阅管理 UI（`ReposManagementPanel`）、声明式规则源（L1 `OttRuleInterpreter`）、ott-script 脚本源（L3 子进程沙箱）、旧 `registry.primary_url` 自动迁移
 - **打词率（word typing rate）指标**：统计会话中 CJK 字符被作为词组输入的比例。
   算法将间隔 ≤ 300ms 的连续 CJK 字符视为词组输入，打词率 = 词组字符数 / 总 CJK 字符数 × 100。
