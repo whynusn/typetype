@@ -1,6 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import urlparse
+
+
+def local_path_from_file_uri(url: str) -> Path:
+    """将 file:// URI 转为本地路径（兼容 Windows 盘符）。"""
+    path = urlparse(url).path
+    if len(path) >= 3 and path[0] == "/" and path[1].isalpha() and path[2] == ":":
+        path = path[1:]
+    return Path(path)
 
 
 def redact_url(url: str) -> str:

@@ -29,6 +29,7 @@
 
 ### Fixed
 
+- **内置源 Windows 无法加载**：`file://` URI 转本地路径兼容 Windows 盘符（`/D:/...` → `D:\...`），manifest 占位符展开使用正斜杠盘符形式，修复 CI Windows 上内置源 0 条目的问题
 - **ott-script 沙箱逃逸（严重）**：原进程内 `exec()` + 模块注入可被 `json.__builtins__['open']` 单行逃逸。重写为独立 Python 子进程（`ott_script_runner.py`），资源限制（256MB 内存 / 30s CPU / RLIMIT_NPROC=0）+ AST 白名单 import + 别名解析 + `__builtins__` 检测
 - **规则解释器 ReDoS 与 fetch 大小绕过**：正则匹配输入截断至 50KB 防灾难性回溯；`_fetch()` 改为 streaming 截断（不依赖 `content-length` 头，堵住 chunked 传输绕过）
 - **用户配置写入路径污染**：`RuntimeConfig._save_to_file()` 尊重显式加载的 `_config_path`，避免测试或临时配置写入真实 `~/.config/typetype/config.json`

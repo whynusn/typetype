@@ -20,7 +20,6 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 
 import httpx
 
@@ -29,7 +28,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
-from .ott_normalization import redact_url
+from .ott_normalization import local_path_from_file_uri, redact_url
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -342,8 +341,7 @@ class RepoManifestCache:
     def _fetch_local_manifest(url: str) -> dict | None:
         """从 file:// URL 读取本地 manifest。"""
         try:
-            parsed = urlparse(url)
-            path = Path(parsed.path)
+            path = local_path_from_file_uri(url)
             if not path.exists():
                 log_warning(f"[RepoManifest] 本地文件不存在: {path}")
                 return None
@@ -364,7 +362,10 @@ class RepoManifestCache:
         result = copy.deepcopy(data)
         str_data = json.dumps(result)
         if "__BUILTIN_DIR__" in str_data:
-            str_data = str_data.replace("__BUILTIN_DIR__", str(base_dir))
+            replacement = base_dir.as_posix()
+            if not replacement.startswith("/"):
+                replacement = "/" + replacement
+            str_data = str_data.replace("__BUILTIN_DIR__", replacement)
             return json.loads(str_data)
         return result
 

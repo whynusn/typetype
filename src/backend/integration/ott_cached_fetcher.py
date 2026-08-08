@@ -11,7 +11,7 @@ import httpx
 
 from ..config.runtime_config import RegistryConfig
 from ..utils.logger import log_info, log_warning
-from .ott_normalization import redact_url
+from .ott_normalization import local_path_from_file_uri, redact_url
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -189,10 +189,8 @@ class OttCachedFetcher:
 
     @staticmethod
     def _read_local_json(url: str, max_bytes: int = 0) -> dict | None:
-        from urllib.parse import urlparse
-
         try:
-            path = Path(urlparse(url).path)
+            path = local_path_from_file_uri(url)
             if not path.exists():
                 return None
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -204,10 +202,8 @@ class OttCachedFetcher:
 
     @staticmethod
     def _read_local_text(url: str, max_bytes: int = 0) -> str | None:
-        from urllib.parse import urlparse
-
         try:
-            path = Path(urlparse(url).path)
+            path = local_path_from_file_uri(url)
             if not path.exists():
                 return None
             text = path.read_text(encoding="utf-8")

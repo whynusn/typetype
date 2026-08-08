@@ -15,6 +15,7 @@ from src.backend.integration.ott_repo_manifest import (
     RepoManifestCache,
     validate_repo_manifest,
 )
+from src.backend.integration.ott_normalization import local_path_from_file_uri
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 _REPO_DIRS = [
@@ -99,3 +100,9 @@ def test_builtin_federation_loads_entries_and_detail(tmp_path):
     detail = federation.get_entry("typetype-builtin-static", "classic_sentences")
     assert detail is not None
     assert detail["content"]
+
+
+def test_local_path_from_file_uri_strips_windows_drive_slash() -> None:
+    path = local_path_from_file_uri("file:///D:/a/b.json")
+    normalized = str(path).replace("\\", "/")
+    assert normalized == "D:/a/b.json"
