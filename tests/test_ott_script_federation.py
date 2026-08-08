@@ -56,7 +56,7 @@ def _script_manifest():
     }
 
 
-def _federation_with_script(tmp_path):
+def _federation_with_script(tmp_path, *, trust_state: str = "verified"):
     config = MagicMock(spec=RuntimeConfig)
     config.registry = RegistryConfig(
         cache_ttl_seconds=3600, max_content_bytes=1_048_576
@@ -65,6 +65,7 @@ def _federation_with_script(tmp_path):
     repo_entry = SourceRepoEntry(
         url="https://script-test.example.org/ott-repo.json",
         enabled=True,
+        trust_state=trust_state,
     )
     config.source_repos = SourceReposConfig(repos=[repo_entry])
 
@@ -86,6 +87,18 @@ def _federation_with_script(tmp_path):
         manifest_cache=manifest_cache,
     )
     return provider
+
+
+def test_script_skipped_when_repo_not_verified(tmp_path):
+    provider = _federation_with_script(tmp_path, trust_state="unverified")
+    clients = provider._build_clients()
+    assert not any(key.startswith("script:") for key in clients)
+
+
+def test_script_built_when_repo_verified(tmp_path):
+    provider = _federation_with_script(tmp_path, trust_state="verified")
+    clients = provider._build_clients()
+    assert any(key.startswith("script:") for key in clients)
 
 
 class TestScriptClient:

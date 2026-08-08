@@ -89,7 +89,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 0.A7 取消自动订阅 | `runtime_config.py` | 首启不自动订阅任何**远程**源；内置 file:// 默认源除外（Phase 4） | 全新配置无远程 source_repos；内置本地源可离线使用 | ✅ 已落地（验收标准同步修订） |
 | 0.A8 法律声明 | README + 客户端 | 工具中立性声明；无广告；无聚合搜索 | README「内容与安全声明」章节存在 | ✅ 已落地 |
 | 0.A9 脚本沙箱 `file://` 收敛 | `ott_script_safety.py`、`ott_script_runner.py` | AST 白名单不含 `urllib.request`/`urlopen` | `file://` 读取用例全拒 | ✅ 已落地 |
-| 0.A10 基线测试记录 | CI/文档 | 每批后全量回归并刷新基线 | 基线可查；当前 953 collected（951 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08） | ✅ 已刷新 |
+| 0.A10 基线测试记录 | CI/文档 | 每批后全量回归并刷新基线 | 基线可查；当前 955 collected（953 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08） | ✅ 已刷新 |
 
 > 复核说明（2026-08-08）：0.A3 与 0.A6 的实现不在评审 grep 的文件内，属漏查而非缺口。0.A3 在 `ott_rule_interpreter.py::_pin_url`（HTTP pin + Host 头）与 container/federation 的 `follow_redirects=False`；0.A6 在 `runtime_config._default_scripts_enabled()` 与 `SettingsPage.qml` 开关，均有对应测试。Phase 0A 全部落地。
 
@@ -123,7 +123,9 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 2.4 CI 签名流水线 | 新 `.github/workflows/adapter-publish.yml`（两仓各自） | schema 校验 → 静态分析 → mock 沙箱 → 可重复构建 → 离线私钥签名 → 发布索引 |
 | 2.5 适配器 SDK | 扩展 `scripts/debug_rule.py` → `scripts/adapter.py` | `new`/`validate`/`debug`/`sign` 子命令 + mock server |
 | 2.6 API Level | 常量 + 校验 | 规则/脚本声明 api_level；客户端拒绝低于最低版本 |
-| 2.7 撤销列表 | `ott_repo_manifest.py` + UI | `revocations[]` 按 content_hash 推送；key 级撤销联动信任降级流程；客户端本地屏蔽 | 存储层已落地（`blocked_content_hashes`，2026-08-08）；协议层 `revocations[]` 未做 |
+| 2.7 撤销列表 | `ott_repo_manifest.py` + UI | `revocations[]` 按 content_hash 推送；key 级撤销联动信任降级流程；客户端本地屏蔽 |
+
+> 状态（2026-08-08）：**2.0 设计文档已产出**（`docs/designs/adapter-signing.md`）；**2.3 执行门槛已落地**（L3 仅 verified 仓库执行）。2.1/2.2/2.4-2.7 未开工；2.4/2.5 依赖 2.1 的适配器包格式。
 
 ### Phase 3：控制面完善
 
@@ -198,7 +200,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 6. 性能门禁：单规则 ≤5s、内存 ≤256MB。
 7. manifest/schema 门禁：两仓官方样例必须通过 `ott-repo.schema.json` 与 `entry-summary.schema.json`。
 8. [外部依赖] 修复 open-typing-texts CI：pyproject 声明 jsonschema（或测试改用仓库自带依赖）；需两仓协作，不阻塞 typetype 主线。
-9. 基线回归：每批改动后全量通过并刷新基线（当前 953 collected：951 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08）。
+9. 基线回归：每批改动后全量通过并刷新基线（当前 955 collected：953 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08）。
 
 ## 里程碑
 

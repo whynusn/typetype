@@ -511,6 +511,12 @@ class OttFederationProvider:
                         clients, source, interpreter, repo_id, self._entry_cache
                     )
                 elif source_type == "ott-script":
+                    if repo.trust_state != "verified":
+                        log_warning(
+                            f"[Federation] 仓库未验证，跳过 L3 脚本: "
+                            f"{redact_url(repo.url)}"
+                        )
+                        continue
                     self._build_script_client(
                         clients,
                         source,
