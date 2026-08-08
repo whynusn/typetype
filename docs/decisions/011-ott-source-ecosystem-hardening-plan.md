@@ -78,18 +78,20 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 
 ### Phase 0A：安全红线批次（P0，2-3 天，先于一切贡献开放）
 
-| 任务 | 文件 | 改动 | 验收 |
-|---|---|---|---|
-| 0.A1 修订 `validate_url()` | `src/backend/integration/ott_rule_interpreter.py` | percent-decode host；punycode；拒绝 host 含 `%`/非 ASCII；解析失败一律拒绝；IPv4 映射 IPv6 与十六进制/十进制/八进制 IP 字面量检测；端口限 80/443 | 攻击用例全过：编码 host、IP 混淆、`[::ffff:127.0.0.1]`、DNS 失败均拒绝 |
-| 0.A2 JSON 深度预检 | `ott_rule_interpreter.py` `_parse_response()` | 预扫括号深度 ≤256 | 10 万层炸弹直接失败，无 RecursionError |
-| 0.A3 请求与校验共用解析 | `ott_rule_interpreter.py` `_fetch()` | DNS pin；显式禁重定向 | mock 测试：解析后 IP 变更不生效 |
-| 0.A4 沙箱临时文件加固 | `ott_script_client.py` | 私有目录（0700）+ 文件 0600 + 校验属主 | 多用户下无 TOCTOU |
-| 0.A5 日志脱敏（含 federation） | `ott_rule_interpreter.py`、`ott_script_client.py`、`ott_federation_provider.py` | 不记录响应内容/参数/URL query；只记 host、长度、hash | 日志无正文与凭据 |
-| 0.A6 Windows 默认禁用 L3 | `ott_script_client.py` + `runtime_config.py` | 平台检测 + 配置开关；UI 明示原因 | Windows 上未签名/已签名脚本均不执行 |
-| 0.A7 取消自动订阅 | `runtime_config.py` `_ensure_default_subscription()` | 首启不自动订阅；引导页导入源 | 全新配置无任何 source_repos |
-| 0.A8 法律声明 | README + 客户端 | 工具中立性声明；无广告；无聚合搜索 | 发布物含声明 |
-| 0.A9 脚本沙箱 `file://` 收敛 | `ott_script_safety.py`、`ott_script_runner.py` | AST 黑名单加 `urllib.request`/`urlopen`；或出口代理统一拦截非 http(s) | `file://` 读取用例全拒 |
-| 0.A10 基线测试记录 | CI/文档 | 开工前记录全量基线（当前 803 passed），每批后全量回归 | 基线可查 |
+| 任务 | 文件 | 改动 | 验收 | 状态 |
+|---|---|---|---|---|
+| 0.A1 修订 `validate_url()` | `src/backend/integration/ott_rule_interpreter.py` | percent-decode host；punycode；拒绝 host 含 `%`/非 ASCII；解析失败一律拒绝；IPv4 映射 IPv6 与十六进制/十进制/八进制 IP 字面量检测；端口限 80/443 | 攻击用例全过：编码 host、IP 混淆、`[::ffff:127.0.0.1]`、DNS 失败均拒绝 | ✅ 已落地 |
+| 0.A2 JSON 深度预检 | `ott_rule_interpreter.py` `_parse_response()` | 预扫括号深度 ≤256 | 10 万层炸弹直接失败，无 RecursionError | ✅ 已落地 |
+| 0.A3 请求与校验共用解析 | `ott_rule_interpreter.py` `_fetch()` | HTTP DNS pin（解析为 IP 直连 + Host 头）；HTTPS 不 pin（TLS 证书按域名校验，内网 IP 无合法证书，commit 4114a21 定案）；`follow_redirects=False`（container/federation 装配） | mock 测试：解析后 IP 变更不生效；`test_http_requests_pinned_ip_with_host_header` / HTTPS 不 pin / pin_url 拒绝内网与解析失败 | ✅ 已落地 |
+| 0.A4 沙箱临时文件加固 | `ott_script_client.py` | 私有目录（0700）+ 文件 0600 + 校验属主 | 多用户下无 TOCTOU | ✅ 已落地 |
+| 0.A5 日志脱敏（含 federation） | `ott_rule_interpreter.py`、`ott_script_client.py`、`ott_federation_provider.py` | 不记录响应内容/参数/URL query；只记 host、长度、hash | 日志无正文与凭据 | ✅ 已落地 |
+| 0.A6 Windows 默认禁用 L3 | `runtime_config.py` + `SettingsPage.qml` | `_default_scripts_enabled()` 按 `sys.platform != "win32"`；配置开关 + UI 明示原因 | Windows 上脚本默认不执行；`test_registry_scripts_enabled_default_disabled_on_windows`；设置页"Windows 默认关闭"提示 | ✅ 已落地 |
+| 0.A7 取消自动订阅 | `runtime_config.py` | 首启不自动订阅任何**远程**源；内置 file:// 默认源除外（Phase 4） | 全新配置无远程 source_repos；内置本地源可离线使用 | ✅ 已落地（验收标准同步修订） |
+| 0.A8 法律声明 | README + 客户端 | 工具中立性声明；无广告；无聚合搜索 | README「内容与安全声明」章节存在 | ✅ 已落地 |
+| 0.A9 脚本沙箱 `file://` 收敛 | `ott_script_safety.py`、`ott_script_runner.py` | AST 白名单不含 `urllib.request`/`urlopen` | `file://` 读取用例全拒 | ✅ 已落地 |
+| 0.A10 基线测试记录 | CI/文档 | 每批后全量回归并刷新基线 | 基线可查；当前 953 collected（951 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08） | ✅ 已刷新 |
+
+> 复核说明（2026-08-08）：0.A3 与 0.A6 的实现不在评审 grep 的文件内，属漏查而非缺口。0.A3 在 `ott_rule_interpreter.py::_pin_url`（HTTP pin + Host 头）与 container/federation 的 `follow_redirects=False`；0.A6 在 `runtime_config._default_scripts_enabled()` 与 `SettingsPage.qml` 开关，均有对应测试。Phase 0A 全部落地。
 
 ### Phase 0B：正则执行子进程化（独立排期，不阻塞 0A）
 
@@ -99,14 +101,14 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 
 ### Phase 1：受限 DSL 原语引擎（L1.5）
 
-| 任务 | 改动 | 验收 |
-|---|---|---|
-| 1.0 DSL 设计文档先行 | 新 `docs/designs/ott-dsl.md`（本地草稿） | 原语签名、类型系统（str/bytes/int/bool/list/dict）、组合约束、与 L1 的关系；评审通过后再排 1.1-1.5 |
-| 1.1 原语白名单实现 | 新 `ott_dsl.py`（纯函数求值器，L1 解释器扩展） | 首批：基础值/编码解码/时间/随机/文本正则/算术位/集合/JSON/URL 构造/条件；加密原语（md5/sha1/sha256/hmac/aes_cbc/xor）第二批 |
-| 1.2 引擎约束 | `ott_dsl.py` | 纯函数无状态；单值 ≤1MB；步间 ≤2MB；深度 ≤32；调用 ≤1000；steps ≤8；无循环原语；字节串显式类型；异常不暴露细节 |
-| 1.3 规则 schema v2 | 新 `ott-rule-v2.schema.json` | `request.body`、`steps`、`permissions`、`rights` 字段；旧规则向后兼容；运行时分流：仅含旧字段走 L1 子集路径 |
-| 1.4 极速杯迁移验证 | 新 `tests/fixtures/rule-samples/jisubei.json` | 用 DSL 表达 AES 请求并跑通 mock；**前置：确认 www.jsxiaoshi.com 可用性与抓取许可** |
-| 1.5 组合安全测试 | 新 `tests/test_ott_dsl_security.py` | 组合矩阵用例全过 + 模糊测试（随机组合断言资源上限） |
+| 任务 | 改动 | 验收 | 状态 |
+|---|---|---|---|
+| 1.0 DSL 设计文档先行 | 新 `docs/designs/ott-dsl.md`（本地草稿） | 原语签名、类型系统（str/bytes/int/bool/list/dict）、组合约束、与 L1 的关系；评审通过后再排 1.1-1.5 | ✅ 已落地 |
+| 1.1 原语白名单实现 | 新 `ott_dsl.py`（纯函数求值器，L1 解释器扩展） | 首批：基础值/编码解码/时间/随机/文本正则/算术位/集合/JSON/URL 构造/条件；加密原语（md5/sha1/sha256/hmac/aes_cbc/xor）第二批 | ✅ 已落地 |
+| 1.2 引擎约束 | `ott_dsl.py` | 纯函数无状态；单值 ≤1MB；步间 ≤2MB；深度 ≤32；调用 ≤1000；steps ≤8；无循环原语；字节串显式类型；异常不暴露细节 | ✅ 已落地 |
+| 1.3 规则 schema v2 | 新 `ott-rule-v2.schema.json` | `request.body`、`steps`、`permissions`、`rights` 字段；旧规则向后兼容；运行时分流：仅含旧字段走 L1 子集路径 | ⚠️ typetype 运行时已落地；跨仓 schema 文件未产出 |
+| 1.4 极速杯迁移验证 | 新 `tests/fixtures/rule-samples/jisubei.json` | 用 DSL 表达 AES 请求并跑通 mock；**前置：确认 www.jsxiaoshi.com 可用性与抓取许可** | ✅ mock 验证完成；真实服务可用性/抓取许可仍待确认项 3 |
+| 1.5 组合安全测试 | 新 `tests/test_ott_dsl_security.py` | 组合矩阵用例全过 + 模糊测试（随机组合断言资源上限） | ✅ 已落地 |
 
 > 状态（2026-08-08）：**Phase 1.1-1.5 已落地**。引擎补上整数资源上限（超大整数/超大位移拒绝、字面量与结果超限检查前置），`tests/test_ott_dsl_security.py` 组合矩阵 + 300 例固定种子模糊测试全过。
 
@@ -121,7 +123,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 2.4 CI 签名流水线 | 新 `.github/workflows/adapter-publish.yml`（两仓各自） | schema 校验 → 静态分析 → mock 沙箱 → 可重复构建 → 离线私钥签名 → 发布索引 |
 | 2.5 适配器 SDK | 扩展 `scripts/debug_rule.py` → `scripts/adapter.py` | `new`/`validate`/`debug`/`sign` 子命令 + mock server |
 | 2.6 API Level | 常量 + 校验 | 规则/脚本声明 api_level；客户端拒绝低于最低版本 |
-| 2.7 撤销列表 | `ott_repo_manifest.py` + UI | `revocations[]` 按 content_hash 推送；key 级撤销联动信任降级流程；客户端本地屏蔽 |
+| 2.7 撤销列表 | `ott_repo_manifest.py` + UI | `revocations[]` 按 content_hash 推送；key 级撤销联动信任降级流程；客户端本地屏蔽 | 存储层已落地（`blocked_content_hashes`，2026-08-08）；协议层 `revocations[]` 未做 |
 
 ### Phase 3：控制面完善
 
@@ -196,7 +198,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 6. 性能门禁：单规则 ≤5s、内存 ≤256MB。
 7. manifest/schema 门禁：两仓官方样例必须通过 `ott-repo.schema.json` 与 `entry-summary.schema.json`。
 8. [外部依赖] 修复 open-typing-texts CI：pyproject 声明 jsonschema（或测试改用仓库自带依赖）；需两仓协作，不阻塞 typetype 主线。
-9. 基线回归：Phase 0A 开工前记录全量测试基线（当前 803 passed），每批改动后全量通过。
+9. 基线回归：每批改动后全量通过并刷新基线（当前 953 collected：951 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08）。
 
 ## 里程碑
 
@@ -225,5 +227,5 @@ Phase 4（默认源合规）可与 Phase 1 并行               Phase 5（沙箱
 
 1. 官方默认源是否允许第三方 API 规则（如 hitokoto）默认开启。
 2. ott-bridge 是否立项（wenlai 桥示例）。
-3. 极速杯服务（www.jsxiaoshi.com）可用性与抓取许可（1.4 验收前置）。
+3. 极速杯服务（www.jsxiaoshi.com）可用性与抓取许可（1.4 验收前置；mock 验证已完成，真实服务验证仍待此确认）。
 4. 无头浏览器类抓取是否立项（红线第 8 条默认禁止）。
