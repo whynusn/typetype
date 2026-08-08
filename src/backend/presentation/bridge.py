@@ -2736,18 +2736,23 @@ class Bridge(QObject):
         """添加一条源仓库订阅。"""
         if self._registry_adapter:
             self._registry_adapter.addRepo(url)
+            # 订阅变化改变 registryPrimaryUrl 反推结果，须 emit 刷新设置页缓存
+            # 字段，否则 NavigationView 缓存页面残留旧值，点"应用"会用旧值复活订阅
+            self.registryUrlChanged.emit()
 
     @Slot(str)
     def removeRepo(self, url: str) -> None:
         """移除一条源仓库订阅。"""
         if self._registry_adapter:
             self._registry_adapter.removeRepo(url)
+            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
 
     @Slot(str, bool)
     def setRepoEnabled(self, url: str, enabled: bool) -> None:
         """启用/禁用一条源仓库订阅。"""
         if self._registry_adapter:
             self._registry_adapter.setRepoEnabled(url, enabled)
+            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
 
     @Slot()
     def refreshRepos(self) -> None:
