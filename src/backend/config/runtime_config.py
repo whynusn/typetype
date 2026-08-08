@@ -550,22 +550,31 @@ class RuntimeConfig:
     ) -> None:
         """更新 Registry 服务地址并持久化到 config.json。
 
-        _from_dict 加载时仅清空不匹配任何订阅的陈旧 primary_url，与订阅
-        一致的地址保留（跨重启识别旧 primary 用）。primary_url 变更必须
-        与 source_repos 订阅双向同步：
+        旧 primary 识别与 bridge.registryPrimaryUrl 显示同源：registry
+        字段优先，为空时回退到首个 enabled 订阅（兼容旧代码产出的
+        primary_url="" + 订阅在的升级态配置）。仅显式传入 primary_url
+        时才同步订阅；仅改镜像（mirror-only）不触碰订阅，避免静默复活
+        用户主动禁用/删除的订阅。
         - 设置新地址 → 落一条订阅（去重复用），并移除旧 primary 对应订阅
         - 清空地址（设置页语义"留空则禁用"）→ 移除对应订阅，避免僵尸订阅
-        否则下次启动该 URL 会被静默清除（设置页填的地址丢失）。
         """
         old_primary = self.registry.primary_url
+        if not old_primary:
+            for repo in self.source_repos.repos:
+                if repo.enabled:
+                    old_primary = repo.url
+                    break
         if primary_url is not None:
+            primary_url = primary_url.strip()
             self.registry.primary_url = primary_url.rstrip("/") if primary_url else ""
         if mirror_url is not None:
             self.registry.mirror_url = mirror_url.rstrip("/") if mirror_url else ""
+        if primary_url is None:
+            # mirror-only：不触碰订阅，仅持久化镜像地址
+            self._save_to_file()
+            return
         new_primary = self.registry.primary_url
-        # 换地址或清空时，移除旧 primary 对应的订阅（僵尸订阅清理）。
-        # _from_dict 加载时仅清空不匹配任何订阅的陈旧 primary_url，
-        # 与订阅一致的 primary_url 保留，故此处 old_primary 跨重启有值。
+        # 换地址或清空时，移除旧 primary 对应的订阅（僵尸订阅清理）
         if old_primary and old_primary != new_primary:
             self.remove_source_repo(old_primary)
         if new_primary:
@@ -601,12 +610,19 @@ class RuntimeConfig:
         return entry
 
     def remove_source_repo(self, url: str) -> bool:
-        """移除一条源仓库订阅并持久化。"""
+        """移除一条源仓库订阅并持久化。
+
+        删除的正是 primary_url 对应订阅时同步清空 primary_url，防止
+        _from_dict 的旧 primary 自动迁移在下次启动时复活该订阅。
+        """
         url = url.strip().rstrip("/") if url else ""
         new_repos = [r for r in self.source_repos.repos if r.url != url]
         if len(new_repos) == len(self.source_repos.repos):
             return False
         self.source_repos.repos = new_repos
+        if self.registry.primary_url == url:
+            self.registry.primary_url = ""
+            self.registry.mirror_url = ""
         self._save_to_file()
         return True
 

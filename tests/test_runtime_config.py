@@ -700,15 +700,10 @@ def test_no_migration_when_source_repos_present(tmp_path):
 
 
 def test_update_registry_url_syncs_source_repo_subscription(tmp_path):
-    """设置 Registry URL 必须同步落 source_repos 订阅，重启后地址不丢失。
-
-    场景：source_repos 已非空（联邦聚合消费方），设置页填写 primary_url
-    后必须同步 add_source_repo。_from_dict 加载时仅清空不匹配任何订阅的
-    陈旧 primary_url，与订阅一致的地址保留 → 重启后设置页字段不回空白。
-    """
+    """设置 Registry URL 必须同步落 source_repos 订阅，重启后地址不丢失。"""
     cfg = {
         "registry": {"primary_url": "", "mirror_url": ""},
-        "source_repos": [{"url": "https://existing.org/repo.json", "enabled": True}],
+        "source_repos": [],
     }
     path = tmp_path / "config.json"
     path.write_text(json.dumps(cfg), encoding="utf-8")
@@ -716,15 +711,146 @@ def test_update_registry_url_syncs_source_repo_subscription(tmp_path):
 
     config.update_registry_url(primary_url="http://127.0.0.1:18888")
 
-    # 重新加载模拟重启：primary_url 与订阅一致 → 保留（不回空白），
-    # 订阅包含新设置的 URL，联邦聚合才能继续消费
+    assert config.registry.primary_url == "http://127.0.0.1:18888"
+    assert [r.url for r in config.source_repos.repos] == ["http://127.0.0.1:18888"]
+    # 重新加载模拟重启：primary_url 与订阅一致 → 保留（不回空白）
     config2 = RuntimeConfig.load_from_file(str(path))
     assert config2.registry.primary_url == "http://127.0.0.1:18888"
-    assert [r.url for r in config2.source_repos.repos] == [
-        "https://existing.org/repo.json",
-        "http://127.0.0.1:18888",
-    ]
-    assert config2.source_repos.repos[-1].enabled is True
+    assert [r.url for r in config2.source_repos.repos] == ["http://127.0.0.1:18888"]
+
+
+def test_update_registry_url_legacy_state_clear_removes_subscription(tmp_path):
+    """升级态（旧代码产出 primary_url="" + 订阅在）清空时必须移除旧主订阅。
+
+    bridge.registryPrimaryUrl 显示该订阅，old_primary 同源回退到首个
+    enabled 订阅 → 清空字段必须删订阅，否则僵尸订阅残留（reviewer R1）。
+    """
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="")
+
+    assert config.source_repos.repos == []
+    assert config.registry.primary_url == ""
+    # 重启后不复活
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.source_repos.repos == []
+
+
+def test_update_registry_url_legacy_state_change_removes_old_subscription(
+    tmp_path,
+):
+    """升级态换地址必须移除旧主订阅，只留新地址（reviewer R1）。"""
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="https://b.org/repo.json")
+
+    assert [r.url for r in config.source_repos.repos] == ["https://b.org/repo.json"]
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert [r.url for r in config2.source_repos.repos] == ["https://b.org/repo.json"]
+
+
+def test_update_registry_url_after_panel_add_clear_and_change(tmp_path):
+    """面板添加订阅后清空/换地址仍能移除旧主订阅（reviewer R1 自达路径）。
+
+    设 A → 清空 → 面板加 B → 再清空/换地址：old_primary 同源回退到
+    首个 enabled 订阅（此时为 B）→ 必须正确移除。
+    """
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    # 设 A → 清空 → 面板加 B
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+    config.update_registry_url(primary_url="")
+    assert config.source_repos.repos == []
+    config.add_source_repo("https://b.org/repo.json")
+    assert [r.url for r in config.source_repos.repos] == ["https://b.org/repo.json"]
+
+    # 再清空 → 移除 B（它是当前显示的主地址）
+    config.update_registry_url(primary_url="")
+    assert config.source_repos.repos == []
+
+    # 面板再加 B → 换地址 → 移除 B，只留新地址
+    config.add_source_repo("https://b.org/repo.json")
+    config.update_registry_url(primary_url="https://c.org/repo.json")
+    assert [r.url for r in config.source_repos.repos] == ["https://c.org/repo.json"]
+
+
+def test_update_registry_url_mirror_only_keeps_subscriptions(tmp_path):
+    """仅改镜像（mirror-only）不得触碰订阅：禁用不被复活、删除不被重建。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    config.set_source_repo_enabled("https://a.org/repo.json", False)
+
+    # 仅改镜像 → 禁用的订阅保持禁用
+    config.update_registry_url(mirror_url="http://mirror.example.org/m.json")
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is False
+    assert config.registry.mirror_url == "http://mirror.example.org/m.json"
+
+    # 删除订阅后再改镜像 → 不重建
+    config.remove_source_repo("https://a.org/repo.json")
+    config.update_registry_url(mirror_url="http://mirror2.example.org/m.json")
+    assert config.source_repos.repos == []
+
+
+def test_update_registry_url_whitespace_primary_does_not_create_empty_sub(
+    tmp_path,
+):
+    """纯空格 primary_url 不得写入空 url 订阅（直接 API 调用场景）。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="   ")
+
+    assert config.registry.primary_url == ""
+    assert config.source_repos.repos == []
+
+
+def test_remove_source_repo_clears_matching_primary(tmp_path):
+    """删除 primary_url 对应订阅时同步清空 primary_url，防止重启迁移复活。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.remove_source_repo("https://a.org/repo.json")
+
+    assert config.source_repos.repos == []
+    assert config.registry.primary_url == ""
+    # 重启：primary 已清空，_from_dict 迁移不复活该订阅
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.source_repos.repos == []
+    assert config2.registry.primary_url == ""
 
 
 def test_update_registry_url_reuses_existing_subscription(tmp_path):
