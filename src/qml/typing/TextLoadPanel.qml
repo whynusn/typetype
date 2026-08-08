@@ -141,6 +141,7 @@ Item {
     }
 
     function _applySource(index) {
+        if (hubMode) return  // hubMode 下由 hub 页面管理来源加载，TextLoadPanel 不越权
         var key = (index >= 0 && index < sourceListModel.count) ? sourceListModel.get(index).key : "";
         if (!key) { reset(); return; }
         if (key === localGroupKey)
@@ -251,7 +252,9 @@ Item {
                     model: sourceListModel
                     textRole: "label"
                     valueRole: "key"
-                    onCurrentIndexChanged: _applySource(currentIndex)
+                    onCurrentIndexChanged: {
+                        if (!hubMode) _applySource(currentIndex)
+                    }
                 }
 
                 ListView {

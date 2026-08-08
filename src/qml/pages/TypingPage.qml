@@ -316,41 +316,46 @@ Item {
 
     // 载文结果必须始终处理，不守卫 active——否则异步载文完成时若页面恰好非活跃
     // （如窗口管理器短暂失焦），textLoaded 信号被静默丢弃，readOnly 卡在 true。
-    Connections {
-        target: appBridge
+    // 用 Item 包裹 Connections，避免 Qt 在页面层级误报 Window.window 警告
+    Item {
+        Connections {
+            target: appBridge
 
-        function onTextLoaded(text, textId, sourceLabel) {
-            applyLoadedText(text);
-            typingPage.refreshZitiHint();
-            if (appBridge && textId > 0) {
-                appBridge.setTextId(textId);
+            function onTextLoaded(text, textId, sourceLabel) {
+                applyLoadedText(text)
+                typingPage.refreshZitiHint()
+                if (appBridge && textId > 0) appBridge.setTextId(textId)
+                if (appBridge && sourceLabel) appBridge.setTextTitle(sourceLabel)
             }
-            if (appBridge && sourceLabel) {
-                appBridge.setTextTitle(sourceLabel);
+
+            function onTextLoadFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("载文失败"), message)
+            }
+
+            function onWenlaiLoadFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("晴发文加载失败"), message)
+            }
+
+            function onAiTextPartial(text) { upperPane.text = text }
+            function onAiTextFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("AI 文本生成失败"), message)
+            }
+
+            function onLocalArticleSegmentLoadFailed(message) {
+                upperPane.text = message
+                _notifyError(qsTr("本地文章加载失败"), message)
             }
         }
+    }
 
-        function onTextLoadFailed(message) {
-            // 加载失败时只更新显示文本，不调用 handleLoadedText（不禁用 readOnly）
-            // 用户无法在加载失败的文本上打字
-            upperPane.text = message;
-        }
-
-        function onWenlaiLoadFailed(message) {
-            upperPane.text = message;
-        }
-
-        function onAiTextPartial(text) {
-            upperPane.text = text;
-        }
-
-        function onAiTextFailed(message) {
-            upperPane.text = message;
-        }
-
-        function onLocalArticleSegmentLoadFailed(message) {
-            upperPane.text = message;
-        }
+    // 辅助函数：统一通知调用
+    function _notifyError(title, message) {
+        if (Window.window && Window.window.appNotificationManager)
+            Window.window.appNotificationManager.show(
+                Severity.Error, title, message, -1, { showCopy: true })
     }
 
     // 光标/字体状态变化需要守卫，防止页面切换后旧事件干扰
@@ -427,6 +432,9 @@ Item {
             } else {
                 // 正常模式：复制成绩，不弹结束窗
                 appBridge.copyScoreMessage();
+                if (Window.window && Window.window.appNotificationManager)
+                    Window.window.appNotificationManager.show(
+                        Severity.Success, "", qsTr("成绩已复制到剪贴板"), 1600)
             }
         }
     }
@@ -511,6 +519,9 @@ Item {
             var footer = "-----第" + seg + "段-TypeType";
             var output = firstLine + "\n" + text + "\n" + footer;
             appBridge.copyToClipboard(output);
+            if (Window.window && Window.window.appNotificationManager)
+                Window.window.appNotificationManager.show(
+                    Severity.Success, "", qsTr("发文格式已复制到剪贴板"), 1600)
         }
     }
 
@@ -553,14 +564,14 @@ Item {
                 // readOnly=true，使下方恢复代码在同一次 onActiveChanged 中就能看到
                 // 正确的 textReadOnly 状态。requestLoadText 内部仅做计划+启动后台
                 // Worker，不阻塞 UI。
-                appBridge.requestLoadText(appBridge.defaultTextSourceKey);
+                appBridge.requestLoadText(appBridge.startupTextSourceKey);
             }
             // 恢复：载文期间/之后 readOnly 可能仍为 true（信号丢失、用户切走再回来等）。
             if (appBridge && appBridge.textReadOnly) {
                 if (upperPane.text.length > 0) {
                     handleRetypeRequest();
                 } else {
-                    appBridge.requestLoadText(appBridge.defaultTextSourceKey);
+                    appBridge.requestLoadText(appBridge.startupTextSourceKey);
                 }
             }
         }

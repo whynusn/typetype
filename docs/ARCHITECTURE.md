@@ -1,5 +1,5 @@
 # TypeType 架构设计手册
-<!-- 状态: active | 最后验证: 2026-06-04 -->
+<!-- 状态: active | 最后验证: 2026-07-27 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -11,7 +11,7 @@
 
 ---
 
-> 最后更新：2026-06-04
+> 最后更新：2026-07-13
 
 ---
 
@@ -121,7 +121,7 @@ src/backend/
 #### 载文分类说明（对应三层模型）
 
 - **第 1 层（本地文件）**：剪贴板、自定义、本地文库、练单器、前/中/后五百、打词必备单字 — 文本来自本地文件或用户输入
-- **第 2 层（开源文库）**：开源文库仓库提供的文本（通过本地运行的脚本服务获取）— 由 `TextLoadHubPage.qml` 的「开源文库」标签接入
+- **第 2 层（开源文库 / OTT）**：OTT Core v1 只读分发协议提供的文本（通常由用户本地运行 `ott-adapter`）— 由 `TextLoadHubPage.qml` 的「开源文库」标签接入
 - **第 3 层（即时拉取）**：极速杯 — 文本来自 TypeType 后端 (`typetype-server`)；晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
 
 #### 分段模式与乱序
@@ -129,6 +129,8 @@ src/backend/
 除晴发文外，所有载文入口共享同一组分片/乱序组件：
 - `SliceSettingsPanel` — 分片大小、起始片、全文乱序
 - `SliceCriteriaPanel` — 达标条件（击键/速度/键准/通过次数）、失败后行为
+
+OTT segmented 大文本使用服务端定义的 segment 边界，并通过 `OttSegmentProvider` 接入通用分片管线。为避免客户端拉取完整远程长文，OTT segmented 不启用全文乱序；普通按段推进、随机段、重打仍走统一分片控制。
 
 晴发文单独在服务端做分段，App 侧只做逐段推进。
 
@@ -288,7 +290,7 @@ onActivated → Qt.callLater() 延迟触发信号
 > 决策依据：ADR-008（`docs/decisions/008-text-source-three-layer-model.md`）。
 > 按「数据如何到达客户端」划分三层，不强行统一。
 >
-> **命名约定**：第 2 层的用户-facing 名称是**开源文库**，内部实现使用 `Registry`（如 `RegistryTextProvider`、`registry.primary_url`）。
+> **命名约定**：第 2 层的用户-facing 名称是**开源文库**；标准边界是 OTT Core v1。`/ott/v1` 是协议路径版本，OTT adapter 当前包版本是独立的 `0.5.0`；不要把旧 adapter 文案中的 “v2” 当成协议版本。实现类型为 `OttTextProvider` + `OttClient`。`registry.primary_url` 和 `Loader.REGISTRY` 仅作为已有配置兼容标识保留，旧 `RegistryTextProvider` 是导入兼容别名。
 
 ### 三层职责对照
 
@@ -300,7 +302,7 @@ onActivated → Qt.callLater() 延迟触发信号
 | **网络韧性要求** | 无 | 低（离线读缓存兜底）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（TTL + stale-while-revalidate） | 不需要 |
 | **账号要求** | 无 | 无 | 用户自有账号（token_store）|
-| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
+| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `OttTextProvider` + `OttSegmentProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
 | **Loader 路由** | `text_source_config.py` `Loader.LOCAL_FILE` | `Loader.REGISTRY` | `Loader.REMOTE_API` |
 
 ### 文本源扩展路径
@@ -308,7 +310,7 @@ onActivated → Qt.callLater() 延迟触发信号
 | 想加什么 | 走哪层 | 改动量 |
 |:---|:---|:---|
 | 新本地练习文件 | 第 1 层 | `config.json` 加 1 行（`loader: local_file`），零代码 |
-| 静态文集（每日一文、古诗文等）| 第 2 层 | 开源文库仓库加脚本，typetype 主仓不动 |
+| 静态文集（每日一文、古诗文等）| 第 2 层 | OTT 仓库加脚本或导入内容；typetype 通过 `/ott/v1` 读取 |
 | 服务端排行榜文本（极速杯等）| 第 3 层 | `config.json` 加 1 行（`loader: remote_api`），服务端注册 |
 | 第三方带认证实时源 | 第 3 层 | 完整 Port + Gateway + UseCase + Adapter（参考晴发文）|
 
@@ -350,7 +352,9 @@ onActivated → Qt.callLater() 延迟触发信号
 
 ### 开源文库缓存层
 
-内部实现为 `RegistryTextProvider`，五层决策树（`registry_text_provider.py:121-159`）：
+内部实现为 `OttTextProvider` + `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/sources.json`、`/entries.json` 等) → 旧静态 `registry_index.json` + `content/{source_key}.json` 兼容布局的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
+
+缓存层五层决策树：
 
 ```
 fetch_text_by_key(key)
@@ -359,6 +363,113 @@ fetch_text_by_key(key)
   ├─ cache miss + 在线 → primary_url → mirror_url，成功写缓存
   └─ cache miss + 离线 → 返回 stale（无视 TTL 兜底）
 ```
+
+## OTT Repo 控制面（Phase 1-3，多 authority 联邦聚合 + 规则/脚本源）
+
+> 决策依据：ADR-010（`docs/decisions/010-decentralized-source-ecosystem.md`），设计文档 `docs/designs/decentralized-source-ecosystem.md`。
+> OTT Core v1 **数据面不变**；本节是独立的 **OTT Repo 控制面**（订阅、信任、发现），按 Phase 1「零协议变更」落地。
+
+### 架构定位
+
+```
+Directory（可选，发现层）                ← 未来 Phase 2+
+  └─ Repo（源仓库 / 订阅）               ← 控制面核心（本节）
+       └─ Instance / Rule / Bridge（源）
+            └─ Entry / Segment          ← OTT Core v1 数据面（不变）
+```
+
+| 组件 | 位置 | 职责 |
+|:---|:---|:---|
+| `SourceRepoEntry` / `SourceReposConfig` | `runtime_config.py` | 订阅列表数据模型 + 旧 `registry.primary_url` 自动迁移 |
+| `RepoManifestCache` | `integration/ott_repo_manifest.py` | 单订阅 manifest 拉取与缓存（TTL/stale/原子写/后台刷新） |
+| `validate_repo_manifest()` | `integration/ott_repo_manifest.py` | manifest 校验与归一化（遵循 OTT Repo v1 草案） |
+| `OttFederationProvider` | `integration/ott_federation_provider.py` | 多 repo 联邦聚合（ott-instance + ott-rule）、authority 命名空间隔离、priority + 健康度 failover |
+| `_RuleClient` | `integration/ott_federation_provider.py` | ott-rule 客户端封装，调用 L1 解释器执行声明式规则 |
+| `OttRuleInterpreter` | `integration/ott_rule_interpreter.py` | L1 声明式规则解释器（JSON path / 正则 / CSS 选择器 + transform 管道） |
+| `_ScriptClient` | `integration/ott_federation_provider.py` | ott-script 客户端封装（下载 + AST 检查 + 沙箱执行） |
+| `ScriptSandbox` | `integration/ott_script_client.py` | ott-script 沙箱调度（写临时文件 + 启动子进程 + 解析结果） |
+| `ScriptCache` | `integration/ott_script_client.py` | 脚本下载缓存（TTL + AST 校验 + 原子写 + 离线回退） |
+| `ott_script_runner.py` | `integration/ott_script_runner.py` | 子进程沙箱入口（资源限制 + 受限 builtins + 白名单模块 + stdout JSON） |
+| `validate_script_source()` | `integration/ott_script_safety.py` | 脚本 AST 安全检查（黑名单 import/call + 动态导入检测） |
+| `RegistryAdapter` | `presentation/adapters/registry_adapter.py` | 订阅管理 + 条目聚合的 Qt 适配层（Worker 异步） |
+| `ReposManagementPanel` | `components/ReposManagementPanel.qml` | 载文中心「源仓库」标签页 UI |
+
+### 订阅数据流
+
+```
+config.json.source_repos[]
+  │
+  ├─ RepoManifestCache.get_manifest(repo)
+  │     ├─ cache hit fresh → 返回
+  │     ├─ cache hit stale → 返回缓存 + 后台刷新
+  │     └─ miss → HTTP GET url → validate → 原子写
+  │
+  └─ OttFederationProvider.list_all_entries()
+        └─ 遍历 enabled repos → manifest.sources[type=ott-instance]
+              └─ 每 authority 建 _InstanceClient（OttClient × endpoints）
+                    └─ priority 排序 + 健康度指数退避 failover
+                          └─ 合并条目（authority 命名空间去重）
+```
+
+### 四级信任模型（客户端强制）
+
+| 级 | 形态 | 执行面 | 分发方式 |
+|:---|:---|:---|:---|
+| L0 | OTT 数据实例 | 零执行 | 订阅即用 |
+| L1 | 声明式规则源（ott-rule） | 受限解释器 | 已落地 |
+| L2 | 桥接源（ott-bridge，即时 API） | 协议化 adapter，凭据本地 | 已落地 |
+| L3 | 抓取脚本（ott-script） | 子进程沙箱（AST 白名单 + 资源限制 + 进程隔离） | 已落地，可经 Repo 分发 |
+
+不变式：客户端从网络订阅的 L0/L1/L2 内容无任意代码执行面；L3 脚本在子进程沙箱内执行，逃逸不突破进程边界。
+
+### 目录结构（新增文件）
+
+```
+src/backend/config/runtime_config.py        # + SourceRepoEntry, SourceReposConfig, _parse_source_repos, 迁移逻辑
+src/backend/integration/
+  ├─ ott_repo_manifest.py                   # RepoManifestCache + validate_repo_manifest
+  ├─ ott_federation_provider.py             # OttFederationProvider + _InstanceClient + _RuleClient + _ScriptClient
+  ├─ ott_rule_interpreter.py                # OttRuleInterpreter（L1 声明式规则解释器）
+  ├─ ott_script_client.py                   # ScriptSandbox + ScriptCache（L3 脚本源调度）
+  ├─ ott_script_safety.py                   # validate_script_source（AST 安全检查）
+  └─ ott_script_runner.py                   # 子进程沙箱入口（资源限制 + 执行 + stdout JSON）
+src/backend/presentation/adapters/
+  └─ registry_adapter.py                    # RegistryAdapter（Qt 适配层）
+src/backend/config/container.py             # + manifest_cache, federation, registry_adapter
+src/qml/components/ReposManagementPanel.qml # 源仓库管理面板
+src/qml/helpers/TextSourceBehaviors.js      # + repos 来源分派
+src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + reposItems
+```
+
+### 配置字段
+
+见 [config.md](reference/config.md) `source_repos` 子字段表。旧 `registry.primary_url` 加载时自动迁移为一条等价订阅。
+
+### 客户端约束
+
+- 订阅 manifest 拉取与联邦聚合均走 Worker（不阻塞 UI）
+- 离线时返回缓存 manifest（无视 TTL 兜底）
+- 签名（minisign/ed25519 + TOFU）为未来 Phase 4，当前信任状态仅作 UI 徽章展示
+- authority 冲突时按 repo 分组并列展示，由用户选择
+
+### L1 规则（ott-rule）URL 约束
+
+- 仅接受公网 `http://` / `https://`；`file:`、环回、私有/保留地址（含编码、进制数值 IP、IPv4 映射 IPv6、link-local）一律拒绝
+- 非 80/443 端口、DNS 解析失败（离线/内网解析）拒绝——规则源必须解析到公网 IP 才能请求
+- HTTP 请求做 DNS pin（IP 直连 + 原 Host 头）；HTTPS 不 pin（TLS 证书按域名校验，内网 IP 无合法证书，天然防 rebinding）
+- 全部请求显式 `follow_redirects=False`（4 处 httpx.Client）
+
+### L1 规则 schema v2（Phase 1.3）
+
+规则可选用 v2 字段（设计见 `docs/designs/ott-dsl.md`）：
+
+- `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），前步输出作为后步首参，`{"ref": "body"}` 引用 `request.body` 字面量；末步输出作为 POST 请求体
+- `request.body`：无 `steps` 时为字面量；有 `steps` 时经管道构造。body 类型规范化：str/bytes 直传、dict/list → JSON 序列化、int/bool 字符串化、其余类型规则拒绝
+- `permissions.network`：域名白名单（子域匹配），**声明时生效**——URL 不在白名单内 → 整条规则拒绝；未声明回退 `validate_url` 基线
+- `rights.min_api_level`：客户端 API level（`OttRuleInterpreter(api_level=...)`，生产经 `CLIENT_API_LEVEL`）低于声明值 → 规则标记不兼容跳过
+- `request.headers`：`Content-Type` 等 HTTP 头必须由规则显式声明（`httpx content=` 不自动添加 JSON 头）
+- 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限（`MAX_STEPS`/`MAX_CALLS`/1MB 值）→ 整条规则跳过
+- 引擎约束：单值 ≤1MB、深度 ≤32、调用 ≤1000、步数 ≤8、步间数据 ≤2MB；正则原语复用 0.B1 子进程方案
 
 ---
 

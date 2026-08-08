@@ -99,13 +99,16 @@ Frame {
                     if (root.content.length > 0 && appBridge) {
                         appBridge.copyToClipboard(root.content)
                         if (Window.window && Window.window.appNotificationManager) {
+                            var msg = root.content.length >= 1000
+                                ? qsTr("已复制预览内容（前 1000 字），全文过长请在载文后直接跟打")
+                                : qsTr("已复制到剪贴板")
                             Window.window.appNotificationManager.show(
-                                Severity.Success, "", qsTr("已复制到剪贴板"), 1600)
+                                Severity.Success, "", msg, 3000)
                         }
                     }
                 }
                 ToolTip {
-                    text: qsTr("复制全文")
+                    text: root.content.length >= 1000 ? qsTr("复制预览（前 1000 字）") : qsTr("复制预览")
                     parent: parent
                     visible: parent.hovered
                 }

@@ -1,6 +1,6 @@
 # open-typing-texts
 
-> 开源打字文本注册表。为打字练习应用提供静态 JSON 文本源，由 GitHub Actions CI 生成、客户端只读拉取。
+> 历史模板（已废弃）。此文档记录早期 registry/CI 抓取方案，不能作为新项目或新贡献流程使用。当前方案以 OTT Core v1 为准：贡献者本地抓取与验证，CI 不抓取第三方内容，不提交真实 `content/`。
 
 **命名说明**：`open-typing-texts` 不绑定任何特定客户端。它是打字圈的开放文本内容标准，任何打字练习应用（typetype、TypeSunny、其他）都可接入。
 
@@ -13,12 +13,12 @@ open-typing-texts/
 ├── content/                      ← 各文本源正文 JSON
 │   ├── static-classic-sentences.json   ← 经典中文短句（静态示例）
 │   ├── static-pinyin-practice.json     ← 拼音声调练习（静态示例）
-│   ├── jisubei-2026-07-05.json         ← 极速杯每日挑战（动态，CI 生成）
+│   ├── jisubei-2026-07-05.json         ← 历史示例（不再由 CI 生成）
 │   └── ...
-├── scripts/                      ← CI 抓取/解析脚本
-│   ├── fetch_daily.py            ← 每日一文抓取脚本
-│   ├── fetch_jisubei.py          ← 极速杯文本抓取脚本（CI 运行）
-│   └── gen_index.py              ← 索引生成脚本（CI 运行）
+├── scripts/                      ← 历史抓取/解析脚本
+│   ├── fetch_daily.py            ← 每日一文抓取脚本（本地运行）
+│   ├── fetch_jisubei.py          ← 极速杯文本抓取脚本（本地运行）
+│   └── gen_index.py              ← 索引生成脚本（历史）
 └── .github/workflows/
     ├── daily.yml                 ← 每日 0 点 cron + 手动触发
     └── weekly-static.yml         ← 每周全量刷新
@@ -72,12 +72,9 @@ text = provider.fetch_text_by_key("static-classic-sentences")
 2. 运行 `python scripts/gen_index.py` 生成/更新索引
 3. 提交 PR
 
-### 2. 添加动态文本源
+### 2. 添加动态文本源（历史方案，禁止新用）
 
-1. 在 `scripts/` 下创建抓取脚本（参考 `scripts/fetch_jisubei.py`）
-2. 脚本输出到 `content/` 目录，遵循内容文件 schema
-3. 在 `.github/workflows/` 下创建/修改 workflow 调用脚本
-4. 提交 PR
+不要在 `.github/workflows/` 下创建 workflow 调用抓取脚本。当前 OTT 贡献流程要求脚本拆分为本地 `fetch_raw()` 与纯 `transform()`，CI 只跑 fixture、schema、静态安全扫描；真实抓取只能由贡献者在本机运行并粘贴 validator 摘要。
 
 ### 3. 文本内容 JSON schema
 
@@ -138,13 +135,9 @@ text = provider.fetch_text_by_key("static-classic-sentences")
 }
 ```
 
-### 5. CI workflow
+### 5. CI workflow（历史方案，禁止新用）
 
-本仓库有两条 CI：
-- **daily.yml**：每日 0 点自动抓取并更新动态文本源
-- **weekly-static.yml**：每周全量刷新所有静态文集（预留）
-
-贡献者也可通过 `workflow_dispatch` 手动触发。
+早期设计曾考虑用 `daily.yml` 自动抓取并更新动态文本源。该方向已经被 ADR-009 否决：CI 不应代表项目方访问第三方内容源，也不应生成或提交真实文本内容。新方案只允许无网络 schema/fixture/validator/script-safety 检查。
 
 ## 安全模型
 

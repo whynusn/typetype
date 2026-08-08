@@ -133,6 +133,7 @@ class DummyLocalArticleAdapter(QObject):
     localArticleLoadingChanged = Signal()
     localArticleDeleted = Signal(bool, str)
     localArticleRenamed = Signal(bool, str)
+    localArticlePreviewLoaded = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -217,6 +218,7 @@ class DummyTrainerAdapter(QObject):
     trainerSegmentLoaded = Signal(dict)
     trainerSegmentLoadFailed = Signal(str)
     trainerLoadingChanged = Signal()
+    trainerPreviewLoaded = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -1650,6 +1652,13 @@ def test_progress_key_consistency_between_save_and_lookup():
     assert key_custom == f"__custom_text__:{expected_hash}"
 
 
+def test_ott_progress_key_uses_protocol_identity():
+    from src.backend.presentation.bridge import _compute_progress_key
+
+    key = _compute_progress_key("ott", "127.0.0.1:18888:ent_a@rev_b")
+    assert key == "ott:127.0.0.1:18888:ent_a@rev_b"
+
+
 def test_find_progress_title_scan_prefers_newest():
     """验证 title 回退扫描优先返回 last_accessed 最新的条目。
 
@@ -1795,3 +1804,113 @@ def test_full_shuffle_save_restore_cycle():
         assert entry4 is not None
         assert entry4["current_slice"] == 5
         assert entry4["slice_size"] == 200
+
+
+class _FakeRegistryAdapter(QObject):
+    """测试用 registry adapter：直接操作真实 RuntimeConfig，模拟面板侧订阅操作。"""
+
+    reposChanged = Signal(list)
+    reposLoadFailed = Signal(str)
+    reposLoadingChanged = Signal()
+    entriesLoaded = Signal(list)
+    entriesLoadFailed = Signal(str)
+    entriesLoadingChanged = Signal()
+
+    def __init__(self, runtime_config: RuntimeConfig):
+        super().__init__()
+        self._runtime_config = runtime_config
+
+    def addRepo(self, url: str) -> None:
+        self._runtime_config.add_source_repo(url)
+
+    def removeRepo(self, url: str) -> None:
+        self._runtime_config.remove_source_repo(url)
+
+    def setRepoEnabled(self, url: str, enabled: bool) -> None:
+        self._runtime_config.set_source_repo_enabled(url, enabled)
+
+
+class TestBridgeRegistryRepoSignals:
+    """第四轮 P2：面板侧订阅增删/启停后必须 emit registryUrlChanged，
+    否则设置页（NavigationView 缓存实例）字段残留旧值，点"应用"会用旧值复活订阅。"""
+
+    def _make_bridge(self, tmp_path):
+        char_stats_service = CharStatsService(repository=NoopCharStatsRepository())
+        typing_service = TypingService(char_stats_service=char_stats_service)
+        auth_service = MagicMock(spec=AuthService)
+        auth_service.initialize.return_value = None
+        auth_service.is_logged_in = False
+
+        score_gateway = MagicMock(spec=ScoreGateway)
+        runtime_config = RuntimeConfig(_config_path=str(tmp_path / "config.json"))
+
+        text_gateway = MagicMock()
+        text_gateway.plan_load.return_value = DummySource(
+            key="test",
+            local_path="test.txt",
+        )
+        text_gateway.load_from_plan.return_value = (
+            True,
+            FetchedText(content="test text", text_id=123, title="测试标题"),
+            "",
+        )
+        load_text_usecase = LoadTextUseCase(
+            text_gateway=text_gateway,
+            clipboard_reader=MagicMock(),
+        )
+        typing_adapter = TypingAdapter(
+            typing_service=typing_service,
+            score_gateway=score_gateway,
+        )
+        text_adapter = TextAdapter(
+            runtime_config=runtime_config,
+            load_text_usecase=load_text_usecase,
+            local_text_loader=MagicMock(),
+        )
+        auth_adapter = AuthAdapter(auth_service=auth_service)
+        char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            auth_adapter=auth_adapter,
+            char_stats_adapter=char_stats_adapter,
+            registry_adapter=_FakeRegistryAdapter(runtime_config),
+        )
+        return bridge, runtime_config
+
+    def test_repo_slots_emit_registry_url_changed(self, tmp_path):
+        """addRepo/removeRepo/setRepoEnabled 成功后应 emit registryUrlChanged。"""
+        bridge, _ = self._make_bridge(tmp_path)
+        emitted = []
+        bridge.registryUrlChanged.connect(lambda: emitted.append(True))
+
+        bridge.addRepo("https://a.org/repo.json")
+        assert len(emitted) == 1, "addRepo 应 emit registryUrlChanged"
+        assert bridge.registryPrimaryUrl == "https://a.org/repo.json"
+
+        bridge.setRepoEnabled("https://a.org/repo.json", False)
+        assert len(emitted) == 2, "setRepoEnabled 应 emit registryUrlChanged"
+        # 禁用唯一 enabled 订阅后反推结果为空，设置页字段随之刷新
+        assert bridge.registryPrimaryUrl == ""
+
+        bridge.setRepoEnabled("https://a.org/repo.json", True)
+        assert len(emitted) == 3, "重新启用也应 emit registryUrlChanged"
+
+        bridge.removeRepo("https://a.org/repo.json")
+        assert len(emitted) == 4, "removeRepo 应 emit registryUrlChanged"
+        assert bridge.registryPrimaryUrl == ""
+
+    def test_disable_then_apply_does_not_revive_subscription(self, tmp_path):
+        """P2 场景：禁用订阅后 registryPrimaryUrl 刷新为空，
+        设置页"应用"（setRegistryUrls 空 primary）不应复活订阅。"""
+        bridge, runtime_config = self._make_bridge(tmp_path)
+        bridge.addRepo("https://a.org/repo.json")
+        bridge.setRepoEnabled("https://a.org/repo.json", False)
+
+        # 设置页字段已刷新为空 → 应用传空 primary，不复活被禁用订阅
+        assert bridge.registryPrimaryUrl == ""
+        bridge.setRegistryUrls("", "")
+        repos = [(r.url, r.enabled) for r in runtime_config.source_repos.repos]
+        assert repos == [("https://a.org/repo.json", False)], (
+            f"禁用订阅不应被复活: {repos}"
+        )

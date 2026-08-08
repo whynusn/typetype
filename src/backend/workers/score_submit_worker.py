@@ -130,6 +130,12 @@ class ScoreSubmitQueue:
     def stop(self, timeout: float = 5.0) -> None:
         """停止工作线程，等待队列清空。"""
         self._running = False
+        # 💡 入队一个哨兵，立即唤醒阻塞在 queue.get() 的线程，
+        # 避免关闭时平均等待 ~0.5s（原 get(timeout=1.0) 的均值）
+        try:
+            self._queue.put_nowait(None)
+        except queue.Full:
+            pass
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=timeout)
         log_info(
@@ -177,8 +183,14 @@ class ScoreSubmitQueue:
             try:
                 # 🎓 get() 会阻塞直到有数据或超时
                 # 超时是为了定期检查 self._running 标志
+                # stop() 会推入一个 None 哨兵立即唤醒此处
                 task = self._queue.get(timeout=1.0)
             except queue.Empty:
+                continue
+
+            # 💡 哨兵：stop() 推入的 None，检测到后立即结束循环
+            if task is None:
+                self._queue.task_done()
                 continue
 
             # 计算退避时间（如果需要重试）

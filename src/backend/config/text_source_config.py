@@ -21,7 +21,7 @@ class Loader(str, Enum):
 
     LOCAL_FILE = "local_file"  # 读本地文件（LocalTextLoader / FileSegmentProvider）
     REMOTE_API = "remote_api"  # 调用服务端 API（RemoteTextProvider）
-    REGISTRY = "registry"  # CDN 注册表（RegistryTextProvider）
+    REGISTRY = "registry"  # 历史 Loader 标识（OttTextProvider）
 
 
 class LeaderboardMode(str, Enum):

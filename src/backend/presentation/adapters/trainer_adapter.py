@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
@@ -18,6 +19,7 @@ class TrainerAdapter(QObject):
     trainerSegmentLoaded = Signal(dict)
     trainerSegmentLoadFailed = Signal(str)
     trainerLoadingChanged = Signal()
+    trainerPreviewLoaded = Signal(str)  # content text
 
     def __init__(
         self,
@@ -30,6 +32,12 @@ class TrainerAdapter(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._trainer_loading = False
         self._request_generation = 0
+        self._preview_request_generation = 0
+        self._preview_active_worker = None
+        self._current_preview_trainer_id: str = ""
+        # 预览内容缓存：keyed by trainer_id，上限 50 条，避免重复读取词库
+        self._preview_cache: OrderedDict[str, str] = OrderedDict()
+        self._PREVIEW_CACHE_MAX = 50
         self._active_worker = None
 
     @property
@@ -227,6 +235,76 @@ class TrainerAdapter(QObject):
             ),
             error_prefix="加载练单器上一段失败",
         )
+
+    @Slot(str)
+    def loadTrainerPreview(self, trainer_id: str) -> None:
+        """异步加载练单器词库原始文本供预览卡片展示。
+
+        优先使用内存缓存，减少重复读取词库文件。
+        缓存上限 50 条，超出时驱逐最久未访问的条目。
+        """
+        # 缓存命中
+        if trainer_id in self._preview_cache:
+            self._preview_cache.move_to_end(trainer_id)
+            self.trainerPreviewLoaded.emit(self._preview_cache[trainer_id])
+            return
+
+        self._preview_request_generation += 1
+        request_generation = self._preview_request_generation
+        self._current_preview_trainer_id = trainer_id
+
+        # 断开上一个 worker 的所有信号连接
+        if self._preview_active_worker is not None:
+            try:
+                self._preview_active_worker.signals.succeeded.disconnect()
+            except TypeError:
+                pass
+            try:
+                self._preview_active_worker.signals.failed.disconnect()
+            except TypeError:
+                pass
+            self._preview_active_worker = None
+
+        def _do_load() -> str:
+            try:
+                lexicon = self._gateway.load_lexicon(trainer_id, group_size=1)
+                if lexicon.mode == "variable":
+                    return "\n".join("".join(group) for group in lexicon.groups)
+                return "\n".join(
+                    "\n".join(item for item in group) for group in lexicon.groups
+                )
+            except Exception:
+                return ""
+
+        worker = BaseWorker(task=_do_load, error_prefix="加载词库预览失败")
+        worker.setAutoDelete(True)
+        worker.signals.succeeded.connect(
+            lambda content, gen=request_generation: self._on_preview_loaded(
+                gen, content
+            )
+        )
+        worker.signals.failed.connect(
+            lambda msg, gen=request_generation: self._on_preview_failed(gen, msg)
+        )
+        self._preview_active_worker = worker
+        self._thread_pool.start(worker)
+
+    def _on_preview_loaded(self, request_generation: int, content: str) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        # 写入缓存
+        trainer_id = self._current_preview_trainer_id
+        if trainer_id:
+            self._preview_cache[trainer_id] = content
+            self._preview_cache.move_to_end(trainer_id)
+            if len(self._preview_cache) > self._PREVIEW_CACHE_MAX:
+                self._preview_cache.popitem(last=False)
+        self.trainerPreviewLoaded.emit(content)
+
+    def _on_preview_failed(self, request_generation: int, message: str) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        self.trainerPreviewLoaded.emit("")
 
     @Slot(int)
     def setTrainerSegment(self, index: int) -> None:

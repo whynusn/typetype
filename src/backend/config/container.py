@@ -56,7 +56,9 @@ if TYPE_CHECKING:
     from ..integration.file_ziti_repository import FileZitiRepository
     from ..integration.leaderboard_fetcher import LeaderboardFetcher
     from ..integration.qt_local_text_loader import QtLocalTextLoader
-    from ..integration.registry_text_provider import RegistryTextProvider
+    from ..integration.ott_text_provider import OttTextProvider
+    from ..integration.ott_repo_manifest import RepoManifestCache
+    from ..integration.ott_federation_provider import OttFederationProvider
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.secure_token_store import SecureTokenStore
     from ..integration.text_uploader import TextUploader
@@ -73,6 +75,7 @@ if TYPE_CHECKING:
     from ..presentation.adapters.typing_adapter import TypingAdapter
     from ..presentation.adapters.upload_text_adapter import UploadTextAdapter
     from ..presentation.adapters.wenlai_adapter import WenlaiAdapter
+    from ..presentation.adapters.registry_adapter import RegistryAdapter
     from ..presentation.adapters.ai_text_adapter import AiTextAdapter
     from ..presentation.adapters.ziti_adapter import ZitiAdapter
 
@@ -100,7 +103,9 @@ class Repos:
 @dataclass
 class Providers:
     text: RemoteTextProvider
-    registry: RegistryTextProvider | None
+    registry: OttTextProvider | None
+    manifest_cache: RepoManifestCache
+    federation: OttFederationProvider
     wenlai: WenlaiProvider
     llm: LlmTextProvider
 
@@ -150,6 +155,7 @@ class Adapters:
     trainer: TrainerAdapter
     font: FontAdapter
     leaderboard: LeaderboardAdapter
+    registry: RegistryAdapter
     upload_text: UploadTextAdapter
     key_listener: KeyListener | None
 
@@ -199,7 +205,9 @@ def create_repos() -> Repos:
 
 def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..infrastructure.api_client import ApiClient
-    from ..integration.registry_text_provider import RegistryTextProvider
+    from ..integration.ott_text_provider import OttTextProvider
+    from ..integration.ott_repo_manifest import RepoManifestCache
+    from ..integration.ott_federation_provider import OttFederationProvider
     from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
@@ -223,20 +231,38 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     # AI 使用独立 client，超时不同于主 api_client（LLM 生成较慢）
     ai_api_client = ApiClient(timeout=runtime_config.ai.timeout)
 
+    # OTT Repo 控制面：manifest 缓存 + 联邦聚合层
+    manifest_async_executor = QtAsyncExecutor()
+    manifest_cache = RepoManifestCache(
+        cache_dir=registry_cache_dir() / "repos",
+        http_client=httpx.Client(timeout=10.0, trust_env=False, follow_redirects=False),
+        async_executor=manifest_async_executor,
+        runtime_config=runtime_config,
+    )
+    federation = OttFederationProvider(
+        runtime_config=runtime_config,
+        manifest_cache=manifest_cache,
+        max_content_bytes=runtime_config.registry.max_content_bytes,
+    )
+
     return Providers(
         text=RemoteTextProvider(
             base_url=runtime_config.base_url,
             api_client=infra.api_client,
             token_provider=_get_jwt_token,
         ),
-        registry=RegistryTextProvider(
+        registry=OttTextProvider(
             config=runtime_config.registry,
             cache_dir=registry_cache_dir(),
-            http_client=httpx.Client(timeout=10.0, trust_env=False),
+            http_client=httpx.Client(
+                timeout=10.0, trust_env=False, follow_redirects=False
+            ),
             async_executor=registry_async_executor,
         )
         if runtime_config.registry.primary_url
         else None,
+        manifest_cache=manifest_cache,
+        federation=federation,
         wenlai=WenlaiProvider(
             api_client=infra.wenlai_api_client,
             base_url=runtime_config.wenlai.base_url,
@@ -291,7 +317,8 @@ def create_gateways(
             store=JsonTypingTotalsStore(typing_totals_path())
         ),
         typing_history=TypingHistoryGateway(
-            store=JsonTypingHistoryStore(typing_history_path())
+            store=JsonTypingHistoryStore(typing_history_path()),
+            max_records=runtime_config.typing_history_max_records,
         ),
     )
 
@@ -435,6 +462,7 @@ def create_adapters(
     from ..presentation.adapters.trainer_adapter import TrainerAdapter
     from ..presentation.adapters.font_adapter import FontAdapter
     from ..presentation.adapters.leaderboard_adapter import LeaderboardAdapter
+    from ..presentation.adapters.registry_adapter import RegistryAdapter
     from ..presentation.adapters.upload_text_adapter import UploadTextAdapter
     from ..application.gateways.font_gateway import FontGateway
     from ..application.gateways.leaderboard_gateway import LeaderboardGateway
@@ -495,6 +523,12 @@ def create_adapters(
         registry_provider=providers.registry,
     )
 
+    # OTT Repo 联邦目录适配层
+    registry_adapter = RegistryAdapter(
+        federation=providers.federation,
+        manifest_cache=providers.manifest_cache,
+    )
+
     # Upload text
     upload_text_adapter = UploadTextAdapter(
         text_uploader=services.text_uploader,
@@ -527,6 +561,7 @@ def create_adapters(
         trainer=trainer_adapter,
         font=font_adapter,
         leaderboard=leaderboard_adapter,
+        registry=registry_adapter,
         upload_text=upload_text_adapter,
         key_listener=key_listener,
     )

@@ -5,6 +5,12 @@
 > **2026-07-06 更新**：Registry 仓库已从"CI 生成内容"模式转型为"纯脚本工具"模式。
 > Registry 仓库不再托管任何文本内容，也不运行 GitHub Actions 自动抓取。
 > 仅提供抓取脚本模板，用户须在本地自行运行脚本生成文本。
+>
+> **2026-07-09 更新**：第 2 层进一步收敛为 OTT Core v1 + Distribution Profile。
+> OTT 标准边界、大文本分段与 typetype 客户端演进见 [ADR-009](./009-ott-adapter-v2-and-large-text-distribution.md)。
+>
+> **2026-07-12 更新**：provider 实现已迁移为 `OttTextProvider`。本文较早章节中的
+> `RegistryTextProvider` 保留为历史事实；当前旧名称仅是兼容导入别名。
 
 ## 背景
 
@@ -20,7 +26,7 @@ typetype 当前支持多种文本来源（本地文件、服务端 API、晴发�
 | **Loader** | `TextSourceEntry.loader` 枚举，决定 `TextSourceGateway` 路由到哪个 Provider。取值：`LOCAL_FILE` / `REMOTE_API` / `REGISTRY`。 |
 | **LeaderboardMode** | `TextSourceEntry.leaderboard_mode` 枚举，决定成绩提交时 `text_id` 如何解析。与 `Loader` 正交。 |
 | **开源文库**（第 2 层） | 用户-facing 名称。由独立 git 仓库托管、提供纯脚本工具模板、客户端只读 JSON 拉取的文本源体系。 |
-| **Registry** | 开源文库的内部实现标识符，用于代码命名（`RegistryTextProvider`、`RegistryConfig`、`registry.primary_url`）。 |
+| **Registry** | 历史配置与 Loader 标识符（`RegistryConfig`、`registry.primary_url`、`Loader.REGISTRY`）；当前 provider 实现名为 `OttTextProvider`。 |
 | **开源文库仓库** | 独立于 typetype 主仓库的第二个 git 仓库（如 `open-typing-texts`），提供抓取脚本模板（`scripts/`），用户本地运行生成 `content/*.json` 和 `registry_index.json`。**不提供任何现成文本内容，也不运行 CI 自动抓取。** |
 | **即时拉取源** | 客户端通过 Worker 实时调用第三方/服务端 API 获取文本的来源（如晴发文 random、服务端 `/api/v1/texts/latest`）。 |
 | **晴发文** | 第三方打字文本服务（代码标识符为 `wenlai`/`Wenlai`，`base_url` 默认 `https://qingfawen.fcxxz.com`，见 `src/backend/config/runtime_config.py` 的 `WenlaiConfig`），提供随机文本、相邻换段等接口，需要登录。 |
@@ -125,7 +131,7 @@ Kimi 原方案提到「沙箱执行适配脚本」，曾引起安全顾虑。本
 | **网络韧性要求** | 无 | 低（脚本失败有缓存兜底）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（兑现 `cache_ttl_seconds`）| 不需要（即时语义）|
 | **账号要求** | 无 | 无 | 用户自有账号（`token_store`）|
-| **现有实现** | ✅ `QtLocalTextLoader` | ✅ `RegistryTextProvider`（缓存已补）| ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
+| **现有实现** | ✅ `QtLocalTextLoader` | ✅ `OttTextProvider`（缓存已补）| ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
 | **CI workflow** | 不需要 | 不需要（用户本地运行脚本） | 不需要 |
 
 ---

@@ -1,0 +1,10 @@
+{
+  "protocol": "ott",
+  "version": "1.0",
+  "profiles": ["static"],
+  "features": {
+    "entry_summary": true,
+    "inline_content": true,
+    "segmented_content": false
+  }
+}

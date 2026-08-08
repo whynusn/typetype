@@ -1,5 +1,5 @@
 # QML 页面与组件速查
-<!-- 状态: active | 最后验证: 2026-05-14 -->
+<!-- 状态: active | 最后验证: 2026-07-27 -->
 
 > 所有 QML 文件位于 `src/qml/` 下。
 
@@ -10,12 +10,13 @@
 | `pages/TypingPage.qml` | 跟打 | `textLoaded`, `textLoadFailed`, `wenlaiLoadFailed`, `uploadResult`, `loggedinChanged` |
 | `pages/WeakCharsPage.qml` | 薄弱字 | `weakestCharsLoaded` |
 | `pages/TextLeaderboardPage.qml` | 文本排行 | `catalogLoaded`, `textListLoaded`, `leaderboardLoaded`, `leaderboardLoadFailed` |
-| `pages/DailyLeaderboard.qml` | （保留但导航已移除） | `leaderboardLoaded`, `leaderboardLoadFailed` |
-| `pages/WeeklyLeaderboard.qml` | （保留但导航已移除，建设中） | `leaderboardLoaded`, `leaderboardLoadFailed` |
-| `pages/AllTimeLeaderboard.qml` | （保留但导航已移除，建设中） | `leaderboardLoaded`, `leaderboardLoadFailed` |
 | `pages/UploadTextPage.qml` | 上传文本 | `uploadResult`, `loggedinChanged` |
 | `pages/ProfilePage.qml` | 个人中心 | `loginResult`, `registerResult`, `loggedinChanged`, `userInfoChanged`, `loginStateInitialized` |
 | `pages/SettingsPage.qml` | 设置 | `wenlaiLoginResult`, `wenlaiConfigChanged`, `wenlaiDifficultiesLoaded`, `wenlaiCategoriesLoaded` |
+| `pages/TextLoadHubPage.qml` | 载文 | `registryFederatedEntriesLoaded`, `registryFederatedEntriesLoadFailed`, `reposChanged`（统一载文中心，顶部 Segmented 切换本地/源仓库/练单器/自定义/极速杯） |
+| `pages/RepoEntriesPage.qml` | 条目列表 | `entryClicked`（联邦聚合目录条目浏览） |
+
+> 已移除：`DailyLeaderboard.qml`、`WeeklyLeaderboard.qml`、`AllTimeLeaderboard.qml`、`JisuBeiPage.qml`、`LocalArticlesPage.qml`、`TextLibraryPage.qml`、`CustomLoadTextPage.qml`、`TrainerPage.qml`（功能合并入 `TextLoadHubPage.qml`）
 
 ## TypingPage 子组件
 
@@ -35,6 +36,7 @@
 | 文件 | 职责 |
 |------|------|
 | `components/AppText.qml` | 通用文本组件 |
+| `components/ReposManagementPanel.qml` | 源仓库订阅管理面板（添加/删除/启停/刷新订阅，显示 manifest 摘要与信任徽章） |
 
 ## QML → Bridge 调用速查
 

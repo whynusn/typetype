@@ -15,6 +15,8 @@ Frame {
     property bool isDynamic: false  // 动态创建
     property bool closable: true  // 显示关闭按钮
     property bool iconVisible: true  // 显示图标
+    property bool showCopy: false  // 显示复制按钮（由 AppNotification 使用）
+    property string copyText: ""  // 复制按钮要复制的文本
     property real startPosX: {
         switch (position) {
             case Position.TopLeft:
@@ -155,6 +157,35 @@ Frame {
         RowLayout {
             id: rights
             Layout.alignment: Qt.AlignTop
+
+            ToolButton {
+                id: copyButton
+                Layout.alignment: Qt.AlignTop
+                flat: true
+                text: qsTr("复制")
+                size: 18
+                Layout.preferredWidth: 38
+                Layout.preferredHeight: 38
+                visible: infoBar.showCopy && infoBar.copyText.length > 0
+                onClicked: {
+                    if (infoBar.copyText.length > 0 && appBridge) {
+                        appBridge.copyToClipboard(infoBar.copyText)
+                        copyButton.text = qsTr("已复制")
+                        copyResetTimer.start()
+                    }
+                }
+                ToolTip {
+                    text: qsTr("Copy")
+                    parent: parent
+                    visible: parent.hovered
+                }
+            }
+
+            Timer {
+                id: copyResetTimer
+                interval: 1600
+                onTriggered: copyButton.text = qsTr("复制")
+            }
 
             ToolButton {
                 Layout.alignment: Qt.AlignTop

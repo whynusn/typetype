@@ -1,5 +1,5 @@
 # typetype 项目开发指南
-<!-- 状态: active | 最后验证: 2026-06-04 -->
+<!-- 状态: active | 最后验证: 2026-07-13 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -316,6 +316,25 @@ onActiveChanged: {
 
 **历史**：2026-07-04 多相位重构。
 
+### ⚠️ OTT Repo 控制面订阅走 `source_repos`，不走 `registry.primary_url`
+
+**问题**：ADR-010 落地后，客户端多 authority 订阅统一走 `RuntimeConfig.source_repos`（`SourceReposConfig`）。旧的 `registry.primary_url` / `mirror_url` 仍保留为兼容标识（单实例 OTT 数据面仍可用），但新订阅能力必须写 `source_repos`。
+
+**现状**（Phase 1）：
+- `SourceReposConfig` 是一组 `SourceRepoEntry`（url / enabled / trust_state / pinned_pubkey / refresh_ttl_seconds / etag / added_at）
+- 旧 `registry.primary_url` 在加载时**自动迁移**为一条等价 `source_repos` 订阅（TTL 沿用 `cache_ttl_seconds`）；已存在 `source_repos` 时不迁移
+- 订阅增删改通过 `RuntimeConfig.add_source_repo / remove_source_repo / set_source_repo_enabled / set_source_repo_trust`，不要直接操作 `source_repos.repos` 列表
+- manifest 拉取与缓存在 `RepoManifestCache`（TTL/stale-while-revalidate/原子写/后台刷新，复用 OTT Core v1 缓存决策树）
+- 联邦聚合在 `OttFederationProvider`：按 authority 命名空间隔离，同 authority 多镜像按 priority + 健康度指数退避 failover
+
+**正确做法**：
+- 新增订阅 → `runtime_config.add_source_repo(url)`
+- 扩展 manifest 能力 → 改 `validate_repo_manifest()` + `SourceRepoEntry`，遵循 OTT Repo v1 草案
+- 消费订阅列表 → 通过 `RegistryAdapter`（Worker 异步），不要在主线程拉取 manifest
+- 新子配置字段 → 加在 `SourceRepoEntry` + `_parse_source_repos` + `_to_dict`，保持 RuntimeConfig 为唯一序列化者
+
+**历史**：2026-07-26 Phase 1 落地（ADR-010）。
+
 ### ⚠️ TextSource 使用 Loader + LeaderboardMode 二维正交模型
 
 **问题**：旧的 `SourceType` 枚举（`NETWORK / REGISTRY / LOCAL_RANKED / LOCAL_PRACTICE`）把"加载方式"和"排行榜行为"耦合在单一枚举中，导致 `LOCAL_RANKED` 和 `LOCAL_PRACTICE` 的区别不是本质性的（都是读本地文件），且新增来源类型时必须扩展枚举和 if 分支。
@@ -336,10 +355,10 @@ onActiveChanged: {
 
 ### ⚠️ 开源文库缓存层必须读缓存，禁止直打网络
 
-**问题**：开源文库的内部实现 `RegistryTextProvider` 的 `_cache_dir` 长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
+**问题**：开源文库 provider 的 `_cache_dir` 曾长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
 
 **现状**（Phase 1a/1b 实现后）：
-- `RegistryTextProvider._fetch_json_with_cache()` 实现五层决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底
+- `OttTextProvider._fetch_json_with_cache()` 实现五层决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底
 - 基于文件 mtime + `cache_ttl_seconds`（默认 3600s）判断过期
 - 原子写：tmp + `Path.replace`，全方法 `try/except OSError` 兜底
 - 后台刷新：`QtAsyncExecutor` + `threading.Lock` 去重防重复刷新
@@ -350,6 +369,27 @@ onActiveChanged: {
 - 缓存写入失败/读取失败 → 静默返回 None，不要阻塞主流程
 
 **历史**：2026-07-05 Phase 1a/1b 实现，ADR-008 §决策。
+
+### ⚠️ typetype 只能依赖 OTT 只读协议，不能把 `/api/entries` 当标准路径
+
+**问题**：OTT adapter 的 `/api` 同时承载管理、脚本、删除、调度等私有能力。把 `/api/entries` 作为 typetype 标准客户端 fallback 会重新耦合管理面和只读分发面，并让大文本退化成全量正文分发。
+
+**现状**（2026-07-10 ADR-009 首轮落地）：
+- OTT 标准客户端边界是 `/ott/v1` Service Profile 或 Static Profile
+- `OttTextProvider.get_catalog()` 优先读 `/ott/v1/sources`，再 fallback 到 Static `/sources.json`，最后 fallback 到旧 `registry_index.json`
+- `OttTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
+- `/ott/v1` 不可用时按 Static Profile → 旧静态 `registry_index.json` + `content/{source_key}.json` fallback，不 fallback `/api/entries`
+- inline OTT 条目通过 `loadOttEntry(entry_id)` 显式加载，不靠 `entry_id` 前缀猜测
+- segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
+- `OttClient` 负责 Service Profile / Static Profile 读取顺序；`OttTextProvider` 负责缓存与 legacy fallback
+- `registry_text_provider.RegistryTextProvider` 只保留兼容导出，新代码禁止继续依赖旧模块名
+
+**正确做法**：
+- 新增 OTT 客户端能力 → 先扩展 `/ott/v1` 或 Static Profile，再改 typetype
+- 管理/脚本能力 → 留在 adapter Admin Profile `/ott-admin/v1`（旧 `/api` 仅兼容），typetype 只读客户端不要依赖
+- 大文本 → 使用服务端定义 segment；不要在 typetype 侧拉完整正文再自行切片
+
+**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移与 OTT adapter `/ott-admin/v1` 管理面拆分；2026-07-13 完成 source catalog、schema/validator、兼容测试包收口。
 
 ### ⚠️ 晴发文（Wenlai）不得 CI 化，必须保持即时拉取
 
@@ -367,6 +407,54 @@ onActiveChanged: {
 - 不得将晴发文纳入 Registry/CI 体系或 `TextSourceConfig.sources`
 
 **历史**：2026-07-05 ADR-008 §4.1 决策。
+
+### ⚠️ L1 规则解释器必须保持无图灵完备性
+
+**问题**：OTT Repo `ott-rule` 允许 repo 维护者在 manifest 中内联声明式抓取规则。如果解释器设计不当，可能引入任意代码执行面，破坏"客户端从网络订阅的一切内容均无任意代码执行"的不变式。
+
+**现状**（2026-07-27 实现）：
+- 解释器：`src/backend/integration/ott_rule_interpreter.py`（`OttRuleInterpreter`）
+- `extract` 仅限 JSON path（`$.a.b`）、命名正则（`(?P<name>...)`）、CSS 选择器三选一
+- `transform` 仅限 `trim` / `replace` / `truncate` 固定管道
+- `request.url` 仅允许公网 http(s)；禁 `file:`、环回、私有地址（`validate_url()`）
+- 单次 fetch ≤ 1 MB；总条目 ≤ 1000；max_pages 硬限制 20
+- 调试工具：`scripts/debug_rule.py`（离线 CLI，不启动 UI）
+
+**schema v2**（2026-08-07 Phase 1.3 落地，设计见 `docs/designs/ott-dsl.md`）：
+- `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），`{"ref": "body"}` 引用 `request.body` 字面量，末步输出作为 POST 请求体
+- `permissions.network`：域名白名单（子域匹配），声明时生效——URL 不在白名单内整条规则拒绝；未声明回退 `validate_url`
+- `rights.min_api_level`：客户端 API level（`CLIENT_API_LEVEL` 常量，federation 创建 interpreter 时传入）低于声明值 → 规则不兼容跳过
+- body 类型规范化：str/bytes 直传、dict/list → JSON 序列化、int/bool 字符串化、其余类型规则拒绝；`Content-Type` 必须由规则 `request.headers` 显式声明
+- 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限 → 整条规则跳过
+
+**正确做法**：
+- 扩展提取能力 → 仍走声明式（新增 JSON path 语法或 CSS 伪类），不得引入 JS/Python/动态 URL 计算
+- 新增 transform 操作 → 在 `apply_transforms_to_entry()` 白名单中添加，不得允许任意字符串运算
+- 规则源产出 entry 的 authority = `rule:{repo_id}:{rule_id}`（上游规范，防跨 repo 冲突），进度键 `ott:rule:{repo_id}:{rule_id}:{entry_id}@{revision_id}`
+- 不得在解释器中执行网络请求以外的 I/O（禁文件写入、禁子进程）
+- 扩展 DSL 原语 → 在 `ott_dsl.py` 的 `PRIMITIVES` 注册表添加，保持纯函数无状态；引擎约束常量（`MAX_VALUE_BYTES`/`MAX_DEPTH`/`MAX_CALLS`/`MAX_STEPS`）不得放松
+
+**历史**：2026-07-27 ADR-010 Phase 3 落地；2026-08-07 Phase 1.1/1.2 受限原语引擎 + Phase 1.3 schema v2。
+
+### ⚠️ ott-script 必须经过 AST 安全检查 + 沙箱执行
+
+**问题**：OTT Repo `ott-script` 允许 repo 维护者分发 Python 脚本到客户端执行。如果沙箱设计不当，恶意脚本可以执行任意系统命令、窃取数据。
+
+**现状**（2026-07-27 实现，含子进程沙箱修复）：
+- 安全检查（第一道关卡）：`src/backend/integration/ott_script_safety.py`（`validate_script_source()`）— AST 白名单 import + 别名解析 + `__builtins__` 检测
+- 沙箱调度：`src/backend/integration/ott_script_client.py`（`ScriptSandbox`）— 写临时文件 + 启动子进程 + 解析 stdout JSON
+- 子进程沙箱（最后防线）：`src/backend/integration/ott_script_runner.py` — 独立 Python 进程 + 资源限制（256MB 内存 / 30s CPU / RLIMIT_NPROC=0 / 10MB 文件写入）+ 受限 builtins + 白名单模块注入 + Landlock 文件系统白名单（ctypes 直调 syscall，本机无 `os.landlock_*`）+ stdout JSON 序列化
+- 禁止：`eval`/`exec`/`compile`、`open`、`os`/`subprocess`/`socket`/`ctypes`/`import`（均不在白名单）、`__builtins__` 引用
+- 允许：`httpx`/`json`/`re`/`hashlib`/`base64`/`Crypto`/`bs4` 等白名单模块
+- 脚本必须定义 `fetch_entries() -> list[dict]`，返回标准化 entry
+- 缓存：`ScriptCache`（TTL + AST 校验 + 原子写 + 离线回退）
+
+**正确做法**：
+- 新增脚本能力 → 在 `ALLOWED_MODULES` 白名单中扩展，不得绕过 AST 检查
+- 脚本产出 entry 的 authority = `script`，进度键 `ott:script:{entry_id}@{revision_id}`
+- 安全边界为子进程隔离：脚本逃逸最多获得 256MB 内存 + 30s CPU，无法写主进程内存；`RLIMIT_NPROC=0` 禁止 fork；网络可访问（抓取需要）但受 CPU 时间约束；Landlock（内核 5.13+，不可用时静默降级）将文件系统访问限制在脚本目录 + `sys.prefix` + `/etc` + `/dev` 白名单，逃逸读取任意文件被内核拒绝
+
+**历史**：2026-07-27 ADR-010 Phase 3 落地。
 
 ---
 

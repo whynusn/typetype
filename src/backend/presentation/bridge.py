@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from .adapters.char_stats_adapter import CharStatsAdapter
     from .adapters.leaderboard_adapter import LeaderboardAdapter
     from .adapters.local_article_adapter import LocalArticleAdapter
+    from .adapters.registry_adapter import RegistryAdapter
     from .adapters.text_adapter import TextAdapter
     from .adapters.trainer_adapter import TrainerAdapter
     from .adapters.typing_adapter import TypingAdapter
@@ -43,12 +44,57 @@ if TYPE_CHECKING:
 from .text_load_coordinator import TextLoadCoordinator
 
 
+class _FederationSegmentAdapter:
+    """把 OttFederationProvider 适配成 OttSegmentProvider 所需的接口。
+
+    OttSegmentProvider 通过 ``fetch_ott_segment(entry_id, revision_id, index, size)``
+    获取分段内容；本适配器将调用转发到
+    ``federation.get_segment(authority, entry_id, revision_id, index, size)``。
+    """
+
+    def __init__(self, federation, authority: str) -> None:
+        self._federation = federation
+        self.authority = authority
+
+    def fetch_ott_segment(
+        self,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        source_segment_size: int = 1000,
+    ) -> dict | None:
+        data = self._federation.get_segment(
+            self.authority,
+            entry_id,
+            revision_id,
+            segment_index,
+            source_segment_size,
+        )
+        if data is None:
+            return None
+        content = data.get("content", "")
+        if not isinstance(content, str):
+            return None
+        return {
+            "entry_id": str(data.get("entry_id", entry_id)),
+            "revision_id": str(data.get("revision_id", revision_id)),
+            "index": int(data.get("index", segment_index)),
+            "start_char": int(data.get("start_char", 0)),
+            "end_char": int(data.get("end_char", len(content))),
+            "char_count": int(data.get("char_count", len(content))),
+            "content_hash": str(data.get("content_hash", "")),
+            "content": content,
+        }
+
+
 def _compute_progress_key(key_type: str, identifier: str) -> str:
     """统一的进度 key 生成。key_type: "local_article" / "trainer" / "custom_text"。"""
     if key_type == "local_article":
         return f"__local_article__:{identifier}"
     if key_type == "trainer":
         return f"__trainer__:{identifier}"
+    if key_type == "ott":
+        return f"ott:{identifier}"
     return (
         f"__custom_text__:{hashlib.sha256(identifier.encode('utf-8')).hexdigest()[:16]}"
     )
@@ -99,11 +145,22 @@ class Bridge(QObject):
     sliceModeChanged = Signal()
     sliceStatusChanged = Signal(str)
     textContentLoaded = Signal(int, str, str)  # (text_id, content, title)
+    registryEntriesLoaded = Signal(
+        str, list
+    )  # (source_key, entries[{title, content, fetched_at}])
+    # OTT Repo 联邦目录信号
+    reposChanged = Signal(list)  # list of repo summary dicts
+    reposLoadFailed = Signal(str)
+    reposLoadingChanged = Signal()
+    registryFederatedEntriesLoaded = Signal(list)  # list of entry dicts
+    registryFederatedEntriesLoadFailed = Signal(str)
+    registryFederatedEntriesLoadingChanged = Signal()
     # 会话状态机信号
     uploadStatusChanged = Signal(int)
     eligibilityReasonChanged = Signal(str)
     baseUrlChanged = Signal()
     registryUrlChanged = Signal()
+    scriptsEnabledChanged = Signal()
     windowTitleChanged = Signal()
     textTitleChanged = Signal()
     textSourceOptionsChanged = Signal()
@@ -136,6 +193,7 @@ class Bridge(QObject):
     localArticleLoadingChanged = Signal()
     localArticleDeleted = Signal(bool, str)
     localArticleRenamed = Signal(bool, str)
+    localArticlePreviewLoaded = Signal(str)
     # 字提示信号
     zitiSchemesLoaded = Signal(list)
     zitiSchemesLoadFailed = Signal(str)
@@ -148,6 +206,7 @@ class Bridge(QObject):
     trainerSegmentLoaded = Signal(dict)
     trainerSegmentLoadFailed = Signal(str)
     trainerLoadingChanged = Signal()
+    trainerPreviewLoaded = Signal(str)
     # 字体信号
     fontsLoaded = Signal(list)
     fontsLoadFailed = Signal(str)
@@ -164,6 +223,7 @@ class Bridge(QObject):
         char_stats_adapter: CharStatsAdapter,
         upload_text_adapter: UploadTextAdapter | None = None,
         leaderboard_adapter: LeaderboardAdapter | None = None,
+        registry_adapter: "RegistryAdapter | None" = None,
         wenlai_adapter: WenlaiAdapter | None = None,
         ai_text_adapter: "AiTextAdapter | None" = None,
         local_article_adapter: LocalArticleAdapter | None = None,
@@ -184,6 +244,7 @@ class Bridge(QObject):
         self._char_stats_adapter = char_stats_adapter
         self._upload_text_adapter = upload_text_adapter
         self._leaderboard_adapter = leaderboard_adapter
+        self._registry_adapter = registry_adapter
         self._wenlai_adapter = wenlai_adapter
         self._ai_text_adapter = ai_text_adapter
         self._local_article_adapter = local_article_adapter
@@ -192,6 +253,7 @@ class Bridge(QObject):
         self._font_adapter = font_adapter
         self._typing_totals_gateway = typing_totals_gateway
         self._typing_history_gateway = typing_history_gateway
+        self._trend_period = "day"
         self._key_listener = key_listener
         self._base_url_update_callback = base_url_update_callback
         self._slice_metrics_prefs_store = slice_metrics_prefs_store
@@ -224,6 +286,7 @@ class Bridge(QObject):
         self._connect_char_stats_signals()
         self._connect_upload_signals()
         self._connect_leaderboard_signals()
+        self._connect_registry_signals()
         self._connect_wenlai_signals()
         self._connect_ai_text_signals()
         self._connect_local_article_signals()
@@ -437,6 +500,23 @@ class Bridge(QObject):
                 self.catalogLoadingChanged.emit
             )
 
+    def _connect_registry_signals(self) -> None:
+        if self._registry_adapter:
+            self._registry_adapter.reposChanged.connect(self.reposChanged.emit)
+            self._registry_adapter.reposLoadFailed.connect(self.reposLoadFailed.emit)
+            self._registry_adapter.reposLoadingChanged.connect(
+                self.reposLoadingChanged.emit
+            )
+            self._registry_adapter.entriesLoaded.connect(
+                self.registryFederatedEntriesLoaded.emit
+            )
+            self._registry_adapter.entriesLoadFailed.connect(
+                self.registryFederatedEntriesLoadFailed.emit
+            )
+            self._registry_adapter.entriesLoadingChanged.connect(
+                self.registryFederatedEntriesLoadingChanged.emit
+            )
+
     def _connect_wenlai_signals(self) -> None:
         if not self._wenlai_adapter:
             return
@@ -500,6 +580,9 @@ class Bridge(QObject):
         self._local_article_adapter.localArticleRenamed.connect(
             self.localArticleRenamed.emit
         )
+        self._local_article_adapter.localArticlePreviewLoaded.connect(
+            self.localArticlePreviewLoaded.emit
+        )
 
     def _connect_ziti_signals(self) -> None:
         if not self._ziti_adapter:
@@ -523,6 +606,9 @@ class Bridge(QObject):
         )
         self._trainer_adapter.trainerLoadingChanged.connect(
             self.trainerLoadingChanged.emit
+        )
+        self._trainer_adapter.trainerPreviewLoaded.connect(
+            self.trainerPreviewLoaded.emit
         )
 
     def _connect_font_signals(self) -> None:
@@ -642,6 +728,10 @@ class Bridge(QObject):
     def defaultTextSourceKey(self) -> str:
         return self._text_adapter.get_default_source_key()
 
+    @Property(str, notify=defaultTextSourceKeyChanged)
+    def startupTextSourceKey(self) -> str:
+        return self._text_adapter.get_startup_source_key()
+
     @Property(str, constant=True)
     def defaultTextTitle(self) -> str:
         return self._text_adapter.get_default_source_label()
@@ -732,6 +822,18 @@ class Bridge(QObject):
             return self._leaderboard_adapter.catalog_loading
         return False
 
+    @Property(bool, notify=reposLoadingChanged)
+    def reposLoading(self) -> bool:
+        if self._registry_adapter:
+            return self._registry_adapter.repos_loading
+        return False
+
+    @Property(bool, notify=registryFederatedEntriesLoadingChanged)
+    def federatedEntriesLoading(self) -> bool:
+        if self._registry_adapter:
+            return self._registry_adapter.entries_loading
+        return False
+
     @Property(int, notify=textIdChanged)
     def textId(self) -> int:
         return self._text_id
@@ -753,13 +855,30 @@ class Bridge(QObject):
 
     @Property(str, notify=registryUrlChanged)
     def registryPrimaryUrl(self) -> str:
-        """注册表主地址。"""
-        return self._text_adapter._runtime_config.registry.primary_url
+        """注册表主地址。
+
+        _from_dict 加载时仅清空不匹配任何订阅的陈旧 primary_url（避免旧
+        OttTextProvider 向旧地址发起 discovery）。设置页字段绑定本属性，
+        因此 primary_url 为空时从第一个 enabled 订阅反推显示，保证用户
+        设置的主地址在重启后仍可见。
+        """
+        cfg = self._text_adapter._runtime_config
+        if cfg.registry.primary_url:
+            return cfg.registry.primary_url
+        for repo in cfg.source_repos.repos:
+            if repo.enabled:
+                return repo.url
+        return ""
 
     @Property(str, notify=registryUrlChanged)
     def registryMirrorUrl(self) -> str:
         """注册表镜像地址。"""
         return self._text_adapter._runtime_config.registry.mirror_url
+
+    @Property(bool, notify=scriptsEnabledChanged)
+    def scriptsEnabled(self) -> bool:
+        """ott-script（L3）脚本是否启用。"""
+        return self._text_adapter._runtime_config.registry.scripts_enabled
 
     @Property(str, notify=windowTitleChanged)
     def windowTitle(self) -> str:
@@ -1138,6 +1257,12 @@ class Bridge(QObject):
             self._leaderboard_adapter.loadCatalog()
 
     @Slot()
+    def loadRegistryEntries(self) -> None:
+        """加载开源文库（OTT）聚合的全部条目（扁平列表）。"""
+        if self._leaderboard_adapter:
+            self._leaderboard_adapter.loadRegistryEntries()
+
+    @Slot()
     def refreshCatalog(self) -> None:
         """清除缓存并重新加载文本来源目录。"""
         if self._leaderboard_adapter:
@@ -1147,7 +1272,7 @@ class Bridge(QObject):
     def loadLibraryText(self, source_key: str) -> None:
         """从开源文库加载文本（完全独立于服务端 API）。
 
-        开源文库（第 2 层，内部实现为 RegistryTextProvider）文本由用户本地运行脚本生成，
+        开源文库（第 2 层，内部实现为 OttTextProvider）文本由用户本地运行脚本生成，
         通过 HTTP 服务暴露，客户端拉取，与服务端数据库无关。
 
         结果通过 textContentLoaded 信号返回，失败通过 textLoadFailed。
@@ -1157,21 +1282,350 @@ class Bridge(QObject):
             return
         provider = self._leaderboard_adapter._registry_provider
         if provider is None:
-            self.textLoadFailed.emit("注册表文本源未配置")
+            self.textLoadFailed.emit("注册表文本源未配置：请在设置中填写开源文库地址")
             return
         self._leaderboard_adapter.submit_to_thread_pool(
             fn=lambda: self._leaderboard_adapter.fetch_registry_text(source_key),
-            on_result=lambda result: self.textContentLoaded.emit(
-                result[0], result[1], result[2]
-            ),
+            on_result=lambda result: self._on_registry_text_loaded(source_key, result),
             on_error=lambda msg: self.textLoadFailed.emit(msg),
         )
+
+    def _on_registry_text_loaded(self, source_key: str, result: tuple) -> None:
+        """处理 registry 文本加载完成，拆分 entries 和主内容。"""
+        text_id, content, title, entries = (
+            result[0],
+            result[1],
+            result[2],
+            result[3] if len(result) > 3 else [],
+        )
+        # 先发射主内容（向后兼容即时跟打）
+        self.textContentLoaded.emit(text_id, content, title)
+        # 如果有 entries，发射 entries 信号让 QML 展示条目列表
+        if entries:
+            self.registryEntriesLoaded.emit(source_key, entries)
+
+    @Slot(str)
+    def loadOttEntry(self, entryId: str) -> None:
+        """从 OTT Core v1 按 entry_id 加载 inline 文本。"""
+        if not self._leaderboard_adapter:
+            return
+        provider = self._leaderboard_adapter._registry_provider
+        if provider is None:
+            self.textLoadFailed.emit("OTT 文本源未配置")
+            return
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._leaderboard_adapter.fetch_ott_entry_text(entryId),
+            on_result=lambda result: self._on_registry_text_loaded(entryId, result),
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    @Slot(str, str, int, int, int, int, str)
+    def loadOttEntrySegment(
+        self,
+        entryId: str,
+        revisionId: str,
+        segmentIndex: int,
+        segmentSize: int,
+        totalChars: int,
+        sourceSegmentSize: int,
+        title: str,
+    ) -> None:
+        """Load an OTT segmented entry through the generic text session pipeline."""
+        if not self._leaderboard_adapter or not self._text_adapter:
+            return
+        provider_adapter = self._leaderboard_adapter._registry_provider
+        if provider_adapter is None:
+            self.textLoadFailed.emit("OTT 文本源未配置")
+            return
+
+        if self._pending_restored_progress:
+            saved_slice = self._pending_restored_progress.get("current_slice", 1)
+            saved_total = self._pending_restored_progress.get("total_slices", 0)
+            if 1 <= saved_slice <= saved_total:
+                segmentIndex = saved_slice
+
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._clear_wenlai_active()
+        self._clear_trainer_active()
+        self._clear_local_article_active()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+        self._coordinator.pending_slice_params["full_shuffle"] = False
+        self._current_shuffle_seed = None
+
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._build_ott_segment_session(
+                provider_adapter,
+                entryId,
+                revisionId,
+                segmentIndex,
+                segmentSize,
+                totalChars,
+                sourceSegmentSize or segmentSize or 1000,
+                title,
+            ),
+            on_result=self._on_ott_segment_session_started,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    @Slot(str, str, str, int, int, int, int, str)
+    def loadFederatedEntrySegment(
+        self,
+        authority: str,
+        entryId: str,
+        revisionId: str,
+        segmentIndex: int,
+        segmentSize: int,
+        totalChars: int,
+        sourceSegmentSize: int,
+        title: str,
+    ) -> None:
+        """从联邦聚合的指定 authority 加载 OTT 文本分段。"""
+        if not self._registry_adapter or not self._text_adapter:
+            return
+
+        federation = getattr(self._registry_adapter, "_federation", None)
+        if federation is None:
+            self.textLoadFailed.emit("联邦文本源未配置")
+            return
+
+        adapter = _FederationSegmentAdapter(federation, authority)
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._build_federated_segment_session(
+                adapter=adapter,
+                entry_id=entryId,
+                revision_id=revisionId,
+                segment_index=segmentIndex,
+                segment_size=segmentSize,
+                total_chars=totalChars,
+                source_segment_size=sourceSegmentSize or segmentSize or 1000,
+                title=title,
+                authority=authority,
+            ),
+            on_result=self._on_ott_segment_session_started,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    @Slot(str, str, str, str)
+    def loadFederatedInlineEntry(
+        self,
+        authority: str,
+        entryId: str,
+        revisionId: str,
+        title: str,
+    ) -> None:
+        """从联邦聚合加载 inline 内容（规则/脚本源）。"""
+        if not self._registry_adapter:
+            return
+        federation = getattr(self._registry_adapter, "_federation", None)
+        if federation is None:
+            self.textLoadFailed.emit("联邦文本源未配置")
+            return
+
+        def _load() -> dict | None:
+            return federation.get_entry(authority, entryId)
+
+        def _on_result(detail: dict | None) -> None:
+            if detail is None:
+                self.textLoadFailed.emit("无法加载条目")
+                return
+            content = detail.get("content", "")
+            if not content:
+                self.textLoadFailed.emit("条目无内容")
+                return
+            # textContentLoaded 信号第一个参数是 int 类型的 text_id
+            # 联邦条目没有服务端 text_id，使用 hash 或 0
+            text_id = 0
+            self.textContentLoaded.emit(text_id, content, title)
+
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=_load,
+            on_result=_on_result,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    def _build_federated_segment_session(
+        self,
+        adapter: "_FederationSegmentAdapter",
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size: int,
+        total_chars: int,
+        source_segment_size: int,
+        title: str,
+        authority: str,
+    ) -> dict:
+        from src.backend.integration.ott_segment_provider import OttSegmentProvider
+        from src.backend.models.dto.text_session import TextKind
+
+        provider = OttSegmentProvider(
+            adapter,
+            entry_id,
+            revision_id,
+            total_chars,
+            source_segment_size,
+        )
+        built = self._text_adapter.buildProviderTextSession(
+            provider=provider,
+            kind=TextKind.OTT,
+            identifier=f"{entry_id}@{revision_id}",
+            title=title,
+            version=revision_id,
+            slice_size=segment_size,
+            start_slice=segment_index,
+            source_key="ott",
+        )
+        if built is None:
+            raise RuntimeError("无法加载联邦文本分段")
+        usecase, result = built
+        return {
+            "usecase": usecase,
+            "result": result,
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "segment_size": segment_size,
+            "source_segment_size": source_segment_size,
+            "title": title,
+            "authority": authority,
+        }
+
+    def _build_ott_segment_session(
+        self,
+        provider_adapter,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size: int,
+        total_chars: int,
+        source_segment_size: int,
+        title: str,
+    ) -> dict:
+        from src.backend.integration.ott_segment_provider import OttSegmentProvider
+        from src.backend.models.dto.text_session import TextKind
+
+        provider = OttSegmentProvider(
+            provider_adapter,
+            entry_id,
+            revision_id,
+            total_chars,
+            source_segment_size,
+        )
+        built = self._text_adapter.buildProviderTextSession(
+            provider=provider,
+            kind=TextKind.OTT,
+            identifier=f"{entry_id}@{revision_id}",
+            title=title,
+            version=revision_id,
+            slice_size=segment_size,
+            start_slice=segment_index,
+            source_key="ott",
+        )
+        if built is None:
+            raise RuntimeError("无法加载 OTT 文本分段")
+        usecase, result = built
+        return {
+            "usecase": usecase,
+            "result": result,
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "segment_size": segment_size,
+            "source_segment_size": source_segment_size,
+            "title": title,
+            "authority": getattr(provider_adapter, "authority", "local"),
+        }
+
+    def _on_ott_segment_session_started(self, payload: dict) -> None:
+        self._text_adapter.attachTextSession(
+            payload["usecase"], int(payload["segment_size"])
+        )
+        result = payload["result"]
+        title = str(payload.get("title", "") or "")
+        title_label = (
+            f"{title} {result.index}/{result.total}"
+            if title and result.total > 1
+            else f"{result.index}/{result.total}"
+            if result.total > 1
+            else title
+        )
+        p = self._coordinator.pending_slice_params
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        self._coordinator._cache_current_content(result.content)
+        self._coordinator.source_slice_backend = "ott"
+        self._coordinator.source_slice_segment_size = int(payload["segment_size"])
+        self._coordinator._source_slice_title = title
+        self._coordinator._visited_slices.clear()
+        progress_id = (
+            f"{payload.get('authority', 'local')}:"
+            f"{payload['entry_id']}@{payload['revision_id']}"
+        )
+        self._progress_key_override = _compute_progress_key("ott", progress_id)
+        self._typing_adapter.setup_sourced_slice_mode(
+            result.index,
+            result.total,
+            slice_size=int(payload["segment_size"]),
+            on_fail_action=p["on_fail_action"],
+            key_stroke_min=p["key_stroke_min"],
+            speed_min=p["speed_min"],
+            accuracy_min=p["accuracy_min"],
+            pass_count_min=p["pass_count_min"],
+            reset_counts=True,
+            auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+            key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+            speed_decrease=p.get("speed_decrease", 0),
+            accuracy_decrease=p.get("accuracy_decrease", 0),
+        )
+        self._restore_pending_progress()
+        self._update_progress_current_slice()
+        self.sliceModeChanged.emit()
+        self.textLoaded.emit(result.content, -1, title_label)
+
+    def loadOttCurrentSessionSegment(self, index: int) -> None:
+        """异步加载当前 OTT session 的指定 segment。"""
+        if not self._leaderboard_adapter:
+            return
+        self._leaderboard_adapter.submit_to_thread_pool(
+            fn=lambda: self._text_adapter.get_text_session_segment(index),
+            on_result=self._on_ott_current_session_segment_loaded,
+            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        )
+
+    def _on_ott_current_session_segment_loaded(self, result) -> None:
+        if result is None:
+            self.textLoadFailed.emit("无法加载 OTT 文本分段")
+            return
+        title = self._coordinator._source_slice_title or "OTT"
+        title_label = (
+            f"{title} {result.index}/{result.total}"
+            if title
+            else f"{result.index}/{result.total}"
+        )
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        self._coordinator._cache_current_content(result.content)
+        self._typing_adapter.reset_slice_pass_count(result.index)
+        self._typing_adapter.set_slice_index(result.index)
+        self._typing_adapter.restore_slice_metrics(result.index)
+        self._typing_adapter.set_session_slice_size(
+            self._coordinator.source_slice_segment_size
+        )
+        self.sliceModeChanged.emit()
+        self.textLoaded.emit(result.content, -1, title_label)
+        self._update_progress_current_slice()
 
     @Slot()
     def loadLocalArticles(self) -> None:
         """加载本地长文目录。"""
         if self._local_article_adapter:
             self._local_article_adapter.loadLocalArticles()
+
+    @Slot(str)
+    def loadLocalArticlePreview(self, article_id: str) -> None:
+        """异步加载本地文章全文供预览。"""
+        if self._local_article_adapter:
+            self._local_article_adapter.loadLocalArticlePreview(article_id)
 
     @Slot(str)
     def deleteLocalArticle(self, article_id: str) -> None:
@@ -1311,6 +1765,12 @@ class Bridge(QObject):
         """加载练单器词库目录。"""
         if self._trainer_adapter:
             self._trainer_adapter.loadTrainers()
+
+    @Slot(str)
+    def loadTrainerPreview(self, trainer_id: str) -> None:
+        """异步加载练单器词库原始文本供预览。"""
+        if self._trainer_adapter:
+            self._trainer_adapter.loadTrainerPreview(trainer_id)
 
     @Slot(str, int, int)
     def loadTrainerSegment(
@@ -2244,6 +2704,75 @@ class Bridge(QObject):
         self.registryUrlChanged.emit()
 
     @Slot(str, str)
+    def setRegistryUrls(self, primary_url: str, mirror_url: str) -> None:
+        """更新注册表地址并持久化。"""
+        self._text_adapter._runtime_config.update_registry_url(
+            primary_url=primary_url,
+            mirror_url=mirror_url,
+        )
+        if self._leaderboard_adapter:
+            self._leaderboard_adapter.refreshCatalog()
+        self.registryUrlChanged.emit()
+
+    @Slot(bool)
+    def setScriptsEnabled(self, enabled: bool) -> None:
+        """更新 ott-script（L3）开关并持久化。"""
+        self._text_adapter._runtime_config.update_scripts_enabled(enabled)
+        self.scriptsEnabledChanged.emit()
+
+    # ------------------------------------------------------------------
+    # OTT Repo 联邦目录 Slot
+    # ------------------------------------------------------------------
+
+    @Slot(result=list)
+    def getRepos(self) -> list:
+        """返回所有订阅的摘要列表。"""
+        if self._registry_adapter:
+            return self._registry_adapter.getRepos()
+        return []
+
+    @Slot(str)
+    def addRepo(self, url: str) -> None:
+        """添加一条源仓库订阅。"""
+        if self._registry_adapter:
+            self._registry_adapter.addRepo(url)
+            # 订阅变化改变 registryPrimaryUrl 反推结果，须 emit 刷新设置页缓存
+            # 字段，否则 NavigationView 缓存页面残留旧值，点"应用"会用旧值复活订阅
+            self.registryUrlChanged.emit()
+
+    @Slot(str)
+    def removeRepo(self, url: str) -> None:
+        """移除一条源仓库订阅。"""
+        if self._registry_adapter:
+            self._registry_adapter.removeRepo(url)
+            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
+
+    @Slot(str, bool)
+    def setRepoEnabled(self, url: str, enabled: bool) -> None:
+        """启用/禁用一条源仓库订阅。"""
+        if self._registry_adapter:
+            self._registry_adapter.setRepoEnabled(url, enabled)
+            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
+
+    @Slot()
+    def refreshRepos(self) -> None:
+        """重新加载所有订阅的 manifest 摘要。"""
+        if self._registry_adapter:
+            self._registry_adapter.refreshRepos()
+
+    @Slot(str)
+    def refreshRepo(self, url: str) -> None:
+        """强制刷新单条订阅的 manifest。"""
+        if self._registry_adapter:
+            self._registry_adapter.refreshRepo(url)
+
+    @Slot()
+    def loadFederatedEntries(self) -> None:
+        """加载联邦聚合的全部条目。"""
+        if self._registry_adapter:
+            self._registry_adapter.loadAllEntries()
+
+    @Slot(str, str)
     def loginWenlai(self, username: str, password: str) -> None:
         if self._wenlai_adapter:
             self._wenlai_adapter.login(username, password)
@@ -2560,6 +3089,14 @@ class Bridge(QObject):
         self.typingHistoryChanged.emit()
         self.typingHistorySummaryChanged.emit()
 
+    @Slot(str)
+    def setTrendRange(self, period: str) -> None:
+        """设置趋势图时间范围（hour/day/week/month）并刷新。"""
+        self._trend_period = (
+            period if period in {"hour", "day", "week", "month"} else "day"
+        )
+        self.typingHistorySummaryChanged.emit()
+
     @Property(int, notify=typingHistoryChanged)
     def typingHistoryCount(self) -> int:
         if self._typing_history_gateway:
@@ -2599,8 +3136,36 @@ class Bridge(QObject):
     @Property("QVariantList", notify=typingHistorySummaryChanged)
     def typingHistoryDailyTrend(self) -> list:
         if self._typing_history_gateway:
-            return self._typing_history_gateway.get_daily_trend(30)
+            return self._typing_history_gateway.get_trend(self._trend_period)
         return []
+
+    @Property(int, notify=typingHistoryChanged)
+    def typingHistoryMaxRecords(self) -> int:
+        if self._text_adapter and self._text_adapter._runtime_config:
+            return self._text_adapter._runtime_config.typing_history_max_records
+        return 2000
+
+    @Slot(int)
+    def setTypingHistoryMaxRecords(self, max_records: int) -> None:
+        """更新打字历史最大保留条数。"""
+        if not (self._text_adapter and self._text_adapter._runtime_config):
+            return
+        self._text_adapter._runtime_config.update_typing_history_max_records(
+            max_records
+        )
+        # 如果当前记录数超过新上限，截断
+        if self._typing_history_gateway:
+            self._typing_history_gateway._max_records = (
+                self._text_adapter._runtime_config.typing_history_max_records
+            )
+            # 立即截断超限记录
+            data = self._typing_history_gateway._load_normalized()
+            if len(data["records"]) > self._typing_history_gateway._max_records:
+                data["records"] = data["records"][
+                    : self._typing_history_gateway._max_records
+                ]
+                self._typing_history_gateway._store.save(data)
+        self.typingHistoryChanged.emit()
 
     @staticmethod
     def _font_config_path() -> str:

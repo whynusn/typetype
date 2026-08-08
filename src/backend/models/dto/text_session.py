@@ -13,6 +13,7 @@ class TextKind(StrEnum):
     TRAINER = "trainer"
     REMOTE_TEXT = "remote_text"
     CLIPBOARD = "clipboard"
+    OTT = "ott"
 
 
 @dataclass(frozen=True)

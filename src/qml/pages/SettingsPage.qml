@@ -473,6 +473,42 @@ FluentPage {
     }
 
     SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("打字历史")
+        icon.name: "ic_fluent_history_20_regular"
+        description: qsTr("最多保留的历史记录条数，超出后自动截断旧记录")
+
+        RowLayout {
+            spacing: 8
+
+            SpinBox {
+                id: historyMaxSpinBox
+                from: 100
+                to: 100000
+                stepSize: 1000
+                value: appBridge ? appBridge.typingHistoryMaxRecords : 2000
+                onValueModified: {
+                    if (appBridge) appBridge.setTypingHistoryMaxRecords(value)
+                }
+            }
+
+            Text {
+                text: qsTr("条")
+                typography: Typography.Body
+                color: Theme.currentTheme.colors.textSecondaryColor
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Text {
+                text: qsTr("当前: %1 条").arg(appBridge ? appBridge.typingHistoryCount : 0)
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.textSecondaryColor
+            }
+        }
+    }
+
+    SettingCard {
         id: baseUrlCard
         Layout.fillWidth: true
         title: qsTr("服务地址")
@@ -510,10 +546,7 @@ FluentPage {
         if (!appBridge) return
         var primary = registryPrimaryField.text.trim()
         var mirror = registryMirrorField.text.trim()
-        if (primary.length > 0)
-            appBridge.setRegistryPrimaryUrl(primary)
-        if (mirror.length > 0)
-            appBridge.setRegistryMirrorUrl(mirror)
+        appBridge.setRegistryUrls(primary, mirror)
     }
 
     SettingCard {
@@ -571,6 +604,38 @@ FluentPage {
                     text: qsTr("应用")
                     highlighted: true
                     onClicked: applyRegistryUrl()
+                }
+            }
+
+            RowLayout {
+                spacing: 8
+
+                Text {
+                    typography: Typography.Caption
+                    text: qsTr("远程脚本")
+                    Layout.preferredWidth: 48
+                }
+
+                Switch {
+                    id: ottScriptsSwitch
+                    checked: appBridge ? appBridge.scriptsEnabled : false
+                    onCheckedChanged: {
+                        if (appBridge) appBridge.setScriptsEnabled(checked)
+                    }
+                }
+
+                Text {
+                    typography: Typography.Caption
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("执行开源文库分发的 ott-script 脚本（Windows 默认关闭：沙箱隔离强度不足）")
+                }
+
+                Text {
+                    typography: Typography.Caption
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: qsTr("TypeType 为中立打字工具，不含广告与聚合搜索；对订阅来源的内容与脚本不承担审核责任，请仅订阅可信来源。")
                 }
             }
         }

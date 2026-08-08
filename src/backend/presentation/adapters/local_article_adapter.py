@@ -1,5 +1,7 @@
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
+from collections import OrderedDict
+
 from ...application.gateways.local_article_gateway import LocalArticleGateway
 from ...application.usecases.load_local_article_segment_usecase import (
     LoadLocalArticleSegmentUseCase,
@@ -18,6 +20,7 @@ class LocalArticleAdapter(QObject):
     localArticleLoadingChanged = Signal()
     localArticleDeleted = Signal(bool, str)  # (success, message)
     localArticleRenamed = Signal(bool, str)  # (success, message)
+    localArticlePreviewLoaded = Signal(str)  # content text
 
     def __init__(
         self,
@@ -30,7 +33,13 @@ class LocalArticleAdapter(QObject):
         self._thread_pool = QThreadPool.globalInstance()
         self._local_article_loading = False
         self._request_generation = 0
+        self._preview_request_generation = 0
+        self._preview_active_worker = None
+        self._current_preview_article_id: str = ""
         self._active_worker = None
+        # 预览内容缓存：keyed by article_id，上限 50 条，避免重复读文件
+        self._preview_cache: OrderedDict[str, str] = OrderedDict()
+        self._PREVIEW_CACHE_MAX = 50
 
     def _set_loading(self, loading: bool) -> None:
         if self._local_article_loading != loading:
@@ -200,6 +209,78 @@ class LocalArticleAdapter(QObject):
             lambda msg: self.localArticleDeleted.emit(False, msg)
         )
         self._thread_pool.start(worker)
+
+    @Slot(str)
+    def loadLocalArticlePreview(self, article_id: str) -> None:
+        """异步加载本地文章全文供预览卡片展示。
+
+        优先使用内存缓存，减少重复读文件。
+        缓存上限 50 条，超出时驱逐最久未访问的条目。
+
+        安全设计：
+        - 使用 _preview_request_generation 代际守卫丢弃过期回调
+        - 跟踪当前 active worker，新请求到来时断开旧 worker 的信号连接
+          （防止 thread pool 中堆积的 worker 完成后密集发射信号击穿 Qt 事件循环）
+        - worker.setAutoDelete(True) 确保 worker 完成后立即释放
+        """
+        # 缓存命中
+        if article_id in self._preview_cache:
+            self._preview_cache.move_to_end(article_id)
+            self.localArticlePreviewLoaded.emit(self._preview_cache[article_id])
+            return
+
+        self._preview_request_generation += 1
+        request_generation = self._preview_request_generation
+        self._current_preview_article_id = article_id
+
+        # 断开上一个 worker 的所有信号连接
+        if self._preview_active_worker is not None:
+            try:
+                self._preview_active_worker.signals.succeeded.disconnect()
+            except TypeError:
+                pass  # 没有连接时忽略
+            try:
+                self._preview_active_worker.signals.failed.disconnect()
+            except TypeError:
+                pass
+            self._preview_active_worker = None
+
+        def _do_load() -> str:
+            try:
+                return self.get_full_article_content(article_id)
+            except Exception:
+                return ""
+
+        worker = BaseWorker(task=_do_load, error_prefix="加载文章预览失败")
+        worker.setAutoDelete(True)
+        worker.signals.succeeded.connect(
+            lambda content, gen=request_generation: self._on_preview_loaded(
+                gen, content
+            )
+        )
+        worker.signals.failed.connect(
+            lambda msg, gen=request_generation: self._on_preview_failed(gen, msg)
+        )
+        self._preview_active_worker = worker
+        self._thread_pool.start(worker)
+
+    def _on_preview_loaded(self, request_generation: int, content: str) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        # 写入缓存
+        article_id = self._current_preview_article_id
+        if article_id:
+            self._preview_cache[article_id] = content
+            self._preview_cache.move_to_end(article_id)
+            if len(self._preview_cache) > self._PREVIEW_CACHE_MAX:
+                self._preview_cache.popitem(last=False)
+        self.localArticlePreviewLoaded.emit(content)
+
+    def _on_preview_failed(self, request_generation: int, message: str) -> None:
+        if request_generation != self._preview_request_generation:
+            return
+        # 预览加载失败时发出空内容，让 QML 仍可更新状态
+        self.localArticlePreviewLoaded.emit("")
 
     @Slot(str, str)
     def renameArticle(self, article_id: str, new_title: str) -> None:

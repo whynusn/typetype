@@ -4,6 +4,8 @@ import sys
 import json
 from pathlib import Path
 
+from RinUI.core.config import AppUIConfigManager, DEFAULT_CONFIG
+
 from src.backend.models.dto.text_catalog_item import TextCatalogItem
 from src.backend.config.runtime_config import RuntimeConfig
 
@@ -557,3 +559,464 @@ def test_save_to_file_persists_all_to_dict_keys(monkeypatch, tmp_path: Path):
         assert key in saved, (
             f"{key!r} is in _to_dict() but missing from _save_to_file() output"
         )
+
+
+def test_save_to_file_uses_loaded_config_path(monkeypatch, tmp_path: Path):
+    """A config loaded from an explicit path must write back to that path."""
+    explicit_config = tmp_path / "explicit" / "config.json"
+    user_config = tmp_path / "user" / "config.json"
+    explicit_config.parent.mkdir(parents=True)
+    user_config.parent.mkdir(parents=True)
+    explicit_config.write_text(
+        json.dumps({"base_url": "http://explicit", "text_sources": {}}),
+        encoding="utf-8",
+    )
+    user_config.write_text(
+        json.dumps({"base_url": "http://user", "text_sources": {}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+
+    config = RuntimeConfig.load_from_file(str(explicit_config))
+    config.update_base_url("http://changed")
+
+    assert json.loads(explicit_config.read_text(encoding="utf-8"))["base_url"] == (
+        "http://changed"
+    )
+    assert json.loads(user_config.read_text(encoding="utf-8"))["base_url"] == (
+        "http://user"
+    )
+
+
+def test_rinui_ui_save_does_not_roll_back_runtime_urls(tmp_path: Path):
+    """RinUI exit-time UI save must not overwrite URLs saved after RinUI loaded."""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://old",
+                "text_sources": {},
+                "registry": {"primary_url": "", "mirror_url": ""},
+                "wenlai": {"base_url": "https://old.wenlai"},
+                "ai": {"base_url": "https://old.ai", "model": "old-model"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    ui_config = AppUIConfigManager(user_config, DEFAULT_CONFIG)
+    runtime_config = RuntimeConfig.load_from_file(str(user_config))
+    runtime_config.update_base_url("http://new")
+    runtime_config.update_registry_url(
+        primary_url="http://127.0.0.1:18888",
+        mirror_url="https://mirror.example.com",
+    )
+    runtime_config.update_wenlai_config(base_url="https://new.wenlai")
+    runtime_config.update_ai_config(base_url="https://new.ai", model="new-model")
+
+    ui_config.config["theme"]["current_theme"] = "Dark"
+    ui_config.save_config()
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert saved["base_url"] == "http://new"
+    assert saved["registry"]["primary_url"] == "http://127.0.0.1:18888"
+    assert saved["registry"]["mirror_url"] == "https://mirror.example.com"
+    assert saved["wenlai"]["base_url"] == "https://new.wenlai"
+    assert saved["ai"]["base_url"] == "https://new.ai"
+    assert saved["ai"]["model"] == "new-model"
+    assert saved["ui"]["theme"]["current_theme"] == "Dark"
+
+
+# ---------------------------------------------------------------------------
+# OTT Repo 控制面：SourceReposConfig + 旧配置迁移
+# ---------------------------------------------------------------------------
+
+
+def test_source_repos_default_empty():
+    config = RuntimeConfig()
+    assert config.source_repos.repos == []
+    assert config.source_repos.enabled_repos == []
+
+
+def test_add_source_repo_dedup_and_enable():
+    config = RuntimeConfig()
+    config.add_source_repo("https://example.org/ott-repo.json")
+    config.add_source_repo("https://example.org/ott-repo.json")  # 重复
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://example.org/ott-repo.json"
+    # 禁用后再 add → 重新启用而非新增
+    config.set_source_repo_enabled("https://example.org/ott-repo.json", False)
+    assert config.source_repos.repos[0].enabled is False
+    config.add_source_repo("https://example.org/ott-repo.json")
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is True
+
+
+def test_remove_and_toggle_source_repo():
+    config = RuntimeConfig()
+    config.add_source_repo("https://a.org/r.json")
+    config.add_source_repo("https://b.org/r.json")
+    assert config.remove_source_repo("https://a.org/r.json") is True
+    assert len(config.source_repos.repos) == 1
+    assert config.remove_source_repo("https://not.exist") is False
+    config.set_source_repo_enabled("https://b.org/r.json", False)
+    assert config.source_repos.enabled_repos == []
+
+
+def test_migration_from_old_registry_primary_url(tmp_path):
+    """旧 registry.primary_url 在加载时自动迁移为一条 source_repo 订阅。"""
+    cfg = {
+        "registry": {
+            "primary_url": "https://cdn.example.com/old",
+            "mirror_url": "",
+            "cache_ttl_seconds": 7200,
+            "max_content_bytes": 1048576,
+        }
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://cdn.example.com/old"
+    assert config.source_repos.repos[0].refresh_ttl_seconds == 7200
+
+
+def test_no_migration_when_source_repos_present(tmp_path):
+    """已存在 source_repos 时不做迁移，避免覆盖用户数据。"""
+    cfg = {
+        "registry": {"primary_url": "https://cdn.example.com/old"},
+        "source_repos": [{"url": "https://x.org/repo.json", "enabled": False}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://x.org/repo.json"
+    assert config.source_repos.repos[0].enabled is False
+
+
+def test_update_registry_url_syncs_source_repo_subscription(tmp_path):
+    """设置 Registry URL 必须同步落 source_repos 订阅，重启后地址不丢失。"""
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="http://127.0.0.1:18888")
+
+    assert config.registry.primary_url == "http://127.0.0.1:18888"
+    assert [r.url for r in config.source_repos.repos] == ["http://127.0.0.1:18888"]
+    # 重新加载模拟重启：primary_url 与订阅一致 → 保留（不回空白）
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.registry.primary_url == "http://127.0.0.1:18888"
+    assert [r.url for r in config2.source_repos.repos] == ["http://127.0.0.1:18888"]
+
+
+def test_update_registry_url_legacy_state_clear_removes_subscription(tmp_path):
+    """升级态（旧代码产出 primary_url="" + 订阅在）清空时必须移除旧主订阅。
+
+    bridge.registryPrimaryUrl 显示该订阅，old_primary 同源回退到首个
+    enabled 订阅 → 清空字段必须删订阅，否则僵尸订阅残留（reviewer R1）。
+    """
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="")
+
+    assert config.source_repos.repos == []
+    assert config.registry.primary_url == ""
+    # 重启后不复活
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.source_repos.repos == []
+
+
+def test_update_registry_url_legacy_state_change_removes_old_subscription(
+    tmp_path,
+):
+    """升级态换地址必须移除旧主订阅，只留新地址（reviewer R1）。"""
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="https://b.org/repo.json")
+
+    assert [r.url for r in config.source_repos.repos] == ["https://b.org/repo.json"]
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert [r.url for r in config2.source_repos.repos] == ["https://b.org/repo.json"]
+
+
+def test_update_registry_url_after_panel_add_clear_and_change(tmp_path):
+    """面板添加订阅后清空/换地址仍能移除旧主订阅（reviewer R1 自达路径）。
+
+    设 A → 清空 → 面板加 B → 再清空/换地址：old_primary 同源回退到
+    首个 enabled 订阅（此时为 B）→ 必须正确移除。
+    """
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    # 设 A → 清空 → 面板加 B
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+    config.update_registry_url(primary_url="")
+    assert config.source_repos.repos == []
+    config.add_source_repo("https://b.org/repo.json")
+    assert [r.url for r in config.source_repos.repos] == ["https://b.org/repo.json"]
+
+    # 再清空 → 移除 B（它是当前显示的主地址）
+    config.update_registry_url(primary_url="")
+    assert config.source_repos.repos == []
+
+    # 面板再加 B → 换地址 → 移除 B，只留新地址
+    config.add_source_repo("https://b.org/repo.json")
+    config.update_registry_url(primary_url="https://c.org/repo.json")
+    assert [r.url for r in config.source_repos.repos] == ["https://c.org/repo.json"]
+
+
+def test_update_registry_url_mirror_only_keeps_subscriptions(tmp_path):
+    """仅改镜像（mirror-only）不得触碰订阅：禁用不被复活、删除不被重建。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    config.set_source_repo_enabled("https://a.org/repo.json", False)
+
+    # 仅改镜像 → 禁用的订阅保持禁用
+    config.update_registry_url(mirror_url="http://mirror.example.org/m.json")
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is False
+    assert config.registry.mirror_url == "http://mirror.example.org/m.json"
+
+    # 删除订阅后再改镜像 → 不重建
+    config.remove_source_repo("https://a.org/repo.json")
+    config.update_registry_url(mirror_url="http://mirror2.example.org/m.json")
+    assert config.source_repos.repos == []
+
+
+def test_update_registry_url_whitespace_primary_does_not_create_empty_sub(
+    tmp_path,
+):
+    """纯空格 primary_url 不得写入空 url 订阅（直接 API 调用场景）。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="   ")
+
+    assert config.registry.primary_url == ""
+    assert config.source_repos.repos == []
+
+
+def test_update_registry_url_same_primary_keep_disabled_subscription(tmp_path):
+    """同值重应用（primary 非空且未变，如仅改镜像）不得复活禁用订阅。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    config.set_source_repo_enabled("https://a.org/repo.json", False)
+
+    # 设置页同值"应用"（仅改镜像）：primary 未变，订阅保持 disabled
+    config.update_registry_url(
+        primary_url="https://a.org/repo.json",
+        mirror_url="http://mirror.example.org/m.json",
+    )
+    assert config.registry.mirror_url == "http://mirror.example.org/m.json"
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is False
+
+    # 纯同值重应用（primary + mirror 都未变）：订阅仍保持 disabled
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is False
+
+
+def test_remove_source_repo_clears_matching_primary(tmp_path):
+    """删除 primary_url 对应订阅时同步清空 primary_url，防止重启迁移复活。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.remove_source_repo("https://a.org/repo.json")
+
+    assert config.source_repos.repos == []
+    assert config.registry.primary_url == ""
+    # 重启：primary 已清空，_from_dict 迁移不复活该订阅
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.source_repos.repos == []
+    assert config2.registry.primary_url == ""
+
+
+def test_update_registry_url_reuses_existing_subscription(tmp_path):
+    """重复设置同一 URL 不产生重复订阅（add_source_repo 去重）。"""
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": False}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is True
+
+
+def test_update_registry_url_clear_removes_subscription(tmp_path):
+    """清空 Registry URL（设置页语义"留空则禁用"）必须移除对应订阅。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    # 清空 → 旧 primary 订阅移除，无僵尸订阅
+    config.update_registry_url(primary_url="")
+    assert config.source_repos.repos == []
+    assert config.registry.primary_url == ""
+
+
+def test_update_registry_url_change_removes_old_subscription(tmp_path):
+    """更换 Registry URL 必须移除旧 primary 对应订阅，避免僵尸订阅。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="https://b.org/repo.json")
+
+    assert [r.url for r in config.source_repos.repos] == ["https://b.org/repo.json"]
+    assert config.registry.primary_url == "https://b.org/repo.json"
+
+    # 模拟重启：primary_url 与订阅一致 → 保留，订阅仅剩新地址
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.registry.primary_url == "https://b.org/repo.json"
+    assert [r.url for r in config2.source_repos.repos] == ["https://b.org/repo.json"]
+
+
+def test_load_does_not_auto_subscribe_when_empty(tmp_path):
+    """0.A7：空订阅配置加载后不自动订阅任何远程源，订阅必须用户显式添加。"""
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert config.source_repos.repos == []
+
+
+def test_load_cleans_example_org_placeholder(tmp_path):
+    """0.A7：加载时仅清理 example.org 占位订阅，不清用户真实订阅。"""
+    cfg = {
+        "source_repos": [
+            {"url": "https://example.org/ott-repo.json", "enabled": True},
+            {"url": "https://real.example.com/repo.json", "enabled": True},
+        ],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    assert [r.url for r in config.source_repos.repos] == [
+        "https://real.example.com/repo.json"
+    ]
+
+
+def test_source_repos_serialization_roundtrip(tmp_path):
+    config = RuntimeConfig()
+    config.add_source_repo("https://example.org/ott-repo.json")
+    config.set_source_repo_trust(
+        "https://example.org/ott-repo.json", "verified", "ed25519:abc"
+    )
+    data = config._to_dict()
+    assert data["source_repos"][0]["url"] == "https://example.org/ott-repo.json"
+    assert data["source_repos"][0]["trust_state"] == "verified"
+    assert data["source_repos"][0]["pinned_pubkey"] == "ed25519:abc"
+    # 反序列化
+    config2 = RuntimeConfig._from_dict(data)
+    assert config2.source_repos.repos[0].url == "https://example.org/ott-repo.json"
+    assert config2.source_repos.repos[0].trust_state == "verified"
+
+
+def test_parse_source_repos_ignores_invalid_entries():
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {"url": "https://valid.org/r.json"},
+                {"url": ""},  # 无效：空 URL
+                "not-a-dict",  # 无效：非 dict
+                {"enabled": True},  # 无效：缺 url
+            ]
+        }
+    )
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].url == "https://valid.org/r.json"
+
+
+def test_registry_scripts_enabled_default_follows_platform(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    cfg = RuntimeConfig()
+    assert cfg.registry.scripts_enabled is True
+
+
+def test_registry_scripts_enabled_default_disabled_on_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    cfg = RuntimeConfig()
+    assert cfg.registry.scripts_enabled is False
+
+
+def test_registry_scripts_enabled_from_dict():
+    cfg_false = RuntimeConfig._from_dict({"registry": {"scripts_enabled": False}})
+    assert cfg_false.registry.scripts_enabled is False
+    cfg_str = RuntimeConfig._from_dict({"registry": {"scripts_enabled": "false"}})
+    assert cfg_str.registry.scripts_enabled is False
+    cfg_default = RuntimeConfig._from_dict({})
+    assert cfg_default.registry.scripts_enabled == (sys.platform != "win32")
+
+
+def test_registry_scripts_enabled_to_dict_round_trip():
+    cfg = RuntimeConfig()
+    cfg.registry.scripts_enabled = False
+    data = cfg._to_dict()
+    assert data["registry"]["scripts_enabled"] is False
+    reloaded = RuntimeConfig._from_dict(data)
+    assert reloaded.registry.scripts_enabled is False

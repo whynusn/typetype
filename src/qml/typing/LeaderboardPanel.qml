@@ -352,6 +352,9 @@ Frame {
 
         function onLeaderboardLoadFailed(message) {
             root.leaderboardRecords = [];
+            if (Window.window && Window.window.appNotificationManager)
+                Window.window.appNotificationManager.show(
+                    Severity.Error, qsTr("排行榜加载失败"), message, -1, { showCopy: true })
         }
     }
 }

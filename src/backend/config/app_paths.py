@@ -175,6 +175,11 @@ def registry_cache_dir() -> Path:
     return user_data_dir() / "registry_cache"
 
 
+def builtin_ott_repo_dir() -> Path:
+    """内置默认 OTT Repo 目录（打包在应用资源中，离线 fallback 用）。"""
+    return Path(__file__).resolve().parents[3] / "resources" / "ott-repo"
+
+
 def load_common_chars() -> list[str]:
     """加载高频五百中文汉字，用于启动时预热 char_stats 缓存。"""
     try:
