@@ -182,6 +182,7 @@ def test_validate_endpoints_sorted_by_priority():
         {"url": "https://a.org/", "profile": "static", "priority": 1},
     ]
     v = validate_repo_manifest(m)
+    assert v is not None
     assert v["sources"][0]["endpoints"][0]["url"] == "https://a.org"
 
 
@@ -233,6 +234,77 @@ def test_repo_cache_key_deterministic():
     )
 
 
+def test_etag_conditional_request_and_304(tmp_path):
+    manifest = _valid_manifest()
+    client = MagicMock(spec=httpx.Client)
+    ok_resp = _mock_response(json_data=manifest, status_code=200)
+    ok_resp.headers = {"etag": '"abc123"'}
+    not_modified = _mock_response(json_data=None, status_code=304)
+    client.get.side_effect = [ok_resp, not_modified]
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+    )
+    repo = SourceRepoEntry(
+        url="https://texts.example.org/ott-repo.json",
+        refresh_ttl_seconds=3600,
+    )
+
+    first = cache.refresh_manifest(repo)
+    assert first is not None
+    first_headers = client.get.call_args_list[0].kwargs.get("headers") or {}
+    assert first_headers == {}
+
+    repo.etag = '"abc123"'
+    second = cache.refresh_manifest(repo)
+    assert second is not None
+    second_headers = client.get.call_args_list[1].kwargs.get("headers") or {}
+    assert second_headers.get("If-None-Match") == '"abc123"'
+
+
+def test_mirror_failover_after_primary_failure(tmp_path):
+    manifest = _valid_manifest()
+    manifest["mirrors"] = [
+        {"url": "file:///tmp/ott-repo.json", "priority": 2},
+        {"url": "https://mirror.example.org/ott-repo.json", "priority": 1},
+    ]
+    client = MagicMock(spec=httpx.Client)
+    ok_resp = _mock_response(json_data=manifest, status_code=200)
+    fail_resp = _mock_response(json_data=None, status_code=500)
+    client.get.side_effect = [ok_resp, fail_resp, ok_resp]
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+    )
+    repo = SourceRepoEntry(url="https://texts.example.org/ott-repo.json")
+
+    assert cache.refresh_manifest(repo) is not None
+    assert cache.refresh_manifest(repo) is not None
+    urls = [call.args[0] for call in client.get.call_args_list]
+    assert urls == [
+        "https://texts.example.org/ott-repo.json",
+        "https://texts.example.org/ott-repo.json",
+        "https://mirror.example.org/ott-repo.json",
+    ]
+
+
+def test_mirror_failover_without_cache_returns_none(tmp_path):
+    client = MagicMock(spec=httpx.Client)
+    fail_resp = _mock_response(json_data=None, status_code=500)
+    client.get.return_value = fail_resp
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+    )
+    repo = SourceRepoEntry(url="https://texts.example.org/ott-repo.json")
+
+    assert cache.refresh_manifest(repo) is None
+    assert client.get.call_count == 1
+
+
 # ---------------------------------------------------------------------------
 # RepoManifestCache (offline / cache-only)
 # ---------------------------------------------------------------------------
@@ -247,6 +319,7 @@ def _mock_response(json_data=None, text="", status_code=200):
         else text.encode("utf-8")
     )
     response.text = text
+    response.headers = {}
     if json_data is not None:
         response.json.return_value = json_data
     if status_code >= 400:

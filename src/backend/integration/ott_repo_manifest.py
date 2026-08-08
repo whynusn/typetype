@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -308,7 +309,7 @@ class RepoManifestCache:
         return self._fetch_and_cache(cache_key, repo)
 
     def _fetch_and_cache(self, cache_key: str, repo: SourceRepoEntry) -> dict | None:
-        data = self._fetch_manifest(repo.url)
+        data, etag = self._fetch_manifest_with_mirrors(repo, cache_key)
         if data is None:
             # 网络失败：离线兜底返回缓存（无视 TTL）
             return self._read_cache(cache_key)
@@ -317,25 +318,58 @@ class RepoManifestCache:
             log_warning(f"[RepoManifest] manifest 校验失败: {redact_url(repo.url)}")
             return self._read_cache(cache_key)
         self._write_cache(cache_key, validated)
+        if etag and self._runtime_config is not None:
+            self._runtime_config.update_source_repo_refresh(repo.url, etag=etag)
         # 签名校验并更新订阅的 trust_state（TOFU）
         self._verify_trust(validated, repo)
         return validated
 
-    def _fetch_manifest(self, url: str) -> dict | None:
+    def _fetch_manifest_with_mirrors(
+        self, repo: SourceRepoEntry, cache_key: str
+    ) -> tuple[dict | None, str]:
+        data, etag = self._fetch_manifest(repo.url, cache_key, repo.etag)
+        if data is not None:
+            return data, etag
+        cached = self._read_cache(cache_key)
+        if not cached:
+            return None, ""
+        for mirror in cached.get("mirrors", []):
+            if not isinstance(mirror, dict):
+                continue
+            url = str(mirror.get("url") or "")
+            if not url.startswith(("http://", "https://")) or url == repo.url:
+                continue
+            data, etag = self._fetch_manifest(url, cache_key, repo.etag)
+            if data is not None:
+                log_info(f"[RepoManifest] 主地址失败，镜像命中: {redact_url(url)}")
+                return data, etag
+        return None, ""
+
+    def _fetch_manifest(
+        self, url: str, cache_key: str = "", etag: str = ""
+    ) -> tuple[dict | None, str]:
         # 支持 file:// 协议读取本地文件（内置 fallback manifest）
         if url.startswith("file://"):
-            return self._fetch_local_manifest(url)
+            return self._fetch_local_manifest(url), ""
+        headers = {"If-None-Match": etag} if etag else {}
         try:
-            response = self._client.get(url)
+            response = self._client.get(url, headers=headers)
+            if response.status_code == 304:
+                if cache_key:
+                    self._touch_cache(cache_key)
+                    return self._read_cache(cache_key), ""
+                return None, ""
             response.raise_for_status()
             data = response.json()
         except httpx.HTTPError as e:
             log_warning(f"[RepoManifest] HTTP 请求失败: {redact_url(url)} — {e}")
-            return None
+            return None, ""
         except (ValueError, TypeError, OSError) as e:
             log_warning(f"[RepoManifest] 响应解析失败: {redact_url(url)} — {e}")
-            return None
-        return data if isinstance(data, dict) else None
+            return None, ""
+        return (data if isinstance(data, dict) else None), str(
+            response.headers.get("etag", "")
+        )
 
     @staticmethod
     def _fetch_local_manifest(url: str) -> dict | None:
@@ -376,11 +410,15 @@ class RepoManifestCache:
 
         def refresh() -> None:
             try:
-                data = self._fetch_manifest(repo.url)
+                data, etag = self._fetch_manifest_with_mirrors(repo, cache_key)
                 if data is not None:
                     validated = validate_repo_manifest(data)
                     if validated is not None:
                         self._write_cache(cache_key, validated)
+                        if etag and self._runtime_config is not None:
+                            self._runtime_config.update_source_repo_refresh(
+                                repo.url, etag=etag
+                            )
                         self._verify_trust(validated, repo)
                         log_info(f"[RepoManifest] 后台刷新成功: {redact_url(repo.url)}")
                     else:
@@ -440,6 +478,15 @@ class RepoManifestCache:
             with tmp_path.open("w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             tmp_path.replace(path)
+        except OSError:
+            pass
+
+    def _touch_cache(self, cache_key: str) -> None:
+        path = self.cache_path(cache_key)
+        try:
+            if path.exists():
+                now = time.time()
+                os.utime(path, (now, now))
         except OSError:
             pass
 
