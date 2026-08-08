@@ -699,6 +699,52 @@ def test_no_migration_when_source_repos_present(tmp_path):
     assert config.source_repos.repos[0].enabled is False
 
 
+def test_update_registry_url_syncs_source_repo_subscription(tmp_path):
+    """设置 Registry URL 必须同步落 source_repos 订阅，重启后地址不丢失。
+
+    场景：source_repos 已非空（联邦聚合消费方），_from_dict 加载时只要
+    source_repos 非空就清空 registry.primary_url。若 update_registry_url
+    只写 registry 字段，设置页填的 URL 下次启动被静默清除。修复后
+    primary_url 变更同步 add_source_repo，订阅保留即地址不丢。
+    """
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [{"url": "https://existing.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="http://127.0.0.1:18888")
+
+    # 重新加载模拟重启：primary_url 会被清空（source_repos 非空），
+    # 但订阅必须包含新设置的 URL，联邦聚合才能继续消费
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.registry.primary_url == ""
+    assert [r.url for r in config2.source_repos.repos] == [
+        "https://existing.org/repo.json",
+        "http://127.0.0.1:18888",
+    ]
+    assert config2.source_repos.repos[-1].enabled is True
+
+
+def test_update_registry_url_reuses_existing_subscription(tmp_path):
+    """重复设置同一 URL 不产生重复订阅（add_source_repo 去重）。"""
+    cfg = {
+        "registry": {"primary_url": "", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": False}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is True
+
+
 def test_load_does_not_auto_subscribe_when_empty(tmp_path):
     """0.A7：空订阅配置加载后不自动订阅任何远程源，订阅必须用户显式添加。"""
     cfg = {

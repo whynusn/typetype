@@ -546,12 +546,22 @@ class RuntimeConfig:
         primary_url: str | None = None,
         mirror_url: str | None = None,
     ) -> None:
-        """更新 Registry 服务地址并持久化到 config.json。"""
+        """更新 Registry 服务地址并持久化到 config.json。
+
+        联邦聚合以 source_repos 为唯一消费入口，_from_dict 加载时只要
+        source_repos 非空就会清空旧 registry.primary_url/mirror_url。
+        因此设置 primary_url 时必须同步落一条 source_repos 订阅，否则
+        下次启动该 URL 会被静默清除（设置页填的地址丢失）。
+        """
         if primary_url is not None:
             self.registry.primary_url = primary_url.rstrip("/") if primary_url else ""
         if mirror_url is not None:
             self.registry.mirror_url = mirror_url.rstrip("/") if mirror_url else ""
-        self._save_to_file()
+        if primary_url and primary_url.strip().rstrip("/"):
+            # 同步订阅：同 url 已存在则复用（add_source_repo 内部去重并启用）
+            self.add_source_repo(primary_url.rstrip("/"))
+        else:
+            self._save_to_file()
 
     def update_scripts_enabled(self, enabled: bool) -> None:
         """更新 ott-script（L3）开关并持久化到 config.json。"""

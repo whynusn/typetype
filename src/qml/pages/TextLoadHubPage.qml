@@ -66,6 +66,7 @@ FluentPage {
     property string _pendingSourceLabel: ""
     property var _pendingAuthorities: []
     property bool _pendingFederatedContent: false
+    property var _repoEntryHandler: null  // RepoEntriesPage.entryClicked 处理器引用（防信号累积）
 
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
@@ -281,11 +282,11 @@ FluentPage {
             return
         }
         console.log("[ReposPanel] pushing RepoEntriesPage with", filtered.length, "entries")
-        Window.window.navigationView.push(Qt.resolvedUrl("RepoEntriesPage.qml"), {
-            sourceLabel: label,
-            entries: filtered
-        })
-        /* push() 无返回值，用 callLater 等待页面创建后连接信号 */
+        Window.window.navigationView.push(Qt.resolvedUrl("RepoEntriesPage.qml"))
+        /* push() 无返回值，用 callLater 等待页面创建后写回数据并连接信号。
+           NavigationView 按 URL 缓存页面实例，二次打开时 push 的 properties 不生效，
+           必须显式写回 entries/sourceLabel；handler 存根到 root，重连前先断开，
+           防止多次打开累积多个 entryClicked 处理器。 */
         Qt.callLater(function() {
             var nav = Window.window.navigationView
             var pageInstances = nav.pageInstances
@@ -294,35 +295,48 @@ FluentPage {
                 var instance = pageInstances[keys[i]]
                 if (instance && instance.objectName === "RepoEntriesPage") {
                     console.log("[ReposPanel] connecting entryClicked signal")
-                    instance.entryClicked.connect(function(entry) {
-                        if (!appBridge || !entry) return
-                        var authority = entry._authority || entry.authority || ""
-                        var entryId = entry.entry_id || ""
-                        var revisionId = entry.current_revision_id || entry.revision_id || "v1"
-                        var totalChars = entry.char_count || entry.charCount || 0
-                        var title = entry.title || entry.source_label || qsTr("联邦文本")
-                        var segSize = entry.source_segment_size || entry.segment_size || 1000
-                        if (!authority || !entryId) {
-                            root.errorMessage = qsTr("条目缺少 authority 或 entry_id")
-                            return
-                        }
-                        /* 根据内容模式选择加载方式 */
-                        if (entry.content_mode === "segmented") {
-                            appBridge.loadFederatedEntrySegment(
-                                authority, entryId, revisionId,
-                                1, root.sliceModeChecked ? sliceSettingsPanel.sliceSize : totalChars,
-                                totalChars, segSize, title
-                            )
-                        } else {
-                            /* inline 模式（规则/脚本源）直接加载内容 */
-                            root._pendingFederatedContent = true
-                            appBridge.loadFederatedInlineEntry(authority, entryId, revisionId, title)
-                        }
-                    })
+                    instance.sourceLabel = label
+                    instance.entries = filtered
+                    if (root._repoEntryHandler)
+                        instance.entryClicked.disconnect(root._repoEntryHandler)
+                    root._repoEntryHandler = root._onRepoEntryClicked
+                    instance.entryClicked.connect(root._repoEntryHandler)
                     break
                 }
             }
         })
+    }
+
+    /* 联邦条目点击处理（命名函数，供 navigateToRepoEntries 连接/断开） */
+    function _onRepoEntryClicked(entry) {
+        if (!appBridge || !entry) return
+        var authority = entry._authority || entry.authority || ""
+        var entryId = entry.entry_id || ""
+        var revisionId = entry.current_revision_id || entry.revision_id || "v1"
+        var totalChars = entry.char_count || entry.charCount || 0
+        var title = entry.title || entry.source_label || qsTr("联邦文本")
+        var segSize = entry.source_segment_size || entry.segment_size || 1000
+        if (!authority || !entryId) {
+            root.errorMessage = qsTr("条目缺少 authority 或 entry_id")
+            return
+        }
+        /* 根据内容模式选择加载方式 */
+        if (entry.content_mode === "segmented") {
+            /* 先进入打字页再异步加载分段（与 startSegmentedSource 一致），
+               否则 _on_ott_segment_session_started 完成后无人导航到 TypingPage */
+            root.navigateToTyping()
+            Qt.callLater(function() {
+                appBridge.loadFederatedEntrySegment(
+                    authority, entryId, revisionId,
+                    1, root.sliceModeChecked ? sliceSettingsPanel.sliceSize : totalChars,
+                    totalChars, segSize, title
+                )
+            })
+        } else {
+            /* inline 模式（规则/脚本源）直接加载内容 */
+            root._pendingFederatedContent = true
+            appBridge.loadFederatedInlineEntry(authority, entryId, revisionId, title)
+        }
     }
 
     // 当前来源的加载状态（来源感知，不再把其它来源的 loading 混进来）
@@ -908,17 +922,6 @@ FluentPage {
                 root.statusMessage = qsTr("已载入：%1").arg(title || root.itemDisplayTitle())
                 root.errorMessage = ""
                 root.checkProgress()
-            } else if (root._pendingFederatedContent) {
-                /* 联邦 inline 条目内容加载完成，开始打字 */
-                root._pendingFederatedContent = null
-                root.startMaterializedText({
-                    source: "custom",
-                    launchKind: "materialized_text",
-                    text: content,
-                    sourceKey: "federated",
-                    title: title || qsTr("联邦文本"),
-                    textId: 0
-                }, {})
             }
         }
         function onReposChanged(repos) {
@@ -931,43 +934,6 @@ FluentPage {
             if (root.currentSource === "repos") {
                 root.errorMessage = message
                 root.statusMessage = ""
-            }
-        }
-        function onRegistryFederatedEntriesLoadingChanged() {
-            if (appBridge && appBridge.federatedEntriesLoading) {
-                root.statusMessage = qsTr("正在加载条目…")
-                root.errorMessage = ""
-            }
-        }
-        function onRegistryFederatedEntriesLoadFailed(message) {
-            root.errorMessage = message
-            root.statusMessage = ""
-        }
-        function onRegistryFederatedEntriesLoaded(entries) {
-            console.log("[ReposPanel] entries loaded:", entries ? entries.length : 0)
-            root.federatedEntries = entries || []
-            if (appBridge && appBridge.federatedEntriesLoading) {
-                root.statusMessage = ""
-            }
-            // 如果有待跳转的源，加载完成后跳转到条目列表页
-            var auths = root._pendingAuthorities
-            if (auths && auths.length > 0) {
-                var label = root._pendingSourceLabel
-                var filtered = []
-                for (var i = 0; i < entries.length; i++) {
-                    var entryAuth = entries[i].authority || ""
-                    for (var j = 0; j < auths.length; j++) {
-                        if (entryAuth === auths[j]) {
-                            filtered.push(entries[i])
-                            break
-                        }
-                    }
-                }
-                root._pendingAuthorities = []
-                root._pendingSourceLabel = ""
-                console.log("[ReposPanel] filtering done, filtered:", filtered.length)
-                // 调用主作用域的方法来完成导航（可访问 Window.window）
-                root.navigateToRepoEntries(filtered, label)
             }
         }
         function onLocalArticlesLoaded(articles) {
@@ -1029,6 +995,66 @@ FluentPage {
         }
         function onTrainerSegmentLoadFailed(message) {
             if (root.active) root.errorMessage = message
+        }
+    }
+
+    // ---- 联邦跨页面信号（不依赖 root.active）----
+    // 联邦条目点击后 hub 已被 push 到 RepoEntriesPage/TypingPage，root.active 为 false，
+    // 若留在上方 enabled: root.active 的 Connections 中，textContentLoaded 落地信号会被
+    // 双重守卫丢弃（enabled 门控 + onTextContentLoaded 内 if (!root.active) return），
+    // 联邦 inline 条目永远无法开始打字。此处独立 Connections 常驻处理。
+    Connections {
+        target: appBridge
+
+        function onTextContentLoaded(textId, content, title) {
+            if (!root._pendingFederatedContent) return
+            /* 联邦 inline 条目内容加载完成，开始打字 */
+            root._pendingFederatedContent = null
+            root.startMaterializedText({
+                source: "custom",
+                launchKind: "materialized_text",
+                text: content,
+                sourceKey: "federated",
+                title: title || qsTr("联邦文本"),
+                textId: 0
+            }, {})
+        }
+        function onRegistryFederatedEntriesLoadingChanged() {
+            if (appBridge && appBridge.federatedEntriesLoading) {
+                root.statusMessage = qsTr("正在加载条目…")
+                root.errorMessage = ""
+            }
+        }
+        function onRegistryFederatedEntriesLoadFailed(message) {
+            root.errorMessage = message
+            root.statusMessage = ""
+        }
+        function onRegistryFederatedEntriesLoaded(entries) {
+            console.log("[ReposPanel] entries loaded:", entries ? entries.length : 0)
+            root.federatedEntries = entries || []
+            if (appBridge && appBridge.federatedEntriesLoading) {
+                root.statusMessage = ""
+            }
+            // 如果有待跳转的源，加载完成后跳转到条目列表页
+            var auths = root._pendingAuthorities
+            if (auths && auths.length > 0) {
+                var label = root._pendingSourceLabel
+                var filtered = []
+                for (var i = 0; i < entries.length; i++) {
+                    var entryAuth = entries[i].authority || ""
+                    for (var j = 0; j < auths.length; j++) {
+                        if (entryAuth === auths[j]) {
+                            filtered.push(entries[i])
+                            break
+                        }
+                    }
+                }
+                root._pendingAuthorities = []
+                root._pendingSourceLabel = ""
+                console.log("[ReposPanel] filtering done, filtered:", filtered.length)
+                // 调用主作用域的方法来完成导航（可访问 Window.window）
+                root.navigateToRepoEntries(filtered, label)
+            }
         }
     }
 }
