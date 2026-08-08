@@ -518,6 +518,10 @@ class OttFederationProvider:
                         sandbox,
                         self._entry_cache,
                     )
+                elif source_type == "ott-bridge":
+                    log_warning(
+                        f"[Federation] ott-bridge 暂不支持，跳过: {redact_url(repo.url)}"
+                    )
         self._clients_cache = clients
         self._clients_cache_signature = self._clients_signature()
         return clients
@@ -752,6 +756,11 @@ class OttFederationProvider:
                     }
                 )
                 continue
+            unsupported_sources = [
+                str(source.get("label") or source.get("bridge_kind") or "")
+                for source in (manifest or {}).get("sources", [])
+                if source.get("type") == "ott-bridge"
+            ]
             # 收集 manifest 中所有源的 authority
             authorities: list[str] = []
             if manifest:
@@ -792,6 +801,7 @@ class OttFederationProvider:
                 ),
                 "error": None if manifest else "加载失败",
                 "incompatible_reason": None,
+                "unsupported_sources": unsupported_sources,
             }
             result.append(summary)
         return result

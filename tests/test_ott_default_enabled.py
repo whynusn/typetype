@@ -110,3 +110,21 @@ def test_disabled_instance_not_built(tmp_path) -> None:
     clients = provider._build_clients()
     assert "enabled-instance" in clients
     assert "disabled-instance" not in clients
+
+
+def test_ott_bridge_reported_unsupported(tmp_path) -> None:
+    manifest = _manifest()
+    manifest["sources"].append(
+        {
+            "type": "ott-bridge",
+            "bridge_kind": "wenlai",
+            "endpoint": "https://example.org/api",
+            "label": "桥接示例",
+            "requires_credentials": True,
+        }
+    )
+    provider = _federation(tmp_path, manifest)
+    clients = provider._build_clients()
+    assert "enabled-instance" in clients
+    repos = provider.list_repos()
+    assert repos[0]["unsupported_sources"] == ["桥接示例"]

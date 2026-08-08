@@ -43,6 +43,7 @@ Frame {
 
     function _sourceTypeSummary(repo) {
         if (!repo) return qsTr("暂无来源")
+        if (repo.incompatible_reason) return repo.incompatible_reason
         var auths = repo.authorities || []
         var instances = 0, rules = 0, scripts = 0
         for (var i = 0; i < auths.length; i++) {
@@ -55,6 +56,8 @@ Frame {
         if (instances > 0) parts.push(qsTr("%1 个书库").arg(instances))
         if (rules > 0) parts.push(qsTr("%1 个规则").arg(rules))
         if (scripts > 0) parts.push(qsTr("%1 个脚本").arg(scripts))
+        var unsupported = repo.unsupported_sources || []
+        if (unsupported.length > 0) parts.push(qsTr("%1 个桥接源（暂不支持）").arg(unsupported.length))
         return parts.join(" · ") || qsTr("暂无来源")
     }
 

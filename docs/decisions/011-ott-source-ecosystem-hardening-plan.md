@@ -138,7 +138,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 3.9 federation 复用 | `ott_federation_provider.py` | 客户端实例缓存；`httpx.Client` 显式 close；rule/script 结果按 `schedule.cache_ttl_seconds` 缓存 |
 | 3.10 签名互操作 | `ott_repo_manifest.py` | 与 open-typing-texts 统一 canonical JSON 定义；明确 minisign 支持或移除 |
 
-> 状态（2026-08-08）：**3.1、3.2、3.3、3.4、3.9 已落地**。3.1 按已缓存 manifest 的 http(s) mirrors 依次 failover（file:// 镜像忽略）；3.2 携带 `If-None-Match`、304 仅刷新缓存 mtime 并持久化 ETag；3.3 `ott_core` 版本约束 + `client_features` 协商，不满足整仓跳过并显示 `incompatible_reason`；3.4 ott-instance 按 `default_enabled` 消费（rule/script 该字段不在当前 schema，归一化不输出）；3.9 联邦共享单 `httpx.Client`、按订阅+manifest mtime 签名复用客户端、rule/script 结果按 `cache_ttl_seconds` 缓存。
+> 状态（2026-08-08）：**3.1-3.5、3.9 已落地**。3.1 按已缓存 manifest 的 http(s) mirrors 依次 failover（file:// 镜像忽略）；3.2 携带 `If-None-Match`、304 仅刷新缓存 mtime 并持久化 ETag；3.3 `ott_core` 版本约束 + `client_features` 协商，不满足整仓跳过并显示 `incompatible_reason`；3.4 ott-instance 按 `default_enabled` 消费（rule/script 该字段不在当前 schema，归一化不输出）；3.5 选择"明示暂不开放"：联邦跳过 ott-bridge，订阅面板显示"桥接源暂不支持"，ARCHITECTURE 改未落地；3.9 联邦共享单 `httpx.Client`、按订阅+manifest mtime 签名复用客户端、rule/script 结果按 `cache_ttl_seconds` 缓存。
 
 ### Phase 4：空壳化与默认源合规
 
