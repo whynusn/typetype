@@ -390,6 +390,8 @@ class OttFederationProvider:
                 continue
             repo_id = manifest.get("repo_id", "")
             for source in manifest.get("sources", []):
+                if not source.get("default_enabled", True):
+                    continue
                 source_type = source.get("type")
                 if source_type == "ott-instance":
                     self._build_instance_client(clients, source)

@@ -138,6 +138,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 3.9 federation 复用 | `ott_federation_provider.py` | 客户端实例缓存；`httpx.Client` 显式 close；rule/script 结果按 `schedule.cache_ttl_seconds` 缓存 |
 | 3.10 签名互操作 | `ott_repo_manifest.py` | 与 open-typing-texts 统一 canonical JSON 定义；明确 minisign 支持或移除 |
 
+> 状态（2026-08-08）：**3.4 已落地**。ott-instance 按 `default_enabled` 消费；rule/script 的该字段不在当前 open-typing-texts schema 内，归一化不输出，避免跨仓校验失败。
+
 ### Phase 4：空壳化与默认源合规
 
 | 任务 | 改动 | 验收 |

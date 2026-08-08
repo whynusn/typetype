@@ -24,6 +24,9 @@ from urllib.parse import urlparse
 
 import httpx
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
 from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
 from .ott_normalization import redact_url
@@ -528,13 +531,8 @@ class RepoManifestCache:
         ).encode("utf-8")
 
         try:
-            from cryptography.exceptions import InvalidSignature
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-                Ed25519PublicKey,
-            )
-
             key = Ed25519PublicKey.from_public_bytes(pubkey_bytes)
             key.verify(sig_bytes, canonical_bytes)
             return True
-        except (InvalidSignature, ValueError, Exception):
+        except (InvalidSignature, ValueError):
             return False
