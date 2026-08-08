@@ -833,6 +833,32 @@ def test_update_registry_url_whitespace_primary_does_not_create_empty_sub(
     assert config.source_repos.repos == []
 
 
+def test_update_registry_url_same_primary_keep_disabled_subscription(tmp_path):
+    """同值重应用（primary 非空且未变，如仅改镜像）不得复活禁用订阅。"""
+    cfg = {
+        "registry": {"primary_url": "https://a.org/repo.json", "mirror_url": ""},
+        "source_repos": [{"url": "https://a.org/repo.json", "enabled": True}],
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(cfg), encoding="utf-8")
+    config = RuntimeConfig.load_from_file(str(path))
+    config.set_source_repo_enabled("https://a.org/repo.json", False)
+
+    # 设置页同值"应用"（仅改镜像）：primary 未变，订阅保持 disabled
+    config.update_registry_url(
+        primary_url="https://a.org/repo.json",
+        mirror_url="http://mirror.example.org/m.json",
+    )
+    assert config.registry.mirror_url == "http://mirror.example.org/m.json"
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is False
+
+    # 纯同值重应用（primary + mirror 都未变）：订阅仍保持 disabled
+    config.update_registry_url(primary_url="https://a.org/repo.json")
+    assert len(config.source_repos.repos) == 1
+    assert config.source_repos.repos[0].enabled is False
+
+
 def test_remove_source_repo_clears_matching_primary(tmp_path):
     """删除 primary_url 对应订阅时同步清空 primary_url，防止重启迁移复活。"""
     cfg = {

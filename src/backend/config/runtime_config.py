@@ -552,11 +552,13 @@ class RuntimeConfig:
 
         旧 primary 识别与 bridge.registryPrimaryUrl 显示同源：registry
         字段优先，为空时回退到首个 enabled 订阅（兼容旧代码产出的
-        primary_url="" + 订阅在的升级态配置）。仅显式传入 primary_url
-        时才同步订阅；仅改镜像（mirror-only）不触碰订阅，避免静默复活
-        用户主动禁用/删除的订阅。
+        primary_url="" + 订阅在的升级态配置）。仅当显式传入的 primary
+        实际变化（old != new）时才同步订阅；同值重应用只持久化字段，
+        避免复活用户主动禁用/删除的订阅。仅改镜像（mirror-only）同样
+        不触碰订阅。
         - 设置新地址 → 落一条订阅（去重复用），并移除旧 primary 对应订阅
         - 清空地址（设置页语义"留空则禁用"）→ 移除对应订阅，避免僵尸订阅
+        - 同值重应用（old == new，如仅改镜像）→ 只持久化，不触碰订阅
         """
         old_primary = self.registry.primary_url
         if not old_primary:
@@ -577,8 +579,10 @@ class RuntimeConfig:
         # 换地址或清空时，移除旧 primary 对应的订阅（僵尸订阅清理）
         if old_primary and old_primary != new_primary:
             self.remove_source_repo(old_primary)
-        if new_primary:
-            # 同步订阅：同 url 已存在则复用（add_source_repo 内部去重并启用）
+        if new_primary and old_primary != new_primary:
+            # 换地址才同步订阅：add_source_repo 内部去重并启用。
+            # 同值重应用（old == new，如设置页仅改镜像）不触碰订阅，
+            # 否则会复活用户主动禁用的订阅（round-5 P2）。
             self.add_source_repo(new_primary)
         else:
             self._save_to_file()
