@@ -50,6 +50,8 @@ def _value_bytes(value: Any) -> int:
         return len(value.encode("utf-8", "replace"))
     if isinstance(value, bytes):
         return len(value)
+    if isinstance(value, int):
+        return max(1, abs(value).bit_length() // 8)
     if isinstance(value, (list, dict)):
         try:
             return len(json.dumps(value).encode("utf-8"))
@@ -146,6 +148,8 @@ def _p_mod(a: Any, b: Any) -> int:
 
 def _p_bit_shift(v: Any, n: Any) -> int:
     v_i, n_i = _t_int(v), _t_int(n)
+    if abs(n_i) > MAX_VALUE_BYTES * 8:
+        raise DslError
     return v_i << n_i if n_i >= 0 else v_i >> (-n_i)
 
 
@@ -407,6 +411,8 @@ def _evaluate(expr: Any, budget: _Budget, depth: int = 0) -> Any:
     if depth > MAX_DEPTH:
         raise DslError
     if not isinstance(expr, dict) or "fn" not in expr:
+        if _value_bytes(expr) > MAX_VALUE_BYTES:
+            raise DslError
         return expr
     budget.spend()
     fn = expr["fn"]
@@ -418,12 +424,12 @@ def _evaluate(expr: Any, budget: _Budget, depth: int = 0) -> Any:
     values = [_evaluate(a, budget, depth + 1) for a in args]
     try:
         result = PRIMITIVES[fn](*values)
+        if _value_bytes(result) > MAX_VALUE_BYTES:
+            raise DslError
     except DslError:
         raise
     except Exception:
         raise DslError from None
-    if _value_bytes(result) > MAX_VALUE_BYTES:
-        raise DslError
     return result
 
 

@@ -108,6 +108,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 1.4 极速杯迁移验证 | 新 `tests/fixtures/rule-samples/jisubei.json` | 用 DSL 表达 AES 请求并跑通 mock；**前置：确认 www.jsxiaoshi.com 可用性与抓取许可** |
 | 1.5 组合安全测试 | 新 `tests/test_ott_dsl_security.py` | 组合矩阵用例全过 + 模糊测试（随机组合断言资源上限） |
 
+> 状态（2026-08-08）：**Phase 1.1-1.5 已落地**。引擎补上整数资源上限（超大整数/超大位移拒绝、字面量与结果超限检查前置），`tests/test_ott_dsl_security.py` 组合矩阵 + 300 例固定种子模糊测试全过。
+
 ### Phase 2：适配器体系与签名门槛
 
 | 任务 | 改动 | 验收 |
