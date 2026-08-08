@@ -2,6 +2,9 @@
   "protocol": "ott",
   "version": "1.0",
   "profiles": ["static"],
+  "adapter_version": "1.0.0",
+  "updated_at": "2026-08-08T00:00:00+08:00",
+  "authority_id": "typetype-builtin-static",
   "features": {
     "entry_summary": true,
     "inline_content": true,

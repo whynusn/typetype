@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ..config.runtime_config import RuntimeConfig
+from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
 from .ott_cached_fetcher import OttCachedFetcher
 from .ott_normalization import redact_url
@@ -385,7 +385,7 @@ class OttFederationProvider:
         sandbox = ScriptSandbox(enabled=self._runtime_config.registry.scripts_enabled)
 
         for repo in self._runtime_config.source_repos.enabled_repos:
-            manifest = self._manifest_cache.get_manifest(repo)
+            manifest = self._manifest_for(repo)
             if manifest is None:
                 continue
             repo_id = manifest.get("repo_id", "")
@@ -399,6 +399,12 @@ class OttFederationProvider:
                     self._build_script_client(clients, source, script_cache, sandbox)
         return clients
 
+    def _manifest_for(self, repo: SourceRepoEntry) -> dict | None:
+        """本地内置订阅直读 manifest，远程订阅走缓存。"""
+        if repo.url.startswith("file://"):
+            return self._manifest_cache.load_local_manifest(repo)
+        return self._manifest_cache.get_manifest(repo)
+
     def _script_cache_dir(self) -> Path:
         from ..config.app_paths import registry_cache_dir
 
@@ -406,7 +412,7 @@ class OttFederationProvider:
 
     def _build_instance_client(
         self,
-        clients: dict[str, _InstanceClient | _RuleClient],
+        clients: dict[str, _InstanceClient | _RuleClient | _ScriptClient],
         source: dict,
     ) -> None:
         authority = source.get("authority", "")
@@ -442,7 +448,7 @@ class OttFederationProvider:
 
     @staticmethod
     def _build_rule_client(
-        clients: dict[str, _InstanceClient | _RuleClient],
+        clients: dict[str, _InstanceClient | _RuleClient | _ScriptClient],
         source: dict,
         interpreter: OttRuleInterpreter,
         repo_id: str = "",
@@ -534,6 +540,8 @@ class OttFederationProvider:
         all_sources: list[dict] = []
         seen: dict[str, dict] = {}
         for authority, client in clients.items():
+            if not isinstance(client, _InstanceClient):
+                continue
             sources = client.list_sources()
             if sources:
                 for s in sources:
@@ -576,7 +584,7 @@ class OttFederationProvider:
         for repo in self._runtime_config.source_repos.repos:
             if not repo.url:
                 continue
-            manifest = self._manifest_cache.get_manifest(repo)
+            manifest = self._manifest_for(repo)
             # 收集 manifest 中所有源的 authority
             authorities: list[str] = []
             if manifest:

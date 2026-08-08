@@ -289,6 +289,15 @@ class RepoManifestCache:
 
         return self._fetch_and_cache(cache_key, repo)
 
+    def load_local_manifest(self, repo: SourceRepoEntry) -> dict | None:
+        """file:// 订阅直接读取本地 manifest，绕过缓存（本地文件即最新源）。"""
+        if not repo.url.startswith("file://"):
+            return self.get_manifest(repo)
+        data = self._fetch_local_manifest(repo.url)
+        if data is None:
+            return None
+        return validate_repo_manifest(data)
+
     def refresh_manifest(self, repo: SourceRepoEntry) -> dict | None:
         """强制刷新 manifest（忽略缓存）。"""
         if not repo.url:

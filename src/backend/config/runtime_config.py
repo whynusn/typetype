@@ -11,7 +11,7 @@ except ImportError:
     fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
-from .app_paths import user_config_path
+from .app_paths import builtin_ott_repo_url, user_config_path
 from ..utils.logger import log_error
 from .text_source_config import TextSourceConfig, TextSourceEntry
 
@@ -247,11 +247,16 @@ class RuntimeConfig:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 log_error(f"[RuntimeConfig] 配置文件损坏，使用默认配置: {config_path}")
-                return cls(_config_path=str(user_config_path()))
+                config = cls(_config_path=str(user_config_path()))
+                config._ensure_builtin_default_repo()
+                return config
             config = cls._from_dict(data)
+            if "source_repos" not in data:
+                config._ensure_builtin_default_repo()
             config._config_path = config_path
         else:
             config = cls(_config_path=str(user_config_path()))
+            config._ensure_builtin_default_repo()
 
         # 清理已知的测试/占位订阅（客户端不自动订阅任何远程源，
         # 订阅必须由用户显式添加）
@@ -263,6 +268,19 @@ class RuntimeConfig:
         stale = [r for r in self.source_repos.repos if "example.org" in r.url]
         for r in stale:
             self.remove_source_repo(r.url)
+
+    def _ensure_builtin_default_repo(self) -> None:
+        if self.registry.primary_url or self.source_repos.repos:
+            return
+        self.source_repos.repos.append(
+            SourceRepoEntry(url=builtin_ott_repo_url(), enabled=True)
+        )
+
+    @classmethod
+    def _fresh_with_builtin(cls) -> "RuntimeConfig":
+        config = cls()
+        config._ensure_builtin_default_repo()
+        return config
 
     @classmethod
     def ensure_user_config_exists(cls) -> str:
@@ -278,7 +296,9 @@ class RuntimeConfig:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("w", encoding="utf-8") as f:
-            json.dump(cls()._to_dict(), f, ensure_ascii=False, indent=4)
+            json.dump(
+                cls._fresh_with_builtin()._to_dict(), f, ensure_ascii=False, indent=4
+            )
         return str(target)
 
     @classmethod
@@ -292,11 +312,12 @@ class RuntimeConfig:
             data = json.loads(target.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             log_error(f"[RuntimeConfig] 配置文件损坏，重新生成: {target}")
-            data = cls()._to_dict()
+            data = cls._fresh_with_builtin()._to_dict()
             try:
                 with target.open("w", encoding="utf-8") as f:
                     try:
-                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                        if fcntl is not None:
+                            fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
                     except (OSError, AttributeError):
                         pass
                     json.dump(data, f, ensure_ascii=False, indent=4)
@@ -304,14 +325,15 @@ class RuntimeConfig:
                 log_error(f"[RuntimeConfig] 写入配置文件失败：{target}")
             return
 
-        defaults = cls()._to_dict()
+        defaults = cls._fresh_with_builtin()._to_dict()
         missing = {k: v for k, v in defaults.items() if k not in data}
         if missing:
             data.update(missing)
             try:
                 with target.open("w", encoding="utf-8") as f:
                     try:
-                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                        if fcntl is not None:
+                            fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
                     except (OSError, AttributeError):
                         pass
                     json.dump(data, f, ensure_ascii=False, indent=4)
@@ -511,7 +533,7 @@ class RuntimeConfig:
         k = key or self.default_text_source_key
         return self.text_source_config.get_source(k)
 
-    def get_text_source_options(self) -> list[dict[str, str]]:
+    def get_text_source_options(self) -> list[dict[str, str | bool]]:
         options = self.text_source_config.get_source_options()
         options.extend(
             {"key": item.source_key, "label": item.label} for item in self.catalog_items
@@ -563,7 +585,7 @@ class RuntimeConfig:
         old_primary = self.registry.primary_url
         if not old_primary:
             for repo in self.source_repos.repos:
-                if repo.enabled:
+                if repo.enabled and not repo.url.startswith("file://"):
                     old_primary = repo.url
                     break
         if primary_url is not None:

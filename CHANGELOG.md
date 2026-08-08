@@ -14,6 +14,7 @@
 
 ### Added
 
+- **内置默认文本源（ADR-011 Phase 4）**：首启自动注入 `file://` 内置 OTT Repo（经典中文短句 / 拼音声调练习 / 唐诗精选），完全离线可用，不自动订阅任何远程源；静态 profile 补齐 `sources.json` 与 `entries/{id}.json`，摘要不再内嵌全文，entry_id 符合 schema pattern，逐条标注 rights/license/origin；官方默认仓移除 ott-script/ott-rule 示例
 - **OTT Repo 控制面（ADR-010）**：去中心化文本源订阅生态。多 authority 联邦聚合（`OttFederationConfig`）、订阅管理 UI（`ReposManagementPanel`）、声明式规则源（L1 `OttRuleInterpreter`）、ott-script 脚本源（L3 子进程沙箱）、旧 `registry.primary_url` 自动迁移
 - **打词率（word typing rate）指标**：统计会话中 CJK 字符被作为词组输入的比例。
   算法将间隔 ≤ 300ms 的连续 CJK 字符视为词组输入，打词率 = 词组字符数 / 总 CJK 字符数 × 100。

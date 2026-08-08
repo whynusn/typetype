@@ -144,6 +144,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 4.2 静态 profile 合规 | 两个 static 目录 | 补 `sources.json`、`entries/{id}.json`；summary 不嵌全文；entry_id 符合 schema pattern |
 | 4.3 移除 ott-script 示例 | `public-ott-repo/ott-repo.json` | manifest 通过 `ott-repo.schema.json` 校验（CI 门禁） |
 
+> 状态（2026-08-08）：**4.1-4.3 已落地**。两个 static 目录补齐 sources.json + entries/{id}.json，summary 不再嵌全文，entry_id/source_key 统一 `^[A-Za-z0-9_]+$`；内置源以 file:// 订阅形式首启注入（离线可用，不自动订阅远程源）；官方仓已移除 hitokoto rule 与 ott-script 示例。
+
 ### Phase 5：沙箱与网络出口加固
 
 | 任务 | 改动 | 验收 |

@@ -1,27 +1,33 @@
 {
-  "entries": [
+  "protocol": "ott",
+  "version": "1.0",
+  "sources": [
     {
-      "entry_id": "classic_sentences",
       "source_key": "classic_sentences",
-      "title": "经典中文短句练习",
-      "preview": "春风又绿江南岸，明月何时照我还。",
+      "label": "经典中文短句",
+      "description": "公有领域经典诗句短句集合",
       "char_count": 88,
-      "content_mode": "inline",
-      "current_revision_id": "v1",
-      "tags": ["经典", "中文", "短句"],
+      "charCount": 88,
+      "has_ranking": false,
+      "category": "经典",
+      "update_freq": "never",
+      "entry_count": 1,
+      "tags": ["中文", "经典"],
       "rights_summary": "公有领域（中国古典诗文）",
       "license": "public-domain",
       "origin": "typetype 内置",
       "updated_at": "2026-08-08T00:00:00+08:00"
     },
     {
-      "entry_id": "pinyin_practice",
       "source_key": "pinyin_practice",
-      "title": "拼音声调练习",
-      "preview": "ā á ǎ à，ō ó ǒ ò，ē é ě è",
+      "label": "拼音声调练习",
+      "description": "原创拼音与声调练习材料",
       "char_count": 73,
-      "content_mode": "inline",
-      "current_revision_id": "v1",
+      "charCount": 73,
+      "has_ranking": false,
+      "category": "基础",
+      "update_freq": "never",
+      "entry_count": 1,
       "tags": ["拼音", "声调", "基础"],
       "rights_summary": "原创练习材料",
       "license": "CC-BY-SA-4.0",
@@ -29,22 +35,20 @@
       "updated_at": "2026-08-08T00:00:00+08:00"
     },
     {
-      "entry_id": "tang_poetry",
       "source_key": "tang_poetry",
-      "title": "唐诗精选",
-      "preview": "床前明月光，疑是地上霜。",
+      "label": "唐诗精选",
+      "description": "公有领域唐诗精选",
       "char_count": 76,
-      "content_mode": "inline",
-      "current_revision_id": "v1",
+      "charCount": 76,
+      "has_ranking": false,
+      "category": "经典",
+      "update_freq": "never",
+      "entry_count": 1,
       "tags": ["唐诗", "经典", "中文"],
       "rights_summary": "公有领域（唐诗）",
       "license": "public-domain",
       "origin": "typetype 内置",
       "updated_at": "2026-08-08T00:00:00+08:00"
     }
-  ],
-  "total": 3,
-  "page": 1,
-  "limit": 200,
-  "pages": 1
+  ]
 }

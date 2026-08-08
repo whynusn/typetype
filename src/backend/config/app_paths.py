@@ -180,6 +180,11 @@ def builtin_ott_repo_dir() -> Path:
     return Path(__file__).resolve().parents[3] / "resources" / "ott-repo"
 
 
+def builtin_ott_repo_url() -> str:
+    """内置默认 OTT Repo manifest 的 file:// URL。"""
+    return (builtin_ott_repo_dir() / "ott-repo.json").as_uri()
+
+
 def load_common_chars() -> list[str]:
     """加载高频五百中文汉字，用于启动时预热 char_stats 缓存。"""
     try:

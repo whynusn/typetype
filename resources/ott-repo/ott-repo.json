@@ -7,7 +7,7 @@
   "description": "离线内置文本库（网络不可用时的 fallback）。",
   "maintainer": {"name": "typetype"},
   "license": "CC-BY-SA-4.0",
-  "updated_at": "2026-07-27T00:00:00+08:00",
+  "updated_at": "2026-08-08T00:00:00+08:00",
   "mirrors": [
     {"url": "file://__BUILTIN_DIR__/ott-repo.json", "priority": 1}
   ],
@@ -20,22 +20,6 @@
         {"url": "file://__BUILTIN_DIR__/static/", "profile": "static", "priority": 1}
       ],
       "tags": ["chinese", "classic", "builtin"],
-      "default_enabled": true
-    },
-    {
-      "type": "ott-rule",
-      "rule_id": "builtin-quote",
-      "label": "内置名言",
-      "rule": {
-        "kind": "json-api",
-        "request": {
-          "url": "https://v1.hitokoto.cn/?c=i",
-          "method": "GET"
-        },
-        "extract": {"title": "$.from", "content": "$.hitokoto"},
-        "transform": ["trim"]
-      },
-      "tags": ["quote", "chinese"],
       "default_enabled": true
     }
   ]
