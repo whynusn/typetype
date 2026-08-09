@@ -28,7 +28,10 @@ from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 from Crypto.Cipher import AES
 
-from .regex_worker import _has_nested_quantifier
+from .regex_worker import (
+    REGEX_WORKER_MAX_INPUT_CHARS as REGEX_MAX_INPUT_CHARS,
+    _has_nested_quantifier,
+)
 
 MAX_VALUE_BYTES = 1_048_576
 MAX_DEPTH = 32
@@ -36,7 +39,6 @@ MAX_CALLS = 1000
 MAX_STEPS = 8
 MAX_STEP_TRANSFER_BYTES = 2 * 1_048_576
 REGEX_TIMEOUT_S = 1.0
-REGEX_MAX_INPUT_CHARS = 10_000
 REGEX_WORKER_PATH = Path(__file__).with_name("regex_worker.py")
 
 

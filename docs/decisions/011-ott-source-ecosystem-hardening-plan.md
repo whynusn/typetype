@@ -19,6 +19,27 @@
 7. RE2 决策：先纯子进程超时方案，RE2 为可选强化，不阻塞 Phase 0。
 8. 签名方案前置任务 2.0：canonical JSON、minisign 取舍、TOFU UI、key 撤销交互在 Phase 2 开工前定稿。
 
+## 三线审查归档（2026-08-09）
+
+ADR-011 实施三线审查（进度审计 / 代码质量 / 方向正确性）结论归档。三份独立结论交叉验证，唯一红线项（TOFU UI）三方一致。
+
+**进度审计**（explore，逐 Phase 文件:行号核对）：
+- IMPLEMENTED：Phase 0A 全 10 项、0.B1、Phase 1（1.1/1.2/1.4-mock/1.5；1.3 运行时）、3.1-3.8、Phase 4、7.1-7.3（文档级）、2.0/2.1（文档级）
+- PARTIAL：2.3（执行门槛 ✅ / TOFU UI ✗）、3.9（复用+缓存 ✅ / httpx.Client 显式 close ✗，全仓零 `.close()`）、1.3（typetype 运行时 ✅ / 跨仓 `ott-rule-v2.schema.json` 未产出，ADR 自身标 ⚠️）、2.2/2.6（规则侧已实现但 ADR 状态注标"未开工"，script 侧无强制）、5.2（0.A6 兜底分支 ✅）
+- MISSING（与 ADR 未标落地一致）：2.4（无 adapter-publish.yml）、2.5（无 scripts/adapter.py）、2.7（无 revocations[] 解析）、3.6（无 expires_at/snapshot_hash）、5.1 seccomp、5.3 出口代理、5.4 凭据注入、7.4 律师评审
+
+**代码质量**（general，10 文件逐文件审查）：
+- 1 BLOCKER：TOFU 首次信任自动 verified，违反决策 12（"必须 UI 显式确认"）；`ott_repo_manifest.py:546-547` 自认 TODO 过渡行为
+- 3 MAJOR：Landlock `/etc` 白名单过宽（含 /etc/shadow 等，建议收窄为 resolv.conf+hosts+nsswitch.conf）；DSL `_Budget` 只计 calls 不计 steps（无循环绕过但无法精确限单 step）；regex_worker 无自身资源限制（依赖调用方 1s 超时，建议 `signal.alarm` 二级防护）
+- 8 MINOR：script authority/source_key 硬编码不一致（ott_script_client.py:272-274）；`_read_local_json` 先 `json.loads` 再查 max_bytes（顺序反）；`REGEX_MAX_INPUT_CHARS` 三处重复定义；`_fetch_json` 无 content-length 预检；脚本缓存 TTL 与 cache_ttl_seconds 不统一；httpx.Client 无 close（低风险）；canonical JSON ensure_ascii=False；僵尸字段 registry.primary_url
+- 确认健康：DSL 非图灵完备（无循环/无变量赋值/四重硬上限）；沙箱三道防线成立（AST+受限 builtins+Landlock/rlimits）；正则子进程化真正解决 ReDoS
+
+**方向正确性**（general）：VERDICT **PROCEED（有条件）**。决策 1-13 设计合理、安全红线贯彻正确、依赖链 2.0→2.3→2.7 无需调整。2 个需修正项：
+1. 脚本沙箱 `__subclasses__()` 逃逸：AST 是静态分析，拦不住运行时 `().__class__.__bases__[0].__subclasses__()` 对象模型遍历（`type`/`object`/`getattr` 已禁，但 `__subclasses__` 是属性方法不在禁列）。缓解：即使逃逸 safe_globals 仍在受限子进程内（256MB/30s/Landlock）。修复：safe_globals 覆盖 `__class__`/`__mro__`/`__subclasses__` 为 None，或 AST 拦截这些属性访问。
+2. TOFU UI 确认流程：与代码质量 BLOCKER 同源，Phase 2.0 定稿时必须包含 TOFU UI 交互规范（首次信任弹窗 / key 变更通知 / 降级确认）。
+
+**推进优先级**（后续工作依据）：BLOCKER（TOFU UI）→ MAJOR（沙箱加固 / Landlock 收窄 / signal.alarm）→ MINOR 批 → 归档后按此推进。
+
 ## 背景
 
 typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空壳客户端 + OTT 源分发生态"。
@@ -100,6 +121,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 0.B1 正则移出主进程 | `ott_rule_interpreter.py` + 新 `regex_worker.py` | 子进程执行 + 1s 硬超时；输入 ≤10KB；静态拒绝嵌套量词；RE2 作为可选第二阶段 | 100 字符恶意正则 1s 内返回；新增回归测试 | ✅ 已落地 |
 
 > 状态（2026-08-09）：0.B1 已随 #44 落地（`regex_worker.py` 子进程 + `_has_nested_quantifier` 静态拒绝 + `_extract_regex` 走 `subprocess.run` 1s 超时 + 10KB 截断）。`tests/test_ott_rule_interpreter.py` 80 passed 含恶意正则用例（`test_regex_nested_quantifier_rejected` / `test_regex_worker_timeout_fallback_empty` / `test_worker_rejects_nested_quantifier`）。RE2 引擎列为可选强化，未引入。
+>
+> 状态（2026-08-09 三线审查后修复）：**0.B1 二级防护 + 常量统一已落地**：`_run()` 内 `signal.alarm(1)` 包裹仅 `re.search`/`re.sub`（`hasattr(signal,"alarm")` 守卫，Windows no-op，导入时间不计入），超时 → `{"ok": false, "error": "timeout"}`；`REGEX_WORKER_MAX_INPUT_CHARS` 为唯一事实源，`ott_rule_interpreter.py`/`ott_dsl.py` 以 `as REGEX_MAX_INPUT_CHARS` 别名导入（无循环依赖）。新增 `test_worker_self_timeout_alarm`（monkeypatch re.search → sleep 2s，断言 <1.5s 返回 timeout）。
 
 ### Phase 1：受限 DSL 原语引擎（L1.5）
 
@@ -130,6 +153,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 > 状态（2026-08-08）：**2.0 设计文档已产出**（`docs/designs/adapter-signing.md`）；**2.3 执行门槛已落地**（L3 仅 verified 仓库执行）。2.2/2.4-2.7 未开工；2.4/2.5 依赖 2.1 的适配器包格式。
 >
 > 状态（2026-08-09）：**2.1 适配器包格式已落地**：`docs/reference/adapter-package.md`（包布局 + `adapter.json` 字段表 + 签名/校验流程）+ `docs/reference/ott-adapter-v1.schema.json`（draft-07，script/rule 要求 `content.path`、instance 要求 `content.endpoints`、signature 格式 `ed25519:` 前缀可选）。schema 已用 `jsonschema` 验证：合法示例过、坏 type/checksum/缺 content 拒。运行时消费（manifest source 引用 adapter_id → 包内文件拉取）留给 2.2；跨仓 spec 同步仍为待确认项。
+>
+> 状态（2026-08-09 三线审查后修复）：**2.3 TOFU UI 确认流程已补齐**（红线项，决策 12 落实）：`trust_state` 新增 `pending`；首次有效签名 → pending + 固定公钥（不再自动 verified）；key 变更 → pending（需用户重新确认，不再静默 failed）；pending 跨刷新保持 sticky；L3 仍仅 `verified` 执行（`!= "verified"` 门槛未动）。UI：`ReposManagementPanel` 待确认徽章（systemCautionColor）+ 信任/拒绝按钮 → `confirmRepoTrust`/`rejectRepoTrust`（bridge → RegistryAdapter → runtime_config）。`runtime_config` 新增 `confirm_source_repo_trust`/`reject_source_repo_trust`（reject 清公钥回 unverified，订阅保留，下次刷新重新评估）。测试 11 个新增用例全绿，全量 977 passed。
 
 ### Phase 3：控制面完善
 
@@ -149,6 +174,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 > 状态（2026-08-08）：**3.1-3.5、3.9 已落地**。3.1 按已缓存 manifest 的 http(s) mirrors 依次 failover（file:// 镜像忽略）；3.2 携带 `If-None-Match`、304 仅刷新缓存 mtime 并持久化 ETag；3.3 `ott_core` 版本约束 + `client_features` 协商，不满足整仓跳过并显示 `incompatible_reason`；3.4 ott-instance 按 `default_enabled` 消费（rule/script 该字段不在当前 schema，归一化不输出）；3.5 选择"明示暂不开放"：联邦跳过 ott-bridge，订阅面板显示"桥接源暂不支持"，ARCHITECTURE 改未落地；3.9 联邦共享单 `httpx.Client`、按订阅+manifest mtime 签名复用客户端、rule/script 结果按 `cache_ttl_seconds` 缓存。
 >
 > 状态（2026-08-09）：**3.7、3.8 已落地**。3.7 联邦分段进度 key 已是 `ott:{authority}:{entry_id}@{revision_id}`（bridge `_compute_progress_key("ott", ...)` 拼接，随 #44 落地），旧 OTT 直连路径以 `local` 兜底，`_find_progress` 按标题前缀扫描兼容旧格式 key 完成迁移；3.8 `_ScriptClient` authority 从裸 `script` 改为 `script:{sha256(url)[:12]}`（`_script_authority()`），`list_all_entries`/`ReposManagementPanel` 统计同步，同 entry_id 跨脚本不再被 dedupe 吞掉，新增 `test_authority_namespaced_by_url` 用例。
+>
+> 状态（2026-08-09 三线审查后修复）：**3.9 httpx.Client 显式 close 已补齐**：`OttFederationProvider.close()`（幂等，客户端未创建时安全）+ `main.py` teardown 接线（与 `infra.api_client.close()` 并列）。**3.9 脚本 authority 一致性已补齐**：`_script_authority` 移至 `ott_normalization.py`（单一事实源），`ScriptSandbox.execute` 计算后贯穿 `_normalize_entries(raw, authority)`，entry `authority` 与 `normalize_summary` 一致；`source_key` 保持稳定分组键（已注释说明）。
 
 ### Phase 4：空壳化与默认源合规
 
@@ -165,6 +192,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 任务 | 改动 | 验收 |
 |---|---|---|
 | 5.1 Linux 补齐 | `ott_script_runner.py` | seccomp（禁 ptrace/clone 变体）+ 现有 Landlock + rlimits |
+
+> 状态（2026-08-09 三线审查后修复）：**5.1 前置加固已落地**（seccomp 仍缺，留作 5.1 正式项）：① AST 检查新增 `BANNED_DUNDER_ATTRIBUTES`（16 个对象模型属性：`__class__`/`__mro__`/`__bases__`/`__subclasses__`/`__globals__`/`__closure__`/`__code__`/`__dict__`/`__builtins__`/`__self__`/`__func__`/`__getattribute__`/`__getattr__`/`__setattr__`/`__delattr__`/`__module__`），拦截 `().__class__.__subclasses__()` 类对象模型遍历（代码 `banned_object_model_access`）；`__init__` 不拦截（`super().__init__()` 合法，`def __init__` 是 FunctionDef 名不受影响，逃逸后续步骤已被拦）。② Landlock `/etc` 全目录读取收窄为逐文件 `/etc/resolv.conf` + `/etc/hosts` + `/etc/nsswitch.conf`（仅 READ_FILE，OSError 逐文件跳过）。③ 运行时 `_build_safe_builtins` 明确不 monkeypatch 对象内建（会破坏 bs4/Crypto），AST + 子进程隔离为边界，已注释说明。④ 端到端 Landlock 逃逸测试在真实内核 5.13+ 上验证仍 READ_BLOCKED。测试：`test_rejects_object_model_subclasses_escape`/`test_rejects_globals_attribute`/`test_allows_realistic_whitelisted_script`/`test_allows_super_init_in_class` + `TestLandlockNarrowing` 2 例，全绿。
 | 5.2 Windows 策略 | `ott_script_runner.py`/文档 | Job Object + 受限令牌；做不到则 L3 在 Windows 默认禁用并在 UI 明示 |
 | 5.3 出口代理 | 新 `ott_outbound_proxy.py` | 本地代理按域名白名单放行；DNS pin；审计日志；脚本无直连 |
 | 5.4 凭据注入 | `ott_script_client.py` + `secure_token_store.py` | keyring → 子进程一次性 fd；脚本不可读 keyring 文件 |

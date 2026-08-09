@@ -12,7 +12,7 @@ except ImportError:
 
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import builtin_ott_repo_url, user_config_path
-from ..utils.logger import log_error
+from ..utils.logger import log_error, log_info
 from .text_source_config import TextSourceConfig, TextSourceEntry
 
 
@@ -152,7 +152,7 @@ class SourceRepoEntry:
 
     url: str
     enabled: bool = True
-    trust_state: str = "unverified"  # verified | unverified | failed
+    trust_state: str = "unverified"  # verified | pending | unverified | failed
     pinned_pubkey: str = ""
     refresh_ttl_seconds: int = 86400
     etag: str = ""
@@ -165,7 +165,7 @@ class SourceRepoEntry:
             self.url = self.url.strip().rstrip("/")
         if not isinstance(self.enabled, bool):
             self.enabled = True
-        if self.trust_state not in {"verified", "unverified", "failed"}:
+        if self.trust_state not in {"verified", "pending", "unverified", "failed"}:
             self.trust_state = "unverified"
         if not isinstance(self.pinned_pubkey, str):
             self.pinned_pubkey = ""
@@ -697,6 +697,37 @@ class RuntimeConfig:
                 if pinned_pubkey:
                     repo.pinned_pubkey = pinned_pubkey
                 self._save_to_file()
+                return
+
+    def confirm_source_repo_trust(self, url: str) -> None:
+        """用户显式确认信任订阅（TOFU pending → verified）。
+
+        保留已固定的公钥；无固定公钥的订阅不改变状态（confirm 仅针对
+        pending 且有 pinned_pubkey 的条目生效）。
+        """
+        url = url.strip().rstrip("/") if url else ""
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                if repo.trust_state == "pending" and repo.pinned_pubkey:
+                    repo.trust_state = "verified"
+                    self._save_to_file()
+                    log_info(f"[RuntimeConfig] 用户确认信任订阅: {url}")
+                return
+
+    def reject_source_repo_trust(self, url: str) -> None:
+        """用户显式拒绝信任订阅（pending → unverified，清空固定公钥）。
+
+        不删除订阅：清空 pinned_pubkey 后，下次刷新会重新评估并再次
+        进入 pending，等待用户重新决策。
+        """
+        url = url.strip().rstrip("/") if url else ""
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                if repo.trust_state == "pending":
+                    repo.trust_state = "unverified"
+                    repo.pinned_pubkey = ""
+                    self._save_to_file()
+                    log_info(f"[RuntimeConfig] 用户拒绝信任订阅: {url}")
                 return
 
     def update_source_repo_refresh(

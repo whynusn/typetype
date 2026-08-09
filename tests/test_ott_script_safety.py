@@ -124,3 +124,72 @@ class TestScriptSafety:
         )
         report = validate_script_source(source)
         assert report.valid, report.to_dict()
+
+    def test_rejects_object_model_subclasses_escape(self) -> None:
+        """对象模型遍历逃逸：attribute 访问而非函数调用，必须被 AST 层拦截。"""
+        source = (
+            "def fetch_entries():\n"
+            "    for c in ().__class__.__bases__[0].__subclasses__():\n"
+            "        pass\n"
+            "    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_object_model_access" for i in report.issues)
+
+    def test_rejects_globals_attribute(self) -> None:
+        """__globals__ 是逃逸链的泄密点，属性访问必须拒绝。"""
+        source = (
+            "def f():\n"
+            "    return 1\n"
+            "def fetch_entries():\n"
+            "    g = f.__globals__\n"
+            "    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_object_model_access" for i in report.issues)
+
+    def test_allows_realistic_whitelisted_script(self) -> None:
+        """白名单库真实用法（httpx + bs4 + Crypto + json + re + datetime）无误报。"""
+        source = (
+            "import httpx\n"
+            "import json\n"
+            "import re\n"
+            "import datetime\n"
+            "import base64\n"
+            "from bs4 import BeautifulSoup\n"
+            "from Crypto.Cipher import AES\n"
+            "from Crypto.Util.Padding import pad\n"
+            "def fetch_entries():\n"
+            "    resp = httpx.get('https://example.com/data')\n"
+            "    soup = BeautifulSoup(resp.text, 'html.parser')\n"
+            "    title = soup.find('title').get_text()\n"
+            "    cleaned = re.sub(r'\\s+', ' ', title)\n"
+            "    key = base64.b64decode('a2V5MTIzNDU2Nzg5MDEyMzQ1Ng==')\n"
+            "    cipher = AES.new(key, AES.MODE_CBC)\n"
+            "    payload = pad(b'hello', 16)\n"
+            "    out = json.dumps(\n"
+            "        {'title': cleaned,\n"
+            "         'ts': datetime.datetime.now().isoformat()}\n"
+            "    )\n"
+            '    return [{"title": cleaned, "content": out}]\n'
+        )
+        report = validate_script_source(source)
+        assert report.valid, report.to_dict()
+
+    def test_allows_super_init_in_class(self) -> None:
+        """super().__init__() 是合法类模式：__init__ 属性访问不拦截。"""
+        source = (
+            "class Base:\n"
+            "    def __init__(self):\n"
+            "        self.x = 1\n"
+            "class Sub(Base):\n"
+            "    def __init__(self):\n"
+            "        super().__init__()\n"
+            "        self.y = 2\n"
+            "def fetch_entries():\n"
+            "    return []\n"
+        )
+        report = validate_script_source(source)
+        assert report.valid, report.to_dict()

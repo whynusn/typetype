@@ -1004,6 +1004,69 @@ def test_parse_source_repos_ignores_invalid_entries():
     assert config.source_repos.repos[0].url == "https://valid.org/r.json"
 
 
+def test_source_repo_pending_trust_state_accepted(tmp_path):
+    """pending 作为合法 trust_state 被解析，且保留固定公钥。"""
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {
+                    "url": "https://repo.example.com/r.json",
+                    "trust_state": "pending",
+                    "pinned_pubkey": "ed25519:abc",
+                },
+            ]
+        }
+    )
+    config._config_path = str(tmp_path / "config.json")
+    repo = config.source_repos.repos[0]
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == "ed25519:abc"
+    # 序列化 round-trip 保持 pending
+    config2 = RuntimeConfig._from_dict(config._to_dict())
+    assert config2.source_repos.repos[0].trust_state == "pending"
+
+
+def test_confirm_source_repo_trust_sets_verified_keeps_pin(tmp_path):
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {
+                    "url": "https://repo.example.com/r.json",
+                    "trust_state": "pending",
+                    "pinned_pubkey": "ed25519:abc",
+                },
+            ]
+        }
+    )
+    config._config_path = str(tmp_path / "config.json")
+    config.confirm_source_repo_trust("https://repo.example.com/r.json")
+    repo = config.source_repos.repos[0]
+    assert repo.trust_state == "verified"
+    assert repo.pinned_pubkey == "ed25519:abc"
+
+
+def test_reject_source_repo_trust_sets_unverified_clears_pin(tmp_path):
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {
+                    "url": "https://repo.example.com/r.json",
+                    "trust_state": "pending",
+                    "pinned_pubkey": "ed25519:abc",
+                },
+            ]
+        }
+    )
+    config._config_path = str(tmp_path / "config.json")
+    config.reject_source_repo_trust("https://repo.example.com/r.json")
+    repo = config.source_repos.repos[0]
+    assert repo.trust_state == "unverified"
+    assert repo.pinned_pubkey == ""
+    # 订阅本身不被删除，仅回退信任状态
+    assert len(config.source_repos.repos) == 1
+    assert repo.url == "https://repo.example.com/r.json"
+
+
 def test_registry_scripts_enabled_default_follows_platform(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
     cfg = RuntimeConfig()

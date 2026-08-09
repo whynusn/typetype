@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 
+from src.backend.integration import ott_script_runner as runner
 from src.backend.integration.ott_script_client import (
     ScriptCache,
     ScriptSandbox,
@@ -115,10 +116,26 @@ class TestScriptSandbox:
         assert e1[0]["entry_id"] == e2[0]["entry_id"]
 
     def test_authority_is_script(self) -> None:
+        """authority 按脚本 URL 指纹命名空间化（与联邦层一致）。"""
+        from src.backend.integration.ott_normalization import _script_authority
+
         source = 'def fetch_entries():\n    return [{"title": "T", "content": "C"}]\n'
         sandbox = ScriptSandbox()
         entries = sandbox.execute(source, "test://script")
-        assert entries[0]["authority"] == "script"
+        assert entries[0]["authority"] == _script_authority("test://script")
+
+    def test_authority_namespaced_by_url(self) -> None:
+        """不同 URL 的脚本 authority 不同；source_key 保持稳定分组键。"""
+        from src.backend.integration.ott_normalization import _script_authority
+
+        source = 'def fetch_entries():\n    return [{"title": "T", "content": "C"}]\n'
+        sandbox = ScriptSandbox()
+        a = sandbox.execute(source, "https://example.com/a.py")
+        b = sandbox.execute(source, "https://example.com/b.py")
+        assert a[0]["authority"] == _script_authority("https://example.com/a.py")
+        assert b[0]["authority"] == _script_authority("https://example.com/b.py")
+        assert a[0]["authority"] != b[0]["authority"]
+        assert a[0]["source_key"] == "script"
 
     @pytest.mark.skipif(
         not landlock_available(), reason="需要 Linux 内核 5.13+ Landlock"
@@ -161,6 +178,97 @@ class TestExecuteScript:
         )
         entries = execute_script(source, "test://script")
         assert len(entries) == 1
+
+
+# ── Landlock /etc 缩小 ─────────────────────────────────────────────────
+
+
+class TestLandlockNarrowing:
+    """_apply_landlock 的 /etc 只按文件授予（mock syscall，不依赖真实内核）。"""
+
+    def test_etc_granted_per_file_with_read_only(self) -> None:
+        open_calls: list[tuple[str, int]] = []
+        add_calls: list[tuple[int, int]] = []
+        fd_map: dict[int, str] = {}
+        fd_counter = iter(range(100, 200))
+
+        def fake_open(path, flags):
+            open_calls.append((path, flags))
+            fd = next(fd_counter)
+            fd_map[fd] = path
+            return fd
+
+        def fake_add_rule(ruleset_fd, access, parent_fd):
+            add_calls.append((access, parent_fd))
+
+        with (
+            patch.object(runner, "_landlock_create", return_value=7),
+            patch.object(runner, "_landlock_add_rule", side_effect=fake_add_rule),
+            patch.object(runner, "_landlock_set_no_new_privs"),
+            patch.object(runner, "_landlock_restrict_self"),
+            patch.object(runner.os, "open", side_effect=fake_open),
+            patch.object(runner.os, "close"),
+        ):
+            runner._apply_landlock("/tmp/ott-script-test-dir")
+
+        # /etc 不再整目录打开，只按文件打开
+        assert not any(path == "/etc" for path, _ in open_calls)
+        opened_files = [
+            path for path, flags in open_calls if not (flags & os.O_DIRECTORY)
+        ]
+        assert opened_files == ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf"]
+
+        # 文件规则只授 READ_FILE，且全部落在 _ETC_DNS_FILES 上
+        file_rules = [
+            (fd_map[fd], access)
+            for access, fd in add_calls
+            if access == runner._LANDLOCK_FS_READ_FILE
+        ]
+        assert file_rules == [
+            ("/etc/resolv.conf", runner._LANDLOCK_FS_READ_FILE),
+            ("/etc/hosts", runner._LANDLOCK_FS_READ_FILE),
+            ("/etc/nsswitch.conf", runner._LANDLOCK_FS_READ_FILE),
+        ]
+
+    def test_skips_missing_etc_file_and_continues(self) -> None:
+        open_calls: list[tuple[str, int]] = []
+        add_calls: list[tuple[int, int]] = []
+        fd_map: dict[int, str] = {}
+        fd_counter = iter(range(200, 300))
+
+        def fake_open(path, flags):
+            if path == "/etc/resolv.conf":
+                raise OSError(2, "No such file or directory")
+            open_calls.append((path, flags))
+            fd = next(fd_counter)
+            fd_map[fd] = path
+            return fd
+
+        def fake_add_rule(ruleset_fd, access, parent_fd):
+            add_calls.append((access, parent_fd))
+
+        with (
+            patch.object(runner, "_landlock_create", return_value=7),
+            patch.object(runner, "_landlock_add_rule", side_effect=fake_add_rule),
+            patch.object(runner, "_landlock_set_no_new_privs"),
+            patch.object(runner, "_landlock_restrict_self") as mock_restrict,
+            patch.object(runner.os, "open", side_effect=fake_open),
+            patch.object(runner.os, "close"),
+        ):
+            runner._apply_landlock("/tmp/ott-script-test-dir")
+
+        assert "/etc/resolv.conf" not in [p for p, _ in open_calls]
+        file_rules = [
+            (fd_map[fd], access)
+            for access, fd in add_calls
+            if access == runner._LANDLOCK_FS_READ_FILE
+        ]
+        assert file_rules == [
+            ("/etc/hosts", runner._LANDLOCK_FS_READ_FILE),
+            ("/etc/nsswitch.conf", runner._LANDLOCK_FS_READ_FILE),
+        ]
+        # 缺失文件不中断整体 Landlock 限制
+        mock_restrict.assert_called_once_with(7)
 
 
 # ── 缓存 ────────────────────────────────────────────────────────────────

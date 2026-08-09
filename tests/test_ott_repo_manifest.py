@@ -7,7 +7,10 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from src.backend.config.runtime_config import SourceRepoEntry
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+from src.backend.config.runtime_config import RuntimeConfig, SourceRepoEntry
 from src.backend.integration.ott_repo_manifest import (
     RepoManifestCache,
     repo_cache_key,
@@ -400,3 +403,154 @@ def test_cache_clear_specific_and_all(tmp_path):
 
     cache.clear_cache()
     assert not cache.cache_path(repo_cache_key(url_b)).exists()
+
+
+# ---------------------------------------------------------------------------
+# TOFU 信任状态机（ADR-011 决策 12：首次信任必须 UI 显式确认）
+# ---------------------------------------------------------------------------
+
+
+def _sign_manifest(manifest: dict, priv: Ed25519PrivateKey) -> dict:
+    """对 manifest 做 ed25519 签名并写入 trust 字段（与 _verify_trust 同构）。"""
+    canonical = {k: v for k, v in manifest.items() if k != "trust"}
+    canonical_bytes = json.dumps(
+        canonical, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    sig = priv.sign(canonical_bytes)
+    pubkey_hex = priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+    manifest["trust"] = {
+        "signature": f"ed25519:{sig.hex()}",
+        "pubkey": f"ed25519:{pubkey_hex}",
+        "required": False,
+    }
+    return manifest
+
+
+def _config_with_repo(
+    tmp_path, *, url: str = "https://repo.example.com/r.json", **entry_kwargs
+) -> tuple[RuntimeConfig, SourceRepoEntry]:
+    cfg = {"source_repos": [{"url": url, **entry_kwargs}]}
+    config = RuntimeConfig._from_dict(cfg)
+    config._config_path = str(tmp_path / "config.json")
+    return config, config.source_repos.repos[0]
+
+
+def _verify_with(
+    config: RuntimeConfig, tmp_path, manifest: dict, repo: SourceRepoEntry
+) -> None:
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=MagicMock(spec=httpx.Client),
+        async_executor=None,
+        runtime_config=config,
+    )
+    cache._verify_trust(manifest, repo)
+
+
+def test_first_valid_signature_sets_pending_not_verified(tmp_path):
+    """首次有效签名 → pending（固定公钥），不得自动 verified。"""
+    priv = Ed25519PrivateKey.generate()
+    manifest = _sign_manifest(_valid_manifest(), priv)
+    config, repo = _config_with_repo(tmp_path)
+
+    _verify_with(config, tmp_path, manifest, repo)
+
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == manifest["trust"]["pubkey"]
+
+
+def test_confirm_then_refresh_keeps_verified(tmp_path):
+    priv = Ed25519PrivateKey.generate()
+    manifest = _sign_manifest(_valid_manifest(), priv)
+    config, repo = _config_with_repo(
+        tmp_path, trust_state="pending", pinned_pubkey=manifest["trust"]["pubkey"]
+    )
+
+    config.confirm_source_repo_trust(repo.url)
+    assert repo.trust_state == "verified"
+
+    # 用户确认后刷新，同公钥保持 verified
+    _verify_with(config, tmp_path, manifest, repo)
+    assert repo.trust_state == "verified"
+    assert repo.pinned_pubkey == manifest["trust"]["pubkey"]
+
+
+def test_reject_sets_unverified_clears_pin_then_reevaluates(tmp_path):
+    """拒绝 → unverified + 清空固定公钥；下次刷新重新评估再次进入 pending。"""
+    priv = Ed25519PrivateKey.generate()
+    manifest = _sign_manifest(_valid_manifest(), priv)
+    config, repo = _config_with_repo(
+        tmp_path, trust_state="pending", pinned_pubkey=manifest["trust"]["pubkey"]
+    )
+
+    config.reject_source_repo_trust(repo.url)
+    assert repo.trust_state == "unverified"
+    assert repo.pinned_pubkey == ""
+
+    # 订阅未被删除
+    assert len(config.source_repos.repos) == 1
+
+    _verify_with(config, tmp_path, manifest, repo)
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == manifest["trust"]["pubkey"]
+
+
+def test_key_change_on_verified_sets_pending(tmp_path):
+    """已验证仓库公钥变更 → pending（固定新公钥），需用户重新确认/拒绝。"""
+    priv_old = Ed25519PrivateKey.generate()
+    priv_new = Ed25519PrivateKey.generate()
+    manifest_old = _sign_manifest(_valid_manifest(), priv_old)
+    manifest_new = _sign_manifest(_valid_manifest(), priv_new)
+    config, repo = _config_with_repo(
+        tmp_path,
+        trust_state="verified",
+        pinned_pubkey=manifest_old["trust"]["pubkey"],
+    )
+
+    _verify_with(config, tmp_path, manifest_new, repo)
+
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == manifest_new["trust"]["pubkey"]
+
+    # 用户拒绝新公钥 → unverified + 清空
+    config.reject_source_repo_trust(repo.url)
+    assert repo.trust_state == "unverified"
+    assert repo.pinned_pubkey == ""
+
+
+def test_refresh_while_pending_stays_pending(tmp_path):
+    """pending 粘性：同公钥刷新不得把 pending 翻转回 verified。"""
+    priv = Ed25519PrivateKey.generate()
+    manifest = _sign_manifest(_valid_manifest(), priv)
+    config, repo = _config_with_repo(
+        tmp_path, trust_state="pending", pinned_pubkey=manifest["trust"]["pubkey"]
+    )
+
+    _verify_with(config, tmp_path, manifest, repo)
+
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == manifest["trust"]["pubkey"]
+
+
+def test_invalid_signature_sets_failed(tmp_path):
+    """签名校验失败（内容被篡改）→ failed，不进入 pending。"""
+    priv = Ed25519PrivateKey.generate()
+    manifest = _sign_manifest(_valid_manifest(), priv)
+    manifest["description"] = "tampered"
+    config, repo = _config_with_repo(tmp_path)
+
+    _verify_with(config, tmp_path, manifest, repo)
+
+    assert repo.trust_state == "failed"
+
+
+def test_missing_signature_sets_unverified(tmp_path):
+    """无签名信息 → unverified（不固定公钥、不进入 pending）。"""
+    config, repo = _config_with_repo(tmp_path)
+    manifest = _valid_manifest()
+    manifest.pop("trust", None)
+
+    _verify_with(config, tmp_path, manifest, repo)
+
+    assert repo.trust_state == "unverified"
+    assert repo.pinned_pubkey == ""

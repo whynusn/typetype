@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
+
+
+def _script_authority(url: str) -> str:
+    """脚本 authority：``script:{sha256(url)[:12]}``。
+
+    以脚本 URL 指纹做命名空间，防不同脚本产出同 entry_id 被 dedupe 吞掉。
+    与 ott-instance / ott-rule 命名空间隔离。
+    """
+    return f"script:{hashlib.sha256(url.encode('utf-8')).hexdigest()[:12]}"
 
 
 def local_path_from_file_uri(url: str) -> Path:

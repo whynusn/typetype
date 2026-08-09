@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from ..utils.logger import log_warning
-from .ott_normalization import normalize_summary, redact_url
+from .ott_normalization import _script_authority, normalize_summary, redact_url
 from .ott_script_safety import validate_script_source
 
 if TYPE_CHECKING:
@@ -79,20 +79,26 @@ class ScriptCache:
     """脚本下载与缓存。"""
 
     def __init__(
-        self, cache_dir: Path, http_client: httpx.Client, enabled: bool = True
+        self,
+        cache_dir: Path,
+        http_client: httpx.Client,
+        enabled: bool = True,
+        ttl_seconds: int = 3600,
     ) -> None:
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = http_client
         self._enabled = enabled
+        self._ttl_seconds = ttl_seconds
 
-    def get_script(self, url: str, ttl_seconds: int = 3600) -> str | None:
+    def get_script(self, url: str, ttl_seconds: int | None = None) -> str | None:
         if not self._enabled:
             return None
         cache_key = script_cache_key(url)
         cached = self._read_cache(cache_key)
+        ttl = self._ttl_seconds if ttl_seconds is None else ttl_seconds
         if cached is not None:
-            if not self._is_expired(cache_key, ttl_seconds):
+            if not self._is_expired(cache_key, ttl):
                 return cached
         return self._fetch_and_cache(cache_key, url)
 
@@ -197,11 +203,11 @@ class ScriptSandbox:
             return []
 
         try:
-            return self._execute_in_subprocess(tmp_path)
+            return self._execute_in_subprocess(tmp_path, _script_authority(script_url))
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    def _execute_in_subprocess(self, script_path: Path) -> list[dict]:
+    def _execute_in_subprocess(self, script_path: Path, authority: str) -> list[dict]:
         """在子进程中执行脚本。"""
         runner_path = Path(__file__).parent / "ott_script_runner.py"
         try:
@@ -239,10 +245,14 @@ class ScriptSandbox:
         if not isinstance(raw_entries, list):
             return []
 
-        return self._normalize_entries(raw_entries)
+        return self._normalize_entries(raw_entries, authority)
 
-    def _normalize_entries(self, raw_entries: list) -> list[dict]:
-        """将脚本返回的原始数据标准化为 entry 格式。"""
+    def _normalize_entries(self, raw_entries: list, authority: str) -> list[dict]:
+        """将脚本返回的原始数据标准化为 entry 格式。
+
+        authority 按脚本 URL 指纹命名空间化（与 _ScriptClient 一致）；
+        source_key 是稳定的分组键，保持脚本自报值，不做命名空间化。
+        """
         result = []
         for item in raw_entries:
             if isinstance(item, str):
@@ -269,9 +279,9 @@ class ScriptSandbox:
                 else [],
                 "fetched_at": item.get("fetched_at", ""),
                 "category": str(item.get("category", "")),
-                "authority": "script",
+                "authority": authority,
             }
-            normalized = normalize_summary(entry, "script")
+            normalized = normalize_summary(entry, authority)
             normalized["content"] = entry["content"]  # normalize 不保留 content
             result.append(normalized)
             if len(result) >= MAX_ENTRIES_PER_SCRIPT:

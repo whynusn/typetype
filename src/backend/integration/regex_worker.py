@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 import re
+import signal
 import sys
 from typing import Any
 
-# 输入大小上限（与调用方 REGEX_MAX_INPUT_CHARS 对齐，纵深防御）
+# 输入大小上限（调用方从本模块导入，单点定义防漂移）
 REGEX_WORKER_MAX_INPUT_CHARS = 10_000
 
 
@@ -99,6 +100,11 @@ def _has_nested_quantifier(pattern: str) -> bool:
     return False
 
 
+def _timeout_handler(signum: int, frame: Any) -> None:
+    """SIGALRM 处理器：正则执行超时（1s）抛 TimeoutError。"""
+    raise TimeoutError("regex execution timeout")
+
+
 def _run(pattern: str, text: str, op: str = "search", repl: str = "") -> dict:
     if (
         len(pattern) > REGEX_WORKER_MAX_INPUT_CHARS
@@ -108,11 +114,25 @@ def _run(pattern: str, text: str, op: str = "search", repl: str = "") -> dict:
     if _has_nested_quantifier(pattern):
         return {"ok": False, "error": "nested_quantifier"}
     try:
-        if op == "replace":
-            return {"ok": True, "content": re.sub(pattern, repl, text, flags=re.DOTALL)}
-        match = re.search(pattern, text, re.DOTALL)
+        # 第二道防线：POSIX 下用 SIGALRM 自限 1s（Windows 无 alarm，跳过）。
+        # 只包正则执行，import/输入读取不计时；结束复位 alarm(0)。
+        if hasattr(signal, "alarm"):
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(1)
+        try:
+            if op == "replace":
+                return {
+                    "ok": True,
+                    "content": re.sub(pattern, repl, text, flags=re.DOTALL),
+                }
+            match = re.search(pattern, text, re.DOTALL)
+        finally:
+            if hasattr(signal, "alarm"):
+                signal.alarm(0)
     except re.error:
         return {"ok": False, "error": "regex_error"}
+    except TimeoutError:
+        return {"ok": False, "error": "timeout"}
     if match is None:
         return {"ok": True, "groups": {}}
     groups = match.groupdict()

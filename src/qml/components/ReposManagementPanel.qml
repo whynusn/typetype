@@ -24,6 +24,8 @@ Frame {
     signal toggleRepoRequested(string url, bool enabled)
     signal refreshRepoRequested(string url)
     signal refreshAllRequested()
+    signal confirmRepoRequested(string url)  // TOFU pending → verified
+    signal rejectRepoRequested(string url)   // TOFU pending → unverified
     signal openSourceRequested(string sourceLabel, var authorities)  // 点击源卡片进入条目列表
 
     // ---- 内部 ----
@@ -31,12 +33,14 @@ Frame {
 
     function _trustBadge(trustState) {
         if (trustState === "verified") return qsTr("已验证")
+        if (trustState === "pending") return qsTr("待确认")
         if (trustState === "failed") return qsTr("验证失败")
         return qsTr("未验证")
     }
 
     function _trustColor(trustState) {
         if (trustState === "verified") return Theme.currentTheme.colors.systemSuccessColor
+        if (trustState === "pending") return Theme.currentTheme.colors.systemCautionColor
         if (trustState === "failed") return Theme.currentTheme.colors.systemCriticalColor
         return Theme.currentTheme.colors.textSecondaryColor
     }
@@ -231,6 +235,23 @@ Frame {
                                 onClicked: {
                                     var r = delegateRoot.repo.raw || delegateRoot.repo
                                     root.openSourceRequested(r.name || r.url || "", r.authorities || [])
+                                }
+                            }
+
+                            // TOFU 待确认：信任/拒绝（pending 专属操作行）
+                            RowLayout {
+                                visible: (delegateRoot.repo.raw ? (delegateRoot.repo.raw.trust_state || delegateRoot.repo.raw.trustState) : "") === "pending"
+                                spacing: 6
+                                Button {
+                                    text: qsTr("信任")
+                                    highlighted: true
+                                    enabled: !root.loading
+                                    onClicked: root.confirmRepoRequested((delegateRoot.repo.raw || delegateRoot.repo).url)
+                                }
+                                Button {
+                                    text: qsTr("拒绝")
+                                    enabled: !root.loading
+                                    onClicked: root.rejectRepoRequested((delegateRoot.repo.raw || delegateRoot.repo).url)
                                 }
                             }
 

@@ -517,7 +517,12 @@ class RepoManifestCache:
             log_warning("[RepoManifest] 清除缓存失败")
 
     def _verify_trust(self, manifest: dict, repo: SourceRepoEntry) -> None:
-        """校验 manifest 签名并更新 repo.trust_state（TOFU）。"""
+        """校验 manifest 签名并更新 repo.trust_state（TOFU）。
+
+        ADR-011 决策 12：TOFU 首次信任必须 UI 显式确认。签名有效但
+        未固定公钥（首次）或公钥发生变更时，进入 pending 状态等待用户
+        确认/拒绝，不再自动 verified；pending 在刷新间保持粘性。
+        """
         if self._runtime_config is None:
             return
         trust = manifest.get("trust") or {}
@@ -540,18 +545,21 @@ class RepoManifestCache:
             self._runtime_config.set_source_repo_trust(repo.url, "failed")
             return
 
-        # TOFU：首次信任固定公钥，变更则标记 failed
         if not repo.pinned_pubkey:
-            # 首次订阅：固定公钥
-            # TODO(ADR-011 Phase 2.3): 决策 12 要求 TOFU 首次信任必须 UI 显式确认。
-            #   当前自动 verified 仅为过渡行为，需 pending 状态 + 确认 UI 后替换。
+            # 首次有效签名：固定公钥，进入 pending，等待用户 UI 确认
             self._runtime_config.set_source_repo_trust(
-                repo.url, "verified", pinned_pubkey=pubkey
+                repo.url, "pending", pinned_pubkey=pubkey
             )
+            log_info(f"[RepoManifest] 首次有效签名，待用户确认: {redact_url(repo.url)}")
         elif repo.pinned_pubkey != pubkey:
-            # 公钥变更 → 验证失败（需用户显式确认）
-            self._runtime_config.set_source_repo_trust(repo.url, "failed")
-            log_warning(f"[RepoManifest] 公钥变更: {redact_url(repo.url)}")
+            # 公钥变更 → 回到 pending（固定新公钥），需用户重新确认/拒绝
+            self._runtime_config.set_source_repo_trust(
+                repo.url, "pending", pinned_pubkey=pubkey
+            )
+            log_warning(f"[RepoManifest] 公钥变更，待用户确认: {redact_url(repo.url)}")
+        elif repo.trust_state == "pending":
+            # pending 粘性：刷新保持 pending，等待用户操作后再转 verified
+            return
         else:
             self._runtime_config.set_source_repo_trust(repo.url, "verified")
 

@@ -104,6 +104,32 @@ class RegistryAdapter(QObject):
             )
 
     @Slot(str)
+    def confirmRepoTrust(self, url: str) -> None:
+        """用户确认信任订阅（TOFU pending → verified）并刷新列表。"""
+        url = (url or "").strip().rstrip("/")
+        try:
+            self._federation._runtime_config.confirm_source_repo_trust(url)
+            log_info(f"[RegistryAdapter] 确认信任订阅: {url}")
+            self.refreshRepos()
+        except Exception as e:
+            self.reposLoadFailed.emit(
+                f"确认信任失败：{GlobalExceptionHandler.handle(e)}"
+            )
+
+    @Slot(str)
+    def rejectRepoTrust(self, url: str) -> None:
+        """用户拒绝信任订阅（TOFU pending → unverified，清空固定公钥）并刷新列表。"""
+        url = (url or "").strip().rstrip("/")
+        try:
+            self._federation._runtime_config.reject_source_repo_trust(url)
+            log_info(f"[RegistryAdapter] 拒绝信任订阅: {url}")
+            self.refreshRepos()
+        except Exception as e:
+            self.reposLoadFailed.emit(
+                f"拒绝信任失败：{GlobalExceptionHandler.handle(e)}"
+            )
+
+    @Slot(str)
     def refreshRepo(self, url: str) -> None:
         """强制刷新单条订阅的 manifest 并刷新列表。"""
         url = (url or "").strip().rstrip("/")

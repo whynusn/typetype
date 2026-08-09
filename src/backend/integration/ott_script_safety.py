@@ -80,6 +80,39 @@ BANNED_FROM_IMPORTS = frozenset(
     }
 )
 
+# 对象模型逃逸危险属性（禁止属性访问）
+#
+# 逃逸链：().__class__.__bases__[0].__subclasses__() 枚举 object 的全部子类
+# → c.__init__.__globals__ 拿到模块 globals（含 open/subprocess/socket 等未
+# 白名单能力）。这些步骤全是属性访问而非函数调用，可绕过 BANNED_BUILTIN_CALLS
+# 与运行时受限 builtins，故在此按属性名拦截（AST 层第一道防线）。
+#
+# 只拦「属性访问」，不拦「方法定义」：
+# - `def __init__(self)` 是 ast.FunctionDef 的 name，不是 ast.Attribute，不受影响；
+# - `super().__init__()` 是合法类模式，依赖 __init__ 属性访问，故 __init__ 不列入
+#   （逃逸链下一步 __globals__/__closure__/__code__/__dict__ 已被拦截）；
+# - 白名单库（httpx/bs4/Crypto/json/re/datetime）的用户级调用不涉及这些属性。
+BANNED_DUNDER_ATTRIBUTES = frozenset(
+    {
+        "__class__",
+        "__mro__",
+        "__bases__",
+        "__subclasses__",
+        "__globals__",
+        "__closure__",
+        "__code__",
+        "__dict__",
+        "__builtins__",
+        "__self__",
+        "__func__",
+        "__getattribute__",
+        "__getattr__",
+        "__setattr__",
+        "__delattr__",
+        "__module__",
+    }
+)
+
 # 允许白名单（import 仅允许这些模块）
 ALLOWED_MODULES = frozenset(
     {
@@ -161,6 +194,10 @@ def validate_script_source(
                     "script references __builtins__",
                 )
             )
+        elif isinstance(node, ast.Attribute):
+            issue = _validate_attribute_access(node)
+            if issue is not None:
+                issues.append(issue)
 
     return ValidationReport(tuple(issues))
 
@@ -182,6 +219,16 @@ def _validate_import(module: str, lineno: int) -> list[ValidationIssue]:
             f"script imports non-whitelisted module {module}",
         )
     ]
+
+
+def _validate_attribute_access(node: ast.Attribute) -> ValidationIssue | None:
+    if node.attr in BANNED_DUNDER_ATTRIBUTES:
+        return ValidationIssue(
+            "banned_object_model_access",
+            f"line {node.lineno}",
+            f"script accesses banned object-model attribute {node.attr}",
+        )
+    return None
 
 
 def _validate_from_import(node: ast.ImportFrom) -> list[ValidationIssue]:

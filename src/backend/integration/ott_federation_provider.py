@@ -27,7 +27,7 @@ import httpx
 from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
 from .ott_cached_fetcher import OttCachedFetcher
-from .ott_normalization import redact_url
+from .ott_normalization import _script_authority, redact_url
 from .ott_client import OttClient, FetchJson, FetchText
 from .ott_repo_manifest import RepoManifestCache, repo_cache_key
 from .ott_rule_interpreter import CLIENT_API_LEVEL, OttRuleInterpreter
@@ -349,15 +349,6 @@ class _RuleClient:
         }
 
 
-def _script_authority(url: str) -> str:
-    """脚本 authority：``script:{sha256(url)[:12]}``。
-
-    以脚本 URL 指纹做命名空间，防不同脚本产出同 entry_id 被 dedupe 吞掉
-    （证据 #9）。与 ott-instance / ott-rule 命名空间隔离。
-    """
-    return f"script:{hashlib.sha256(url.encode('utf-8')).hexdigest()[:12]}"
-
-
 class _ScriptClient:
     """单个 ott-script 的客户端封装。
 
@@ -496,6 +487,7 @@ class OttFederationProvider:
             cache_dir=self._script_cache_dir(),
             http_client=self._shared_http_client(),
             enabled=self._runtime_config.registry.scripts_enabled,
+            ttl_seconds=self._runtime_config.registry.cache_ttl_seconds,
         )
         sandbox = ScriptSandbox(enabled=self._runtime_config.registry.scripts_enabled)
 
@@ -548,6 +540,12 @@ class OttFederationProvider:
                 timeout=10.0, trust_env=False, follow_redirects=False
             )
         return self._shared_client
+
+    def close(self) -> None:
+        """关闭共享 HTTP client（幂等；从未创建时安全无操作）。"""
+        if self._shared_client is not None:
+            self._shared_client.close()
+            self._shared_client = None
 
     def _clients_signature(self) -> tuple[object, ...]:
         signature: list[object] = []

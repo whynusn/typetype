@@ -76,6 +76,15 @@ _LANDLOCK_FS_READ_FILE = 1 << 2
 _LANDLOCK_FS_READ_DIR = 1 << 3
 _LANDLOCK_FS_MAKE_REG = 1 << 8
 
+# Landlock 放行的最小 /etc 文件集（DNS/名称解析）：getaddrinfo 依赖
+# nsswitch.conf 决定解析顺序、resolv.conf 提供 DNS 服务器、hosts 提供
+# 静态映射。按文件授予而非整个 /etc，避免用户配置等敏感文件可读。
+_ETC_DNS_FILES = (
+    "/etc/resolv.conf",
+    "/etc/hosts",
+    "/etc/nsswitch.conf",
+)
+
 
 def _landlock_syscall(*argtypes: Any) -> Any:
     import ctypes
@@ -164,9 +173,9 @@ def _apply_landlock(script_dir: str) -> None:
     """限制子进程文件系统访问，阻断对象模型逃逸读取任意文件。
 
     放行：Python 运行时（sys.prefix / sys.base_prefix，含 site-packages）、
-    脚本所在目录（读+写，写入仍受 RLIMIT_FSIZE 约束）、/etc（DNS 解析）、
-    /dev（urandom 等）。其余路径全部拒绝 —— 用户配置、数据库、token
-    存储等敏感文件不可达。
+    脚本所在目录（读+写，写入仍受 RLIMIT_FSIZE 约束）、/dev（urandom 等）、
+    以及 DNS/名称解析所需的最小 /etc 文件集（_ETC_DNS_FILES）。其余路径
+    全部拒绝 —— 用户配置、数据库、token 存储等敏感文件不可达。
 
     内核 < 5.13 或非 Linux 时静默降级（保留 rlimits 防线）。
     """
@@ -189,7 +198,6 @@ def _apply_landlock(script_dir: str) -> None:
         sys.prefix: read_access,
         sys.base_prefix: read_access,
         script_dir: read_access | write_access,
-        "/etc": read_access,
         "/dev": read_access,
     }
 
@@ -203,6 +211,20 @@ def _apply_landlock(script_dir: str) -> None:
                 _landlock_add_rule(ruleset_fd, access, parent_fd)
             finally:
                 os.close(parent_fd)
+        # DNS/名称解析的最小 /etc 文件集。Landlock path_beneath 规则对
+        # 目录用目录 fd、对文件用文件 fd：文件须 os.open(path, os.O_RDONLY)
+        # （不带 O_DIRECTORY）后把该 fd 作为 parent_fd 传入，规则即限定到
+        # 单个文件，只授 READ_FILE。缺失文件（如无 resolv.conf 的系统）
+        # 静默跳过。
+        for etc_file in _ETC_DNS_FILES:
+            try:
+                file_fd = os.open(etc_file, os.O_RDONLY)
+            except OSError:
+                continue
+            try:
+                _landlock_add_rule(ruleset_fd, _LANDLOCK_FS_READ_FILE, file_fd)
+            finally:
+                os.close(file_fd)
         _landlock_set_no_new_privs()
         _landlock_restrict_self(ruleset_fd)
     except OSError:
@@ -218,7 +240,17 @@ def _apply_landlock(script_dir: str) -> None:
 
 
 def _build_safe_builtins() -> dict:
-    """构建受限的 builtins 字典。"""
+    """构建受限的 builtins 字典。
+
+    说明：对象模型遍历（().__class__.__bases__[0].__subclasses__() → ...
+    → __globals__ → open）是纯属性访问，不需要调用任何内置函数，本层无法
+    在 builtins 层面拦截（type/object/getattr 等虽已禁用，但 `x.__class__`
+    这类语法无需调用它们）。主防线是 AST 检查（ott_script_safety.py 的
+    banned_object_model_access）；本层黑名单 + 子进程隔离（rlimits +
+    Landlock）是兜底边界。不要全局 monkeypatch object 内部属性 ——
+    bs4/Crypto 等白名单库依赖对象模型内部机制，全局修改既脆弱又可能
+    破坏合法脚本。
+    """
     import builtins as _builtins
 
     banned = {

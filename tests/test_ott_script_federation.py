@@ -96,6 +96,13 @@ def test_script_skipped_when_repo_not_verified(tmp_path):
     assert not any(key.startswith("script:") for key in clients)
 
 
+def test_script_skipped_when_repo_pending(tmp_path):
+    """TOFU pending 仓库跳过 L3 脚本（trust_state 仅对 L3 是门禁）。"""
+    provider = _federation_with_script(tmp_path, trust_state="pending")
+    clients = provider._build_clients()
+    assert not any(key.startswith("script:") for key in clients)
+
+
 def test_script_built_when_repo_verified(tmp_path):
     provider = _federation_with_script(tmp_path, trust_state="verified")
     clients = provider._build_clients()
