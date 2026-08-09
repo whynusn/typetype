@@ -543,6 +543,8 @@ class RepoManifestCache:
         # TOFU：首次信任固定公钥，变更则标记 failed
         if not repo.pinned_pubkey:
             # 首次订阅：固定公钥
+            # TODO(ADR-011 Phase 2.3): 决策 12 要求 TOFU 首次信任必须 UI 显式确认。
+            #   当前自动 verified 仅为过渡行为，需 pending 状态 + 确认 UI 后替换。
             self._runtime_config.set_source_repo_trust(
                 repo.url, "verified", pinned_pubkey=pubkey
             )

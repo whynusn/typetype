@@ -89,15 +89,17 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 0.A7 取消自动订阅 | `runtime_config.py` | 首启不自动订阅任何**远程**源；内置 file:// 默认源除外（Phase 4） | 全新配置无远程 source_repos；内置本地源可离线使用 | ✅ 已落地（验收标准同步修订） |
 | 0.A8 法律声明 | README + 客户端 | 工具中立性声明；无广告；无聚合搜索 | README「内容与安全声明」章节存在 | ✅ 已落地 |
 | 0.A9 脚本沙箱 `file://` 收敛 | `ott_script_safety.py`、`ott_script_runner.py` | AST 白名单不含 `urllib.request`/`urlopen` | `file://` 读取用例全拒 | ✅ 已落地 |
-| 0.A10 基线测试记录 | CI/文档 | 每批后全量回归并刷新基线 | 基线可查；当前 955 collected（953 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08） | ✅ 已刷新 |
+| 0.A10 基线测试记录 | CI/文档 | 每批后全量回归并刷新基线 | 基线可查；当前 956 collected（全部通过，CI 全绿，2026-08-09） | ✅ 已刷新 |
 
 > 复核说明（2026-08-08）：0.A3 与 0.A6 的实现不在评审 grep 的文件内，属漏查而非缺口。0.A3 在 `ott_rule_interpreter.py::_pin_url`（HTTP pin + Host 头）与 container/federation 的 `follow_redirects=False`；0.A6 在 `runtime_config._default_scripts_enabled()` 与 `SettingsPage.qml` 开关，均有对应测试。Phase 0A 全部落地。
 
 ### Phase 0B：正则执行子进程化（独立排期，不阻塞 0A）
 
-| 任务 | 文件 | 改动 | 验收 |
-|---|---|---|---|
-| 0.B1 正则移出主进程 | `ott_rule_interpreter.py` + 新 `regex_worker.py` | 子进程执行 + 1s 硬超时；输入 ≤10KB；静态拒绝嵌套量词；RE2 作为可选第二阶段 | 100 字符恶意正则 1s 内返回；新增回归测试 |
+| 任务 | 文件 | 改动 | 验收 | 状态 |
+|---|---|---|---|---|
+| 0.B1 正则移出主进程 | `ott_rule_interpreter.py` + 新 `regex_worker.py` | 子进程执行 + 1s 硬超时；输入 ≤10KB；静态拒绝嵌套量词；RE2 作为可选第二阶段 | 100 字符恶意正则 1s 内返回；新增回归测试 | ✅ 已落地 |
+
+> 状态（2026-08-09）：0.B1 已随 #44 落地（`regex_worker.py` 子进程 + `_has_nested_quantifier` 静态拒绝 + `_extract_regex` 走 `subprocess.run` 1s 超时 + 10KB 截断）。`tests/test_ott_rule_interpreter.py` 80 passed 含恶意正则用例（`test_regex_nested_quantifier_rejected` / `test_regex_worker_timeout_fallback_empty` / `test_worker_rejects_nested_quantifier`）。RE2 引擎列为可选强化，未引入。
 
 ### Phase 1：受限 DSL 原语引擎（L1.5）
 
@@ -125,7 +127,9 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 2.6 API Level | 常量 + 校验 | 规则/脚本声明 api_level；客户端拒绝低于最低版本 |
 | 2.7 撤销列表 | `ott_repo_manifest.py` + UI | `revocations[]` 按 content_hash 推送；key 级撤销联动信任降级流程；客户端本地屏蔽 |
 
-> 状态（2026-08-08）：**2.0 设计文档已产出**（`docs/designs/adapter-signing.md`）；**2.3 执行门槛已落地**（L3 仅 verified 仓库执行）。2.1/2.2/2.4-2.7 未开工；2.4/2.5 依赖 2.1 的适配器包格式。
+> 状态（2026-08-08）：**2.0 设计文档已产出**（`docs/designs/adapter-signing.md`）；**2.3 执行门槛已落地**（L3 仅 verified 仓库执行）。2.2/2.4-2.7 未开工；2.4/2.5 依赖 2.1 的适配器包格式。
+>
+> 状态（2026-08-09）：**2.1 适配器包格式已落地**：`docs/reference/adapter-package.md`（包布局 + `adapter.json` 字段表 + 签名/校验流程）+ `docs/reference/ott-adapter-v1.schema.json`（draft-07，script/rule 要求 `content.path`、instance 要求 `content.endpoints`、signature 格式 `ed25519:` 前缀可选）。schema 已用 `jsonschema` 验证：合法示例过、坏 type/checksum/缺 content 拒。运行时消费（manifest source 引用 adapter_id → 包内文件拉取）留给 2.2；跨仓 spec 同步仍为待确认项。
 
 ### Phase 3：控制面完善
 
@@ -143,6 +147,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 3.10 签名互操作 | `ott_repo_manifest.py` | 与 open-typing-texts 统一 canonical JSON 定义；明确 minisign 支持或移除 |
 
 > 状态（2026-08-08）：**3.1-3.5、3.9 已落地**。3.1 按已缓存 manifest 的 http(s) mirrors 依次 failover（file:// 镜像忽略）；3.2 携带 `If-None-Match`、304 仅刷新缓存 mtime 并持久化 ETag；3.3 `ott_core` 版本约束 + `client_features` 协商，不满足整仓跳过并显示 `incompatible_reason`；3.4 ott-instance 按 `default_enabled` 消费（rule/script 该字段不在当前 schema，归一化不输出）；3.5 选择"明示暂不开放"：联邦跳过 ott-bridge，订阅面板显示"桥接源暂不支持"，ARCHITECTURE 改未落地；3.9 联邦共享单 `httpx.Client`、按订阅+manifest mtime 签名复用客户端、rule/script 结果按 `cache_ttl_seconds` 缓存。
+>
+> 状态（2026-08-09）：**3.7、3.8 已落地**。3.7 联邦分段进度 key 已是 `ott:{authority}:{entry_id}@{revision_id}`（bridge `_compute_progress_key("ott", ...)` 拼接，随 #44 落地），旧 OTT 直连路径以 `local` 兜底，`_find_progress` 按标题前缀扫描兼容旧格式 key 完成迁移；3.8 `_ScriptClient` authority 从裸 `script` 改为 `script:{sha256(url)[:12]}`（`_script_authority()`），`list_all_entries`/`ReposManagementPanel` 统计同步，同 entry_id 跨脚本不再被 dedupe 吞掉，新增 `test_authority_namespaced_by_url` 用例。
 
 ### Phase 4：空壳化与默认源合规
 
@@ -200,7 +206,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 6. 性能门禁：单规则 ≤5s、内存 ≤256MB。
 7. manifest/schema 门禁：两仓官方样例必须通过 `ott-repo.schema.json` 与 `entry-summary.schema.json`。
 8. [外部依赖] 修复 open-typing-texts CI：pyproject 声明 jsonschema（或测试改用仓库自带依赖）；需两仓协作，不阻塞 typetype 主线。
-9. 基线回归：每批改动后全量通过并刷新基线（当前 955 collected：953 passed + 2 沙箱 DNS 环境失败，CI 全绿，2026-08-08）。
+9. 基线回归：每批改动后全量通过并刷新基线（当前 956 collected 全部通过，CI 全绿，2026-08-09）。
 
 ## 里程碑
 

@@ -16,6 +16,7 @@ from src.backend.config.runtime_config import (
 from src.backend.integration.ott_federation_provider import (
     OttFederationProvider,
     _ScriptClient,
+    _script_authority,
 )
 from src.backend.integration.ott_repo_manifest import RepoManifestCache
 from src.backend.integration.ott_script_client import ScriptCache, ScriptSandbox
@@ -128,7 +129,42 @@ class TestScriptClient:
         assert entries is not None
         assert len(entries) == 1
         assert entries[0]["content"] == "ScriptContent"
-        assert entries[0]["authority"] == "script"
+        assert entries[0]["authority"] == _script_authority(
+            "https://example.com/scripts/fetch.py"
+        )
+
+    def test_authority_namespaced_by_url(self, tmp_path) -> None:
+        """不同 URL 的脚本 authority 不同，防同 entry_id 跨脚本串用。"""
+        script_source = (
+            'def fetch_entries():\n    return [{"title": "S1", "content": "C"}]\n'
+        )
+        mock_http = MagicMock(spec=httpx.Client)
+        resp = MagicMock(spec=httpx.Response)
+        resp.status_code = 200
+        resp.text = script_source
+        resp.headers = {"content-length": str(len(script_source))}
+        resp.raise_for_status = MagicMock()
+        mock_http.get.return_value = resp
+
+        cache = ScriptCache(tmp_path / "scripts", mock_http)
+        sandbox = ScriptSandbox()
+        a = _ScriptClient(
+            url="https://example.com/scripts/a.py",
+            label="A",
+            script_cache=cache,
+            sandbox=sandbox,
+        )
+        b = _ScriptClient(
+            url="https://example.com/scripts/b.py",
+            label="B",
+            script_cache=cache,
+            sandbox=sandbox,
+        )
+        assert a.authority != b.authority
+        assert a.authority == _script_authority("https://example.com/scripts/a.py")
+        entries = a.list_entries()
+        assert entries is not None
+        assert entries[0]["_authority"] == a.authority
 
     def test_returns_none_on_download_failure(self, tmp_path) -> None:
         mock_http = MagicMock(spec=httpx.Client)
@@ -165,7 +201,6 @@ class TestFederationWithScripts:
                 "title": "FromScript",
                 "content": "ScriptEntry",
                 "char_count": 11,
-                "authority": "script",
                 "source_key": "script",
                 "source_label": "示例脚本",
                 "current_revision_id": "v1",
@@ -175,6 +210,10 @@ class TestFederationWithScripts:
         with patch.object(_ScriptClient, "list_entries", return_value=mock_entries):
             entries = provider.list_all_entries()
 
-        script_entries = [e for e in entries if e.get("authority") == "script"]
+        script_entries = [
+            e for e in entries if str(e.get("authority", "")).startswith("script:")
+        ]
         assert len(script_entries) >= 1
         assert script_entries[0]["title"] == "FromScript"
+        # list_all_entries 为未标 authority 的脚本条目填充命名空间化 authority
+        assert script_entries[0]["authority"] == script_entries[0]["_authority"]

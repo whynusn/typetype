@@ -349,11 +349,20 @@ class _RuleClient:
         }
 
 
+def _script_authority(url: str) -> str:
+    """脚本 authority：``script:{sha256(url)[:12]}``。
+
+    以脚本 URL 指纹做命名空间，防不同脚本产出同 entry_id 被 dedupe 吞掉
+    （证据 #9）。与 ott-instance / ott-rule 命名空间隔离。
+    """
+    return f"script:{hashlib.sha256(url.encode('utf-8')).hexdigest()[:12]}"
+
+
 class _ScriptClient:
     """单个 ott-script 的客户端封装。
 
     下载脚本 → AST 安全检查 → 沙箱执行 → 产出标准化 entry 列表。
-    authority = ``script``，与 ott-instance / ott-rule 命名空间隔离。
+    authority = ``script:{sha256(url)[:12]}``（按 URL 指纹隔离）。
     """
 
     def __init__(
@@ -366,6 +375,7 @@ class _ScriptClient:
     ) -> None:
         self.url = url
         self.label = label
+        self.authority = _script_authority(url)
         self._cache = script_cache
         self._sandbox = sandbox
         self._entry_cache = entry_cache
@@ -387,8 +397,8 @@ class _ScriptClient:
         if not entries:
             return []
         for e in entries:
-            e["authority"] = "script"
-            e["_authority"] = "script"
+            e["authority"] = self.authority
+            e["_authority"] = self.authority
             e["source_label"] = self.label or e.get("source_label", "脚本源")
         if self._entry_cache is not None:
             self._entry_cache.set(cache_key, entries)
@@ -642,8 +652,8 @@ class OttFederationProvider:
         if not url:
             return
         label = source.get("label", "")
-        # 用 URL 的 hash 作为 authority key（避免重复下载同脚本）
-        key = f"script:{hashlib.sha256(url.encode('utf-8')).hexdigest()[:12]}"
+        # 用 URL 指纹作 authority key（避免重复下载同脚本，防跨脚本 entry_id 冲突）
+        key = _script_authority(url)
         if key in clients:
             return
         clients[key] = _ScriptClient(
@@ -799,7 +809,8 @@ class OttFederationProvider:
                                 else f"rule:{rule_id}"
                             )
                     elif source.get("type") == "ott-script":
-                        authorities.append("script")
+                        url = source.get("url", "")
+                        authorities.append(_script_authority(url) if url else "script")
             summary = {
                 "url": repo.url,
                 "enabled": repo.enabled,

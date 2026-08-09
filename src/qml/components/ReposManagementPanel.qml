@@ -49,7 +49,7 @@ Frame {
         for (var i = 0; i < auths.length; i++) {
             var a = auths[i]
             if (a.indexOf("rule:") === 0) rules = rules + 1
-            else if (a === "script") scripts = scripts + 1
+            else if (a.indexOf("script:") === 0) scripts = scripts + 1
             else instances = instances + 1
         }
         var parts = []
