@@ -350,17 +350,17 @@ def _resolve_call_target(
                 return _CallTarget("builtins", assigned.id)
         return _CallTarget("builtins", name)
     if isinstance(func, ast.Attribute):
-        if isinstance(func.value, ast.Name):
-            base = func.value.id
+        # 沿 ast.Attribute 链下探到根 Name（a.b.c() 任意深度），module 取根名、
+        # attr 取最外层函数名；中段属性不参与判定（与两层链行为一致）。
+        attr = func.attr
+        value = func.value
+        while isinstance(value, ast.Attribute):
+            value = value.value
+        if isinstance(value, ast.Name):
+            base = value.id
             if base in import_aliases:
-                return _CallTarget(import_aliases[base], func.attr)
-            return _CallTarget(base, func.attr)
-        if isinstance(func.value, ast.Attribute):
-            if isinstance(func.value.value, ast.Name):
-                base = func.value.value.id
-                if base in import_aliases:
-                    return _CallTarget(import_aliases[base], func.attr)
-                return _CallTarget(base, func.attr)
+                return _CallTarget(import_aliases[base], attr)
+            return _CallTarget(base, attr)
     return _CallTarget("", "")
 
 

@@ -157,6 +157,9 @@ class SourceRepoEntry:
     refresh_ttl_seconds: int = 86400
     etag: str = ""
     added_at: str = ""
+    # TUF-lite（ADR-011 Phase 3.6）防回滚链参照：最近一次已接受 manifest 的
+    # sha256（canonical JSON）。空串 = 未建立链（首次拉取/旧配置升级）。
+    last_snapshot_hash: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.url, str) or not self.url.strip():
@@ -178,6 +181,8 @@ class SourceRepoEntry:
             self.etag = ""
         if not isinstance(self.added_at, str):
             self.added_at = ""
+        if not isinstance(self.last_snapshot_hash, str):
+            self.last_snapshot_hash = ""
 
 
 @dataclass
@@ -495,6 +500,9 @@ class RuntimeConfig:
                     ),
                     etag=cls._safe_str(item.get("etag"), ""),
                     added_at=cls._safe_str(item.get("added_at"), ""),
+                    last_snapshot_hash=cls._safe_str(
+                        item.get("last_snapshot_hash"), ""
+                    ),
                 )
             )
         return SourceReposConfig(repos=repos)
@@ -731,9 +739,14 @@ class RuntimeConfig:
                 return
 
     def update_source_repo_refresh(
-        self, url: str, *, etag: str = "", trust_state: str = ""
+        self,
+        url: str,
+        *,
+        etag: str = "",
+        trust_state: str = "",
+        last_snapshot_hash: str = "",
     ) -> None:
-        """由缓存层更新订阅的 etag 与信任状态。"""
+        """由缓存层更新订阅的 etag / 信任状态 / TUF-lite 快照参照。"""
         url = url.strip().rstrip("/") if url else ""
         for repo in self.source_repos.repos:
             if repo.url == url:
@@ -741,6 +754,8 @@ class RuntimeConfig:
                     repo.etag = etag
                 if trust_state:
                     repo.trust_state = trust_state
+                if last_snapshot_hash:
+                    repo.last_snapshot_hash = last_snapshot_hash
                 self._save_to_file()
                 return
 
@@ -850,6 +865,11 @@ class RuntimeConfig:
                     "refresh_ttl_seconds": repo.refresh_ttl_seconds,
                     **({"etag": repo.etag} if repo.etag else {}),
                     **({"added_at": repo.added_at} if repo.added_at else {}),
+                    **(
+                        {"last_snapshot_hash": repo.last_snapshot_hash}
+                        if repo.last_snapshot_hash
+                        else {}
+                    ),
                 }
                 for repo in self.source_repos.repos
             ],

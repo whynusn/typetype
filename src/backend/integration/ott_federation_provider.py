@@ -34,7 +34,7 @@ from .ott_rule_interpreter import CLIENT_API_LEVEL, OttRuleInterpreter
 from .ott_script_client import ScriptCache, ScriptSandbox
 
 if TYPE_CHECKING:
-    pass
+    from ..ports.token_store import TokenStore
 
 
 CLIENT_OTT_CORE_VERSION = "1.0"
@@ -354,6 +354,8 @@ class _ScriptClient:
 
     下载脚本 → AST 安全检查 → 沙箱执行 → 产出标准化 entry 列表。
     authority = ``script:{sha256(url)[:12]}``（按 URL 指纹隔离）。
+    secret_names 来自 manifest 的 permissions.secrets 声明（信任边界）：
+    仅声明的凭据名会传给 ScriptSandbox 注入，脚本无法自行请求任意凭据。
     """
 
     def __init__(
@@ -363,6 +365,9 @@ class _ScriptClient:
         script_cache: ScriptCache,
         sandbox: ScriptSandbox,
         entry_cache: _EntryCache | None = None,
+        secret_names: list[str] | None = None,
+        network_allowlist: list[str] | None = None,
+        min_api_level: int | None = None,
     ) -> None:
         self.url = url
         self.label = label
@@ -370,6 +375,9 @@ class _ScriptClient:
         self._cache = script_cache
         self._sandbox = sandbox
         self._entry_cache = entry_cache
+        self._secret_names = list(secret_names) if secret_names else []
+        self._network_allowlist = list(network_allowlist) if network_allowlist else []
+        self._min_api_level = min_api_level
 
     def list_entries(self) -> list[dict] | None:
         cache_key = f"script:{self.url}"
@@ -381,7 +389,13 @@ class _ScriptClient:
             log_warning(f"[Federation] script 下载失败: {redact_url(self.url)}")
             return None
         try:
-            entries = self._sandbox.execute(source, self.url)
+            entries = self._sandbox.execute(
+                source,
+                self.url,
+                secret_names=self._secret_names or None,
+                network_allowlist=self._network_allowlist or None,
+                min_api_level=self._min_api_level,
+            )
         except Exception as e:
             log_warning(f"[Federation] script 执行异常 {redact_url(self.url)}: {e}")
             return None
@@ -439,6 +453,48 @@ class _ScriptClient:
         }
 
 
+def _declared_script_secrets(source: dict) -> list[str]:
+    """提取 manifest 脚本源声明的 permissions.secrets（容错，缺省为空）。
+
+    信任边界：仅 manifest 声明的凭据名会传给沙箱，脚本无法自行请求任意凭据。
+    """
+    permissions = source.get("permissions")
+    if not isinstance(permissions, dict):
+        return []
+    raw = permissions.get("secrets")
+    if not isinstance(raw, list):
+        return []
+    return [s for s in raw if isinstance(s, str) and s]
+
+
+def _declared_script_network(source: dict) -> list[str]:
+    """提取 manifest 脚本源声明的 permissions.network 域名白名单（容错，缺省为空）。
+
+    空 → 沙箱内一切 http(s) 请求被拒（deny-by-default）。
+    """
+    permissions = source.get("permissions")
+    if not isinstance(permissions, dict):
+        return []
+    raw = permissions.get("network")
+    if not isinstance(raw, list):
+        return []
+    return [h for h in raw if isinstance(h, str) and h.strip()]
+
+
+def _declared_script_api_level(source: dict) -> int | None:
+    """提取 manifest 脚本源声明的 rights.min_api_level（容错，缺省 None）。
+
+    None → 无版本门槛；高于客户端 CLIENT_API_LEVEL 的脚本被跳过。
+    """
+    rights = source.get("rights")
+    if not isinstance(rights, dict):
+        return None
+    level = rights.get("min_api_level")
+    if isinstance(level, int) and not isinstance(level, bool) and level > 0:
+        return level
+    return None
+
+
 class OttFederationProvider:
     """OTT 联邦目录聚合层。
 
@@ -451,10 +507,12 @@ class OttFederationProvider:
         runtime_config: RuntimeConfig,
         manifest_cache: RepoManifestCache,
         max_content_bytes: int = 1_048_576,
+        token_store: TokenStore | None = None,
     ) -> None:
         self._runtime_config = runtime_config
         self._manifest_cache = manifest_cache
         self._max_content_bytes = max_content_bytes
+        self._token_store = token_store
         self._entry_cache = _EntryCache(runtime_config.registry.cache_ttl_seconds)
         self._clients_cache: (
             dict[str, _InstanceClient | _RuleClient | _ScriptClient] | None
@@ -489,7 +547,10 @@ class OttFederationProvider:
             enabled=self._runtime_config.registry.scripts_enabled,
             ttl_seconds=self._runtime_config.registry.cache_ttl_seconds,
         )
-        sandbox = ScriptSandbox(enabled=self._runtime_config.registry.scripts_enabled)
+        sandbox = ScriptSandbox(
+            enabled=self._runtime_config.registry.scripts_enabled,
+            token_store=self._token_store,
+        )
 
         for repo in self._runtime_config.source_repos.enabled_repos:
             manifest = self._manifest_for(repo)
@@ -559,7 +620,10 @@ class OttFederationProvider:
                 )
             except OSError:
                 pass
-            signature.append((repo.url, repo.enabled, mtime))
+            # trust_state 必须入签名：仓库从 verified 降级为 pending（公钥轮换 /
+            # revocations）时，即使 url/enabled/mtime 不变也要触发 clients 重建，
+            # 否则旧 _ScriptClient（含 L3 脚本执行能力）会被继续复用。
+            signature.append((repo.url, repo.enabled, repo.trust_state, mtime))
         signature.append(self._runtime_config.registry.scripts_enabled)
         return tuple(signature)
 
@@ -660,6 +724,9 @@ class OttFederationProvider:
             script_cache=script_cache,
             sandbox=sandbox,
             entry_cache=entry_cache,
+            secret_names=_declared_script_secrets(source),
+            network_allowlist=_declared_script_network(source),
+            min_api_level=_declared_script_api_level(source),
         )
 
     def _instance_cache_dir(self, authority: str) -> Path:

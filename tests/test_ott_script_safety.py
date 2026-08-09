@@ -48,6 +48,57 @@ class TestScriptSafety:
         assert not report.valid
         assert any(i.code == "banned_call" for i in report.issues)
 
+    def test_rejects_deep_attribute_chain_banned_call(self) -> None:
+        """三层属性链 a.b.c() 也走 _validate_call（与两层链行为一致，不可绕过）。"""
+        source = (
+            "import os\n"
+            "def fetch_entries():\n"
+            "    os.foo.bar.system('rm -rf /')\n"
+            "    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_call" for i in report.issues)
+
+    def test_rejects_four_level_attribute_chain_banned_call(self) -> None:
+        """四层属性链同样拦截：module 取根名、attr 取最外层函数名。"""
+        source = (
+            "import os\ndef fetch_entries():\n    os.a.b.c.popen('ls')\n    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_call" for i in report.issues)
+
+    def test_allows_deep_attribute_chain_on_whitelisted_module(self) -> None:
+        """深层链的根模块/函数名不在黑名单 → 放行（与两层链一致）。"""
+        source = (
+            "import json\n"
+            "def fetch_entries():\n"
+            "    data = json.decoder.something.loads('{\"a\": 1}')\n"
+            '    return [{"title": "T", "content": str(data)}]\n'
+        )
+        report = validate_script_source(source)
+        assert report.valid, report.to_dict()
+
+    def test_deep_chain_resolves_like_two_level(self) -> None:
+        """_resolve_call_target 对深层链与两层链返回相同 (module, attr)。"""
+        import ast
+
+        from src.backend.integration.ott_script_safety import (
+            _resolve_call_target,
+        )
+
+        # json.loads(...) 与 json.a.b.loads(...) 的调用目标一致
+        two_level = ast.parse("json.loads('x')").body[0].value.func
+        deep = ast.parse("json.a.b.loads('x')").body[0].value.func
+        assert _resolve_call_target(two_level, {}, {}) == _resolve_call_target(
+            deep, {}, {}
+        )
+        # import 别名在根名上生效：os.a.b.system(...) → ('os', 'system')
+        with_alias = ast.parse("os.a.b.system('x')").body[0].value.func
+        target = _resolve_call_target(with_alias, {"os": "os"}, {})
+        assert (target.module, target.attr) == ("os", "system")
+
     def test_rejects_subprocess_import(self) -> None:
         source = (
             "import subprocess\n"

@@ -19,22 +19,25 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from ..utils.logger import log_warning
 from .ott_normalization import _script_authority, normalize_summary, redact_url
+from .ott_rule_interpreter import CLIENT_API_LEVEL
 from .ott_script_safety import validate_script_source
 
 if TYPE_CHECKING:
-    pass
+    from ..ports.token_store import TokenStore
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 
 SCRIPT_MAX_BYTES = 256 * 1024  # 256 KB
 SCRIPT_EXEC_TIMEOUT_S = 30.0
 MAX_ENTRIES_PER_SCRIPT = 1000
+# 一次性管道（os.pipe）缓冲上限：写入值须一次写完且不被父进程阻塞
+PIPE_SECRET_MAX_BYTES = 64 * 1024
 
 # 沙箱允许的模块白名单
 ALLOWED_MODULES = frozenset(
@@ -47,7 +50,6 @@ ALLOWED_MODULES = frozenset(
         "hashlib",
         "base64",
         "urllib.parse",
-        "http",
         "email",
         "collections",
         "itertools",
@@ -169,19 +171,62 @@ def _is_owner(path: Path) -> bool:
 class ScriptSandbox:
     """受限的脚本执行环境（子进程隔离）。
 
-    脚本在独立 Python 子进程中执行，通过 subprocess.run() 启动
+    脚本在独立 Python 子进程中执行，通过 subprocess.Popen() 启动
     ott_script_runner.py。资源限制（内存/CPU/proc）由 runner 在子进程内设置。
+
+    凭据注入（ADR-011 Phase 5.4）：``execute(secret_names=...)`` 时父进程
+    从 token store 取值，经一次性 os.pipe() + pass_fds 传给子进程 ——
+    不走环境变量（/proc/<pid>/environ 不可见）、不写入沙箱文件系统
+    （Landlock 白名单之外）；子进程读取一次后 fd 即关闭。
     """
 
     def __init__(
-        self, allowed_modules: frozenset[str] = ALLOWED_MODULES, enabled: bool = True
+        self,
+        allowed_modules: frozenset[str] = ALLOWED_MODULES,
+        enabled: bool = True,
+        token_store: TokenStore | None = None,
     ) -> None:
         self._allowed = allowed_modules
         self._enabled = enabled
+        self._token_store = token_store
 
-    def execute(self, source: str, script_url: str) -> list[dict]:
-        """执行脚本并返回 fetch_entries() 的结果。"""
+    def execute(
+        self,
+        source: str,
+        script_url: str,
+        secret_names: list[str] | None = None,
+        network_allowlist: list[str] | None = None,
+        min_api_level: int | None = None,
+    ) -> list[dict]:
+        """执行脚本并返回 fetch_entries() 的结果。
+
+        secret_names: manifest 声明的凭据名（permissions.secrets）。
+        仅声明的名字会被解析注入；脚本无法自行请求任意凭据。
+        任一凭据缺失/非法 → 整体失败（返回 []，不静默继续）。
+
+        network_allowlist: manifest 声明的 permissions.network 域名白名单。
+        空/None → 沙箱内一切 http(s) 请求被拒（deny-by-default）。
+
+        min_api_level: manifest 声明的 rights.min_api_level。高于客户端
+        CLIENT_API_LEVEL → 跳过执行返回 []。
+        """
         if not self._enabled:
+            return []
+        if min_api_level is not None:
+            try:
+                if int(min_api_level) > CLIENT_API_LEVEL:
+                    log_warning(
+                        f"[ScriptSandbox] 脚本要求 API level {min_api_level}，"
+                        f"客户端仅 {CLIENT_API_LEVEL}，跳过: {redact_url(script_url)}"
+                    )
+                    return []
+            except (TypeError, ValueError):
+                log_warning(
+                    f"[ScriptSandbox] 非法 min_api_level，跳过: {redact_url(script_url)}"
+                )
+                return []
+        secrets = self._resolve_secrets(secret_names)
+        if secrets is None:
             return []
         # 私有临时目录（mkdtemp 默认 0700）+ 脚本文件 0600，防其他用户窥探或替换
         try:
@@ -203,41 +248,138 @@ class ScriptSandbox:
             return []
 
         try:
-            return self._execute_in_subprocess(tmp_path, _script_authority(script_url))
+            return self._execute_in_subprocess(
+                tmp_path,
+                _script_authority(script_url),
+                secrets,
+                network_allowlist,
+            )
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    def _execute_in_subprocess(self, script_path: Path, authority: str) -> list[dict]:
-        """在子进程中执行脚本。"""
+    def _resolve_secrets(self, secret_names: list[str] | None) -> dict[str, str] | None:
+        """按声明解析凭据；任一缺失/非法 → 返回 None（整体失败）。"""
+        if not secret_names:
+            return {}
+        if sys.platform == "win32":
+            log_warning("[ScriptSandbox] Windows 不支持凭据 fd 注入，拒绝执行")
+            return None
+        store = self._token_store
+        if store is None:
+            from .secure_token_store import SecureTokenStore
+
+            store = SecureTokenStore()
+        resolved: dict[str, str] = {}
+        for name in dict.fromkeys(secret_names):  # 去重且保序
+            if not isinstance(name, str) or not name:
+                log_warning("[ScriptSandbox] 非法凭据名，拒绝执行")
+                return None
+            value = store.get_token(name)
+            if value is None:
+                log_warning(f"[ScriptSandbox] 凭据缺失，拒绝执行: {name}")
+                return None
+            if len(value.encode("utf-8")) > PIPE_SECRET_MAX_BYTES:
+                log_warning(f"[ScriptSandbox] 凭据 {name} 超出一次性管道容量，拒绝执行")
+                return None
+            resolved[name] = value
+        return resolved
+
+    def _execute_in_subprocess(
+        self,
+        script_path: Path,
+        authority: str,
+        secrets: dict[str, str] | None = None,
+        network_allowlist: list[str] | None = None,
+    ) -> list[dict]:
+        """在子进程中执行脚本。
+
+        凭据注入：secrets 非空时，每个凭据创建一次性 pipe（os.pipe()），
+        父进程写入值后立即关闭写端，读端经 pass_fds 继承给子进程；
+        {name: fd} 映射经 stdin JSON 传给 runner。子进程读取一次后
+        fd 即关闭，值不落盘、不进环境变量。
+
+        网络白名单：network_allowlist 经同一 stdin JSON 传给 runner，
+        runner 在沙箱内 deny-by-default 强制。
+        """
         runner_path = Path(__file__).parent / "ott_script_runner.py"
+        read_fds: list[int] = []
+        created_fds: list[int] = []
+        # stdin JSON 恒构造（即使无 secrets/allowlist），runner 非 TTY 时读取
+        config: dict[str, Any] = {
+            "secrets": {},
+            "network_allowlist": list(network_allowlist or []),
+        }
+        if secrets:
+            fd_map: dict[str, int] = {}
+            try:
+                for name, value in secrets.items():
+                    r, w = os.pipe()
+                    created_fds.extend([r, w])
+                    try:
+                        os.write(w, value.encode("utf-8"))
+                    finally:
+                        os.close(w)
+                        created_fds.remove(w)
+                    read_fds.append(r)
+                    fd_map[name] = r
+                config["secrets"] = {n: {"fd": fd} for n, fd in fd_map.items()}
+            except OSError as e:
+                for fd in created_fds:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+                log_warning(f"[ScriptSandbox] 创建凭据管道失败: {e}")
+                return []
+        config_json = json.dumps(config)
+
         try:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 [sys.executable, str(runner_path), str(script_path)],
-                capture_output=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
-                timeout=SCRIPT_EXEC_TIMEOUT_S,
+                pass_fds=tuple(read_fds),
+            )
+        except (OSError, ValueError) as e:
+            for fd in created_fds:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+            log_warning(f"[ScriptSandbox] 子进程启动失败: {e}")
+            return []
+        # 子进程已继承读端；父进程读端立即关闭，防止 fd 泄漏
+        for fd in created_fds:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+        try:
+            stdout, stderr = proc.communicate(
+                input=config_json, timeout=SCRIPT_EXEC_TIMEOUT_S
             )
         except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
             log_warning(f"[ScriptSandbox] 脚本执行超时 ({SCRIPT_EXEC_TIMEOUT_S}s)")
             return []
         except OSError as e:
-            log_warning(f"[ScriptSandbox] 子进程启动失败: {e}")
+            log_warning(f"[ScriptSandbox] 子进程通信失败: {e}")
             return []
 
-        if result.returncode != 0:
+        if proc.returncode != 0:
             # 截取最后几行 stderr 用于日志
-            err_tail = (
-                "\n".join(result.stderr.strip().splitlines()[-5:])
-                if result.stderr
-                else ""
-            )
-            log_warning(f"[ScriptSandbox] 脚本退出码 {result.returncode}: {err_tail}")
+            err_tail = "\n".join(stderr.strip().splitlines()[-5:]) if stderr else ""
+            log_warning(f"[ScriptSandbox] 脚本退出码 {proc.returncode}: {err_tail}")
             return []
 
         # 解析 stdout JSON
         try:
-            raw_entries = json.loads(result.stdout)
+            raw_entries = json.loads(stdout)
         except (json.JSONDecodeError, ValueError):
             log_warning("[ScriptSandbox] 脚本 stdout 不是合法 JSON")
             return []
@@ -292,7 +434,17 @@ class ScriptSandbox:
 # ── 便捷函数 ────────────────────────────────────────────────────────────
 
 
-def execute_script(source: str, script_url: str) -> list[dict]:
+def execute_script(
+    source: str,
+    script_url: str,
+    network_allowlist: list[str] | None = None,
+    min_api_level: int | None = None,
+) -> list[dict]:
     """一次性执行脚本并返回 entry 列表。"""
     sandbox = ScriptSandbox()
-    return sandbox.execute(source, script_url)
+    return sandbox.execute(
+        source,
+        script_url,
+        network_allowlist=network_allowlist,
+        min_api_level=min_api_level,
+    )

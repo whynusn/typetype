@@ -19,6 +19,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +40,51 @@ def repo_cache_key(url: str) -> str:
     """派生 repo URL 对应的缓存文件名键。"""
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
     return f"repo-{digest}"
+
+
+def manifest_hash(manifest: dict) -> str:
+    """manifest 的 sha256（canonical JSON），用作 TUF-lite snapshot 链参照。
+
+    canonical 形式与签名校验一致：sort_keys + ensure_ascii=False + compact
+    separators。链式设计（ADR-011 Phase 3.6）：下一版 manifest 的
+    ``snapshot_hash`` 必须等于当前已接受 manifest 的此 hash。
+    """
+    canonical = json.dumps(
+        manifest, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+    )
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _normalize_snapshot_hash(value: str) -> str:
+    """归一化 snapshot_hash 用于比较：容忍可选 ``sha256:`` 前缀、大小写。
+
+    生产方与客户端前缀格式不一致时不应误判回滚，故比较前剥离前缀。
+    """
+    return value.removeprefix("sha256:").strip().lower()
+
+
+def _normalize_revocations(value: Any) -> list[dict]:
+    """归一化 revocations 列表（ADR-011 Phase 2.7）。
+
+    条目为 dict，可含 ``content_hash``（内容级撤销 → 本地屏蔽）与
+    ``pubkey``（key 级撤销 → 信任降级）字段；非法/空条目丢弃。
+    """
+    if not isinstance(value, list):
+        return []
+    result: list[dict] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        entry: dict = {}
+        ch = item.get("content_hash")
+        if isinstance(ch, str) and ch.strip():
+            entry["content_hash"] = ch.strip()
+        pk = item.get("pubkey")
+        if isinstance(pk, str) and pk.strip():
+            entry["pubkey"] = pk.strip()
+        if entry:
+            result.append(entry)
+    return result
 
 
 def validate_repo_manifest(data: Any) -> dict | None:
@@ -122,6 +168,10 @@ def validate_repo_manifest(data: Any) -> dict | None:
         "trust": normalized_trust,
         "requires": normalized_requires,
         "sources": normalized_sources,
+        # ADR-011 Phase 2.7/3.6：TUF-lite 与撤销字段（可选，缺失即旧行为）
+        "revocations": _normalize_revocations(data.get("revocations")),
+        "expires_at": str(data.get("expires_at") or ""),
+        "snapshot_hash": str(data.get("snapshot_hash") or ""),
     }
 
 
@@ -135,6 +185,31 @@ def _normalize_maintainer(value: Any) -> dict:
         result["name"] = name.strip()
     if isinstance(homepage, str) and homepage.strip():
         result["homepage"] = homepage.strip()
+    return result
+
+
+def _normalize_script_permissions(value: Any) -> dict:
+    """归一化脚本源 permissions：仅保留 network/secrets 的非空字符串列表。"""
+    if not isinstance(value, dict):
+        return {}
+    result: dict = {}
+    network = value.get("network")
+    if isinstance(network, list):
+        result["network"] = [h for h in network if isinstance(h, str) and h.strip()]
+    secrets = value.get("secrets")
+    if isinstance(secrets, list):
+        result["secrets"] = [s for s in secrets if isinstance(s, str) and s.strip()]
+    return result
+
+
+def _normalize_script_rights(value: Any) -> dict:
+    """归一化脚本源 rights：仅保留正整数 min_api_level。"""
+    if not isinstance(value, dict):
+        return {}
+    result: dict = {}
+    level = value.get("min_api_level")
+    if isinstance(level, int) and not isinstance(level, bool) and level > 0:
+        result["min_api_level"] = level
     return result
 
 
@@ -172,6 +247,9 @@ def _normalize_source(source: dict) -> dict | None:
             "label": str(source.get("label") or ""),
             "checksum": str(checksum) if isinstance(checksum, str) else "",
             "tags": _normalize_tags(source.get("tags")),
+            # ADR-011 Phase 2.2/2.6：脚本源权限与 API level（运行时强制）
+            "permissions": _normalize_script_permissions(source.get("permissions")),
+            "rights": _normalize_script_rights(source.get("rights")),
         }
 
     if kind == "ott-instance":
@@ -285,7 +363,11 @@ class RepoManifestCache:
         cache_key = repo_cache_key(repo.url)
         cached = self._read_cache(cache_key)
         if cached is not None:
-            if not self._is_expired(cache_key, repo.refresh_ttl_seconds):
+            # TTL 过期或 manifest 自身 expires_at 过期（TUF-lite）都算 stale：
+            # 返回缓存 + 后台刷新（stale-while-revalidate，不硬失败）。
+            if not self._is_expired(
+                cache_key, repo.refresh_ttl_seconds
+            ) and not self._manifest_expired(cached):
                 return cached
             self._maybe_refresh(cache_key, repo)
             return cached
@@ -313,16 +395,55 @@ class RepoManifestCache:
         if data is None:
             # 网络失败：离线兜底返回缓存（无视 TTL）
             return self._read_cache(cache_key)
+        _, served = self._accept_manifest(cache_key, repo, data, etag)
+        return served
+
+    def _accept_manifest(
+        self, cache_key: str, repo: SourceRepoEntry, data: dict, etag: str
+    ) -> tuple[bool, dict | None]:
+        """校验 + TUF-lite 检查 + 写缓存 + 撤销/信任更新。
+
+        ADR-011 Phase 2.7/3.6 语义（链式 snapshot 设计）：
+        - 校验失败 / expires_at 过期 / snapshot_hash 回滚 → 拒绝新 manifest，
+          回退旧缓存（服务 stale），不替换缓存；
+        - 只有被接受的 manifest 才更新信任状态与撤销清单（revocations 仅
+          来自已接受、签名生效的 manifest，订阅即信任边界，TOFU 模型）；
+        - last_snapshot_hash 恒记录最近一次被接受 manifest 的 hash，作为
+          下一版 snapshot_hash 的链参照（即使输入 manifest 无 snapshot_hash
+          也推进参照，参照始终等于当前服务内容）。
+
+        Returns:
+            (True, new_manifest)  新 manifest 已接受；
+            (False, served)      被拒绝，served 为回退的旧缓存（可为 None）。
+        """
         validated = validate_repo_manifest(data)
         if validated is None:
             log_warning(f"[RepoManifest] manifest 校验失败: {redact_url(repo.url)}")
-            return self._read_cache(cache_key)
+            return False, self._read_cache(cache_key)
+        if self._manifest_expired(validated):
+            # 过期内容不得作为 fresh 使用：保留旧缓存
+            log_warning(
+                f"[RepoManifest] manifest 已过期(expires_at)，保留旧缓存: "
+                f"{redact_url(repo.url)}"
+            )
+            return False, self._read_cache(cache_key)
+        if self._check_snapshot_rollback(cache_key, repo, validated):
+            log_warning(
+                f"[RepoManifest] snapshot 回滚检测，拒绝替换缓存: "
+                f"{redact_url(repo.url)}"
+            )
+            return False, self._read_cache(cache_key)
         self._write_cache(cache_key, validated)
-        if etag and self._runtime_config is not None:
-            self._runtime_config.update_source_repo_refresh(repo.url, etag=etag)
-        # 签名校验并更新订阅的 trust_state（TOFU）
+        if self._runtime_config is not None:
+            self._runtime_config.update_source_repo_refresh(
+                repo.url,
+                etag=etag,
+                last_snapshot_hash=manifest_hash(validated),
+            )
+        self._apply_revocations(validated)
+        # 签名校验并更新订阅的 trust_state（TOFU + key 级撤销）
         self._verify_trust(validated, repo)
-        return validated
+        return True, validated
 
     def _fetch_manifest_with_mirrors(
         self, repo: SourceRepoEntry, cache_key: str
@@ -412,18 +533,13 @@ class RepoManifestCache:
             try:
                 data, etag = self._fetch_manifest_with_mirrors(repo, cache_key)
                 if data is not None:
-                    validated = validate_repo_manifest(data)
-                    if validated is not None:
-                        self._write_cache(cache_key, validated)
-                        if etag and self._runtime_config is not None:
-                            self._runtime_config.update_source_repo_refresh(
-                                repo.url, etag=etag
-                            )
-                        self._verify_trust(validated, repo)
+                    accepted, _ = self._accept_manifest(cache_key, repo, data, etag)
+                    if accepted:
                         log_info(f"[RepoManifest] 后台刷新成功: {redact_url(repo.url)}")
                     else:
                         log_warning(
-                            f"[RepoManifest] 后台刷新校验失败: {redact_url(repo.url)}"
+                            f"[RepoManifest] 后台刷新被拒(校验/过期/回滚)，保留旧缓存: "
+                            f"{redact_url(repo.url)}"
                         )
                 else:
                     log_warning(
@@ -500,6 +616,81 @@ class RepoManifestCache:
             return True
         return (time.time() - mtime) > ttl_seconds
 
+    @staticmethod
+    def _manifest_expired(manifest: dict) -> bool:
+        """TUF-lite（ADR-011 Phase 3.6）：manifest 自身 expires_at 是否已过。
+
+        语义：缺失 expires_at → 无过期（老 manifest 兼容）；ISO8601 解析失败
+        → 视为无过期（不崩溃、不硬失败）；无时区的时间按 UTC 解释。
+        """
+        raw = str(manifest.get("expires_at") or "").strip()
+        if not raw:
+            return False
+        try:
+            expires = datetime.fromisoformat(raw)
+        except ValueError:
+            return False
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > expires
+
+    def _check_snapshot_rollback(
+        self, cache_key: str, repo: SourceRepoEntry, incoming: dict
+    ) -> bool:
+        """TUF-lite 防回滚检查：incoming.snapshot_hash 必须等于当前已接受
+        manifest 的 hash（链式设计）。
+
+        返回 True = 回滚检测（调用方拒绝替换缓存）。任一缺失（incoming 无
+        snapshot_hash，或尚无参照 = 首次拉取）→ 不检查（可选语义）。
+        """
+        incoming_hash = str(incoming.get("snapshot_hash") or "").strip()
+        if not incoming_hash:
+            return False
+        reference = self._snapshot_reference_hash(cache_key, repo)
+        if not reference:
+            return False
+        return _normalize_snapshot_hash(incoming_hash) != _normalize_snapshot_hash(
+            reference
+        )
+
+    def _snapshot_reference_hash(self, cache_key: str, repo: SourceRepoEntry) -> str:
+        """当前已接受 manifest 的 hash（防回滚参照）。
+
+        优先 repo.last_snapshot_hash（持久化，跨缓存清空存活）；为空且缓存
+        存在时从缓存回填计算（升级兼容：老缓存无该字段）。两者皆空 → 无参照。
+        """
+        if repo.last_snapshot_hash:
+            return repo.last_snapshot_hash
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            return manifest_hash(cached)
+        return ""
+
+    def _apply_revocations(self, manifest: dict) -> None:
+        """ADR-011 Phase 2.7：把 manifest revocations[] 的 content_hash
+        并入本地屏蔽清单（add_blocked_content_hash 去重 + 持久化）。"""
+        if self._runtime_config is None:
+            return
+        for entry in manifest.get("revocations", []):
+            if isinstance(entry, dict):
+                ch = entry.get("content_hash")
+                if isinstance(ch, str) and ch:
+                    self._runtime_config.add_blocked_content_hash(ch)
+
+    @staticmethod
+    def _manifest_revokes_pubkey(manifest: dict, pubkey: str) -> bool:
+        """ADR-011 Phase 2.7：manifest 是否声明撤销自身公钥（key 级撤销）。
+
+        单公钥模型：revocations[] 中 pubkey 与 manifest 自身 trust.pubkey
+        相等即视为"该 key 不再可信" → 信任降级，等待用户重新确认。
+        """
+        if not pubkey:
+            return False
+        for entry in manifest.get("revocations", []):
+            if isinstance(entry, dict) and entry.get("pubkey") == pubkey:
+                return True
+        return False
+
     def clear_cache(self, url: str | None = None) -> None:
         """清除缓存。url 为 None 全部清除，否则只清除指定 repo。"""
         import shutil
@@ -543,6 +734,20 @@ class RepoManifestCache:
 
         if not valid:
             self._runtime_config.set_source_repo_trust(repo.url, "failed")
+            return
+
+        # ADR-011 Phase 2.7：manifest 声明撤销自身公钥 → 信任降级 pending，
+        # 用户重新确认/拒绝（决策 12）。签名仍须有效：撤销声明是已签名内容
+        # 的一部分，防伪造降级攻击。固定公钥保留，仓库停发撤销声明后下一轮
+        # 刷新即恢复正常；key 实际轮换时走下方 pin 变更路径。
+        if self._manifest_revokes_pubkey(manifest, pubkey):
+            self._runtime_config.set_source_repo_trust(
+                repo.url, "pending", pinned_pubkey=pubkey
+            )
+            log_warning(
+                f"[RepoManifest] 仓库公钥被自身撤销，信任降级待确认: "
+                f"{redact_url(repo.url)}"
+            )
             return
 
         if not repo.pinned_pubkey:

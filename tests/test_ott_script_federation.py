@@ -36,7 +36,17 @@ def _mock_http(json_data=None, text=""):
     return client
 
 
-def _script_manifest():
+def _script_manifest(permissions=None, rights=None):
+    source = {
+        "type": "ott-script",
+        "url": "https://example.com/scripts/fetch_text.py",
+        "label": "示例脚本",
+        "tags": ["test"],
+    }
+    if permissions is not None:
+        source["permissions"] = permissions
+    if rights is not None:
+        source["rights"] = rights
     return {
         "protocol": "ott-repo",
         "version": "1.0",
@@ -46,18 +56,13 @@ def _script_manifest():
         "mirrors": [
             {"url": "https://script-test.example.org/ott-repo.json", "priority": 1}
         ],
-        "sources": [
-            {
-                "type": "ott-script",
-                "url": "https://example.com/scripts/fetch_text.py",
-                "label": "示例脚本",
-                "tags": ["test"],
-            }
-        ],
+        "sources": [source],
     }
 
 
-def _federation_with_script(tmp_path, *, trust_state: str = "verified"):
+def _federation_with_script(
+    tmp_path, *, trust_state: str = "verified", permissions=None, rights=None
+):
     config = MagicMock(spec=RuntimeConfig)
     config.registry = RegistryConfig(
         cache_ttl_seconds=3600, max_content_bytes=1_048_576
@@ -74,14 +79,14 @@ def _federation_with_script(tmp_path, *, trust_state: str = "verified"):
     cache_dir.mkdir(parents=True, exist_ok=True)
     manifest_cache = RepoManifestCache(
         cache_dir=cache_dir,
-        http_client=_mock_http(_script_manifest()),
+        http_client=_mock_http(_script_manifest(permissions, rights)),
         async_executor=None,
     )
     # 预写缓存，避免网络请求（mock 在 test 环境下行为不一致）
     from src.backend.integration.ott_repo_manifest import repo_cache_key
 
     cache_key = repo_cache_key(repo_entry.url)
-    manifest_cache._write_cache(cache_key, _script_manifest())
+    manifest_cache._write_cache(cache_key, _script_manifest(permissions, rights))
 
     provider = OttFederationProvider(
         runtime_config=config,
@@ -107,6 +112,28 @@ def test_script_built_when_repo_verified(tmp_path):
     provider = _federation_with_script(tmp_path, trust_state="verified")
     clients = provider._build_clients()
     assert any(key.startswith("script:") for key in clients)
+
+
+class TestClientsSignatureTrustState:
+    """_clients_signature 必须含 trust_state：信任降级后 clients 重建。"""
+
+    def test_signature_differs_when_trust_state_changes(self, tmp_path) -> None:
+        """同 url/enabled/mtime 下仅 trust_state 不同 → 签名不同。"""
+        provider = _federation_with_script(tmp_path, trust_state="verified")
+        sig_verified = provider._clients_signature()
+        provider._runtime_config.source_repos.repos[0].trust_state = "pending"
+        sig_pending = provider._clients_signature()
+        assert sig_verified != sig_pending
+
+    def test_downgrade_rebuilds_clients_without_scripts(self, tmp_path) -> None:
+        """verified → pending 降级（公钥轮换/revocation）触发重建，L3 客户端被剔除。"""
+        provider = _federation_with_script(tmp_path, trust_state="verified")
+        clients = provider._build_clients()
+        assert any(key.startswith("script:") for key in clients)
+        # 同 url/enabled/mtime，仅信任降级
+        provider._runtime_config.source_repos.repos[0].trust_state = "pending"
+        clients = provider._build_clients()
+        assert not any(key.startswith("script:") for key in clients)
 
 
 class TestScriptClient:
@@ -224,3 +251,100 @@ class TestFederationWithScripts:
         assert script_entries[0]["title"] == "FromScript"
         # list_all_entries 为未标 authority 的脚本条目填充命名空间化 authority
         assert script_entries[0]["authority"] == script_entries[0]["_authority"]
+
+
+# ── 凭据注入（ADR-011 Phase 5.4）───────────────────────────────────────
+
+
+class _FakeTokenStore:
+    def __init__(self, tokens: dict[str, str] | None = None) -> None:
+        self._tokens = dict(tokens or {})
+
+    def get_token(self, key: str) -> str | None:
+        return self._tokens.get(key)
+
+
+class TestScriptClientSecrets:
+    def test_propagates_declared_secret_names(self, tmp_path) -> None:
+        """secret_names 从 manifest 透传到 _ScriptClient，再注入沙箱。"""
+        script_source = (
+            "def fetch_entries():\n"
+            '    return [{"title": "S", "content": sandbox.get_secret("k")}]\n'
+        )
+        mock_http = MagicMock(spec=httpx.Client)
+        resp = MagicMock(spec=httpx.Response)
+        resp.status_code = 200
+        resp.text = script_source
+        resp.headers = {"content-length": str(len(script_source))}
+        resp.raise_for_status = MagicMock()
+        mock_http.get.return_value = resp
+
+        cache = ScriptCache(tmp_path / "scripts", mock_http)
+        sandbox = ScriptSandbox(token_store=_FakeTokenStore({"k": "secret-value"}))
+        client = _ScriptClient(
+            url="https://example.com/scripts/fetch.py",
+            label="示例脚本",
+            script_cache=cache,
+            sandbox=sandbox,
+            secret_names=["k"],
+        )
+        entries = client.list_entries()
+        assert entries is not None
+        assert entries[0]["content"] == "secret-value"
+
+    def test_no_secret_names_when_permissions_absent(self, tmp_path) -> None:
+        mock_http = MagicMock(spec=httpx.Client)
+        cache = ScriptCache(tmp_path / "scripts", mock_http)
+        client = _ScriptClient(
+            url="https://example.com/scripts/fetch.py",
+            label="示例脚本",
+            script_cache=cache,
+            sandbox=ScriptSandbox(),
+        )
+        assert client._secret_names == []
+
+
+class TestFederationSecrets:
+    def test_script_client_receives_permissions_secrets(self, tmp_path) -> None:
+        provider = _federation_with_script(
+            tmp_path, permissions={"secrets": ["api_key", "token"]}
+        )
+        clients = provider._build_clients()
+        script_clients = [c for c in clients.values() if isinstance(c, _ScriptClient)]
+        assert len(script_clients) == 1
+        assert script_clients[0]._secret_names == ["api_key", "token"]
+
+    def test_no_secrets_when_permissions_absent(self, tmp_path) -> None:
+        provider = _federation_with_script(tmp_path)
+        clients = provider._build_clients()
+        script_clients = [c for c in clients.values() if isinstance(c, _ScriptClient)]
+        assert script_clients[0]._secret_names == []
+
+
+class TestFederationNetworkAndRights:
+    def test_script_client_receives_network_allowlist(self, tmp_path) -> None:
+        provider = _federation_with_script(
+            tmp_path, permissions={"network": ["api.example.com"], "secrets": []}
+        )
+        clients = provider._build_clients()
+        script_clients = [c for c in clients.values() if isinstance(c, _ScriptClient)]
+        assert len(script_clients) == 1
+        assert script_clients[0]._network_allowlist == ["api.example.com"]
+
+    def test_no_network_allowlist_when_absent(self, tmp_path) -> None:
+        provider = _federation_with_script(tmp_path)
+        clients = provider._build_clients()
+        script_clients = [c for c in clients.values() if isinstance(c, _ScriptClient)]
+        assert script_clients[0]._network_allowlist == []
+
+    def test_script_client_receives_api_level(self, tmp_path) -> None:
+        provider = _federation_with_script(tmp_path, rights={"min_api_level": 2})
+        clients = provider._build_clients()
+        script_clients = [c for c in clients.values() if isinstance(c, _ScriptClient)]
+        assert script_clients[0]._min_api_level == 2
+
+    def test_no_api_level_when_rights_absent(self, tmp_path) -> None:
+        provider = _federation_with_script(tmp_path)
+        clients = provider._build_clients()
+        script_clients = [c for c in clients.values() if isinstance(c, _ScriptClient)]
+        assert script_clients[0]._min_api_level is None

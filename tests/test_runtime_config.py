@@ -654,6 +654,32 @@ def test_blocked_content_hashes_roundtrip(tmp_path):
     assert config3.blocked_content_hashes == []
 
 
+def test_source_repo_last_snapshot_hash_roundtrip(tmp_path):
+    """TUF-lite 快照参照字段持久化（ADR-011 Phase 3.6）。"""
+    path = tmp_path / "config.json"
+    config = RuntimeConfig.load_from_file(str(path))
+    config.add_source_repo("https://snap.org/r.json")
+    config.update_source_repo_refresh(
+        "https://snap.org/r.json", last_snapshot_hash="sha256:abc"
+    )
+
+    config2 = RuntimeConfig.load_from_file(str(path))
+    repo2 = next(
+        r for r in config2.source_repos.repos if r.url == "https://snap.org/r.json"
+    )
+    assert repo2.last_snapshot_hash == "sha256:abc"
+
+    # 空字段不写入 JSON（保持既有序列化风格）
+    path2 = tmp_path / "config2.json"
+    config3 = RuntimeConfig.load_from_file(str(path2))
+    config3.add_source_repo("https://other.org/r.json")
+    saved2 = json.loads(path2.read_text(encoding="utf-8"))
+    other = next(
+        r for r in saved2["source_repos"] if r["url"] == "https://other.org/r.json"
+    )
+    assert "last_snapshot_hash" not in other
+
+
 def test_add_source_repo_dedup_and_enable():
     config = RuntimeConfig()
     config.add_source_repo("https://example.org/ott-repo.json")

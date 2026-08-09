@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from src.backend.config.runtime_config import RuntimeConfig, SourceRepoEntry
 from src.backend.integration.ott_repo_manifest import (
     RepoManifestCache,
+    manifest_hash,
     repo_cache_key,
     validate_repo_manifest,
 )
@@ -158,6 +159,50 @@ def test_validate_ott_bridge_source():
     v = validate_repo_manifest(m)
     assert v is not None
     assert v["sources"][0]["bridge_kind"] == "wenlai"
+
+
+def test_validate_preserves_script_permissions_and_rights():
+    m = _valid_manifest()
+    m["sources"] = [
+        {
+            "type": "ott-script",
+            "url": "https://example.com/scripts/fetch.py",
+            "label": "S",
+            "permissions": {
+                "network": ["api.example.com"],
+                "secrets": ["api_key", "token"],
+            },
+            "rights": {"min_api_level": 2},
+        }
+    ]
+    v = validate_repo_manifest(m)
+    assert v is not None
+    src = v["sources"][0]
+    assert src["permissions"]["network"] == ["api.example.com"]
+    assert src["permissions"]["secrets"] == ["api_key", "token"]
+    assert src["rights"]["min_api_level"] == 2
+
+
+def test_validate_strips_invalid_script_permissions_and_rights():
+    m = _valid_manifest()
+    m["sources"] = [
+        {
+            "type": "ott-script",
+            "url": "https://example.com/scripts/fetch.py",
+            "permissions": {
+                "network": ["", 123, "good.com"],
+                "secrets": ["  ", "k"],
+                "bogus": True,
+            },
+            "rights": {"min_api_level": "x", "bogus": 1},
+        }
+    ]
+    v = validate_repo_manifest(m)
+    src = v["sources"][0]
+    assert src["permissions"]["network"] == ["good.com"]
+    assert src["permissions"]["secrets"] == ["k"]
+    assert "bogus" not in src["permissions"]
+    assert src["rights"] == {}
 
 
 def test_validate_skips_invalid_source_entries():
@@ -554,3 +599,200 @@ def test_missing_signature_sets_unverified(tmp_path):
 
     assert repo.trust_state == "unverified"
     assert repo.pinned_pubkey == ""
+
+
+# ---------------------------------------------------------------------------
+# ADR-011 Phase 2.7：revocations[]（内容屏蔽 + key 级撤销）
+# ---------------------------------------------------------------------------
+
+
+def test_revocations_merge_into_blocked_hashes(tmp_path):
+    """manifest 携带 revocations[].content_hash → 并入本地屏蔽清单。"""
+    config, repo = _config_with_repo(tmp_path, url="https://revoke.org/r.json")
+    manifest = _valid_manifest()
+    manifest["revocations"] = [
+        {"content_hash": "sha256:deadbeef"},
+        {"content_hash": "sha256:beefdead"},
+        {"junk": True},  # 非法条目丢弃
+    ]
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = _mock_response(manifest)
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    assert cache.get_manifest(repo) is not None
+    assert "sha256:deadbeef" in config.blocked_content_hashes
+    assert "sha256:beefdead" in config.blocked_content_hashes
+
+
+def test_no_revocations_no_blocked_hashes(tmp_path):
+    """无 revocations 的 manifest 不产生任何屏蔽。"""
+    config, repo = _config_with_repo(tmp_path, url="https://none.org/r.json")
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = _mock_response(_valid_manifest())
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    assert cache.get_manifest(repo) is not None
+    assert config.blocked_content_hashes == []
+
+
+def test_key_revocation_sets_pending(tmp_path):
+    """manifest 声明撤销自身公钥 → 信任降级 pending（用户重新确认）。"""
+    priv = Ed25519PrivateKey.generate()
+    pubkey_hex = (
+        "ed25519:"
+        + priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+    )
+    manifest = _valid_manifest()
+    manifest["revocations"] = [{"pubkey": pubkey_hex}]
+    manifest = _sign_manifest(manifest, priv)  # 撤销声明必须在签名内容内
+    config, repo = _config_with_repo(
+        tmp_path,
+        trust_state="verified",
+        pinned_pubkey=manifest["trust"]["pubkey"],
+    )
+
+    _verify_with(config, tmp_path, manifest, repo)
+
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == manifest["trust"]["pubkey"]
+
+
+def test_revocation_of_other_key_does_not_degrade(tmp_path):
+    """撤销其他公钥不影响本仓库信任（单公钥模型，只认自身 key 撤销）。"""
+    priv = Ed25519PrivateKey.generate()
+    other = Ed25519PrivateKey.generate()
+    other_pubkey = (
+        "ed25519:"
+        + other.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw).hex()
+    )
+    manifest = _valid_manifest()
+    manifest["revocations"] = [{"pubkey": other_pubkey}]
+    manifest = _sign_manifest(manifest, priv)
+    config, repo = _config_with_repo(
+        tmp_path,
+        trust_state="verified",
+        pinned_pubkey=manifest["trust"]["pubkey"],
+    )
+
+    _verify_with(config, tmp_path, manifest, repo)
+
+    assert repo.trust_state == "verified"
+
+
+# ---------------------------------------------------------------------------
+# ADR-011 Phase 3.6：TUF-lite（expires_at 过期 + snapshot_hash 防回滚）
+# ---------------------------------------------------------------------------
+
+
+def test_cached_expired_manifest_serves_stale(tmp_path):
+    """缓存 manifest 自身 expires_at 已过 → 视为 stale：仍返回缓存，不硬失败。"""
+    key = repo_cache_key("https://expired.org/r.json")
+    cache_dir = tmp_path / "repos"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    manifest = _valid_manifest()
+    manifest["repo_id"] = "expired-org"
+    manifest["expires_at"] = "2020-01-01T00:00:00+00:00"
+    (cache_dir / f"{key}.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    client = MagicMock(spec=httpx.Client)
+    cache = RepoManifestCache(cache_dir, client, None)
+    repo = SourceRepoEntry(url="https://expired.org/r.json", refresh_ttl_seconds=3600)
+
+    result = cache.get_manifest(repo)
+    assert result is not None
+    assert result["repo_id"] == "expired-org"
+    # async_executor=None → 后台刷新不发起；stale-while-revalidate 只返回缓存
+    client.get.assert_not_called()
+
+
+def test_incoming_expired_manifest_keeps_old_cache(tmp_path):
+    """拉取到的 manifest 已过期 → 拒绝（不留 fresh），回退旧缓存。"""
+    config, repo = _config_with_repo(tmp_path, url="https://exp.org/r.json")
+    client = MagicMock(spec=httpx.Client)
+    m1 = _valid_manifest()
+    m2 = _valid_manifest()
+    m2["repo_id"] = "new-content"
+    m2["expires_at"] = "2020-01-01T00:00:00+00:00"
+    client.get.side_effect = [_mock_response(m1), _mock_response(m2)]
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    first = cache.refresh_manifest(repo)
+    assert first is not None
+    assert first["repo_id"] == "texts.example.org"
+
+    second = cache.refresh_manifest(repo)
+    assert second is not None
+    assert second["repo_id"] == "texts.example.org"  # 仍是旧内容
+
+
+def test_snapshot_hash_rollback_rejected(tmp_path):
+    """snapshot_hash 与已接受 manifest 的 hash 不匹配 → 回滚拒绝，缓存不替换。"""
+    config, repo = _config_with_repo(tmp_path, url="https://snap.org/r.json")
+    client = MagicMock(spec=httpx.Client)
+    m1 = _valid_manifest()
+    m2 = _valid_manifest()
+    m2["repo_id"] = "rolled-back"
+    m2["snapshot_hash"] = "sha256:" + "0" * 64  # 不可能匹配 m1 的 hash
+    client.get.side_effect = [_mock_response(m1), _mock_response(m2)]
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    first = cache.refresh_manifest(repo)
+    assert first is not None
+    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(m1))
+    cache_file = cache.cache_path(repo_cache_key(repo.url))
+    cached_before = cache_file.read_text(encoding="utf-8")
+
+    second = cache.refresh_manifest(repo)
+    assert second is not None
+    assert second["repo_id"] == "texts.example.org"  # 回退旧缓存
+    assert cache_file.read_text(encoding="utf-8") == cached_before  # 未替换
+    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(m1))
+
+
+def test_snapshot_hash_chain_accepted(tmp_path):
+    """snapshot_hash 匹配当前已接受 manifest → 链成立，接受新内容。"""
+    config, repo = _config_with_repo(tmp_path, url="https://chain.org/r.json")
+    client = MagicMock(spec=httpx.Client)
+    m1 = _valid_manifest()
+    m2 = _valid_manifest()
+    m2["repo_id"] = "chained-v2"
+    m2["snapshot_hash"] = manifest_hash(validate_repo_manifest(m1))
+    client.get.side_effect = [_mock_response(m1), _mock_response(m2)]
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    assert cache.refresh_manifest(repo) is not None
+    second = cache.refresh_manifest(repo)
+    assert second is not None
+    assert second["repo_id"] == "chained-v2"
+    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(m2))
+
+
+def test_missing_tuf_fields_no_crash(tmp_path):
+    """缺失 revocations/expires_at/snapshot_hash → 旧行为，不崩溃。"""
+    config, repo = _config_with_repo(tmp_path, url="https://plain.org/r.json")
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = _mock_response(_valid_manifest())  # 无新字段
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    result = cache.get_manifest(repo)
+    assert result is not None
+    assert result["repo_id"] == "texts.example.org"
+    assert config.blocked_content_hashes == []
+    # 参照恒记录当前服务内容（可选语义：无 snapshot_hash 也推进链参照）
+    assert repo.last_snapshot_hash == manifest_hash(
+        validate_repo_manifest(_valid_manifest())
+    )
+
+
+def test_first_fetch_with_snapshot_hash_establishes_chain(tmp_path):
+    """首次拉取（无参照）时 snapshot_hash 不校验，接受并建立链。"""
+    config, repo = _config_with_repo(tmp_path, url="https://first.org/r.json")
+    manifest = _valid_manifest()
+    manifest["snapshot_hash"] = "sha256:" + "f" * 64  # 无参照，任意值可接受
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = _mock_response(manifest)
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    result = cache.get_manifest(repo)
+    assert result is not None
+    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(manifest))
