@@ -29,7 +29,7 @@ ADR-009 完成 OTT Core v1 数据面后，生态仍停在"任何人可自托管"
 1. **三层概念模型**：Directory（可选，repo-of-repos，不嵌套）→ Repo（源清单，`ott-repo.json`）→ Instance / Rule / Bridge（源）→ Entry（Core v1 数据面）。
 2. **Repo Manifest 三种源类型**：`ott-instance`（OTT 端点 + 镜像列表）、`ott-rule`（内联声明式规则）、`ott-bridge`（即时 API 桥，凭据本地）。
 3. **四级信任模型**：L0 数据实例、L1 声明式规则（客户端受限解释器，无任意代码）、L2 桥接源（凭据本地持有）、L3 抓取脚本（**允许经 Repo 分发，但必须在独立子进程沙箱中执行**：AST 白名单检查 + 子进程隔离 + 内存/CPU/proc 资源限制 + Landlock 文件系统白名单 + stdout JSON 通信）。**修订理由（2026-07-27）**：ott-script 的核心用例是逆向工程抓取脚本的生态分发，回滚 L3 会杀死该用例；安全边界由子进程沙箱保障，逃逸仅影响子进程，主进程不受影响。不变式：客户端从网络订阅的 L0/L1/L2 内容无任意代码执行面；L3 脚本在子进程沙箱内执行，逃逸不突破进程边界。
-4. **签名为徽章非门槛**：可选 minisign/ed25519 + TOFU 固定；UI 显示验证徽章，永不作为准入强制。
+4. **签名为徽章非门槛**：可选 ed25519 + TOFU 固定；UI 显示验证徽章，永不作为准入强制。**修订（2026-08-09，ADR-011 决策 12）**：签名格式统一为裸 Ed25519 hex（`ed25519:` 前缀可选），canonical JSON 以 open-typing-texts 协议规范为权威；minisign 不支持。
 5. **authority 身份规范**：反向域名 / `key:ed25519:<指纹>` / `local`；实例经 `ott.json` 与 `capabilities` 可选声明 `authority_id`（Core 向后兼容增量）。条目 URN `ott:{authority}:{entry_id}@{revision_id}` 正式化，深链 `ott://{authority}/{entry_id}`。
 6. **客户端演进**：`RegistryConfig` → `SourceReposConfig` 订阅列表（旧配置自动迁移）；`OttTextProvider` 之上加联邦聚合层；trait flags 由 manifest × capabilities 运行时合成；订阅管理进载文中心。
 7. **治理**：官方默认目录可关可换；blocklist 是客户端本地策略而非协议强制；OTT Core 与 OTT Repo 独立语义化版本；兼容测试包扩展到 manifest fixtures。

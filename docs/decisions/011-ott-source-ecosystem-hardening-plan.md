@@ -1,6 +1,6 @@
 # ADR-011: OTT 源生态加固与去中心化适配器执行方案
 
-<!-- 状态: proposed | 决策日期: 2026-08-07 | 最后验证: 2026-08-07 | 修订: 2026-08-07 审查修订（范围拆分 / 顺序调整 / 补决策） -->
+<!-- 状态: proposed | 决策日期: 2026-08-07 | 最后验证: 2026-08-09 | 修订: 2026-08-07 审查修订（范围拆分 / 顺序调整 / 补决策）；2026-08-09 批次 2 状态更新；2026-08-09 批次 3 落地 + 批次 4 状态更新（3.10/1.3 跨仓落地、5.2 决策落档、7.4 外部阻塞） -->
 
 > 本文是"修复当前 OTT 实现缺陷 + 建设去中心化空壳软件与源分发机制"的**可执行方案**。
 > 来源：2026-08-07 对 typetype 与 open-typing-texts 两仓的只读审计、主流去中心化空壳软件（mihon / legado / TVBox / Kazumi / F-Droid / TUF）调研、原语安全实测。
@@ -26,7 +26,10 @@ ADR-011 实施三线审查（进度审计 / 代码质量 / 方向正确性）结
 **进度审计**（explore，逐 Phase 文件:行号核对）：
 - IMPLEMENTED：Phase 0A 全 10 项、0.B1、Phase 1（1.1/1.2/1.4-mock/1.5；1.3 运行时）、3.1-3.8、Phase 4、7.1-7.3（文档级）、2.0/2.1（文档级）
 - PARTIAL：2.3（执行门槛 ✅ / TOFU UI ✗）、3.9（复用+缓存 ✅ / httpx.Client 显式 close ✗，全仓零 `.close()`）、1.3（typetype 运行时 ✅ / 跨仓 `ott-rule-v2.schema.json` 未产出，ADR 自身标 ⚠️）、2.2/2.6（规则侧已实现但 ADR 状态注标"未开工"，script 侧无强制）、5.2（0.A6 兜底分支 ✅）
-- MISSING（与 ADR 未标落地一致）：2.4（无 adapter-publish.yml）、2.5（无 scripts/adapter.py）、2.7（无 revocations[] 解析）、3.6（无 expires_at/snapshot_hash）、5.1 seccomp、5.3 出口代理、5.4 凭据注入、7.4 律师评审
+- MISSING（与 ADR 未标落地一致，批次 2 后已收口）：2.4（无 adapter-publish.yml）、2.5（无 scripts/adapter.py）、2.7（无 revocations[] 解析）、3.6（无 expires_at/snapshot_hash）、5.1 seccomp、5.3 出口代理、5.4 凭据注入、7.4 律师评审
+- **批次 2（2026-08-09）已落地上述 MISSING 中的 2.4 / 2.5 / 2.7 / 3.6 / 5.1 seccomp / 5.4**；仍缺：5.3 出口代理（依赖 2.2 权限清单运行时强制，下一批次）、7.4 律师评审（外部依赖）。
+- **批次 3（2026-08-09）已落地 2.2 / 2.6 / 5.3**：2.2 `ScriptSandbox.execute(..., network_allowlist)` 运行时强制 `permissions.network` 白名单（deny-by-default，`_NetworkGate` 拦截）；2.6 `min_api_level > CLIENT_API_LEVEL` 警告+跳过（`ott_script_client.py`）；5.3 出口收敛 `_build_httpx_wrapper` 替身 + DNS pin + `_NetworkDeniedError` 脱敏 + 审计。三线交叉验证 + 两轮修复完成，全量 1046 collected passed、ruff clean。
+- **批次 4（2026-08-09）3.10 / 1.3 跨仓落地、5.2 决策落档、7.4 外部阻塞**：跨仓 canonical JSON 统一 + minisign 移除 + `ott-rule-v2.schema.json` 产出（open-typing-texts 侧完成，见 Phase 1/3 状态注）；5.2 采用 0.A6 兜底分支（Windows 默认禁用 + UI 明示，不做 Job Object）；7.4 律师评审未启动，占位 `docs/legal/legal-review.md`。
 
 **代码质量**（general，10 文件逐文件审查）：
 - 1 BLOCKER：TOFU 首次信任自动 verified，违反决策 12（"必须 UI 显式确认"）；`ott_repo_manifest.py:546-547` 自认 TODO 过渡行为
@@ -131,11 +134,13 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 1.0 DSL 设计文档先行 | 新 `docs/designs/ott-dsl.md`（本地草稿） | 原语签名、类型系统（str/bytes/int/bool/list/dict）、组合约束、与 L1 的关系；评审通过后再排 1.1-1.5 | ✅ 已落地 |
 | 1.1 原语白名单实现 | 新 `ott_dsl.py`（纯函数求值器，L1 解释器扩展） | 首批：基础值/编码解码/时间/随机/文本正则/算术位/集合/JSON/URL 构造/条件；加密原语（md5/sha1/sha256/hmac/aes_cbc/xor）第二批 | ✅ 已落地 |
 | 1.2 引擎约束 | `ott_dsl.py` | 纯函数无状态；单值 ≤1MB；步间 ≤2MB；深度 ≤32；调用 ≤1000；steps ≤8；无循环原语；字节串显式类型；异常不暴露细节 | ✅ 已落地 |
-| 1.3 规则 schema v2 | 新 `ott-rule-v2.schema.json` | `request.body`、`steps`、`permissions`、`rights` 字段；旧规则向后兼容；运行时分流：仅含旧字段走 L1 子集路径 | ⚠️ typetype 运行时已落地；跨仓 schema 文件未产出 |
+| 1.3 规则 schema v2 | 新 `ott-rule-v2.schema.json` | `request.body`、`steps`、`permissions`、`rights` 字段；旧规则向后兼容；运行时分流：仅含旧字段走 L1 子集路径 | ✅ typetype 运行时 + 跨仓 schema 均已落地（见状态注） |
 | 1.4 极速杯迁移验证 | 新 `tests/fixtures/rule-samples/jisubei.json` | 用 DSL 表达 AES 请求并跑通 mock；**前置：确认 www.jsxiaoshi.com 可用性与抓取许可** | ✅ mock 验证完成；真实服务可用性/抓取许可仍待确认项 3 |
 | 1.5 组合安全测试 | 新 `tests/test_ott_dsl_security.py` | 组合矩阵用例全过 + 模糊测试（随机组合断言资源上限） | ✅ 已落地 |
 
 > 状态（2026-08-08）：**Phase 1.1-1.5 已落地**。引擎补上整数资源上限（超大整数/超大位移拒绝、字面量与结果超限检查前置），`tests/test_ott_dsl_security.py` 组合矩阵 + 300 例固定种子模糊测试全过。
+>
+> 状态（2026-08-09 批次 4）：**1.3 跨仓 schema v2 已产出**（open-typing-texts `schemas/ott-rule-v2.schema.json`，draft 2020-12，与既有 schemas 同风格）：`request.body`（字面量/null/steps 构造）、`steps`（`{fn, args}` 顺序管道，args 可含 `{"ref": "body"}`，maxItems 8、fn 白名单枚举）、`permissions.network`（域名白名单）、`rights.min_api_level`；`transform` 与 `steps` 互斥（并存拒绝）、未知原语/steps 超限/args 超限拒绝。jsonschema 校验：jisubei 真实规则与 DSL 文档示例过、非法组合拒。运行时分流仍按 `ott_rule_interpreter.py` 既有逻辑（仅含旧字段走 L1 子集路径）。
 
 ### Phase 2：适配器体系与签名门槛
 
@@ -155,6 +160,11 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 > 状态（2026-08-09）：**2.1 适配器包格式已落地**：`docs/reference/adapter-package.md`（包布局 + `adapter.json` 字段表 + 签名/校验流程）+ `docs/reference/ott-adapter-v1.schema.json`（draft-07，script/rule 要求 `content.path`、instance 要求 `content.endpoints`、signature 格式 `ed25519:` 前缀可选）。schema 已用 `jsonschema` 验证：合法示例过、坏 type/checksum/缺 content 拒。运行时消费（manifest source 引用 adapter_id → 包内文件拉取）留给 2.2；跨仓 spec 同步仍为待确认项。
 >
 > 状态（2026-08-09 三线审查后修复）：**2.3 TOFU UI 确认流程已补齐**（红线项，决策 12 落实）：`trust_state` 新增 `pending`；首次有效签名 → pending + 固定公钥（不再自动 verified）；key 变更 → pending（需用户重新确认，不再静默 failed）；pending 跨刷新保持 sticky；L3 仍仅 `verified` 执行（`!= "verified"` 门槛未动）。UI：`ReposManagementPanel` 待确认徽章（systemCautionColor）+ 信任/拒绝按钮 → `confirmRepoTrust`/`rejectRepoTrust`（bridge → RegistryAdapter → runtime_config）。`runtime_config` 新增 `confirm_source_repo_trust`/`reject_source_repo_trust`（reject 清公钥回 unverified，订阅保留，下次刷新重新评估）。测试 11 个新增用例全绿，全量 977 passed。
+>
+> 状态（2026-08-09 批次 2）：**2.4、2.5、2.7 已落地**。
+> - **2.5 SDK**：`scripts/adapter.py` 四个子命令——`new <name> --type script|rule|instance [--repo-id] [--api-level] [--network-host]`（脚手架：合法 adapter.json + code/ + fixtures/ + README）、`validate <package-dir>`（六步链：schema → checksum → Ed25519 签名 → permissions 合法性 → min_api_level vs CLIENT_API_LEVEL → rule 解析；退出码 0/1）、`sign <package-dir> --pubkey --secret-key`（canonical JSON 排除 signature 键签名，容忍 32/64 字节 key）、`debug <package-dir>`（rule 走 OttRuleInterpreter、script 走 ScriptSandbox 且 fixtures 经 `OTT_FIXTURES_DIR` 注入、instance 打印 endpoints）。`tests/test_adapter_sdk.py` 5 用例含真实 CLI round-trip。
+> - **2.4 CI 签名流水线**：`.github/workflows/adapter-publish.yml`（两 job）——`validate`（PR + dispatch 触发，checkout → setup-python 3.12 → setup-uv@v4 0.9.26 → `uv sync --frozen` → `find adapters -name adapter.json` 逐包 validate → SDK 自测 → ruff）与 `sign-and-publish`（仅 dispatch + needs validate，secrets `ADAPTER_SIGNING_PUBKEY`/`ADAPTER_SIGNING_SECRET_KEY` 缺失即 exit 1 → 逐包 sign → 重 validate（签名改写 adapter.json）→ github-actions[bot] 提交回仓，无变更静默退出）。私钥只存 GitHub secret 不入仓；open-typing-texts 索引发布为注释标注的未来集成（不自动跨仓发布）。
+> - **2.7 撤销列表**：manifest 归一化新增 `revocations[]`（`content_hash` 内容级 + `pubkey` key 级双字段）。`_apply_revocations` 把 content_hash 并入 `runtime_config.add_blocked_content_hash`（去重 + 持久化）；key 级撤销经 `_manifest_revokes_pubkey`（与自身 trust.pubkey 相等即触发）→ `set_source_repo_trust("pending")` 信任降级待用户重新确认——**签名仍须有效**（撤销声明是已签名内容的一部分，防伪造降级攻击），决策 12 模型。`tests/test_ott_repo_manifest.py` 新增用例覆盖。federation 侧确认 blocked hashes 已在条目过滤生效（~703-705）、trust != verified 排除 L3，无需改动。
 
 ### Phase 3：控制面完善
 
@@ -169,13 +179,17 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 3.7 进度 key 修复 | `bridge.py` | `ott:{authority}:{entry_id}@{revision_id}`；含旧 key 迁移 |
 | 3.8 脚本命名空间 | `ott_federation_provider.py` | authority = `script:{sha256(url)[:12]}`，UI 同步 |
 | 3.9 federation 复用 | `ott_federation_provider.py` | 客户端实例缓存；`httpx.Client` 显式 close；rule/script 结果按 `schedule.cache_ttl_seconds` 缓存 |
-| 3.10 签名互操作 | `ott_repo_manifest.py` | 与 open-typing-texts 统一 canonical JSON 定义；明确 minisign 支持或移除 |
+| 3.10 签名互操作 | `ott_repo_manifest.py` | 与 open-typing-texts 统一 canonical JSON 定义；明确 minisign 支持或移除 | ✅ 已落地（跨仓统一，见状态注） |
 
 > 状态（2026-08-08）：**3.1-3.5、3.9 已落地**。3.1 按已缓存 manifest 的 http(s) mirrors 依次 failover（file:// 镜像忽略）；3.2 携带 `If-None-Match`、304 仅刷新缓存 mtime 并持久化 ETag；3.3 `ott_core` 版本约束 + `client_features` 协商，不满足整仓跳过并显示 `incompatible_reason`；3.4 ott-instance 按 `default_enabled` 消费（rule/script 该字段不在当前 schema，归一化不输出）；3.5 选择"明示暂不开放"：联邦跳过 ott-bridge，订阅面板显示"桥接源暂不支持"，ARCHITECTURE 改未落地；3.9 联邦共享单 `httpx.Client`、按订阅+manifest mtime 签名复用客户端、rule/script 结果按 `cache_ttl_seconds` 缓存。
 >
 > 状态（2026-08-09）：**3.7、3.8 已落地**。3.7 联邦分段进度 key 已是 `ott:{authority}:{entry_id}@{revision_id}`（bridge `_compute_progress_key("ott", ...)` 拼接，随 #44 落地），旧 OTT 直连路径以 `local` 兜底，`_find_progress` 按标题前缀扫描兼容旧格式 key 完成迁移；3.8 `_ScriptClient` authority 从裸 `script` 改为 `script:{sha256(url)[:12]}`（`_script_authority()`），`list_all_entries`/`ReposManagementPanel` 统计同步，同 entry_id 跨脚本不再被 dedupe 吞掉，新增 `test_authority_namespaced_by_url` 用例。
 >
 > 状态（2026-08-09 三线审查后修复）：**3.9 httpx.Client 显式 close 已补齐**：`OttFederationProvider.close()`（幂等，客户端未创建时安全）+ `main.py` teardown 接线（与 `infra.api_client.close()` 并列）。**3.9 脚本 authority 一致性已补齐**：`_script_authority` 移至 `ott_normalization.py`（单一事实源），`ScriptSandbox.execute` 计算后贯穿 `_normalize_entries(raw, authority)`，entry `authority` 与 `normalize_summary` 一致；`source_key` 保持稳定分组键（已注释说明）。
+>
+> 状态（2026-08-09 批次 2）：**3.6 TUF-lite 已落地**（`ott_repo_manifest.py` + `runtime_config.py`）。链式 snapshot 设计：`manifest_hash()` 对 manifest 做 canonical JSON（与签名校验一致的 sort_keys + ensure_ascii=False + compact separators）sha256；下一版 manifest 的 `snapshot_hash` 必须等于客户端当前已接受 manifest 的 hash。`_check_snapshot_rollback` 在 fetch/verify 路径拒绝回滚（log_warning + 不替换缓存，回退旧缓存）；`_snapshot_reference_hash` 优先 `SourceRepoEntry.last_snapshot_hash`（持久化新字段，空串兼容旧配置），为空时从缓存回填（升级兼容）。`expires_at`（ISO8601）经 `_manifest_expired` 判定——过期即 stale（TTL 或自身过期任一命中 → 返回缓存 + 后台刷新，不硬失败）；解析失败/缺失视为无过期。缺失字段均回退旧行为。所有检查在 `_accept_manifest` 统一收敛：校验 → 过期 → 回滚 → 写缓存 + 推进 last_snapshot_hash → revocations → TOFU/信任。测试 11 个新增用例（revocations 入屏蔽集 / 过期转 stale / 回滚拒绝且缓存不替换 / 链匹配接受 / key 撤销 → pending / 缺失字段不崩溃），全量 1009 passed。
+>
+> 状态（2026-08-09 批次 4）：**3.10 签名互操作跨仓统一完成**：open-typing-texts `docs/repo-manifest-spec.md` 与 `schemas/ott-repo.schema.json` 采用与 typetype `_verify_ed25519_signature` 一致的 canonical JSON 定义（manifest 去 `trust` 键 + `json.dumps(sort_keys=True, ensure_ascii=False, separators=(",", ":"))`），minisign 全部移除（fixture `valid-repository-mix.json` 换为真实 ed25519 签名，密钥/公钥已用 cryptography 验证自洽）。typetype 侧 `ott_repo_manifest.py` 已是裸 Ed25519 hex 实现（`ed25519:` 前缀可选），无需改动，两仓互操作达成。
 
 ### Phase 4：空壳化与默认源合规
 
@@ -194,7 +208,11 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 5.1 Linux 补齐 | `ott_script_runner.py` | seccomp（禁 ptrace/clone 变体）+ 现有 Landlock + rlimits |
 
 > 状态（2026-08-09 三线审查后修复）：**5.1 前置加固已落地**（seccomp 仍缺，留作 5.1 正式项）：① AST 检查新增 `BANNED_DUNDER_ATTRIBUTES`（16 个对象模型属性：`__class__`/`__mro__`/`__bases__`/`__subclasses__`/`__globals__`/`__closure__`/`__code__`/`__dict__`/`__builtins__`/`__self__`/`__func__`/`__getattribute__`/`__getattr__`/`__setattr__`/`__delattr__`/`__module__`），拦截 `().__class__.__subclasses__()` 类对象模型遍历（代码 `banned_object_model_access`）；`__init__` 不拦截（`super().__init__()` 合法，`def __init__` 是 FunctionDef 名不受影响，逃逸后续步骤已被拦）。② Landlock `/etc` 全目录读取收窄为逐文件 `/etc/resolv.conf` + `/etc/hosts` + `/etc/nsswitch.conf`（仅 READ_FILE，OSError 逐文件跳过）。③ 运行时 `_build_safe_builtins` 明确不 monkeypatch 对象内建（会破坏 bs4/Crypto），AST + 子进程隔离为边界，已注释说明。④ 端到端 Landlock 逃逸测试在真实内核 5.13+ 上验证仍 READ_BLOCKED。测试：`test_rejects_object_model_subclasses_escape`/`test_rejects_globals_attribute`/`test_allows_realistic_whitelisted_script`/`test_allows_super_init_in_class` + `TestLandlockNarrowing` 2 例，全绿。
-| 5.2 Windows 策略 | `ott_script_runner.py`/文档 | Job Object + 受限令牌；做不到则 L3 在 Windows 默认禁用并在 UI 明示 |
+>
+> 状态（2026-08-09 批次 2）：**5.1 seccomp 正式项已落地**（`ott_script_runner.py` + `tests/test_ott_script_client.py` TestSeccomp 4 用例）。`seccomp_available()` 在**子进程**探测（allow-everything 过滤器 + PR_SET_NO_NEW_PRIVS），绝不污染父进程，非 Linux 直接 False；`_build_seccomp_filter()` BPF 内核布局 `{int nr; __u32 arch}`（nr=0/arch=4，已对照 `/usr/include/linux/seccomp.h` 修正——反转偏移会导致过滤器永不生效）；`_apply_seccomp()` ctypes SockFilter/SockFprog + prctl(22,2)，EINVAL → KILL_THREAD 回退（pre-4.14）。禁 24 个 syscall（x86_64，各架构按头文件取数）：ptrace/mount 系/reboot/kexec/bpf/userfaultfd/perf_event_open/swap 系/sethostname/ns 系/module 系/iopl/ioperm/process_vm 系/kcmp，default ALLOW（不碰 socket/open/read/write/execve/clone/fork）。接入 main() 在 landlock 之后、run_script 之前；不可用时静默降级。测试验证：denied syscall 子进程被 KILL、正常脚本在 seccomp 下照常返回 entries。
+>
+> 状态（2026-08-09 批次 2）：**5.4 凭据注入已落地**（`ott_script_client.py` + `secure_token_store.py` + federation 接线 + 测试）。keyring → 子进程一次性 fd：`Popen(pass_fds=tuple(read_fds))`，脚本仅能读注入 fd（`/proc/self/fd` 布局），keyring 文件本身不可读。顺带修复 `pass_fds=None` 导致 CPython 3.12 `Popen` TypeError 的 bug（脚本无声明凭据时）。测试：`TestScriptSandboxSecrets` 7 用例 + federation 接线 4 用例，全量 998 → 1009 passed（5.4 落地时 998，加 2.7/3.6 后 1009）。
+| 5.2 Windows 策略 | `ott_script_runner.py`/文档 | Job Object + 受限令牌；做不到则 L3 在 Windows 默认禁用并在 UI 明示 | ✅ 决策落档：采用 0.A6 兜底分支（Windows 默认禁用 + UI 明示） |
 | 5.3 出口代理 | 新 `ott_outbound_proxy.py` | 本地代理按域名白名单放行；DNS pin；审计日志；脚本无直连 |
 | 5.4 凭据注入 | `ott_script_client.py` + `secure_token_store.py` | keyring → 子进程一次性 fd；脚本不可读 keyring 文件 |
 
@@ -212,6 +230,8 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 7.4 合规复核 | 外部 | 律师评审后放行 L3 分发 |
 
 > 状态（2026-08-08）：**7.1-7.3 文档与本地屏蔽机制已落地**（`docs/guides/ott-repo-governance.md` + `blocked_content_hashes` 本地清单）；7.2 的协议级 `revocations[]` 依赖 Phase 2.7；7.4 外部律师评审未启动。
+>
+> 状态（2026-08-09 批次 4）：**7.4 外部阻塞确认**：律师评审未启动，占位 `docs/legal/legal-review.md`（评审记录模板 + 待办清单）。L3 分发放行依赖此评审，属跨团队外部依赖，不阻塞本 ADR 其余落地项。
 
 ## 全局安全红线（不可协商）
 
