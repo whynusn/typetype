@@ -159,7 +159,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 >
 > 状态（2026-08-10）：**2.1 适配器包格式已落地**：权威文件在
 > open-typing-texts `docs/adapter-package.md` + `schemas/ott-adapter-v1.schema.json`
-> （draft-07，script/rule 要求 `content.path`、instance 要求 `content.endpoints`、
+> （draft 2020-12，script/rule 要求 `content.path`、instance 要求 `content.endpoints`、
 > signature 格式 `ed25519:` 前缀可选）。schema 已用 `jsonschema` 验证：合法示例过、
 > 坏 type/checksum/缺 content 拒。typetype 不再重复维护 schema，SDK 与测试引用
 > 兄弟仓；运行时消费（manifest source 引用 adapter_id → 包内文件拉取）留给 2.2。
