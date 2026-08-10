@@ -220,7 +220,7 @@ TypeType 的文本来源按**路由方式**（Loader）和**排行榜行为**（
 
 首次启动自动生成 `~/.config/typetype/config.json`，默认 `text_sources` 包含：
 - `builtin_demo` / `fst_500` / `mid_500` / `lst_500` / `essential_single_char`（五组本地文件）
-- 联网来源需在设置页配置 `base_url`（指向 typetype-server）或 `registry.primary_url` 后生效
+- 联网来源需在设置页配置 `base_url`（指向 typetype-server）或订阅 `source_repos`（官方默认仓）后生效
 
 ---
 

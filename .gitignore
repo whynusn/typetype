@@ -82,8 +82,7 @@ font_config.json
 # Local working notes (not for version control)
 memory/
 
-# Local draft docs (server-side workline / superseded specs, not part of this branch)
-docs/designs/
+# Local working notes (server-side workline / superseded specs)
 docs/superpowers/
 
 # Git worktrees

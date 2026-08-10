@@ -1,5 +1,7 @@
 # Kafka Producer 实现
 
+> ⚠️ 本文件为 typetype-server（服务端）侧设计，与本客户端仓库解耦；2026-07-03 起 draft 未更新。客户端开发者请忽略。
+
 > 本文件是 typetype-server 的 Kafka Producer 参考实现。
 > 设计目标：将用户成绩异步发送到 Kafka，解耦 HTTP 请求与数据处理。
 

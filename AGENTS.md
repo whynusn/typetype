@@ -321,7 +321,7 @@ onActiveChanged: {
 **问题**：ADR-010 落地后，客户端多 authority 订阅统一走 `RuntimeConfig.source_repos`（`SourceReposConfig`）。旧的 `registry.primary_url` / `mirror_url` 仍保留为兼容标识（单实例 OTT 数据面仍可用），但新订阅能力必须写 `source_repos`。
 
 **现状**（Phase 1）：
-- `SourceReposConfig` 是一组 `SourceRepoEntry`（url / enabled / trust_state / pinned_pubkey / refresh_ttl_seconds / etag / added_at）
+- `SourceReposConfig` 是一组 `SourceRepoEntry`（url / enabled / trust_state / pinned_pubkey / refresh_ttl_seconds / etag / added_at / last_snapshot_hash）
 - 旧 `registry.primary_url` 在加载时**自动迁移**为一条等价 `source_repos` 订阅（TTL 沿用 `cache_ttl_seconds`）；已存在 `source_repos` 时不迁移
 - 订阅增删改通过 `RuntimeConfig.add_source_repo / remove_source_repo / set_source_repo_enabled / set_source_repo_trust`，不要直接操作 `source_repos.repos` 列表
 - manifest 拉取与缓存在 `RepoManifestCache`（TTL/stale-while-revalidate/原子写/后台刷新，复用 OTT Core v1 缓存决策树）
@@ -421,7 +421,7 @@ onActiveChanged: {
 - 调试工具：`scripts/debug_rule.py`（离线 CLI，不启动 UI）
 
 **schema v2**（2026-08-07 Phase 1.3 落地，设计见 `docs/designs/ott-dsl.md`）：
-- `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），`{"ref": "body"}` 引用 `request.body` 字面量，末步输出作为 POST 请求体
+- `steps`：DSL 顺序管道（`ott_dsl.py` 45 原语白名单求值器），`{"ref": "body"}` 引用 `request.body` 字面量，末步输出作为 POST 请求体
 - `permissions.network`：域名白名单（子域匹配），声明时生效——URL 不在白名单内整条规则拒绝；未声明回退 `validate_url`
 - `rights.min_api_level`：客户端 API level（`CLIENT_API_LEVEL` 常量，federation 创建 interpreter 时传入）低于声明值 → 规则不兼容跳过
 - body 类型规范化：str/bytes 直传、dict/list → JSON 序列化、int/bool 字符串化、其余类型规则拒绝；`Content-Type` 必须由规则 `request.headers` 显式声明

@@ -1,5 +1,7 @@
 # Redis 配置参考
 
+> ⚠️ 本文件为 typetype-server（服务端）侧设计，与本客户端仓库解耦；2026-07-03 起 draft 未更新。客户端开发者请忽略。
+
 > 本文件是 typetype-server 的 Redis 配置参考实现。
 > 包含 RedisConfig 配置类、序列化策略、连接池配置、application-redis.yml 等。
 

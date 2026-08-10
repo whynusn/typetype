@@ -1,4 +1,7 @@
 # TypeType 大数据技术栈集成设计
+
+> ⚠️ 本文件为 typetype-server（服务端）侧设计，与本客户端仓库解耦；2026-07-03 起 draft 未更新。客户端开发者请忽略。
+
 <!-- 状态: draft | 创建: 2026-07-03 |
 
 > 目标：在 typetype-server（Spring Boot）侧引入 Kafka + Flink + Redis，支撑实时排行、异常检测、用户趋势分析。

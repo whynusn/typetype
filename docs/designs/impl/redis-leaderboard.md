@@ -1,5 +1,7 @@
 # Redis 排行榜实现
 
+> ⚠️ 本文件为 typetype-server（服务端）侧设计，与本客户端仓库解耦；2026-07-03 起 draft 未更新。客户端开发者请忽略。
+
 > 本文件是 typetype-server 的 Redis 排行榜参考实现。
 > 包含 LeaderboardService 实现、多维度排行、用户最佳成绩映射、排行榜查询接口等。
 

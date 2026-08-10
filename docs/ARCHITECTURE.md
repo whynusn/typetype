@@ -1,5 +1,5 @@
 # TypeType 架构设计手册
-<!-- 状态: active | 最后验证: 2026-07-27 -->
+<!-- 状态: active | 最后验证: 2026-08-10 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -11,7 +11,7 @@
 
 ---
 
-> 最后更新：2026-07-13
+> 最后更新：2026-08-10
 
 ---
 
@@ -121,7 +121,7 @@ src/backend/
 #### 载文分类说明（对应三层模型）
 
 - **第 1 层（本地文件）**：剪贴板、自定义、本地文库、练单器、前/中/后五百、打词必备单字 — 文本来自本地文件或用户输入
-- **第 2 层（开源文库 / OTT）**：OTT Core v1 只读分发协议提供的文本（通常由用户本地运行 `ott-adapter`）— 由 `TextLoadHubPage.qml` 的「开源文库」标签接入
+- **第 2 层（开源文库 / OTT）**：OTT Core v1 只读分发协议提供的文本（通过 OTT Repo 订阅或内置离线源）— 由 `TextLoadHubPage.qml` 的「开源文库」标签接入
 - **第 3 层（即时拉取）**：极速杯 — 文本来自 TypeType 后端 (`typetype-server`)；晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
 
 #### 分段模式与乱序
@@ -449,7 +449,7 @@ src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + rep
 
 - 订阅 manifest 拉取与联邦聚合均走 Worker（不阻塞 UI）
 - 离线时返回缓存 manifest（无视 TTL 兜底）
-- 签名（minisign/ed25519 + TOFU）为未来 Phase 4，当前信任状态仅作 UI 徽章展示
+- 签名（裸 Ed25519，minisign 已移除）+ TOFU 已实现（ADR-011 Phase 2.3）：`trust_state` 门控 L3 执行，签名是 L3 的执行门槛而非徽章；L0/L1/L2 签名仍仅作信任信号
 - authority 冲突时按 repo 分组并列展示，由用户选择
 
 ### L1 规则（ott-rule）URL 约束
@@ -463,7 +463,7 @@ src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + rep
 
 规则可选用 v2 字段（设计见 `docs/designs/ott-dsl.md`）：
 
-- `steps`：DSL 顺序管道（`ott_dsl.py` 43 原语白名单求值器），前步输出作为后步首参，`{"ref": "body"}` 引用 `request.body` 字面量；末步输出作为 POST 请求体
+- `steps`：DSL 顺序管道（`ott_dsl.py` 45 原语白名单求值器），前步输出作为后步首参，`{"ref": "body"}` 引用 `request.body` 字面量；末步输出作为 POST 请求体
 - `request.body`：无 `steps` 时为字面量；有 `steps` 时经管道构造。body 类型规范化：str/bytes 直传、dict/list → JSON 序列化、int/bool 字符串化、其余类型规则拒绝
 - `permissions.network`：域名白名单（子域匹配），**声明时生效**——URL 不在白名单内 → 整条规则拒绝；未声明回退 `validate_url` 基线
 - `rights.min_api_level`：客户端 API level（`OttRuleInterpreter(api_level=...)`，生产经 `CLIENT_API_LEVEL`）低于声明值 → 规则标记不兼容跳过

@@ -1,5 +1,5 @@
 # RuntimeConfig 配置速查
-<!-- 状态: active | 最后验证: 2026-07-04 -->
+<!-- 状态: active | 最后验证: 2026-08-10 -->
 
 > 配置文件位于用户配置目录中的 `config.json`。首次启动时由 dataclass 默认值自动生成。macOS 用户配置目录为 `~/Library/Application Support/TypeType/`，Linux 为 `~/.config/typetype/`。
 
@@ -13,6 +13,7 @@
 | `text_sources` | `dict[str, TextSourceEntry]` | `{}` | 文本来源配置表 |
 | `wenlai` | `dict` | 见下 | 晴发文服务配置 |
 | `ui` | `dict` | 见下 | UI 主题与外观配置 |
+| `blocked_content_hashes` | `list[str]` | `[]` | 被撤销的内容 hash 屏蔽集（2.7/7.2 落地，撤销列表自动维护） |
 
 ## TextSourceEntry 字段
 
@@ -83,30 +84,33 @@
 
 ## Registry 子字段
 
+> **⚠️ 已废弃（兼容迁移）**：`registry.primary_url` 在加载时自动迁移为 `source_repos` 订阅（见下）；新部署请订阅 `source_repos` / 官方默认仓。以下字段仅作兼容标识保留，不再作为活跃配置使用。
+
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `registry.primary_url` | `str` | `http://127.0.0.1:18888` | 开源文库服务地址（本地运行脚本后暴露的 HTTP 服务） |
-| `registry.mirror_url` | `str` | `""` | 镜像地址（可选） |
+| `registry.primary_url` | `str` | `http://127.0.0.1:18888` | 旧开源文库服务地址（已废弃，仅兼容迁移） |
+| `registry.mirror_url` | `str` | `""` | 镜像地址（可选，已废弃，仅兼容） |
 | `registry.cache_ttl_seconds` | `int` | `86400` | 缓存过期时间（秒） |
 | `registry.max_content_bytes` | `int` | `1048576` | 单篇正文最大字节（1 MB） |
 
-> 推荐：使用 [open-typing-texts](https://github.com/whynusn/open-typing-texts) 开源文库仓库的脚本在本地运行服务，`primary_url` 设为 `http://127.0.0.1:18888`。
+> 推荐：订阅 [typetype-default-ott-repo](https://github.com/whynusn/typetype-default-ott-repo) 官方默认仓（内置离线源首启自动注入，远程订阅可手动添加）。
 
 > **迁移**：旧 `registry.primary_url` 在加载时自动迁移为一条等价 `source_repos` 订阅（TTL 沿用 `cache_ttl_seconds`）。已存在 `source_repos` 时不做迁移。
 
 ## source_repos 子字段（OTT Repo 控制面）
 
-多 authority 源仓库订阅列表（`SourceReposConfig`）。客户端从每个订阅 URL 拉取 `ott-repo.json` manifest，聚合所有 ott-instance 源。
+多 authority 源仓库订阅列表（`SourceReposConfig`）。客户端从每个订阅 URL 拉取 `ott-repo.json` manifest，聚合所有源类型（ott-instance / ott-rule / ott-script）。
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `source_repos[].url` | `str` | — | 订阅 URL（ott-repo.json 地址，必填） |
 | `source_repos[].enabled` | `bool` | `true` | 是否启用 |
-| `source_repos[].trust_state` | `str` | `"unverified"` | 信任状态：`verified` / `unverified` / `failed` |
+| `source_repos[].trust_state` | `str` | `"unverified"` | 信任状态：`verified` / `pending` / `unverified` / `failed` |
 | `source_repos[].pinned_pubkey` | `str` | `""` | TOFU 固定的公钥（ed25519） |
 | `source_repos[].refresh_ttl_seconds` | `int` | `86400` | manifest 刷新 TTL（秒） |
 | `source_repos[].etag` | `str` | `""` | HTTP ETag（缓存优化，自动管理） |
 | `source_repos[].added_at` | `str` | `""` | 订阅添加时间（ISO 8601） |
+| `source_repos[].last_snapshot_hash` | `str` | `""` | 上一版已接受 manifest 的 sha256（TUF-lite 链式快照，3.6 落地，自动管理） |
 
 > 协议细节见 open-typing-texts 仓 `docs/repo-manifest-spec.md`（OTT Repo v1）。
 

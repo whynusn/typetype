@@ -2,7 +2,7 @@
 
 <!-- 状态: draft | 创建: 2026-08-07 | 关联: ADR-011 Phase 1, L1 解释器 -->
 
-> 状态：本地草稿（评审通过后再排 1.1-1.5）｜依据：[ADR-011](./../decisions/011-ott-source-ecosystem-hardening-plan.md) Phase 1
+> 状态：已实现（1.1-1.5 已落地，ADR-011 Phase 1）；真实站点验证挂起｜依据：[ADR-011](./../decisions/011-ott-source-ecosystem-hardening-plan.md) Phase 1
 > 关联：[L1 解释器实现](../../src/backend/integration/ott_rule_interpreter.py)
 
 ---
@@ -139,7 +139,7 @@ L1 声明式规则（`ott-rule`）为无图灵完备的抓取描述：
 - `rights.min_api_level`：客户端低于声明 API level 时整条规则标记不兼容。
 - 校验拒绝：`transform` 与 `steps` 并存、未知原语、steps 超限（MAX_STEPS/MAX_CALLS/1MB）。
 
-## 7. 极速杯迁移验证（Phase 1.4，已完成 2026-08-07）
+## 7. 极速杯迁移验证（Phase 1.4，mock 验证完成 2026-08-07；真实站点验证挂起）
 
 - 新 `tests/fixtures/rule-samples/jisubei.json`：用 DSL 表达极速杯请求并跑通 mock，零引擎改动。
 - **实现要点**：
@@ -179,4 +179,4 @@ L1 声明式规则（`ott-rule`）为无图灵完备的抓取描述：
 1. **AES 密钥位宽** → 固定 128（现网 `crypt.py` 16 字节密钥 `c9ec834c80f77237`，ZeroPadding 非 PKCS7，已同步原语签名）
 2. **`request.body` 模板** → `{ref}` 字符串模板（简单可读，静态可校验）
 3. **加密密钥注入** → 仅规则字面量（YAGNI，注入通道后议）
-4. **极速杯抓取许可** → 已确认可抓取；1.4 可对真实站点验证
+4. **极速杯抓取许可** → mock 验证已确认（字节级 AES 请求体与参考脚本一致）；真实站点可用性/抓取许可仍待确认（ADR-011 待确认项 3）
