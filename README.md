@@ -192,7 +192,7 @@ TypeType 的文本来源按**路由方式**（Loader）和**排行榜行为**（
 |:--- |:--- |:--- |
 | **本地文件** | `QtLocalTextLoader` 直接读取本地文件 | 内置示例、前/中/后五百、打词必备单字、本地文库、练单器、剪贴板、自定义载文 |
 | **服务端 API** | `RemoteTextProvider` 调用 typetype-server REST API | 服务端提供的文本列表（通过 `config.json` 配置 `text_sources` 注册） |
-| **开源文库** | `RegistryTextProvider` 读取 HTTP 注册表（带磁盘缓存） | 每日一文、静态文集等，用户在本地运行脚本生成后通过注册表服务暴露 |
+| **开源文库** | `OttTextProvider` + `OttFederationProvider` 读取 OTT Core v1 / OTT Repo v1（`/ott/v1` 或 Static Profile） | 订阅 OTT Repo 源仓库，内置离线默认源，规则/脚本源（沙箱执行） |
 | **独立协议** | 各自独立的 Provider + UseCase + Adapter 栈 | 晴发文（第三方 API）、AI 智能推荐（LLM API） |
 
 ### 文本来源列表
@@ -208,7 +208,7 @@ TypeType 的文本来源按**路由方式**（Loader）和**排行榜行为**（
 
 **联网来源**（需配置服务端或第三方服务）：
 - **typetype-server 文本列表**（`text_sources` 中 `loader=REMOTE_API` 的条目）— 通过客户端设置页配置的 `base_url` 连接自部署的 [typetype-server](https://github.com/whynusn/typetype-server)，获取服务端提供的文本列表及排行榜
-- **开源文库**（`loader=REGISTRY`）— 连接 HTTP 注册表服务获取文本库，支持磁盘缓存与后台刷新。默认未启用，需在设置页配置 `registry.primary_url`
+- **开源文库**（OTT Repo 订阅）— 首启自动注入 `file://` 内置离线源；可手动订阅远程 OTT Repo（官方默认源：`https://raw.githubusercontent.com/whynusn/typetype-default-ott-repo/main/ott-repo.json`），支持磁盘缓存与后台刷新。旧 `registry.primary_url` 配置自动迁移为订阅
 - **晴发文** — 调用 [qingfawen.fcxxz.com](https://qingfawen.fcxxz.com) 第三方 API 获取随机/相邻文本，需注册账号。独立协议栈，不支持排行榜提交
 - **AI 智能推荐** — 通过 OpenAI / DeepSeek / Anthropic 等兼容 API 生成针对性练习文本，根据薄弱字自动出题。独立协议栈
 
