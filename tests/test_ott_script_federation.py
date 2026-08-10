@@ -6,7 +6,9 @@ import json
 from unittest.mock import MagicMock
 
 import httpx
+import pytest
 
+from src.backend.integration import ott_script_runner as runner
 from src.backend.config.runtime_config import (
     RegistryConfig,
     RuntimeConfig,
@@ -137,6 +139,10 @@ class TestClientsSignatureTrustState:
 
 
 class TestScriptClient:
+    @pytest.mark.skipif(
+        not (runner.landlock_available() or runner.seccomp_available()),
+        reason="需要 Landlock 或 seccomp 沙箱",
+    )
     def test_produces_entries(self, tmp_path) -> None:
         script_source = (
             "def fetch_entries():\n"
@@ -167,6 +173,10 @@ class TestScriptClient:
             "https://example.com/scripts/fetch.py"
         )
 
+    @pytest.mark.skipif(
+        not (runner.landlock_available() or runner.seccomp_available()),
+        reason="需要 Landlock 或 seccomp 沙箱",
+    )
     def test_authority_namespaced_by_url(self, tmp_path) -> None:
         """不同 URL 的脚本 authority 不同，防同 entry_id 跨脚本串用。"""
         script_source = (
@@ -265,6 +275,10 @@ class _FakeTokenStore:
 
 
 class TestScriptClientSecrets:
+    @pytest.mark.skipif(
+        not (runner.landlock_available() or runner.seccomp_available()),
+        reason="需要 Landlock 或 seccomp 沙箱",
+    )
     def test_propagates_declared_secret_names(self, tmp_path) -> None:
         """secret_names 从 manifest 透传到 _ScriptClient，再注入沙箱。"""
         script_source = (

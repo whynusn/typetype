@@ -66,7 +66,7 @@ jobs:
           done
 
       - name: 运行 SDK 自测
-        run: uv run pytest tests/test_adapter_sdk.py -q -p no:pytestqt
+        run: uv run pytest tests/test_adapter_sdk.py -q -p no:pytest-qt
 
       - name: 静态分析（ruff，line-length 88）
         run: uv run ruff check scripts/adapter.py adapters/

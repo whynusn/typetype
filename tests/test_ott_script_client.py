@@ -20,6 +20,8 @@ from src.backend.integration.ott_script_client import (
 )
 from src.backend.integration.ott_script_runner import landlock_available
 
+_SANDBOX_AVAILABLE = runner.landlock_available() or runner.seccomp_available()
+
 
 class FakeTokenStore:
     """测试用内存 token store（模拟 SecureTokenStore 的按名存取）。"""
@@ -40,6 +42,7 @@ class FakeTokenStore:
 # ── 沙箱执行 ────────────────────────────────────────────────────────────
 
 
+@pytest.mark.skipif(not _SANDBOX_AVAILABLE, reason="需要 Landlock 或 seccomp 沙箱")
 class TestScriptSandbox:
     def test_executes_fetch_entries(self) -> None:
         source = (
@@ -190,6 +193,7 @@ class TestScriptSandbox:
             secret.unlink(missing_ok=True)
 
 
+@pytest.mark.skipif(not _SANDBOX_AVAILABLE, reason="需要 Landlock 或 seccomp 沙箱")
 class TestExecuteScript:
     def test_convenience_function(self) -> None:
         source = (
@@ -269,6 +273,7 @@ class TestScriptApiLevel:
         assert entries == []
         mock_popen.assert_not_called()
 
+    @pytest.mark.skipif(not _SANDBOX_AVAILABLE, reason="需要 Landlock 或 seccomp 沙箱")
     def test_executes_when_api_level_at_or_below_client(self) -> None:
         from src.backend.integration.ott_script_client import CLIENT_API_LEVEL
 
@@ -510,6 +515,9 @@ class TestRunnerNetworkGate:
 # ── Landlock /etc 缩小 ─────────────────────────────────────────────────
 
 
+@pytest.mark.skipif(
+    not runner.landlock_available(), reason="需要 Linux 内核 5.13+ Landlock"
+)
 class TestLandlockNarrowing:
     """_apply_landlock 的 /etc 只按文件授予（mock syscall，不依赖真实内核）。"""
 
@@ -779,6 +787,7 @@ class TestScriptSandboxSecrets:
         with pytest.raises(RuntimeError):
             helper.get_secret("undeclared")
 
+    @pytest.mark.skipif(not _SANDBOX_AVAILABLE, reason="需要 Landlock 或 seccomp 沙箱")
     def test_execute_injects_declared_secret(self) -> None:
         """父进程 → 一次性 fd → 子进程 sandbox.get_secret 取值（全链路）。"""
         source = (
@@ -792,6 +801,7 @@ class TestScriptSandboxSecrets:
         assert len(entries) == 1
         assert entries[0]["content"] == "top-secret-value"
 
+    @pytest.mark.skipif(not _SANDBOX_AVAILABLE, reason="需要 Landlock 或 seccomp 沙箱")
     def test_execute_injects_multiple_secrets(self) -> None:
         source = (
             "def fetch_entries():\n"
@@ -819,6 +829,7 @@ class TestScriptSandboxSecrets:
         sandbox = ScriptSandbox()
         assert sandbox.execute(source, "test://script") == []
 
+    @pytest.mark.skipif(not _SANDBOX_AVAILABLE, reason="需要 Landlock 或 seccomp 沙箱")
     def test_secret_not_written_to_sandbox_filesystem(self, tmp_path) -> None:
         """凭据值不落入沙箱脚本目录（Landlock 白名单内可写区）。"""
         sandbox_dir = tmp_path / "sandbox"

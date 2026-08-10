@@ -25,7 +25,7 @@ jobs:
           version: '0.9.26'
 
       - name: 安装 Qt 系统依赖
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libgl1
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libgl1 zlib1g
 
       - name: 安装依赖
         run: uv sync --frozen
