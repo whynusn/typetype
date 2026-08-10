@@ -1,6 +1,7 @@
 from ..models.entity.char_stat import CharStat
 
 
+# test-only: 仅测试消费（3 个测试文件），生产未装配（container.py 无引用）；删除前需确认无生产装配
 class NoopCharStatsRepository:
     """占位实现，无持久化时不影响打字功能。"""
 

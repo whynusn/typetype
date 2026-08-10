@@ -4,7 +4,7 @@ import os
 import re
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
+from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from ...config.app_paths import user_texts_dir
 from ...config.runtime_config import RuntimeConfig
@@ -167,12 +167,4 @@ class UploadTextAdapter(QObject):
         log_info(f"[UploadTextAdapter] 云端上传成功: id={result_id}")
         return result_id
 
-    @Slot(str, str, str)
-    def upload_to_local(self, title: str, content: str, source_key: str) -> None:
-        """兼容旧接口。"""
-        self.upload(title, content, source_key, True, False)
 
-    @Slot(str, str, str)
-    def upload_to_cloud(self, title: str, content: str, source_key: str) -> None:
-        """兼容旧接口。"""
-        self.upload(title, content, source_key, False, True)

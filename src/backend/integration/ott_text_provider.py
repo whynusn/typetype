@@ -257,9 +257,6 @@ class OttTextProvider:
     def _write_cache(self, cache_key: str, data: dict) -> None:
         self._cache.write_cache(cache_key, data)
 
-    def _is_cache_expired(self, cache_key: str) -> bool:
-        return self._cache.is_cache_expired(cache_key)
-
     # ------------------------------------------------------------------
     # 安全与清洗
     # ------------------------------------------------------------------

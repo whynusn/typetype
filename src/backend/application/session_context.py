@@ -61,7 +61,6 @@ class TypingSessionContext:
         self._slice_text: str = ""
 
         # 分片载文状态
-        self._slices: list[str] = []
         self._slice_stats: list[dict | None] = []
         self._key_stroke_min: float = 0.0
         self._speed_min: int = 0
@@ -255,8 +254,6 @@ class TypingSessionContext:
         self._slice_text = text
         self._slice_size = slice_size
         self._slice_total = (len(text) + slice_size - 1) // slice_size
-        # 兼容字段保留（不再提前复制所有分片）
-        self._slices = []
 
         if self._slice_total <= 0:
             return 0
@@ -544,7 +541,6 @@ class TypingSessionContext:
 
     def exit_slice_mode(self) -> None:
         """退出载文模式，清理分片相关状态。"""
-        self._slices = []
         self._slice_text = ""
         self._slice_size = 0
         self._slice_stats = []
