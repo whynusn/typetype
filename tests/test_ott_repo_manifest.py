@@ -273,6 +273,44 @@ def test_validate_directory_output_conforms_to_schema():
     jsonschema.validate(v, schema)
 
 
+@pytest.mark.skipif(
+    not OTT_REPO_SCHEMA_PATH.exists(),
+    reason="open-typing-texts 仓未克隆到兄弟目录，跳过跨仓 schema 对齐",
+)
+def test_validate_ott_script_output_conforms_to_v11_schema():
+    """typetype 归一化器产出的 ott-script 源必须通过 open-typing-texts v1.1 schema。
+
+    跨仓契约：typetype 客户端实现的 manifest 归一化输出，必须能被上游
+    repo-manifest-spec v1.1 的正式 schema 接受（L3 签名门槛分发）。
+    """
+    import jsonschema
+
+    schema = json.loads(OTT_REPO_SCHEMA_PATH.read_text(encoding="utf-8"))
+    m = {
+        "protocol": "ott-repo",
+        "version": "1.1",
+        "type": "repository",
+        "repo_id": "script.example.org",
+        "name": "脚本源仓库",
+        "mirrors": [{"url": "https://script.example.org/ott-repo.json", "priority": 1}],
+        "sources": [
+            {
+                "type": "ott-script",
+                "url": "https://script.example.org/fetch.py",
+                "label": "示例脚本",
+                "checksum": "sha256:" + "ab" * 32,
+                "permissions": {"network": ["api.example.org"], "secrets": []},
+                "rights": {"min_api_level": 2},
+                "tags": ["chinese"],
+            }
+        ],
+    }
+    v = validate_repo_manifest(m)
+    assert v is not None
+    assert v["sources"][0]["type"] == "ott-script"
+    jsonschema.validate(v, schema)
+
+
 def test_repo_cache_key_deterministic():
     assert repo_cache_key("https://example.org/r.json") == repo_cache_key(
         "https://example.org/r.json"

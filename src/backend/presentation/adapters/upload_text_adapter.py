@@ -166,5 +166,3 @@ class UploadTextAdapter(QObject):
             raise RuntimeError("服务器未返回有效ID")
         log_info(f"[UploadTextAdapter] 云端上传成功: id={result_id}")
         return result_id
-
-
