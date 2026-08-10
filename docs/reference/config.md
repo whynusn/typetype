@@ -93,7 +93,7 @@
 | `registry.cache_ttl_seconds` | `int` | `86400` | 缓存过期时间（秒） |
 | `registry.max_content_bytes` | `int` | `1048576` | 单篇正文最大字节（1 MB） |
 
-> 推荐：订阅 [typetype-default-ott-repo](https://github.com/whynusn/typetype-default-ott-repo) 官方默认仓（内置离线源首启自动注入，远程订阅可手动添加）。
+> 推荐：订阅第三方 OTT Repo 源仓库（内置离线源首启自动注入，远程订阅可手动添加）。
 
 > **迁移**：旧 `registry.primary_url` 在加载时自动迁移为一条等价 `source_repos` 订阅（TTL 沿用 `cache_ttl_seconds`）。已存在 `source_repos` 时不做迁移。
 

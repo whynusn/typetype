@@ -2,6 +2,7 @@
 """serve_ott_repo.py - 本地 OTT Repo 测试服务器。
 
 启动后，typetype 可以通过 http://127.0.0.1:18888/ott-repo.json 订阅本地 repo。
+服务目录为内置离线源 resources/ott-repo（官方默认内容仓已归档，内置源为内容本体）。
 
 用法：
     uv run python scripts/serve_ott_repo.py
@@ -18,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-PUBLIC_DIR = ROOT.parent / "typetype-default-ott-repo"
+PUBLIC_DIR = ROOT / "resources" / "ott-repo"
 
 
 def create_app():

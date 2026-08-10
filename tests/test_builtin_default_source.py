@@ -18,12 +18,8 @@ from src.backend.integration.ott_repo_manifest import (
 from src.backend.integration.ott_normalization import local_path_from_file_uri
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
-_PUBLIC_REPO_DIR = Path(__file__).resolve().parents[2] / "typetype-default-ott-repo"
 _REPO_DIRS = [builtin_ott_repo_dir()]
 _REPO_IDS = ["builtin"]
-if _PUBLIC_REPO_DIR.exists():
-    _REPO_DIRS.append(_PUBLIC_REPO_DIR)
-    _REPO_IDS.append("public")
 
 
 def _load_json(path: Path) -> dict:

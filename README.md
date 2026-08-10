@@ -208,7 +208,7 @@ TypeType 的文本来源按**路由方式**（Loader）和**排行榜行为**（
 
 **联网来源**（需配置服务端或第三方服务）：
 - **typetype-server 文本列表**（`text_sources` 中 `loader=REMOTE_API` 的条目）— 通过客户端设置页配置的 `base_url` 连接自部署的 [typetype-server](https://github.com/whynusn/typetype-server)，获取服务端提供的文本列表及排行榜
-- **开源文库**（OTT Repo 订阅）— 首启自动注入 `file://` 内置离线源；可手动订阅远程 OTT Repo（官方默认源：`https://raw.githubusercontent.com/whynusn/typetype-default-ott-repo/main/ott-repo.json`），支持磁盘缓存与后台刷新。旧 `registry.primary_url` 配置自动迁移为订阅
+- **开源文库**（OTT Repo 订阅）— 首启自动注入 `file://` 内置离线源；可手动订阅远程 OTT Repo（任意第三方仓库，支持磁盘缓存与后台刷新）。旧 `registry.primary_url` 配置自动迁移为订阅
 - **晴发文** — 调用 [qingfawen.fcxxz.com](https://qingfawen.fcxxz.com) 第三方 API 获取随机/相邻文本，需注册账号。独立协议栈，不支持排行榜提交
 - **AI 智能推荐** — 通过 OpenAI / DeepSeek / Anthropic 等兼容 API 生成针对性练习文本，根据薄弱字自动出题。独立协议栈
 
