@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-PUBLIC_DIR = ROOT / "public-ott-repo"
+PUBLIC_DIR = ROOT.parent / "typetype-default-ott-repo"
 
 
 def create_app():

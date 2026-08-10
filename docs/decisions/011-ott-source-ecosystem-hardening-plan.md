@@ -147,7 +147,7 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 任务 | 改动 | 验收 |
 |---|---|---|
 | 2.0 签名方案定稿 | 新 `docs/designs/adapter-signing.md` + open-typing-texts 同步 | canonical JSON 定义、minisign 移除、TOFU 首次信任 UI 流程、key 变更/撤销交互；2.3/2.7/3.10 以其为前置 |
-| 2.1 适配器包格式 | 新 `docs/reference/adapter-package.md` + schema | `adapter.json`（manifest + 权限 + rights + API level）+ 代码/规则 + fixtures + 签名 |
+| 2.1 适配器包格式 | 新 open-typing-texts `docs/adapter-package.md` + `schemas/ott-adapter-v1.schema.json` | `adapter.json`（manifest + 权限 + rights + API level）+ 代码/规则 + fixtures + 签名 |
 | 2.2 权限清单强制 | `ott_federation_provider.py`、`ott_script_client.py` | `permissions.network` 域名白名单；storage/process 默认 none；运行时强制 |
 | 2.3 L3 签名门槛 | `ott_repo_manifest.py`、`ott_script_client.py` | 未签名脚本拒绝执行；TOFU 首次信任 UI 确认；key 变更触发信任降级确认流程 |
 | 2.4 CI 签名流水线 | 新 `.github/workflows/adapter-publish.yml`（两仓各自） | schema 校验 → 静态分析 → mock 沙箱 → 可重复构建 → 离线私钥签名 → 发布索引 |
@@ -157,7 +157,12 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 
 > 状态（2026-08-08）：**2.0 设计文档已产出**（`docs/designs/adapter-signing.md`）；**2.3 执行门槛已落地**（L3 仅 verified 仓库执行）。2.2/2.4-2.7 未开工；2.4/2.5 依赖 2.1 的适配器包格式。
 >
-> 状态（2026-08-09）：**2.1 适配器包格式已落地**：`docs/reference/adapter-package.md`（包布局 + `adapter.json` 字段表 + 签名/校验流程）+ `docs/reference/ott-adapter-v1.schema.json`（draft-07，script/rule 要求 `content.path`、instance 要求 `content.endpoints`、signature 格式 `ed25519:` 前缀可选）。schema 已用 `jsonschema` 验证：合法示例过、坏 type/checksum/缺 content 拒。运行时消费（manifest source 引用 adapter_id → 包内文件拉取）留给 2.2；跨仓 spec 同步仍为待确认项。
+> 状态（2026-08-10）：**2.1 适配器包格式已落地**：权威文件在
+> open-typing-texts `docs/adapter-package.md` + `schemas/ott-adapter-v1.schema.json`
+> （draft-07，script/rule 要求 `content.path`、instance 要求 `content.endpoints`、
+> signature 格式 `ed25519:` 前缀可选）。schema 已用 `jsonschema` 验证：合法示例过、
+> 坏 type/checksum/缺 content 拒。typetype 不再重复维护 schema，SDK 与测试引用
+> 兄弟仓；运行时消费（manifest source 引用 adapter_id → 包内文件拉取）留给 2.2。
 >
 > 状态（2026-08-09 三线审查后修复）：**2.3 TOFU UI 确认流程已补齐**（红线项，决策 12 落实）：`trust_state` 新增 `pending`；首次有效签名 → pending + 固定公钥（不再自动 verified）；key 变更 → pending（需用户重新确认，不再静默 failed）；pending 跨刷新保持 sticky；L3 仍仅 `verified` 执行（`!= "verified"` 门槛未动）。UI：`ReposManagementPanel` 待确认徽章（systemCautionColor）+ 信任/拒绝按钮 → `confirmRepoTrust`/`rejectRepoTrust`（bridge → RegistryAdapter → runtime_config）。`runtime_config` 新增 `confirm_source_repo_trust`/`reject_source_repo_trust`（reject 清公钥回 unverified，订阅保留，下次刷新重新评估）。测试 11 个新增用例全绿，全量 977 passed。
 >
@@ -195,11 +200,15 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 
 | 任务 | 改动 | 验收 |
 |---|---|---|
-| 4.1 默认内容合规 | `public-ott-repo/`、`resources/ott-repo/` | 只留公有领域/自有授权内容；逐条注明 rights/license/origin；hitokoto 规则默认关闭或移除 |
+| 4.1 默认内容合规 | `typetype-default-ott-repo/`、`resources/ott-repo/` | 只留公有领域/自有授权内容；逐条注明 rights/license/origin；hitokoto 规则默认关闭或移除 |
 | 4.2 静态 profile 合规 | 两个 static 目录 | 补 `sources.json`、`entries/{id}.json`；summary 不嵌全文；entry_id 符合 schema pattern |
-| 4.3 移除 ott-script 示例 | `public-ott-repo/ott-repo.json` | manifest 通过 `ott-repo.schema.json` 校验（CI 门禁） |
+| 4.3 移除 ott-script 示例 | `typetype-default-ott-repo/ott-repo.json` | manifest 通过 `ott-repo.schema.json` 校验（CI 门禁） |
 
-> 状态（2026-08-08）：**4.1-4.3 已落地**。两个 static 目录补齐 sources.json + entries/{id}.json，summary 不再嵌全文，entry_id/source_key 统一 `^[A-Za-z0-9_]+$`；内置源以 file:// 订阅形式首启注入（离线可用，不自动订阅远程源）；官方仓已移除 hitokoto rule 与 ott-script 示例。
+> 状态（2026-08-10）：**4.1-4.3 已落地**。官方默认内容迁移到独立仓
+> `whynusn/typetype-default-ott-repo`；typetype 仅保留 `resources/ott-repo`
+> 离线快照（由 `scripts/sync_builtin_ott_repo.py` 生成），不再维护
+> `public-ott-repo`。内置源以 file:// 订阅形式首启注入，离线可用，不自动
+> 订阅远程源；默认仓无 hitokoto rule 与 ott-script 示例。
 
 ### Phase 5：沙箱与网络出口加固
 

@@ -91,7 +91,7 @@ def validate_repo_manifest(data: Any) -> dict | None:
     """校验并归一化一份 Repo Manifest。
 
     通过返回 dict（可能补全默认字段），失败返回 None。
-    校验规则遵循 repo-manifest-spec-draft.md §Field rules。
+    校验规则遵循 repo-manifest-spec.md §Field rules。
     """
     if not isinstance(data, dict):
         return None

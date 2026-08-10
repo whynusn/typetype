@@ -108,7 +108,7 @@
 | `source_repos[].etag` | `str` | `""` | HTTP ETag（缓存优化，自动管理） |
 | `source_repos[].added_at` | `str` | `""` | 订阅添加时间（ISO 8601） |
 
-> 协议细节见 open-typing-texts 仓 `docs/repo-manifest-spec-draft.md`（OTT Repo v1 草案）。
+> 协议细节见 open-typing-texts 仓 `docs/repo-manifest-spec.md`（OTT Repo v1）。
 
 ## UI 子字段
 

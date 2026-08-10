@@ -18,14 +18,26 @@ from src.backend.integration.ott_repo_manifest import (
 from src.backend.integration.ott_normalization import local_path_from_file_uri
 
 _ID_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
-_REPO_DIRS = [
-    builtin_ott_repo_dir(),
-    Path(__file__).resolve().parents[1] / "public-ott-repo",
-]
+_PUBLIC_REPO_DIR = Path(__file__).resolve().parents[2] / "typetype-default-ott-repo"
+_REPO_DIRS = [builtin_ott_repo_dir()]
+_REPO_IDS = ["builtin"]
+if _PUBLIC_REPO_DIR.exists():
+    _REPO_DIRS.append(_PUBLIC_REPO_DIR)
+    _REPO_IDS.append("public")
 
 
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _isolate_instance_cache(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "instance-cache"
+    monkeypatch.setattr(
+        OttFederationProvider,
+        "_instance_cache_dir",
+        lambda self, authority: root
+        / hashlib.sha256(authority.encode("utf-8")).hexdigest()[:12],
+    )
 
 
 def test_fresh_config_seeds_builtin_repo(tmp_path):
@@ -43,6 +55,22 @@ def test_explicit_empty_source_repos_not_reseeded(tmp_path):
     assert config.source_repos.repos == []
 
 
+def test_stale_only_subscription_reseeded_to_builtin(tmp_path):
+    path = tmp_path / "config.json"
+    path.write_text(
+        json.dumps(
+            {
+                "source_repos": [
+                    {"url": "https://example.org/ott-repo.json", "enabled": True}
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = RuntimeConfig.load_from_file(str(path))
+    assert [r.url for r in config.source_repos.repos] == [builtin_ott_repo_url()]
+
+
 def test_setting_remote_primary_keeps_builtin(tmp_path):
     config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
     config.update_registry_url(primary_url="https://example.org/ott-repo.json")
@@ -51,7 +79,7 @@ def test_setting_remote_primary_keeps_builtin(tmp_path):
     assert "https://example.org/ott-repo.json" in urls
 
 
-@pytest.mark.parametrize("repo_dir", _REPO_DIRS, ids=["builtin", "public"])
+@pytest.mark.parametrize("repo_dir", _REPO_DIRS, ids=_REPO_IDS)
 def test_repo_manifest_has_no_executable_sources(repo_dir):
     manifest = _load_json(repo_dir / "ott-repo.json")
     normalized = validate_repo_manifest(manifest)
@@ -60,7 +88,7 @@ def test_repo_manifest_has_no_executable_sources(repo_dir):
     assert all(s["type"] != "ott-rule" for s in normalized["sources"])
 
 
-@pytest.mark.parametrize("repo_dir", _REPO_DIRS, ids=["builtin", "public"])
+@pytest.mark.parametrize("repo_dir", _REPO_DIRS, ids=_REPO_IDS)
 def test_static_profile_summaries_and_details_compliant(repo_dir):
     sources = _load_json(repo_dir / "static" / "sources.json")["sources"]
     summaries = _load_json(repo_dir / "static" / "entries.json")["entries"]
@@ -85,7 +113,8 @@ def test_static_profile_summaries_and_details_compliant(repo_dir):
         assert detail["source_key"] == summary["source_key"]
 
 
-def test_builtin_federation_loads_entries_and_detail(tmp_path):
+def test_builtin_federation_loads_entries_and_detail(tmp_path, monkeypatch):
+    _isolate_instance_cache(tmp_path, monkeypatch)
     config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
     manifest_cache = RepoManifestCache(
         cache_dir=tmp_path / "cache",
@@ -108,7 +137,8 @@ def test_local_path_from_file_uri_strips_windows_drive_slash() -> None:
     assert normalized == "D:/a/b.json"
 
 
-def test_blocked_content_hash_blocks_entry_detail(tmp_path) -> None:
+def test_blocked_content_hash_blocks_entry_detail(tmp_path, monkeypatch) -> None:
+    _isolate_instance_cache(tmp_path, monkeypatch)
     config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
     detail_file = (
         builtin_ott_repo_dir() / "static" / "entries" / "classic_sentences.json"

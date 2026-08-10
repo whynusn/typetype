@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import jsonschema
+import pytest
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import (
@@ -24,8 +25,18 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-SCHEMA_PATH = ROOT / "docs" / "reference" / "ott-adapter-v1.schema.json"
+SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "open-typing-texts"
+    / "schemas"
+    / "ott-adapter-v1.schema.json"
+)
 ADAPTER_SCRIPT = ROOT / "scripts" / "adapter.py"
+
+pytestmark = pytest.mark.skipif(
+    not SCHEMA_PATH.exists(),
+    reason="open-typing-texts 仓未克隆到兄弟目录，跳过适配器 schema 测试",
+)
 
 
 def _load_sdk() -> Any:

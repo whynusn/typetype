@@ -264,9 +264,16 @@ class RuntimeConfig:
             config = cls(_config_path=config_path)
             config._ensure_builtin_default_repo()
 
+        had_nonempty_repos = bool(config.source_repos.repos)
         # 清理已知的测试/占位订阅（客户端不自动订阅任何远程源，
         # 订阅必须由用户显式添加）
         config._cleanup_stale_subscriptions()
+        if (
+            had_nonempty_repos
+            and not config.source_repos.repos
+            and not config.registry.primary_url
+        ):
+            config._ensure_builtin_default_repo()
         return config
 
     def _cleanup_stale_subscriptions(self) -> None:

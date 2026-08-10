@@ -1,7 +1,8 @@
 """OTT 适配器包 SDK 命令行工具（ADR-011 Phase 2.5）。
 
-适配器包格式见 docs/reference/adapter-package.md，权威 schema 见
-docs/reference/ott-adapter-v1.schema.json（运行时按相对路径读取）。
+适配器包格式与权威 schema 见 open-typing-texts 仓
+（docs/adapter-package.md、schemas/ott-adapter-v1.schema.json），
+运行时按兄弟目录相对路径读取。
 
 用法：
     uv run python scripts/adapter.py new demo --type script --repo-id demo.repo
@@ -33,7 +34,12 @@ import jsonschema
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-SCHEMA_PATH = ROOT / "docs" / "reference" / "ott-adapter-v1.schema.json"
+SCHEMA_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "open-typing-texts"
+    / "schemas"
+    / "ott-adapter-v1.schema.json"
+)
 
 # 未签名占位：schema 要求 signature 字段必填；全零值无法通过签名校验，
 # validate 步骤识别为"未签名"并给出明确提示。
@@ -212,6 +218,8 @@ def scaffold(
 
 def _load_schema() -> dict:
     """运行时读取权威 schema（路径相对本脚本，避免复制两份定义）。"""
+    if not SCHEMA_PATH.exists():
+        raise SystemExit(f"未找到 open-typing-texts 兄弟仓 schema: {SCHEMA_PATH}")
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 
 

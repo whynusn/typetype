@@ -4,7 +4,7 @@
 
 > Phase 1（多 authority 客户端，零协议变更）已于 2026-07-26 落地。Phase 2（OTT Repo v1 定稿：spec + schema + fixtures + authority_id/repo_url 增量字段）已于 2026-07-27 落地。Phase 3（L1 声明式规则解释器 + L3 ott-script 沙箱脚本源）已于 2026-07-27 落地；**决策 3 同日修订**：L3 允许经 Repo 分发，安全边界由子进程沙箱（AST 白名单 + 资源限制 + 进程隔离）保障。Phase 4+（签名信任、官方默认目录、ott:// 深链）待后续推进。
 
-> 本 ADR 是 ADR-009 的后续。核心结论：**OTT Core v1 数据面保持不变；新增独立的 OTT Repo 协议构件承载控制面（订阅、信任、发现）**，使 typetype 演进为 mihon / kazumi / 开源阅读式的去中心化文本源生态客户端。完整设计见 [docs/designs/decentralized-source-ecosystem.md](../designs/decentralized-source-ecosystem.md)，协议草案见 open-typing-texts 仓 `docs/repo-manifest-spec-draft.md`。
+> 本 ADR 是 ADR-009 的后续。核心结论：**OTT Core v1 数据面保持不变；新增独立的 OTT Repo 协议构件承载控制面（订阅、信任、发现）**，使 typetype 演进为 mihon / kazumi / 开源阅读式的去中心化文本源生态客户端。完整设计见 [docs/designs/decentralized-source-ecosystem.md](../designs/decentralized-source-ecosystem.md)，协议规范见 open-typing-texts 仓 `docs/repo-manifest-spec.md`。
 
 ## 背景
 
@@ -37,6 +37,6 @@ ADR-009 完成 OTT Core v1 数据面后，生态仍停在"任何人可自托管"
 ## 影响
 
 - **typetype**：新增设计文档 `docs/designs/decentralized-source-ecosystem.md`；实现按五阶段路线（Phase 1 多 authority 客户端为零协议变更，可立即启动）。
-- **open-typing-texts**：新增 `docs/repo-manifest-spec-draft.md`（OTT Repo v1 草案）；Phase 2 时补 schema 与 fixtures。`OTT_SPEC.md`（Core v1）不动。
+- **open-typing-texts**：新增 `docs/repo-manifest-spec.md`（OTT Repo v1 定稿）；Phase 2 补 schema 与 fixtures。`OTT_SPEC.md`（Core v1）不动。
 - **兼容性**：现有单 authority 用户经配置自动迁移无缝过渡；`registry.primary_url` 语义保留为"默认订阅"。
 - **文档**：ADR-008/009 的三层模型与 Phase 划分继续有效；本 ADR 的 Phase 1-5 是其后续路线而非替代。
