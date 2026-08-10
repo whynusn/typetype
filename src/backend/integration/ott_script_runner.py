@@ -1072,6 +1072,10 @@ def main(argv: list[str]) -> int:
 
     try:
         _set_resource_limits()
+        # httpx 及其 zlib/ssl 依赖必须在 Landlock 限制文件系统前加载，
+        # 否则系统 Python 从 /lib 读取 libz.so.1 / libssl 会被拒绝。
+        import httpx  # noqa: F401
+
         _apply_landlock(os.path.dirname(os.path.abspath(script_path)))
         entries = run_script(script_path, secrets or None, allowlist)
         # 序列化结果到 stdout

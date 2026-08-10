@@ -850,6 +850,7 @@ class TestScriptSandboxSecrets:
         for f in sandbox_dir.iterdir():
             assert "fs-secret" not in f.read_text(encoding="utf-8")
 
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows 不支持凭据 fd 注入")
     def test_secret_passed_via_fd_not_env(self) -> None:
         """凭据经 pass_fds 传递；不构造含凭据的 env，stdin 只带 fd 映射。"""
         source = "def fetch_entries():\n    return []\n"
