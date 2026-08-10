@@ -4,7 +4,7 @@
 
 > Phase 1（多 authority 客户端，零协议变更）已于 2026-07-26 落地。Phase 2（OTT Repo v1 定稿：spec + schema + fixtures + authority_id/repo_url 增量字段）已于 2026-07-27 落地。Phase 3（L1 声明式规则解释器 + L3 ott-script 沙箱脚本源）已于 2026-07-27 落地；**决策 3 同日修订**：L3 允许经 Repo 分发，安全边界由子进程沙箱（AST 白名单 + 资源限制 + 进程隔离）保障。Phase 4+（签名信任、官方默认目录、ott:// 深链）待后续推进。
 
-> 本 ADR 是 ADR-009 的后续。核心结论：**OTT Core v1 数据面保持不变；新增独立的 OTT Repo 协议构件承载控制面（订阅、信任、发现）**，使 typetype 演进为 mihon / kazumi / 开源阅读式的去中心化文本源生态客户端。完整设计见 [docs/designs/decentralized-source-ecosystem.md](../designs/decentralized-source-ecosystem.md)，协议草案见 open-typing-texts 仓 `docs/repo-manifest-spec-draft.md`。
+> 本 ADR 是 ADR-009 的后续。核心结论：**OTT Core v1 数据面保持不变；新增独立的 OTT Repo 协议构件承载控制面（订阅、信任、发现）**，使 typetype 演进为 mihon / kazumi / 开源阅读式的去中心化文本源生态客户端。完整设计见 [docs/designs/decentralized-source-ecosystem.md](../designs/decentralized-source-ecosystem.md)，协议规范见 open-typing-texts 仓 `docs/repo-manifest-spec.md`。
 
 ## 背景
 
@@ -29,7 +29,7 @@ ADR-009 完成 OTT Core v1 数据面后，生态仍停在"任何人可自托管"
 1. **三层概念模型**：Directory（可选，repo-of-repos，不嵌套）→ Repo（源清单，`ott-repo.json`）→ Instance / Rule / Bridge（源）→ Entry（Core v1 数据面）。
 2. **Repo Manifest 三种源类型**：`ott-instance`（OTT 端点 + 镜像列表）、`ott-rule`（内联声明式规则）、`ott-bridge`（即时 API 桥，凭据本地）。
 3. **四级信任模型**：L0 数据实例、L1 声明式规则（客户端受限解释器，无任意代码）、L2 桥接源（凭据本地持有）、L3 抓取脚本（**允许经 Repo 分发，但必须在独立子进程沙箱中执行**：AST 白名单检查 + 子进程隔离 + 内存/CPU/proc 资源限制 + Landlock 文件系统白名单 + stdout JSON 通信）。**修订理由（2026-07-27）**：ott-script 的核心用例是逆向工程抓取脚本的生态分发，回滚 L3 会杀死该用例；安全边界由子进程沙箱保障，逃逸仅影响子进程，主进程不受影响。不变式：客户端从网络订阅的 L0/L1/L2 内容无任意代码执行面；L3 脚本在子进程沙箱内执行，逃逸不突破进程边界。
-4. **签名为徽章非门槛**：可选 minisign/ed25519 + TOFU 固定；UI 显示验证徽章，永不作为准入强制。
+4. **签名为徽章非门槛**：可选 ed25519 + TOFU 固定；UI 显示验证徽章，永不作为准入强制。**修订（2026-08-09，ADR-011 决策 12）**：签名格式统一为裸 Ed25519 hex（`ed25519:` 前缀可选），canonical JSON 以 open-typing-texts 协议规范为权威；minisign 不支持。
 5. **authority 身份规范**：反向域名 / `key:ed25519:<指纹>` / `local`；实例经 `ott.json` 与 `capabilities` 可选声明 `authority_id`（Core 向后兼容增量）。条目 URN `ott:{authority}:{entry_id}@{revision_id}` 正式化，深链 `ott://{authority}/{entry_id}`。
 6. **客户端演进**：`RegistryConfig` → `SourceReposConfig` 订阅列表（旧配置自动迁移）；`OttTextProvider` 之上加联邦聚合层；trait flags 由 manifest × capabilities 运行时合成；订阅管理进载文中心。
 7. **治理**：官方默认目录可关可换；blocklist 是客户端本地策略而非协议强制；OTT Core 与 OTT Repo 独立语义化版本；兼容测试包扩展到 manifest fixtures。
@@ -37,6 +37,6 @@ ADR-009 完成 OTT Core v1 数据面后，生态仍停在"任何人可自托管"
 ## 影响
 
 - **typetype**：新增设计文档 `docs/designs/decentralized-source-ecosystem.md`；实现按五阶段路线（Phase 1 多 authority 客户端为零协议变更，可立即启动）。
-- **open-typing-texts**：新增 `docs/repo-manifest-spec-draft.md`（OTT Repo v1 草案）；Phase 2 时补 schema 与 fixtures。`OTT_SPEC.md`（Core v1）不动。
+- **open-typing-texts**：新增 `docs/repo-manifest-spec.md`（OTT Repo v1 定稿）；Phase 2 补 schema 与 fixtures。`OTT_SPEC.md`（Core v1）不动。
 - **兼容性**：现有单 authority 用户经配置自动迁移无缝过渡；`registry.primary_url` 语义保留为"默认订阅"。
 - **文档**：ADR-008/009 的三层模型与 Phase 划分继续有效；本 ADR 的 Phase 1-5 是其后续路线而非替代。

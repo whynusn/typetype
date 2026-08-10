@@ -14,6 +14,25 @@
 
 ### Added
 
+- **内置默认文本源（ADR-011 Phase 4）**：首启自动注入 `file://` 内置 OTT Repo（经典中文短句 / 拼音声调练习 / 唐诗精选），完全离线可用，不自动订阅任何远程源；静态 profile 补齐 `sources.json` 与 `entries/{id}.json`，摘要不再内嵌全文，entry_id 符合 schema pattern，逐条标注 rights/license/origin；官方默认仓移除 ott-script/ott-rule 示例
+- **默认内容独立仓库（ADR-011 Phase 4 收口）**：官方默认 OTT Repo 迁移到 `whynusn/typetype-default-ott-repo`，订阅 URL 与客户端发布解耦；`resources/ott-repo` 改为由 `scripts/sync_builtin_ott_repo.py` 生成的离线快照
+- **适配器包规范上移标准仓**：`docs/adapter-package.md` 与 `schemas/ott-adapter-v1.schema.json` 权威位置迁到 open-typing-texts，typetype SDK/测试引用兄弟仓，不再重复维护
+- **OTT DSL 组合安全加固（ADR-011 Phase 1.5）**：整数纳入单值字节上限（`bit_length` 估算），超大位移直接拒绝，字面量/结果超限检查前置到求值器内部；新增组合矩阵 + 固定种子模糊测试，随机表达式只可能成功或抛 `DslError`
+- **default_enabled 消费（ADR-011 Phase 3.4）**：联邦聚合按 manifest 声明的 `default_enabled` 启用/禁用 ott-instance 源，未声明时默认启用
+- **manifest 条件请求与镜像 failover（ADR-011 Phase 3.1/3.2）**：拉取携带 `If-None-Match`，304 刷新缓存 mtime 不换内容；主地址失败时按已缓存 manifest 的 http(s) mirrors 依次回退，ETag 持久化到订阅
+- **联邦客户端复用与结果缓存（ADR-011 Phase 3.9）**：rule/script 共用单个 `httpx.Client`，按订阅+manifest mtime 签名复用客户端实例；rule/script 条目结果按 `cache_ttl_seconds` 缓存，避免每次查询全量重抓
+- **requires 协商（ADR-011 Phase 3.3）**：manifest 声明 `ott_core` 版本约束与 `client_features`，不满足整仓标记不兼容并跳过，订阅列表显示 `incompatible_reason`，不再静默部分启用
+- **ott-bridge 决策落地（ADR-011 Phase 3.5）**：明确暂不实现 L2 provider；联邦跳过桥接源并在订阅面板显示"桥接源暂不支持"，ARCHITECTURE 同步为未落地
+- **本地内容屏蔽清单（ADR-011 Phase 7.2）**：`blocked_content_hashes` 配置持久化，联邦按 `content_hash` 屏蔽条目详情，takedown 可即时生效；新增 OTT Repo 治理操作手册（贡献协议/收稿红线/takedown 流程）
+- **L3 签名门槛（ADR-011 Phase 2.3）**：ott-script 仅允许 `trust_state=verified` 的仓库执行，未签名/未确认/签名失败仓库跳过；新增适配器签名方案设计文档（Phase 2.0，canonical JSON/裸 Ed25519/TOFU/撤销）
+
+### Fixed
+
+- **占位订阅清理后补回内置源**：配置里只剩 `example.org` 测试占位时，清理后自动重新注入内置 OTT Repo，避免应用启动后源列表为空
+
+### Removed
+
+- **typetype 内 `public-ott-repo/`**：默认内容已由独立仓库接管，避免 GitHub main 旧版违规内容（hitokoto rule / daily_quote 脚本）继续随客户端分发
 - **OTT Repo 控制面（ADR-010）**：去中心化文本源订阅生态。多 authority 联邦聚合（`OttFederationConfig`）、订阅管理 UI（`ReposManagementPanel`）、声明式规则源（L1 `OttRuleInterpreter`）、ott-script 脚本源（L3 子进程沙箱）、旧 `registry.primary_url` 自动迁移
 - **打词率（word typing rate）指标**：统计会话中 CJK 字符被作为词组输入的比例。
   算法将间隔 ≤ 300ms 的连续 CJK 字符视为词组输入，打词率 = 词组字符数 / 总 CJK 字符数 × 100。
@@ -26,6 +45,7 @@
 
 ### Fixed
 
+- **内置源 Windows 无法加载**：`file://` URI 转本地路径兼容 Windows 盘符（`/D:/...` → `D:\...`），manifest 占位符展开使用正斜杠盘符形式，修复 CI Windows 上内置源 0 条目的问题
 - **ott-script 沙箱逃逸（严重）**：原进程内 `exec()` + 模块注入可被 `json.__builtins__['open']` 单行逃逸。重写为独立 Python 子进程（`ott_script_runner.py`），资源限制（256MB 内存 / 30s CPU / RLIMIT_NPROC=0）+ AST 白名单 import + 别名解析 + `__builtins__` 检测
 - **规则解释器 ReDoS 与 fetch 大小绕过**：正则匹配输入截断至 50KB 防灾难性回溯；`_fetch()` 改为 streaming 截断（不依赖 `content-length` 头，堵住 chunked 传输绕过）
 - **用户配置写入路径污染**：`RuntimeConfig._save_to_file()` 尊重显式加载的 `_config_path`，避免测试或临时配置写入真实 `~/.config/typetype/config.json`

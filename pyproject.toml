@@ -31,6 +31,7 @@ kafka = [
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.0",
     "pytest>=9.0.3",
     "pytest-qt>=4.4.0",
     "ruff>=0.15.12",

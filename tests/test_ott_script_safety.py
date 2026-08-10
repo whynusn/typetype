@@ -48,6 +48,57 @@ class TestScriptSafety:
         assert not report.valid
         assert any(i.code == "banned_call" for i in report.issues)
 
+    def test_rejects_deep_attribute_chain_banned_call(self) -> None:
+        """三层属性链 a.b.c() 也走 _validate_call（与两层链行为一致，不可绕过）。"""
+        source = (
+            "import os\n"
+            "def fetch_entries():\n"
+            "    os.foo.bar.system('rm -rf /')\n"
+            "    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_call" for i in report.issues)
+
+    def test_rejects_four_level_attribute_chain_banned_call(self) -> None:
+        """四层属性链同样拦截：module 取根名、attr 取最外层函数名。"""
+        source = (
+            "import os\ndef fetch_entries():\n    os.a.b.c.popen('ls')\n    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_call" for i in report.issues)
+
+    def test_allows_deep_attribute_chain_on_whitelisted_module(self) -> None:
+        """深层链的根模块/函数名不在黑名单 → 放行（与两层链一致）。"""
+        source = (
+            "import json\n"
+            "def fetch_entries():\n"
+            "    data = json.decoder.something.loads('{\"a\": 1}')\n"
+            '    return [{"title": "T", "content": str(data)}]\n'
+        )
+        report = validate_script_source(source)
+        assert report.valid, report.to_dict()
+
+    def test_deep_chain_resolves_like_two_level(self) -> None:
+        """_resolve_call_target 对深层链与两层链返回相同 (module, attr)。"""
+        import ast
+
+        from src.backend.integration.ott_script_safety import (
+            _resolve_call_target,
+        )
+
+        # json.loads(...) 与 json.a.b.loads(...) 的调用目标一致
+        two_level = ast.parse("json.loads('x')").body[0].value.func
+        deep = ast.parse("json.a.b.loads('x')").body[0].value.func
+        assert _resolve_call_target(two_level, {}, {}) == _resolve_call_target(
+            deep, {}, {}
+        )
+        # import 别名在根名上生效：os.a.b.system(...) → ('os', 'system')
+        with_alias = ast.parse("os.a.b.system('x')").body[0].value.func
+        target = _resolve_call_target(with_alias, {"os": "os"}, {})
+        assert (target.module, target.attr) == ("os", "system")
+
     def test_rejects_subprocess_import(self) -> None:
         source = (
             "import subprocess\n"
@@ -121,6 +172,75 @@ class TestScriptSafety:
             "def fetch_entries():\n"
             "    text = unquote('a%20b')\n"
             '    return [{"title": "T", "content": text}]\n'
+        )
+        report = validate_script_source(source)
+        assert report.valid, report.to_dict()
+
+    def test_rejects_object_model_subclasses_escape(self) -> None:
+        """对象模型遍历逃逸：attribute 访问而非函数调用，必须被 AST 层拦截。"""
+        source = (
+            "def fetch_entries():\n"
+            "    for c in ().__class__.__bases__[0].__subclasses__():\n"
+            "        pass\n"
+            "    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_object_model_access" for i in report.issues)
+
+    def test_rejects_globals_attribute(self) -> None:
+        """__globals__ 是逃逸链的泄密点，属性访问必须拒绝。"""
+        source = (
+            "def f():\n"
+            "    return 1\n"
+            "def fetch_entries():\n"
+            "    g = f.__globals__\n"
+            "    return []\n"
+        )
+        report = validate_script_source(source)
+        assert not report.valid
+        assert any(i.code == "banned_object_model_access" for i in report.issues)
+
+    def test_allows_realistic_whitelisted_script(self) -> None:
+        """白名单库真实用法（httpx + bs4 + Crypto + json + re + datetime）无误报。"""
+        source = (
+            "import httpx\n"
+            "import json\n"
+            "import re\n"
+            "import datetime\n"
+            "import base64\n"
+            "from bs4 import BeautifulSoup\n"
+            "from Crypto.Cipher import AES\n"
+            "from Crypto.Util.Padding import pad\n"
+            "def fetch_entries():\n"
+            "    resp = httpx.get('https://example.com/data')\n"
+            "    soup = BeautifulSoup(resp.text, 'html.parser')\n"
+            "    title = soup.find('title').get_text()\n"
+            "    cleaned = re.sub(r'\\s+', ' ', title)\n"
+            "    key = base64.b64decode('a2V5MTIzNDU2Nzg5MDEyMzQ1Ng==')\n"
+            "    cipher = AES.new(key, AES.MODE_CBC)\n"
+            "    payload = pad(b'hello', 16)\n"
+            "    out = json.dumps(\n"
+            "        {'title': cleaned,\n"
+            "         'ts': datetime.datetime.now().isoformat()}\n"
+            "    )\n"
+            '    return [{"title": cleaned, "content": out}]\n'
+        )
+        report = validate_script_source(source)
+        assert report.valid, report.to_dict()
+
+    def test_allows_super_init_in_class(self) -> None:
+        """super().__init__() 是合法类模式：__init__ 属性访问不拦截。"""
+        source = (
+            "class Base:\n"
+            "    def __init__(self):\n"
+            "        self.x = 1\n"
+            "class Sub(Base):\n"
+            "    def __init__(self):\n"
+            "        super().__init__()\n"
+            "        self.y = 2\n"
+            "def fetch_entries():\n"
+            "    return []\n"
         )
         report = validate_script_source(source)
         assert report.valid, report.to_dict()

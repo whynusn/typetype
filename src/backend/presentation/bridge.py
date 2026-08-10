@@ -2754,6 +2754,20 @@ class Bridge(QObject):
             self._registry_adapter.setRepoEnabled(url, enabled)
             self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
 
+    @Slot(str)
+    def confirmRepoTrust(self, url: str) -> None:
+        """用户确认信任一条源仓库订阅（TOFU pending → verified）。"""
+        if self._registry_adapter:
+            self._registry_adapter.confirmRepoTrust(url)
+            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
+
+    @Slot(str)
+    def rejectRepoTrust(self, url: str) -> None:
+        """用户拒绝信任一条源仓库订阅（TOFU pending → unverified）。"""
+        if self._registry_adapter:
+            self._registry_adapter.rejectRepoTrust(url)
+            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
+
     @Slot()
     def refreshRepos(self) -> None:
         """重新加载所有订阅的 manifest 摘要。"""

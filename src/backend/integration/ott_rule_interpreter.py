@@ -28,7 +28,10 @@ import httpx
 
 from .ott_dsl import DslError, run_steps
 from .ott_normalization import normalize_summary
-from .regex_worker import _has_nested_quantifier
+from .regex_worker import (
+    REGEX_WORKER_MAX_INPUT_CHARS as REGEX_MAX_INPUT_CHARS,
+    _has_nested_quantifier,
+)
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -41,8 +44,7 @@ TOTAL_FETCH_TIMEOUT_S = 10.0
 # 客户端实现的 DSL API level（schema v2 rights.min_api_level 对照值）。
 # DSL 引擎（43 原语）+ schema v2 已落地 → 2；未来新增能力递增。
 CLIENT_API_LEVEL = 2
-# ReDoS 防护（安全红线 3）：正则输入截断 ≤10KB；子进程执行 + 1s 硬超时
-REGEX_MAX_INPUT_CHARS = 10_000
+# ReDoS 防护（安全红线 3）：正则输入截断 ≤10KB（常量由 regex_worker 导出）；子进程执行 + 1s 硬超时
 REGEX_TIMEOUT_S = 1.0
 # ponytail: 跟随 ott_script_client 的子进程模式（sys.executable + 脚本）；
 # 打包版若需支持正则需改用独立可执行/嵌入式 worker

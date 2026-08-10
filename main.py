@@ -123,6 +123,7 @@ def main():
     services.char_stats.flush()
     services.score_submitter.stop()  # 等待成绩提交队列清空
     infra.api_client.close()
+    providers.federation.close()
     if adapters.key_listener:
         adapters.key_listener.stop()
     del engine

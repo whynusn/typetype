@@ -629,6 +629,8 @@ FluentPage {
                 onToggleRepoRequested: function(url, enabled) { if (appBridge) appBridge.setRepoEnabled(url, enabled) }
                 onRefreshRepoRequested: function(url) { if (appBridge) appBridge.refreshRepo(url) }
                 onRefreshAllRequested: { if (appBridge) appBridge.refreshRepos() }
+                onConfirmRepoRequested: function(url) { if (appBridge) appBridge.confirmRepoTrust(url) }
+                onRejectRepoRequested: function(url) { if (appBridge) appBridge.rejectRepoTrust(url) }
                 onOpenSourceRequested: function(sourceLabel, authorities) {
                     console.log("[ReposPanel] openSourceRequested:", sourceLabel, JSON.stringify(authorities))
                     if (!appBridge) {

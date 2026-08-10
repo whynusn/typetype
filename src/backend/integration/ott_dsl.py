@@ -28,7 +28,10 @@ from urllib.parse import parse_qs, quote, unquote, urljoin, urlparse
 
 from Crypto.Cipher import AES
 
-from .regex_worker import _has_nested_quantifier
+from .regex_worker import (
+    REGEX_WORKER_MAX_INPUT_CHARS as REGEX_MAX_INPUT_CHARS,
+    _has_nested_quantifier,
+)
 
 MAX_VALUE_BYTES = 1_048_576
 MAX_DEPTH = 32
@@ -36,7 +39,6 @@ MAX_CALLS = 1000
 MAX_STEPS = 8
 MAX_STEP_TRANSFER_BYTES = 2 * 1_048_576
 REGEX_TIMEOUT_S = 1.0
-REGEX_MAX_INPUT_CHARS = 10_000
 REGEX_WORKER_PATH = Path(__file__).with_name("regex_worker.py")
 
 
@@ -50,6 +52,8 @@ def _value_bytes(value: Any) -> int:
         return len(value.encode("utf-8", "replace"))
     if isinstance(value, bytes):
         return len(value)
+    if isinstance(value, int):
+        return max(1, abs(value).bit_length() // 8)
     if isinstance(value, (list, dict)):
         try:
             return len(json.dumps(value).encode("utf-8"))
@@ -146,6 +150,8 @@ def _p_mod(a: Any, b: Any) -> int:
 
 def _p_bit_shift(v: Any, n: Any) -> int:
     v_i, n_i = _t_int(v), _t_int(n)
+    if abs(n_i) > MAX_VALUE_BYTES * 8:
+        raise DslError
     return v_i << n_i if n_i >= 0 else v_i >> (-n_i)
 
 
@@ -407,6 +413,8 @@ def _evaluate(expr: Any, budget: _Budget, depth: int = 0) -> Any:
     if depth > MAX_DEPTH:
         raise DslError
     if not isinstance(expr, dict) or "fn" not in expr:
+        if _value_bytes(expr) > MAX_VALUE_BYTES:
+            raise DslError
         return expr
     budget.spend()
     fn = expr["fn"]
@@ -418,12 +426,12 @@ def _evaluate(expr: Any, budget: _Budget, depth: int = 0) -> Any:
     values = [_evaluate(a, budget, depth + 1) for a in args]
     try:
         result = PRIMITIVES[fn](*values)
+        if _value_bytes(result) > MAX_VALUE_BYTES:
+            raise DslError
     except DslError:
         raise
     except Exception:
         raise DslError from None
-    if _value_bytes(result) > MAX_VALUE_BYTES:
-        raise DslError
     return result
 
 

@@ -1,0 +1,135 @@
+# ADR-011 Phase 2.4 — 适配器 CI 签名流水线
+#
+# 门禁链（每行一个适配器包）：
+#   schema 校验 → 静态分析 → SDK 自测 → 离线私钥签名 → 重校验 → 提交回仓库
+#
+# 安全模型（离线私钥）：
+#   - 签名私钥只存于 GitHub 仓库级 Secret（ADAPTER_SIGNING_SECRET_KEY），
+#     绝不写入仓库或本 workflow 文件；CI 仅通过 ${{ secrets.* }} 引用。
+#   - 公钥（ADAPTER_SIGNING_PUBKEY）写入 adapter.json 的 signature.pubkey，
+#     客户端用公钥校验签名。
+#   - 私钥可在线签名与"离线签名"等价安全：只有仓库管理员能配置 Secret，
+#     贡献者 PR 无法读取或触发签名。
+#
+# PR vs dispatch 拆分：
+#   - pull_request：只跑 validate 门禁（schema/checksum/签名状态/权限/rights/rule
+#     + SDK 测试 + ruff），无签名权限，无法回写仓库。
+#   - workflow_dispatch：维护者手动触发，needs: validate 通过后签名并提交回分支。
+#
+# 未来集成（open-typing-texts）：
+#   签名后的适配器包索引发布目标是外部分发仓 open-typing-texts
+#   （不在本仓库自动发布——跨仓发布需额外权限与编排，作为后续集成步骤）。
+#   本 workflow 只负责把签名落回本仓 adapters/ 目录。
+
+name: Adapter Publish
+
+on:
+  pull_request:
+    paths:
+      - 'adapters/**'
+      - '.github/workflows/adapter-publish.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: 校验适配器包
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: '0.9.26'
+
+      - name: 安装依赖
+        run: uv sync --frozen
+
+      - name: 校验每个适配器包
+        run: |
+          set -euo pipefail
+          if [ ! -d adapters ]; then
+            echo "adapters/ 目录不存在，无适配器包需要校验"
+            exit 0
+          fi
+          mapfile -t adapter_files < <(find adapters -name adapter.json -not -path '*/node_modules/*' | sort)
+          for f in "${adapter_files[@]}"; do
+            dir=$(dirname "$f")
+            echo "==> 校验 $dir"
+            uv run python scripts/adapter.py validate "$dir"
+          done
+
+      - name: 运行 SDK 自测
+        run: uv run pytest tests/test_adapter_sdk.py -q -p no:pytest-qt
+
+      - name: 静态分析（ruff，line-length 88）
+        run: uv run ruff check scripts/adapter.py adapters/
+
+  sign-and-publish:
+    name: 签名并提交
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'workflow_dispatch'
+    env:
+      PUBKEY: ${{ secrets.ADAPTER_SIGNING_PUBKEY }}
+      SECRET_KEY: ${{ secrets.ADAPTER_SIGNING_SECRET_KEY }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: '0.9.26'
+
+      - name: 安装依赖
+        run: uv sync --frozen
+
+      - name: 检查签名密钥
+        run: |
+          if [ -z "$PUBKEY" ] || [ -z "$SECRET_KEY" ]; then
+            echo "::error::缺少签名密钥：请在仓库 Secrets 配置 ADAPTER_SIGNING_PUBKEY 与 ADAPTER_SIGNING_SECRET_KEY（ed25519:hex）"
+            echo "::error::私钥只存于 GitHub secret，绝不能写入仓库或 workflow 文件"
+            exit 1
+          fi
+          echo "签名公钥前缀: ${PUBKEY:0:8}..."
+
+      - name: 签名并重校验适配器包
+        run: |
+          set -euo pipefail
+          if [ ! -d adapters ]; then
+            echo "adapters/ 目录不存在，无适配器包需要签名"
+            exit 0
+          fi
+          mapfile -t adapter_files < <(find adapters -name adapter.json -not -path '*/node_modules/*' | sort)
+          for f in "${adapter_files[@]}"; do
+            dir=$(dirname "$f")
+            echo "==> 签名 $dir"
+            uv run python scripts/adapter.py sign "$dir" --pubkey "$PUBKEY" --secret-key "$SECRET_KEY"
+            echo "==> 重校验 $dir（签名会改写 adapter.json）"
+            uv run python scripts/adapter.py validate "$dir"
+          done
+
+      - name: 提交签名回仓库
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add adapters
+          if git diff --cached --quiet; then
+            echo "没有需要提交的签名变更（无新适配器或已签名）"
+            exit 0
+          fi
+          git commit -m "chore(adapters): 签名适配器包（CI）"
+          git push

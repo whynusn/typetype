@@ -194,3 +194,33 @@ def test_validate_source_key_protects_cache_path(tmp_path):
     provider = make_provider(tmp_path)
     assert provider.fetch_text_by_key("../etc/passwd") is None
     assert provider.fetch_text_by_key("foo/bar") is None
+
+
+def test_local_json_oversize_skipped_before_parse(tmp_path):
+    """_read_local_json 先查文件大小，超限不解析（合法 JSON 也拒绝）。"""
+    from src.backend.integration.ott_cached_fetcher import OttCachedFetcher
+
+    fetcher = OttCachedFetcher(
+        RegistryConfig(), tmp_path / "cache", MagicMock(spec=httpx.Client), None
+    )
+    big = tmp_path / "big.json"
+    big.write_text('{"content": "' + "x" * 500 + '"}', encoding="utf-8")
+    assert fetcher._read_local_json(big.as_uri(), max_bytes=100) is None
+    assert fetcher._read_local_json(big.as_uri()) is not None
+
+
+def test_fetch_json_content_length_guard_skips_parse(tmp_path):
+    """_fetch_json 用 content-length 预检，声明超限时不解析。"""
+    from src.backend.integration.ott_cached_fetcher import OttCachedFetcher
+
+    client = MagicMock(spec=httpx.Client)
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = 200
+    resp.headers = {"content-length": "5000"}
+    resp.content = b'{"content": "x"}'  # 实际很小，但声明超大
+    resp.raise_for_status = MagicMock()
+    client.get.return_value = resp
+
+    fetcher = OttCachedFetcher(RegistryConfig(), tmp_path / "cache", client, None)
+    assert fetcher._fetch_json("https://example.com/api", max_bytes=100) is None
+    resp.json.assert_not_called()

@@ -550,6 +550,27 @@ class TestRegexWorkerProtocol:
         for ok in ["a+", "(ab)+", "(a|b)+", "[a+]+", "a{2}", r"\(a+\)+"]:
             assert not _has_nested_quantifier(ok), ok
 
+    def test_worker_self_timeout_alarm(self, monkeypatch) -> None:
+        """worker 内部第二道防线：SIGALRM 1s 自限（仅 POSIX）。"""
+        import signal
+
+        from src.backend.integration import regex_worker
+
+        def _slow_search(*args, **kwargs):
+            time.sleep(2)
+            return None
+
+        monkeypatch.setattr(regex_worker.re, "search", _slow_search)
+        start = time.monotonic()
+        result = regex_worker._run("hello", "world")
+        elapsed = time.monotonic() - start
+        if hasattr(signal, "alarm"):
+            assert result == {"ok": False, "error": "timeout"}
+            assert elapsed < 1.5
+        else:
+            # Windows 无 SIGALRM：不设限，等慢执行自然返回
+            assert result == {"ok": True, "groups": {}}
+
     def test_worker_runs_subprocess(self) -> None:
         import subprocess
         import sys

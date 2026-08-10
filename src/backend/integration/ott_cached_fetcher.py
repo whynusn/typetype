@@ -11,7 +11,7 @@ import httpx
 
 from ..config.runtime_config import RegistryConfig
 from ..utils.logger import log_info, log_warning
-from .ott_normalization import redact_url
+from .ott_normalization import local_path_from_file_uri, redact_url
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -157,6 +157,17 @@ class OttCachedFetcher:
         try:
             response = self._client.get(url)
             response.raise_for_status()
+            headers = getattr(response, "headers", None)
+            if max_bytes > 0 and headers is not None:
+                try:
+                    declared = int(headers.get("content-length", -1))
+                except (TypeError, ValueError):
+                    declared = -1
+                if declared > max_bytes:
+                    log_warning(
+                        f"[OttTextProvider] 响应体超限: {redact_url(url)} ({declared} > {max_bytes})"
+                    )
+                    return None
             if max_bytes > 0 and len(response.content) > max_bytes:
                 log_warning(
                     f"[OttTextProvider] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"
@@ -189,25 +200,22 @@ class OttCachedFetcher:
 
     @staticmethod
     def _read_local_json(url: str, max_bytes: int = 0) -> dict | None:
-        from urllib.parse import urlparse
-
         try:
-            path = Path(urlparse(url).path)
+            path = local_path_from_file_uri(url)
             if not path.exists():
                 return None
-            data = json.loads(path.read_text(encoding="utf-8"))
+            # 先查文件大小，超限不解析（避免大文件先读入内存）
             if max_bytes > 0 and path.stat().st_size > max_bytes:
                 return None
+            data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             return None
         return data if isinstance(data, dict) else None
 
     @staticmethod
     def _read_local_text(url: str, max_bytes: int = 0) -> str | None:
-        from urllib.parse import urlparse
-
         try:
-            path = Path(urlparse(url).path)
+            path = local_path_from_file_uri(url)
             if not path.exists():
                 return None
             text = path.read_text(encoding="utf-8")

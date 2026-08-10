@@ -1,4 +1,11 @@
 import json
+import shutil
+import socket as _socket
+import sys
+import tempfile as _tempfile
+import threading
+import time as _time
+import urllib.request
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -6,6 +13,7 @@ import httpx
 import pytest
 
 from src.backend.config.runtime_config import RegistryConfig
+from src.backend.integration.ott_repo_manifest import validate_repo_manifest
 from src.backend.integration.ott_text_provider import OttTextProvider
 
 OTT_ROOT = Path(__file__).resolve().parents[1].parent / "open-typing-texts"
@@ -206,3 +214,128 @@ def test_typetype_reads_exported_ott_static_profile_fixture(tmp_path):
     assert detail.content_mode == "segmented"
     assert segment is not None
     assert segment["content"] == "abcd\n"
+
+
+# ── Repo Control Plane e2e ──────────────────────────────────────────────────
+
+sys_path_original = list(sys.path)
+_OTT_ADAPTER_DIR = str(OTT_ROOT)
+if _OTT_ADAPTER_DIR not in sys.path:
+    sys.path.insert(0, _OTT_ADAPTER_DIR)
+
+
+def _start_real_adapter_server() -> tuple[int, Path]:
+    """Start a real adapter server on a random port, return (port, data_dir)."""
+    import importlib
+
+    start_server = getattr(
+        importlib.import_module("ott_adapter.server"), "start_server"
+    )
+    data_dir = Path(_tempfile.mkdtemp(prefix="ott_cross_repo_"))
+    (data_dir / "content").mkdir()
+    (data_dir / "scripts").mkdir()
+    sock = _socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    thread = threading.Thread(
+        target=start_server, args=(port, str(data_dir)), daemon=True
+    )
+    thread.start()
+    _time.sleep(0.5)
+    return port, data_dir
+
+
+def _fetch_json(port: int, path: str) -> dict:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=5) as r:
+        assert r.status == 200
+        return json.loads(r.read())
+
+
+def _write_adapter_content(data_dir: Path, source_key: str, entries: list[dict]):
+    payload = {
+        "source_key": source_key,
+        "title": source_key,
+        "content": entries[-1]["content"] if entries else "",
+        "entries": entries,
+    }
+    (data_dir / "content" / f"{source_key}.json").write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
+def _rebuild_adapter_index(data_dir: Path):
+    import importlib
+
+    getattr(importlib.import_module("ott_adapter.scheduler"), "rebuild_index")(data_dir)
+
+
+@pytest.mark.skipif(
+    not OTT_ROOT.exists(),
+    reason="open-typing-texts repo not found adjacent to typetype",
+)
+def test_adapter_manifest_passes_typetype_validator():
+    """Adapter /ott-repo.json must pass validate_repo_manifest()."""
+    port, data_dir = _start_real_adapter_server()
+    try:
+        manifest = _fetch_json(port, "/ott-repo.json")
+        normalized = validate_repo_manifest(manifest)
+        assert normalized is not None, f"validate_repo_manifest rejected: {manifest}"
+        assert normalized["protocol"] == "ott-repo"
+        assert normalized["repo_id"] == "local"
+        assert normalized["mirrors"]
+        assert normalized["sources"]
+        src = normalized["sources"][0]
+        assert src["authority"] == "local"
+        assert src["endpoints"]
+    finally:
+        shutil.rmtree(data_dir, ignore_errors=True)
+
+
+@pytest.mark.skipif(
+    not OTT_ROOT.exists(),
+    reason="open-typing-texts repo not found adjacent to typetype",
+)
+def test_adapter_manifest_reflects_content_count():
+    """Adapter /ott-repo.json description must reflect actual content count."""
+    port, data_dir = _start_real_adapter_server()
+    try:
+        manifest_empty = _fetch_json(port, "/ott-repo.json")
+        assert "个文本源" not in manifest_empty["description"]
+
+        _write_adapter_content(
+            data_dir,
+            "cross_a",
+            [{"title": "a", "content": "hello", "fetched_at": "2024-01-01"}],
+        )
+        _write_adapter_content(
+            data_dir,
+            "cross_b",
+            [{"title": "b", "content": "world", "fetched_at": "2024-01-01"}],
+        )
+        _rebuild_adapter_index(data_dir)
+        manifest_two = _fetch_json(port, "/ott-repo.json")
+        assert "2 个文本源" in manifest_two["description"]
+    finally:
+        shutil.rmtree(data_dir, ignore_errors=True)
+
+
+@pytest.mark.skipif(
+    not OTT_ROOT.exists(),
+    reason="open-typing-texts repo not found adjacent to typetype",
+)
+def test_adapter_manifest_endpoints_use_correct_profiles():
+    """Service + Static endpoints must be present with correct profiles."""
+    port, data_dir = _start_real_adapter_server()
+    try:
+        manifest = _fetch_json(port, "/ott-repo.json")
+        src = manifest["sources"][0]
+        profiles = {ep["profile"] for ep in src["endpoints"]}
+        assert "service" in profiles
+        assert "static" in profiles
+        for ep in src["endpoints"]:
+            assert ep["url"]
+            assert isinstance(ep.get("priority", 1), int)
+    finally:
+        shutil.rmtree(data_dir, ignore_errors=True)

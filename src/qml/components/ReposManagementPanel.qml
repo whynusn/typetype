@@ -24,6 +24,8 @@ Frame {
     signal toggleRepoRequested(string url, bool enabled)
     signal refreshRepoRequested(string url)
     signal refreshAllRequested()
+    signal confirmRepoRequested(string url)  // TOFU pending → verified
+    signal rejectRepoRequested(string url)   // TOFU pending → unverified
     signal openSourceRequested(string sourceLabel, var authorities)  // 点击源卡片进入条目列表
 
     // ---- 内部 ----
@@ -31,30 +33,35 @@ Frame {
 
     function _trustBadge(trustState) {
         if (trustState === "verified") return qsTr("已验证")
+        if (trustState === "pending") return qsTr("待确认")
         if (trustState === "failed") return qsTr("验证失败")
         return qsTr("未验证")
     }
 
     function _trustColor(trustState) {
         if (trustState === "verified") return Theme.currentTheme.colors.systemSuccessColor
+        if (trustState === "pending") return Theme.currentTheme.colors.systemCautionColor
         if (trustState === "failed") return Theme.currentTheme.colors.systemCriticalColor
         return Theme.currentTheme.colors.textSecondaryColor
     }
 
     function _sourceTypeSummary(repo) {
         if (!repo) return qsTr("暂无来源")
+        if (repo.incompatible_reason) return repo.incompatible_reason
         var auths = repo.authorities || []
         var instances = 0, rules = 0, scripts = 0
         for (var i = 0; i < auths.length; i++) {
             var a = auths[i]
             if (a.indexOf("rule:") === 0) rules = rules + 1
-            else if (a === "script") scripts = scripts + 1
+            else if (a.indexOf("script:") === 0) scripts = scripts + 1
             else instances = instances + 1
         }
         var parts = []
         if (instances > 0) parts.push(qsTr("%1 个书库").arg(instances))
         if (rules > 0) parts.push(qsTr("%1 个规则").arg(rules))
         if (scripts > 0) parts.push(qsTr("%1 个脚本").arg(scripts))
+        var unsupported = repo.unsupported_sources || []
+        if (unsupported.length > 0) parts.push(qsTr("%1 个桥接源（暂不支持）").arg(unsupported.length))
         return parts.join(" · ") || qsTr("暂无来源")
     }
 
@@ -228,6 +235,23 @@ Frame {
                                 onClicked: {
                                     var r = delegateRoot.repo.raw || delegateRoot.repo
                                     root.openSourceRequested(r.name || r.url || "", r.authorities || [])
+                                }
+                            }
+
+                            // TOFU 待确认：信任/拒绝（pending 专属操作行）
+                            RowLayout {
+                                visible: (delegateRoot.repo.raw ? (delegateRoot.repo.raw.trust_state || delegateRoot.repo.raw.trustState) : "") === "pending"
+                                spacing: 6
+                                Button {
+                                    text: qsTr("信任")
+                                    highlighted: true
+                                    enabled: !root.loading
+                                    onClicked: root.confirmRepoRequested((delegateRoot.repo.raw || delegateRoot.repo).url)
+                                }
+                                Button {
+                                    text: qsTr("拒绝")
+                                    enabled: !root.loading
+                                    onClicked: root.rejectRepoRequested((delegateRoot.repo.raw || delegateRoot.repo).url)
                                 }
                             }
 

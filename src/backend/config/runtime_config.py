@@ -11,8 +11,8 @@ except ImportError:
     fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
-from .app_paths import user_config_path
-from ..utils.logger import log_error
+from .app_paths import builtin_ott_repo_url, user_config_path
+from ..utils.logger import log_error, log_info
 from .text_source_config import TextSourceConfig, TextSourceEntry
 
 
@@ -152,11 +152,14 @@ class SourceRepoEntry:
 
     url: str
     enabled: bool = True
-    trust_state: str = "unverified"  # verified | unverified | failed
+    trust_state: str = "unverified"  # verified | pending | unverified | failed
     pinned_pubkey: str = ""
     refresh_ttl_seconds: int = 86400
     etag: str = ""
     added_at: str = ""
+    # TUF-lite（ADR-011 Phase 3.6）防回滚链参照：最近一次已接受 manifest 的
+    # sha256（canonical JSON）。空串 = 未建立链（首次拉取/旧配置升级）。
+    last_snapshot_hash: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.url, str) or not self.url.strip():
@@ -165,7 +168,7 @@ class SourceRepoEntry:
             self.url = self.url.strip().rstrip("/")
         if not isinstance(self.enabled, bool):
             self.enabled = True
-        if self.trust_state not in {"verified", "unverified", "failed"}:
+        if self.trust_state not in {"verified", "pending", "unverified", "failed"}:
             self.trust_state = "unverified"
         if not isinstance(self.pinned_pubkey, str):
             self.pinned_pubkey = ""
@@ -178,6 +181,8 @@ class SourceRepoEntry:
             self.etag = ""
         if not isinstance(self.added_at, str):
             self.added_at = ""
+        if not isinstance(self.last_snapshot_hash, str):
+            self.last_snapshot_hash = ""
 
 
 @dataclass
@@ -221,6 +226,7 @@ class RuntimeConfig:
         20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
     )
     typing_history_max_records: int = 2000  # 打字历史最多保留条数
+    blocked_content_hashes: list[str] = field(default_factory=list)
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
@@ -247,15 +253,27 @@ class RuntimeConfig:
                     data = json.load(f)
             except (json.JSONDecodeError, OSError):
                 log_error(f"[RuntimeConfig] 配置文件损坏，使用默认配置: {config_path}")
-                return cls(_config_path=str(user_config_path()))
+                config = cls(_config_path=config_path)
+                config._ensure_builtin_default_repo()
+                return config
             config = cls._from_dict(data)
+            if "source_repos" not in data:
+                config._ensure_builtin_default_repo()
             config._config_path = config_path
         else:
-            config = cls(_config_path=str(user_config_path()))
+            config = cls(_config_path=config_path)
+            config._ensure_builtin_default_repo()
 
+        had_nonempty_repos = bool(config.source_repos.repos)
         # 清理已知的测试/占位订阅（客户端不自动订阅任何远程源，
         # 订阅必须由用户显式添加）
         config._cleanup_stale_subscriptions()
+        if (
+            had_nonempty_repos
+            and not config.source_repos.repos
+            and not config.registry.primary_url
+        ):
+            config._ensure_builtin_default_repo()
         return config
 
     def _cleanup_stale_subscriptions(self) -> None:
@@ -263,6 +281,19 @@ class RuntimeConfig:
         stale = [r for r in self.source_repos.repos if "example.org" in r.url]
         for r in stale:
             self.remove_source_repo(r.url)
+
+    def _ensure_builtin_default_repo(self) -> None:
+        if self.registry.primary_url or self.source_repos.repos:
+            return
+        self.source_repos.repos.append(
+            SourceRepoEntry(url=builtin_ott_repo_url(), enabled=True)
+        )
+
+    @classmethod
+    def _fresh_with_builtin(cls) -> "RuntimeConfig":
+        config = cls()
+        config._ensure_builtin_default_repo()
+        return config
 
     @classmethod
     def ensure_user_config_exists(cls) -> str:
@@ -278,7 +309,9 @@ class RuntimeConfig:
 
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("w", encoding="utf-8") as f:
-            json.dump(cls()._to_dict(), f, ensure_ascii=False, indent=4)
+            json.dump(
+                cls._fresh_with_builtin()._to_dict(), f, ensure_ascii=False, indent=4
+            )
         return str(target)
 
     @classmethod
@@ -292,11 +325,12 @@ class RuntimeConfig:
             data = json.loads(target.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             log_error(f"[RuntimeConfig] 配置文件损坏，重新生成: {target}")
-            data = cls()._to_dict()
+            data = cls._fresh_with_builtin()._to_dict()
             try:
                 with target.open("w", encoding="utf-8") as f:
                     try:
-                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                        if fcntl is not None:
+                            fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
                     except (OSError, AttributeError):
                         pass
                     json.dump(data, f, ensure_ascii=False, indent=4)
@@ -304,14 +338,15 @@ class RuntimeConfig:
                 log_error(f"[RuntimeConfig] 写入配置文件失败：{target}")
             return
 
-        defaults = cls()._to_dict()
+        defaults = cls._fresh_with_builtin()._to_dict()
         missing = {k: v for k, v in defaults.items() if k not in data}
         if missing:
             data.update(missing)
             try:
                 with target.open("w", encoding="utf-8") as f:
                     try:
-                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                        if fcntl is not None:
+                            fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
                     except (OSError, AttributeError):
                         pass
                     json.dump(data, f, ensure_ascii=False, indent=4)
@@ -427,12 +462,19 @@ class RuntimeConfig:
         if not isinstance(ui_data, dict):
             ui_data = {}
 
+        raw_blocked = data.get("blocked_content_hashes")
+        blocked_content_hashes = (
+            [h for h in raw_blocked if isinstance(h, str) and h]
+            if isinstance(raw_blocked, list)
+            else []
+        )
         return cls(
             base_url=base_url,
             api_timeout=api_timeout,
             typing_history_max_records=cls._safe_int(
                 data.get("typing_history_max_records"), 2000
             ),
+            blocked_content_hashes=blocked_content_hashes,
             text_source_config=text_source_config,
             wenlai=wenlai,
             registry=registry,
@@ -465,6 +507,9 @@ class RuntimeConfig:
                     ),
                     etag=cls._safe_str(item.get("etag"), ""),
                     added_at=cls._safe_str(item.get("added_at"), ""),
+                    last_snapshot_hash=cls._safe_str(
+                        item.get("last_snapshot_hash"), ""
+                    ),
                 )
             )
         return SourceReposConfig(repos=repos)
@@ -511,7 +556,7 @@ class RuntimeConfig:
         k = key or self.default_text_source_key
         return self.text_source_config.get_source(k)
 
-    def get_text_source_options(self) -> list[dict[str, str]]:
+    def get_text_source_options(self) -> list[dict[str, str | bool]]:
         options = self.text_source_config.get_source_options()
         options.extend(
             {"key": item.source_key, "label": item.label} for item in self.catalog_items
@@ -563,7 +608,7 @@ class RuntimeConfig:
         old_primary = self.registry.primary_url
         if not old_primary:
             for repo in self.source_repos.repos:
-                if repo.enabled:
+                if repo.enabled and not repo.url.startswith("file://"):
                     old_primary = repo.url
                     break
         if primary_url is not None:
@@ -591,6 +636,23 @@ class RuntimeConfig:
         """更新 ott-script（L3）开关并持久化到 config.json。"""
         self.registry.scripts_enabled = bool(enabled)
         self._save_to_file()
+
+    def add_blocked_content_hash(self, content_hash: str) -> None:
+        """加入本地内容屏蔽清单（takedown 生效）并持久化。"""
+        cleaned = content_hash.strip()
+        if cleaned and cleaned not in self.blocked_content_hashes:
+            self.blocked_content_hashes.append(cleaned)
+            self._save_to_file()
+
+    def remove_blocked_content_hash(self, content_hash: str) -> bool:
+        """从本地内容屏蔽清单移除；存在才持久化并返回 True。"""
+        cleaned = content_hash.strip()
+        remaining = [h for h in self.blocked_content_hashes if h != cleaned]
+        if len(remaining) == len(self.blocked_content_hashes):
+            return False
+        self.blocked_content_hashes = remaining
+        self._save_to_file()
+        return True
 
     def add_source_repo(self, url: str, *, added_at: str = "") -> SourceRepoEntry:
         """添加一条源仓库订阅并持久化。"""
@@ -652,10 +714,46 @@ class RuntimeConfig:
                 self._save_to_file()
                 return
 
+    def confirm_source_repo_trust(self, url: str) -> None:
+        """用户显式确认信任订阅（TOFU pending → verified）。
+
+        保留已固定的公钥；无固定公钥的订阅不改变状态（confirm 仅针对
+        pending 且有 pinned_pubkey 的条目生效）。
+        """
+        url = url.strip().rstrip("/") if url else ""
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                if repo.trust_state == "pending" and repo.pinned_pubkey:
+                    repo.trust_state = "verified"
+                    self._save_to_file()
+                    log_info(f"[RuntimeConfig] 用户确认信任订阅: {url}")
+                return
+
+    def reject_source_repo_trust(self, url: str) -> None:
+        """用户显式拒绝信任订阅（pending → unverified，清空固定公钥）。
+
+        不删除订阅：清空 pinned_pubkey 后，下次刷新会重新评估并再次
+        进入 pending，等待用户重新决策。
+        """
+        url = url.strip().rstrip("/") if url else ""
+        for repo in self.source_repos.repos:
+            if repo.url == url:
+                if repo.trust_state == "pending":
+                    repo.trust_state = "unverified"
+                    repo.pinned_pubkey = ""
+                    self._save_to_file()
+                    log_info(f"[RuntimeConfig] 用户拒绝信任订阅: {url}")
+                return
+
     def update_source_repo_refresh(
-        self, url: str, *, etag: str = "", trust_state: str = ""
+        self,
+        url: str,
+        *,
+        etag: str = "",
+        trust_state: str = "",
+        last_snapshot_hash: str = "",
     ) -> None:
-        """由缓存层更新订阅的 etag 与信任状态。"""
+        """由缓存层更新订阅的 etag / 信任状态 / TUF-lite 快照参照。"""
         url = url.strip().rstrip("/") if url else ""
         for repo in self.source_repos.repos:
             if repo.url == url:
@@ -663,6 +761,8 @@ class RuntimeConfig:
                     repo.etag = etag
                 if trust_state:
                     repo.trust_state = trust_state
+                if last_snapshot_hash:
+                    repo.last_snapshot_hash = last_snapshot_hash
                 self._save_to_file()
                 return
 
@@ -719,6 +819,7 @@ class RuntimeConfig:
             self.base_url = updated.base_url
             self.api_timeout = updated.api_timeout
             self.typing_history_max_records = updated.typing_history_max_records
+            self.blocked_content_hashes = updated.blocked_content_hashes
             self.text_source_config = updated.text_source_config
             self.wenlai = updated.wenlai
             self.registry = updated.registry
@@ -741,6 +842,7 @@ class RuntimeConfig:
             "default_text_source_key": self.default_text_source_key,
             "api_timeout": self.api_timeout,
             "typing_history_max_records": self.typing_history_max_records,
+            "blocked_content_hashes": list(self.blocked_content_hashes),
             "text_sources": {
                 key: {
                     "label": source.label,
@@ -770,6 +872,11 @@ class RuntimeConfig:
                     "refresh_ttl_seconds": repo.refresh_ttl_seconds,
                     **({"etag": repo.etag} if repo.etag else {}),
                     **({"added_at": repo.added_at} if repo.added_at else {}),
+                    **(
+                        {"last_snapshot_hash": repo.last_snapshot_hash}
+                        if repo.last_snapshot_hash
+                        else {}
+                    ),
                 }
                 for repo in self.source_repos.repos
             ],

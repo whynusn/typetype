@@ -304,11 +304,10 @@ def test_registry_source_type_survives_to_dict_round_trip():
     rt = config._to_dict()
     assert rt["text_sources"]["registry_test"]["loader"] == "registry"
     config2 = RuntimeConfig._from_dict(rt)
-    assert config2.get_text_source("registry_test") is not None
-    assert config2.get_text_source("registry_test").loader == Loader.REGISTRY
-    assert config2.get_text_source("registry_test").leaderboard_mode == (
-        LeaderboardMode.SERVER_RESOLVED
-    )
+    source = config2.get_text_source("registry_test")
+    assert source is not None
+    assert source.loader == Loader.REGISTRY
+    assert source.leaderboard_mode == (LeaderboardMode.SERVER_RESOLVED)
 
 
 def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
@@ -345,8 +344,9 @@ def test_reload_reflects_file_changes(monkeypatch, tmp_path: Path):
 
     config.reload()
     assert "b" in config.text_source_config.sources
-    assert config.get_text_source("b") is not None
-    assert config.get_text_source("b").loader == Loader.LOCAL_FILE
+    source = config.get_text_source("b")
+    assert source is not None
+    assert source.loader == Loader.LOCAL_FILE
 
 
 def test_update_wenlai_config_allows_empty_length(monkeypatch, tmp_path: Path):
@@ -640,6 +640,44 @@ def test_source_repos_default_empty():
     config = RuntimeConfig()
     assert config.source_repos.repos == []
     assert config.source_repos.enabled_repos == []
+
+
+def test_blocked_content_hashes_roundtrip(tmp_path):
+    path = tmp_path / "config.json"
+    config = RuntimeConfig.load_from_file(str(path))
+    config.add_blocked_content_hash("sha256:abc")
+    config.add_blocked_content_hash("sha256:abc")
+    config2 = RuntimeConfig.load_from_file(str(path))
+    assert config2.blocked_content_hashes == ["sha256:abc"]
+    assert config2.remove_blocked_content_hash("sha256:abc") is True
+    config3 = RuntimeConfig.load_from_file(str(path))
+    assert config3.blocked_content_hashes == []
+
+
+def test_source_repo_last_snapshot_hash_roundtrip(tmp_path):
+    """TUF-lite 快照参照字段持久化（ADR-011 Phase 3.6）。"""
+    path = tmp_path / "config.json"
+    config = RuntimeConfig.load_from_file(str(path))
+    config.add_source_repo("https://snap.org/r.json")
+    config.update_source_repo_refresh(
+        "https://snap.org/r.json", last_snapshot_hash="sha256:abc"
+    )
+
+    config2 = RuntimeConfig.load_from_file(str(path))
+    repo2 = next(
+        r for r in config2.source_repos.repos if r.url == "https://snap.org/r.json"
+    )
+    assert repo2.last_snapshot_hash == "sha256:abc"
+
+    # 空字段不写入 JSON（保持既有序列化风格）
+    path2 = tmp_path / "config2.json"
+    config3 = RuntimeConfig.load_from_file(str(path2))
+    config3.add_source_repo("https://other.org/r.json")
+    saved2 = json.loads(path2.read_text(encoding="utf-8"))
+    other = next(
+        r for r in saved2["source_repos"] if r["url"] == "https://other.org/r.json"
+    )
+    assert "last_snapshot_hash" not in other
 
 
 def test_add_source_repo_dedup_and_enable():
@@ -990,6 +1028,69 @@ def test_parse_source_repos_ignores_invalid_entries():
     )
     assert len(config.source_repos.repos) == 1
     assert config.source_repos.repos[0].url == "https://valid.org/r.json"
+
+
+def test_source_repo_pending_trust_state_accepted(tmp_path):
+    """pending 作为合法 trust_state 被解析，且保留固定公钥。"""
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {
+                    "url": "https://repo.example.com/r.json",
+                    "trust_state": "pending",
+                    "pinned_pubkey": "ed25519:abc",
+                },
+            ]
+        }
+    )
+    config._config_path = str(tmp_path / "config.json")
+    repo = config.source_repos.repos[0]
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == "ed25519:abc"
+    # 序列化 round-trip 保持 pending
+    config2 = RuntimeConfig._from_dict(config._to_dict())
+    assert config2.source_repos.repos[0].trust_state == "pending"
+
+
+def test_confirm_source_repo_trust_sets_verified_keeps_pin(tmp_path):
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {
+                    "url": "https://repo.example.com/r.json",
+                    "trust_state": "pending",
+                    "pinned_pubkey": "ed25519:abc",
+                },
+            ]
+        }
+    )
+    config._config_path = str(tmp_path / "config.json")
+    config.confirm_source_repo_trust("https://repo.example.com/r.json")
+    repo = config.source_repos.repos[0]
+    assert repo.trust_state == "verified"
+    assert repo.pinned_pubkey == "ed25519:abc"
+
+
+def test_reject_source_repo_trust_sets_unverified_clears_pin(tmp_path):
+    config = RuntimeConfig._from_dict(
+        {
+            "source_repos": [
+                {
+                    "url": "https://repo.example.com/r.json",
+                    "trust_state": "pending",
+                    "pinned_pubkey": "ed25519:abc",
+                },
+            ]
+        }
+    )
+    config._config_path = str(tmp_path / "config.json")
+    config.reject_source_repo_trust("https://repo.example.com/r.json")
+    repo = config.source_repos.repos[0]
+    assert repo.trust_state == "unverified"
+    assert repo.pinned_pubkey == ""
+    # 订阅本身不被删除，仅回退信任状态
+    assert len(config.source_repos.repos) == 1
+    assert repo.url == "https://repo.example.com/r.json"
 
 
 def test_registry_scripts_enabled_default_follows_platform(monkeypatch):

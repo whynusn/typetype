@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -14,6 +15,7 @@ from src.backend.config.runtime_config import (
     SourceReposConfig,
 )
 from src.backend.integration.ott_federation_provider import (
+    _EntryCache,
     OttFederationProvider,
     _RuleClient,
 )
@@ -228,6 +230,7 @@ class TestFederationWithRules:
         provider = _federation_with_rule(tmp_path)
         clients = provider._build_clients()
         rule_client = clients["rule:rule-test.example.org:sample-rule"]
+        assert isinstance(rule_client, _RuleClient)
         interp = rule_client._interpreter
         from src.backend.integration.ott_rule_interpreter import CLIENT_API_LEVEL
 
@@ -235,3 +238,43 @@ class TestFederationWithRules:
         rule = _rule_manifest()["sources"][0]["rule"]
         rule = {**rule, "rights": {"min_api_level": CLIENT_API_LEVEL + 1}}
         assert interp.list_entries(rule, "r1") == []
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.9：客户端复用与结果 TTL 缓存
+# ---------------------------------------------------------------------------
+
+
+def test_clients_reused_within_signature(tmp_path):
+    provider = _federation_with_rule(tmp_path)
+    first = provider._build_clients()
+    second = provider._build_clients()
+    assert first is second
+    assert provider._shared_client is not None
+
+    provider._runtime_config.source_repos.repos[0].enabled = False
+    third = provider._build_clients()
+    assert third is not first
+    assert third == {}
+
+
+def test_rule_entries_cached_within_ttl(tmp_path):
+    provider = _federation_with_rule(tmp_path)
+    with patch.object(
+        OttRuleInterpreter,
+        "list_entries",
+        return_value=[{"entry_id": "e1", "title": "T", "content": "C"}],
+    ) as mock_list:
+        entries1 = provider.list_all_entries()
+        entries2 = provider.list_all_entries()
+    assert mock_list.call_count == 1
+    assert len(entries1) == 1
+    assert len(entries2) == 1
+
+
+def test_entry_cache_expires_after_ttl():
+    cache = _EntryCache(ttl_seconds=1)
+    cache.set("k", [{"entry_id": "e1"}])
+    assert cache.get("k") is not None
+    cache._items["k"] = (time.time() - 2, [{"entry_id": "e1"}])
+    assert cache.get("k") is None
