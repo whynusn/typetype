@@ -86,9 +86,7 @@ def main() -> None:
         "maintainer": {"name": "typetype"},
         "license": "CC-BY-SA-4.0",
         "updated_at": src_manifest.get("updated_at", ""),
-        "mirrors": [
-            {"url": "file://__BUILTIN_DIR__/ott-repo.json", "priority": 1}
-        ],
+        "mirrors": [{"url": "file://__BUILTIN_DIR__/ott-repo.json", "priority": 1}],
         "sources": [
             {
                 "type": "ott-instance",

@@ -35,8 +35,9 @@ def _isolate_instance_cache(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         OttFederationProvider,
         "_instance_cache_dir",
-        lambda self, authority: root
-        / hashlib.sha256(authority.encode("utf-8")).hexdigest()[:12],
+        lambda self, authority: (
+            root / hashlib.sha256(authority.encode("utf-8")).hexdigest()[:12]
+        ),
     )
 
 
