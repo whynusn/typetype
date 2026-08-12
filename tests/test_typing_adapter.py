@@ -165,3 +165,108 @@ def test_restore_metrics_sets_metrics_without_stats_or_counts():
     assert ctx._speed_min == 130
     assert ctx._slice_pass_counts == [0, 0, 0]
     assert ctx._slice_stats == []
+
+
+# ---------------------------------------------------------------------------
+# 方案 A 代理扩展：snapshot / criteria / slice_text / metrics 标量分支
+# ---------------------------------------------------------------------------
+
+
+def test_restore_metrics_scalar_branch_applies_metrics_dict():
+    """rp.metrics 标量 dict（含降击值）→ 恢复当前标量指标。"""
+    ctx = _make_ctx()
+    adapter = _make_adapter(ctx)
+
+    adapter.restore_slice_progress(
+        {
+            "metrics": {
+                "key_stroke_min": 4.5,
+                "speed_min": 80,
+                "accuracy_min": 90,
+                "pass_count_min": 2,
+                "on_fail_action": "retry",
+                "auto_decrease_enabled": True,
+                "key_stroke_decrease": 0.5,
+                "speed_decrease": 10,
+                "accuracy_decrease": 1,
+            }
+        }
+    )
+
+    assert ctx._key_stroke_min == 4.5
+    assert ctx._speed_min == 80
+    assert ctx._accuracy_min == 90
+    assert ctx._pass_count_min == 2
+    assert ctx._on_fail_action == "retry"
+    assert ctx._auto_decrease_enabled is True
+
+
+def test_restore_metrics_scalar_branch_ignores_non_dict():
+    ctx = _make_ctx()
+    adapter = _make_adapter(ctx)
+
+    adapter.restore_slice_progress({"metrics": "not-a-dict"})
+
+    assert ctx._key_stroke_min == 6.0  # 未被破坏
+
+
+def test_snapshot_contains_full_state():
+    ctx = _make_ctx()
+    adapter = _make_adapter(ctx)
+    ctx._slice_pass_counts = [1, 0, 2]
+    ctx._slice_stats = [{"speed": 100}, None, {"speed": 80}]
+    ctx._slice_index = 2
+
+    snap = adapter.get_slice_progress_snapshot()
+
+    assert snap["slice_text"] == "一二三四五六七八九"
+    assert snap["slice_size"] == 3
+    assert snap["slice_total"] == 3
+    assert snap["slice_index"] == 2
+    assert snap["slice_pass_counts"] == [1, 0, 2]
+    assert snap["slice_stats"] == [{"speed": 100}, None, {"speed": 80}]
+    # slice_metrics 截断到当前片索引（与 collectSliceResult 保存端一致）
+    assert len(snap["slice_metrics"]) == 2
+    # metrics 标量快照含全部 9 字段
+    assert snap["metrics"]["key_stroke_min"] == 6.0
+    assert snap["metrics"]["speed_min"] == 100
+    assert snap["metrics"]["accuracy_min"] == 95
+    assert snap["metrics"]["pass_count_min"] == 1
+    assert snap["metrics"]["on_fail_action"] == "retype"
+
+
+def test_snapshot_empty_without_context():
+    adapter = _make_adapter(None)
+    assert adapter.get_slice_progress_snapshot() == {}
+
+
+def test_slice_text_property_proxies_context():
+    ctx = _make_ctx()
+    adapter = _make_adapter(ctx)
+    assert adapter.slice_text == "一二三四五六七八九"
+    assert _make_adapter(None).slice_text == ""
+
+
+def test_get_slice_criteria_text_format():
+    ctx = _make_ctx()
+    adapter = _make_adapter(ctx)
+    ctx._key_stroke_min = 6.0
+    ctx._speed_min = 100
+    ctx._accuracy_min = 95
+    ctx._pass_count_min = 1
+
+    text = adapter.get_slice_criteria_text()
+
+    assert text == "击键≥6.00  速度≥100  键准≥95%  达标≥1次"
+
+
+def test_get_slice_criteria_text_after_decrease():
+    """降击后阈值更新 → 文案反映新值（读当前标量，不读初始值）。"""
+    ctx = _make_ctx()
+    adapter = _make_adapter(ctx)
+    ctx.decrease_metrics_on_fail()
+
+    text = adapter.get_slice_criteria_text()
+
+    assert text.startswith("击键≥")
+    assert "键准≥" in text

@@ -2064,20 +2064,14 @@ class Bridge(QObject):
         title: str = "",
     ) -> None:
         """实际执行分片设置（被 setupSliceMode 调用）。"""
+        # 保存进度时的指标（可能含降击值）由 restore_slice_progress 统一处理，
+        # 这里仅推进起始片
         effective_start_slice = start_slice
         if restored_progress:
             saved_slice = restored_progress.get("current_slice", 1)
             saved_total = restored_progress.get("total_slices", 0)
             if saved_slice > 1 and saved_slice <= saved_total:
                 effective_start_slice = saved_slice
-
-        # 保存进度时的指标（可能含降击值），用于恢复 per-slice 数据
-        saved_metrics = (
-            restored_progress.get("metrics", {}) if restored_progress else {}
-        )
-        saved_slice_metrics = (
-            restored_progress.get("slice_metrics") if restored_progress else None
-        )
 
         # 用原始用户指标初始化 per-slice 列表（确保未访问片段保持原始值）
         total = self._typing_adapter.setup_slice_mode(
@@ -2109,34 +2103,10 @@ class Bridge(QObject):
         if total <= 0:
             return
 
-        # 恢复历史达标次数和指标配置
+        # 恢复历史达标次数和指标配置（统一经 TypingAdapter 代理，
+        # 禁止直读 SessionContext 私有状态）
         if restored_progress:
-            ctx = self._typing_adapter._session_context
-            if not ctx:
-                return
-            if restored_progress.get("slice_pass_counts"):
-                saved_counts = restored_progress["slice_pass_counts"]
-                for i, count in enumerate(saved_counts):
-                    if i < len(ctx._slice_pass_counts):
-                        ctx._slice_pass_counts[i] = count
-            # 恢复保存时的标量指标（含降击值）
-            if saved_metrics:
-                ctx._apply_metrics_dict(saved_metrics)
-            # 恢复 per-slice 指标（已访问片段的降击历史）
-            if saved_slice_metrics:
-                # 保存端截断到 slice_index（性能优化），恢复端逐条覆盖 + 默认值填充
-                for i, m in enumerate(saved_slice_metrics):
-                    if i < len(ctx._slice_metrics):
-                        ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
-                ctx.restore_slice_metrics(ctx.slice_index)
-            # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
-            saved_slice_stats = restored_progress.get("slice_stats")
-            if saved_slice_stats and ctx._slice_stats is not None:
-                while len(ctx._slice_stats) < ctx.slice_total:
-                    ctx._slice_stats.append(None)
-                for i, s in enumerate(saved_slice_stats):
-                    if i < ctx.slice_total:
-                        ctx._slice_stats[i] = s
+            self._typing_adapter.restore_slice_progress(restored_progress)
 
         # 同步参数到 pending_slice_params，使 loadNextSlice 使用相同的自动推进逻辑
         self._coordinator.pending_slice_params.update(
@@ -2181,8 +2151,8 @@ class Bridge(QObject):
         if self._text_slice_progress_store and self._typing_adapter.is_slice_mode():
             from datetime import datetime
 
-            ctx = self._typing_adapter._session_context
-            if ctx:
+            snapshot = self._typing_adapter.get_slice_progress_snapshot()
+            if snapshot:
                 # source-based 路径（本地文库、练单器）始终使用后端标识作为进度 key，
                 # 不受全文乱序影响。_progress_key_override 用于全文乱序本地文库路径
                 # （source_slice_backend 为 None 但需要使用 local_article 前缀 key）。
@@ -2198,41 +2168,29 @@ class Bridge(QObject):
                     )
                 else:
                     # text-based 路径：使用乱序前原文（如有）生成稳定的 key
-                    raw = self._progress_key_text or ctx._slice_text
+                    raw = self._progress_key_text or snapshot["slice_text"]
                     text = _compute_progress_key("custom_text", raw)
                 if not text:
                     return
                 title = self._typing_adapter.text_title
                 # 保存下一片索引（用户正在打的片），而非刚完成的片
                 next_slice = (
-                    (ctx.slice_index % ctx.slice_total) + 1
-                    if ctx.slice_total > 0
-                    else ctx.slice_index
+                    (snapshot["slice_index"] % snapshot["slice_total"]) + 1
+                    if snapshot["slice_total"] > 0
+                    else snapshot["slice_index"]
                 )
                 progress = {
                     "last_accessed": datetime.now().isoformat(),
-                    "total_slices": ctx.slice_total,
+                    "total_slices": snapshot["slice_total"],
                     "current_slice": next_slice,
-                    "slice_size": ctx._slice_size if hasattr(ctx, "_slice_size") else 0,
-                    "slice_pass_counts": list(ctx._slice_pass_counts),
-                    "slice_stats": list(ctx._slice_stats),
-                    "metrics": {
-                        "key_stroke_min": ctx._key_stroke_min,
-                        "speed_min": ctx._speed_min,
-                        "accuracy_min": ctx._accuracy_min,
-                        "pass_count_min": ctx._pass_count_min,
-                        "on_fail_action": ctx.on_fail_action,
-                        "auto_decrease_enabled": ctx.auto_decrease_enabled,
-                        "key_stroke_decrease": ctx._key_stroke_decrease,
-                        "speed_decrease": ctx._speed_decrease,
-                        "accuracy_decrease": ctx._accuracy_decrease,
-                    },
+                    "slice_size": snapshot["slice_size"],
+                    "slice_pass_counts": snapshot["slice_pass_counts"],
+                    "slice_stats": snapshot["slice_stats"],
+                    "metrics": snapshot["metrics"],
                     "advance_mode": self._coordinator.pending_slice_params.get(
                         "advance_mode", "sequential"
                     ),
-                    "slice_metrics": [
-                        m.copy() for m in ctx._slice_metrics[: ctx.slice_index]
-                    ],
+                    "slice_metrics": snapshot["slice_metrics"],
                     "shuffle_seed": self._current_shuffle_seed,
                 }
                 log_info(
@@ -2256,9 +2214,6 @@ class Bridge(QObject):
             or not self._typing_adapter.is_slice_mode()
         ):
             return
-        ctx = self._typing_adapter._session_context
-        if not ctx:
-            return
         if self._progress_key_override:
             key = self._progress_key_override
         elif self._coordinator.source_slice_backend == "local_article":
@@ -2270,11 +2225,11 @@ class Bridge(QObject):
                 "trainer", self._coordinator.source_slice_trainer_id
             )
         else:
-            raw = self._progress_key_text or ctx._slice_text
+            raw = self._progress_key_text or self._typing_adapter.slice_text
             key = _compute_progress_key("custom_text", raw)
         entry, hash_key = self._find_progress(key)
         if entry and hash_key:
-            entry["current_slice"] = ctx.slice_index
+            entry["current_slice"] = self._typing_adapter.slice_index
             self._text_slice_progress_store.save_progress(
                 key, entry.get("text_title", ""), entry
             )
@@ -2669,13 +2624,7 @@ class Bridge(QObject):
     def getSliceCriteria(self) -> str:
         """返回当前达标条件文字（含降击后更新）。"""
         if self._typing_adapter.is_slice_mode():
-            ctx = self._typing_adapter._session_context
-            if ctx:
-                ks = ctx._key_stroke_min
-                spd = ctx._speed_min
-                acc = ctx._accuracy_min
-                pc = ctx._pass_count_min
-                return f"击键≥{ks:.2f}  速度≥{spd}  键准≥{acc}%  达标≥{pc}次"
+            return self._typing_adapter.get_slice_criteria_text()
         return ""
 
     @Slot(result="QVariantMap")

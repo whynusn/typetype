@@ -126,7 +126,7 @@
 
 ### 架构约束
 
-**绑定规则**：Presentation 只能依赖 Application 层，禁止依赖 Domain 层。
+**绑定规则**：Presentation 禁止依赖 Integration/Infrastructure 与 Domain 实体/存储；允许直连纯业务服务（`TypingService`/`CharStatsService`/`AuthService`，见 [ARCHITECTURE.md 依赖规则](../docs/ARCHITECTURE.md#依赖规则)）。Bridge 不得直接访问 `SessionContext` 或持有 Integration 对象，状态访问一律经对应 Adapter 代理。
 
 **决策规则**：
 - 有编排逻辑 → 必须走 UseCase
@@ -483,15 +483,13 @@ onActiveChanged: {
 
 **历史**：2026-08-12 边界审计修复。
 
-### ⚠️ bridge 直取 `_session_context` 的已知偏差（待清理）
+### ⚠️ 进度持久化编排残留：Bridge 直持 TextSliceProgressStore（待下沉）
 
-**问题**：bridge.py 仍有 4 处（`applySliceMode` 恢复路径、`collectSliceResult` 进度保存，约 2114/2184/2259/2672 行）直接读写 `self._typing_adapter._session_context` 私有状态（`_slice_pass_counts`/`_slice_stats`/`_slice_text` 等），违反"Bridge 禁止直接访问 SessionContext，必须经 TypingAdapter 代理"。
+**问题**：进度序列化/恢复/存储编排仍散落在 Bridge（`collectSliceResult`/`_update_progress_current_slice`/`applySliceMode`），Bridge 构造直持 `TextSliceProgressStore`（integration 对象），违反 ARCHITECTURE.md "Bridge 直接持有 Integration 对象 ❌"。2026-08-12 已消除 Bridge 直取 `_session_context` 的 4 处穿透（统一经 `TypingAdapter` 代理：`restore_slice_progress()`/`get_slice_progress_snapshot()`/`get_slice_criteria_text()`/`slice_text`，`SessionContext.slice_progress_state()` 为状态拥有者自序列化），但 store 编排仍在 Bridge。
 
-**现状**：2026-08-12 审计后主路径（`_restore_pending_progress`）已封装为 `TypingAdapter.restore_slice_progress()`，其余 4 处因涉及 slice 进度语义且无测试保障，暂记为已知偏差不机械搬运。
+**正确做法**：下沉到 Application 层（方案 B）：`TextSliceProgressStore` 经 Port 协议注入 UseCase，Bridge 收敛为纯 Slot 转发。`SessionContext` 的自序列化接口（`slice_progress_state()`/`apply_metrics_dict()`/`slice_text`）已就位，是下沉的前置。
 
-**正确做法**：新代码不得新增此类穿透；清理时先在 TypingAdapter 上封装公共方法（恢复/保存进度各一）并补针对性测试，再替换 bridge 调用点。
-
-**历史**：2026-08-12 边界审计发现。
+**历史**：2026-08-12 边界审计发现，同日消除 bridge 穿透（方案 A）；store 下沉留待后续批次。
 
 ---
 

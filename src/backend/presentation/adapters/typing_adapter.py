@@ -619,6 +619,10 @@ class TypingAdapter(QObject):
         ctx = self._session_context
         if not ctx:
             return
+        # 恢复标量指标（含降击值，metrics 是当前片阈值快照）
+        saved_metrics = rp.get("metrics")
+        if saved_metrics and isinstance(saved_metrics, dict):
+            ctx.apply_metrics_dict(saved_metrics)
         # 恢复达标次数
         saved_counts = rp.get("slice_pass_counts")
         if saved_counts:
@@ -645,6 +649,36 @@ class TypingAdapter(QObject):
     def get_last_slice_stats(self) -> dict | None:
         """获取最近一次分片完成时的 score_data 快照。"""
         return self._last_slice_stats
+
+    def get_slice_progress_snapshot(self) -> dict:
+        """代理：返回分片会话状态快照（进度序列化用，禁止直读 SessionContext）。
+
+        字段与 SessionContext.slice_progress_state() 一致：slice_text /
+        slice_size / slice_total / slice_index / slice_pass_counts /
+        slice_stats / slice_metrics / metrics。
+        """
+        if self._session_context:
+            return self._session_context.slice_progress_state()
+        return {}
+
+    @property
+    def slice_text(self) -> str:
+        """代理：当前分片文本（进度键计算用）。"""
+        if self._session_context:
+            return self._session_context.slice_text
+        return ""
+
+    def get_slice_criteria_text(self) -> str:
+        """代理：返回当前达标条件文字（含降击后更新）。"""
+        if not self._session_context:
+            return ""
+        metrics = self._session_context.slice_progress_state().get("metrics", {})
+        return (
+            f"击键≥{metrics.get('key_stroke_min', 0.0):.2f}  "
+            f"速度≥{metrics.get('speed_min', 0)}  "
+            f"键准≥{metrics.get('accuracy_min', 0)}%  "
+            f"达标≥{metrics.get('pass_count_min', 0)}次"
+        )
 
     def build_aggregate_score(self, slice_stats: list[dict], slice_count: int) -> str:
         """计算所有片的聚合成绩，返回 HTML 消息。"""
