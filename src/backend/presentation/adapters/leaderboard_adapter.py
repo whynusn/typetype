@@ -41,10 +41,13 @@ class LeaderboardAdapter(QObject):
         leaderboard_gateway: LeaderboardGateway,
         runtime_config: RuntimeConfig,
         registry_provider=None,
+        registry_provider_factory=None,
     ):
         super().__init__()
         self._leaderboard_gateway = leaderboard_gateway
         self._registry_provider = registry_provider
+        # 由 container.py 装配注入的 OttTextProvider 工厂（None 时保留原懒初始化兜底）
+        self._registry_provider_factory = registry_provider_factory
         self._runtime_config = runtime_config
         self._thread_pool = QThreadPool.globalInstance()
         self._loading = False
@@ -66,6 +69,8 @@ class LeaderboardAdapter(QObject):
 
         用户在设置页面填写 registry URL 时，registry_provider 尚未创建
         （启动时 URL 为空 → container.py 中 else None），此处按需创建。
+        装配路径走 container.py 注入的 registry_provider_factory；
+        直接构造（测试）时保留原懒加载兜底。
         """
         primary_url = self._runtime_config.registry.primary_url
         log_info(
@@ -77,15 +82,18 @@ class LeaderboardAdapter(QObject):
             )
             return
         try:
-            from ...integration.ott_text_provider import OttTextProvider
-            from ...config.app_paths import registry_cache_dir
-            import httpx
+            if self._registry_provider_factory is not None:
+                self._registry_provider = self._registry_provider_factory()
+            else:
+                from ...integration.ott_text_provider import OttTextProvider
+                from ...config.app_paths import registry_cache_dir
+                import httpx
 
-            self._registry_provider = OttTextProvider(
-                config=self._runtime_config.registry,
-                cache_dir=registry_cache_dir(),
-                http_client=httpx.Client(timeout=10.0, trust_env=False),
-            )
+                self._registry_provider = OttTextProvider(
+                    config=self._runtime_config.registry,
+                    cache_dir=registry_cache_dir(),
+                    http_client=httpx.Client(timeout=10.0, trust_env=False),
+                )
             log_info(
                 f"[LeaderboardAdapter] _init_registry_provider: 创建成功，primary_url={primary_url}"
             )

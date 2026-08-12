@@ -236,6 +236,7 @@ class Bridge(QObject):
         base_url_update_callback: Callable[[str], None] | None = None,
         slice_metrics_prefs_store: "SliceMetricsPrefsStore | None" = None,
         text_slice_progress_store: "TextSliceProgressStore | None" = None,
+        ott_segment_provider_cls: "type | None" = None,
     ):
         super().__init__()
         self._typing_adapter = typing_adapter
@@ -258,6 +259,8 @@ class Bridge(QObject):
         self._base_url_update_callback = base_url_update_callback
         self._slice_metrics_prefs_store = slice_metrics_prefs_store
         self._text_slice_progress_store = text_slice_progress_store
+        # OttSegmentProvider 类由 container.py 装配注入（复用同一实现，参数每次实例化）
+        self._ott_segment_provider_cls = ott_segment_provider_cls
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
@@ -642,36 +645,13 @@ class Bridge(QObject):
 
         不删除存储中的进度条目——由 collectSliceResult 在用户完成一段后自然覆盖。
         这样即使用户继续进度后未完成一段就关闭应用，进度也不会丢失。
+
+        SessionContext 状态的读写全部收敛到 TypingAdapter.restore_slice_progress
+        （Bridge 禁止直接访问 SessionContext），本方法只透传 rp dict 并清理自身瞬态。
         """
         if not self._pending_restored_progress:
             return
-        ctx = self._typing_adapter._session_context
-        if not ctx:
-            self._pending_restored_progress = None
-            return
-        rp = self._pending_restored_progress
-        saved_counts = rp.get("slice_pass_counts")
-        if saved_counts:
-            for i, count in enumerate(saved_counts):
-                if i < len(ctx._slice_pass_counts):
-                    ctx._slice_pass_counts[i] = count
-        # 恢复 per-slice 指标
-        saved_slice_metrics = rp.get("slice_metrics")
-        if saved_slice_metrics:
-            # 保存端截断到 slice_index（性能优化），恢复端逐条覆盖 + 默认值填充
-            for i, m in enumerate(saved_slice_metrics):
-                if i < len(ctx._slice_metrics):
-                    ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
-            ctx.restore_slice_metrics(ctx.slice_index)
-        # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
-        saved_slice_stats = rp.get("slice_stats")
-        if saved_slice_stats and ctx._slice_stats is not None:
-            # 初始化 _slice_stats 到正确大小，用 None 填充，再用保存值覆盖
-            while len(ctx._slice_stats) < ctx.slice_total:
-                ctx._slice_stats.append(None)
-            for i, s in enumerate(saved_slice_stats):
-                if i < ctx.slice_total:
-                    ctx._slice_stats[i] = s
+        self._typing_adapter.restore_slice_progress(self._pending_restored_progress)
         self._pending_restore_key = ""
         self._pending_restored_progress = None
 
@@ -862,7 +842,7 @@ class Bridge(QObject):
         因此 primary_url 为空时从第一个 enabled 订阅反推显示，保证用户
         设置的主地址在重启后仍可见。
         """
-        cfg = self._text_adapter._runtime_config
+        cfg = self._text_adapter.runtime_config
         if cfg.registry.primary_url:
             return cfg.registry.primary_url
         for repo in cfg.source_repos.repos:
@@ -873,12 +853,12 @@ class Bridge(QObject):
     @Property(str, notify=registryUrlChanged)
     def registryMirrorUrl(self) -> str:
         """注册表镜像地址。"""
-        return self._text_adapter._runtime_config.registry.mirror_url
+        return self._text_adapter.runtime_config.registry.mirror_url
 
     @Property(bool, notify=scriptsEnabledChanged)
     def scriptsEnabled(self) -> bool:
         """ott-script（L3）脚本是否启用。"""
-        return self._text_adapter._runtime_config.registry.scripts_enabled
+        return self._text_adapter.runtime_config.registry.scripts_enabled
 
     @Property(str, notify=windowTitleChanged)
     def windowTitle(self) -> str:
@@ -1445,6 +1425,32 @@ class Bridge(QObject):
             on_error=lambda msg: self.textLoadFailed.emit(msg),
         )
 
+    def _make_ott_segment_provider(
+        self,
+        adapter,
+        entry_id: str,
+        revision_id: str,
+        total_chars: int,
+        source_segment_size: int,
+    ):
+        """创建 OttSegmentProvider 实例。
+
+        实现类由 container.py 装配注入（`ott_segment_provider_cls`）；
+        直接构造（测试/独立使用）时懒加载默认实现兜底。
+        """
+        provider_cls = self._ott_segment_provider_cls
+        if provider_cls is None:
+            from src.backend.integration.ott_segment_provider import OttSegmentProvider
+
+            provider_cls = OttSegmentProvider
+        return provider_cls(
+            adapter,
+            entry_id,
+            revision_id,
+            total_chars,
+            source_segment_size,
+        )
+
     def _build_federated_segment_session(
         self,
         adapter: "_FederationSegmentAdapter",
@@ -1457,10 +1463,9 @@ class Bridge(QObject):
         title: str,
         authority: str,
     ) -> dict:
-        from src.backend.integration.ott_segment_provider import OttSegmentProvider
         from src.backend.models.dto.text_session import TextKind
 
-        provider = OttSegmentProvider(
+        provider = self._make_ott_segment_provider(
             adapter,
             entry_id,
             revision_id,
@@ -1502,10 +1507,9 @@ class Bridge(QObject):
         source_segment_size: int,
         title: str,
     ) -> dict:
-        from src.backend.integration.ott_segment_provider import OttSegmentProvider
         from src.backend.models.dto.text_session import TextKind
 
-        provider = OttSegmentProvider(
+        provider = self._make_ott_segment_provider(
             provider_adapter,
             entry_id,
             revision_id,
@@ -2689,7 +2693,7 @@ class Bridge(QObject):
     @Slot(str)
     def setRegistryPrimaryUrl(self, new_url: str) -> None:
         """更新注册表主地址并持久化。"""
-        self._text_adapter._runtime_config.update_registry_url(primary_url=new_url)
+        self._text_adapter.runtime_config.update_registry_url(primary_url=new_url)
         # 清除 catalog 缓存使新 URL 生效
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
@@ -2698,7 +2702,7 @@ class Bridge(QObject):
     @Slot(str)
     def setRegistryMirrorUrl(self, new_url: str) -> None:
         """更新注册表镜像地址并持久化。"""
-        self._text_adapter._runtime_config.update_registry_url(mirror_url=new_url)
+        self._text_adapter.runtime_config.update_registry_url(mirror_url=new_url)
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
         self.registryUrlChanged.emit()
@@ -2706,7 +2710,7 @@ class Bridge(QObject):
     @Slot(str, str)
     def setRegistryUrls(self, primary_url: str, mirror_url: str) -> None:
         """更新注册表地址并持久化。"""
-        self._text_adapter._runtime_config.update_registry_url(
+        self._text_adapter.runtime_config.update_registry_url(
             primary_url=primary_url,
             mirror_url=mirror_url,
         )
@@ -2717,7 +2721,7 @@ class Bridge(QObject):
     @Slot(bool)
     def setScriptsEnabled(self, enabled: bool) -> None:
         """更新 ott-script（L3）开关并持久化。"""
-        self._text_adapter._runtime_config.update_scripts_enabled(enabled)
+        self._text_adapter.runtime_config.update_scripts_enabled(enabled)
         self.scriptsEnabledChanged.emit()
 
     # ------------------------------------------------------------------
@@ -3155,22 +3159,20 @@ class Bridge(QObject):
 
     @Property(int, notify=typingHistoryChanged)
     def typingHistoryMaxRecords(self) -> int:
-        if self._text_adapter and self._text_adapter._runtime_config:
-            return self._text_adapter._runtime_config.typing_history_max_records
+        if self._text_adapter and self._text_adapter.runtime_config:
+            return self._text_adapter.runtime_config.typing_history_max_records
         return 2000
 
     @Slot(int)
     def setTypingHistoryMaxRecords(self, max_records: int) -> None:
         """更新打字历史最大保留条数。"""
-        if not (self._text_adapter and self._text_adapter._runtime_config):
+        if not (self._text_adapter and self._text_adapter.runtime_config):
             return
-        self._text_adapter._runtime_config.update_typing_history_max_records(
-            max_records
-        )
+        self._text_adapter.runtime_config.update_typing_history_max_records(max_records)
         # 如果当前记录数超过新上限，截断
         if self._typing_history_gateway:
             self._typing_history_gateway._max_records = (
-                self._text_adapter._runtime_config.typing_history_max_records
+                self._text_adapter.runtime_config.typing_history_max_records
             )
             # 立即截断超限记录
             data = self._typing_history_gateway._load_normalized()
@@ -3193,7 +3195,7 @@ class Bridge(QObject):
 
         首次读取时检测 font_config.json 历史文件并自动迁移。
         """
-        result = self._text_adapter._runtime_config._ui_get(
+        result = self._text_adapter.runtime_config._ui_get(
             "reader_font_path", default=""
         )
         if result:
@@ -3210,7 +3212,7 @@ class Bridge(QObject):
                     data = json.load(f)
                 old_value = data.get("reader_font_path", "")
                 if old_value:
-                    self._text_adapter._runtime_config.update_ui_config(
+                    self._text_adapter.runtime_config.update_ui_config(
                         reader_font_path=old_value
                     )
                     return old_value
@@ -3220,4 +3222,4 @@ class Bridge(QObject):
 
     def _save_reader_font_path(self, file_path: str) -> None:
         """通过 RuntimeConfig 持久化 reader_font_path 到 config.json。"""
-        self._text_adapter._runtime_config.update_ui_config(reader_font_path=file_path)
+        self._text_adapter.runtime_config.update_ui_config(reader_font_path=file_path)

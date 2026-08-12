@@ -100,13 +100,17 @@ class TextSessionUseCase:
         provider: TextSegmentProvider,
         handle: TextHandle,
         full_shuffle_threshold: int = 1_000_000,
+        in_memory_provider_cls: "type | None" = None,
     ) -> None:
         # NOTE: full_shuffle_threshold 的默认值由 RuntimeConfig.text_session.full_shuffle_threshold
         # 覆盖，text_adapter.startFileTextSession 显式传入。此处默认值仅作 fallback。
+        # in_memory_provider_cls 由 container.py 装配注入（use case 只依赖 TextSegmentProvider 协议）；
+        # None 时 _shuffle_full 懒加载默认实现，仅兼容直接构造（测试/独立使用）。
         self._provider = provider
         self._handle = handle
         self._total_chars = provider.get_total_chars()
         self._full_shuffle_threshold = full_shuffle_threshold
+        self._in_memory_provider_cls = in_memory_provider_cls
 
     @property
     def handle(self) -> TextHandle:
@@ -150,8 +154,15 @@ class TextSessionUseCase:
 
     def _shuffle_full(self, seed: int) -> "TextSessionUseCase":
         """小文本：全量读入内存 shuffle，创建新的 InMemory provider。"""
-        from ...integration.in_memory_segment_provider import InMemorySegmentProvider
+        provider_cls = self._in_memory_provider_cls
+        if provider_cls is None:
+            # 兼容直接构造（测试/独立使用）：懒加载默认实现；
+            # 生产装配路径由 container 注入，不依赖具体实现。
+            from ...integration.in_memory_segment_provider import (
+                InMemorySegmentProvider,
+            )
 
+            provider_cls = InMemorySegmentProvider
         text = self._provider.get_segment(0, self._total_chars)
         chars = list(text)
         import random
@@ -159,7 +170,7 @@ class TextSessionUseCase:
         rng = random.Random(seed)
         rng.shuffle(chars)
         shuffled = "".join(chars)
-        new_provider = InMemorySegmentProvider(shuffled)
+        new_provider = provider_cls(shuffled)
         new_handle = TextHandle(
             kind=self._handle.kind,
             identifier=self._handle.identifier,
@@ -170,7 +181,10 @@ class TextSessionUseCase:
             server_text_id=self._handle.server_text_id,
         )
         return TextSessionUseCase(
-            new_provider, new_handle, self._full_shuffle_threshold
+            new_provider,
+            new_handle,
+            self._full_shuffle_threshold,
+            in_memory_provider_cls=self._in_memory_provider_cls,
         )
 
     def _shuffle_feistel(self, seed: int) -> "TextSessionUseCase":
@@ -187,5 +201,8 @@ class TextSessionUseCase:
             server_text_id=self._handle.server_text_id,
         )
         return TextSessionUseCase(
-            new_provider, new_handle, self._full_shuffle_threshold
+            new_provider,
+            new_handle,
+            self._full_shuffle_threshold,
+            in_memory_provider_cls=self._in_memory_provider_cls,
         )

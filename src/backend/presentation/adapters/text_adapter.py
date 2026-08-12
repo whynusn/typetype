@@ -12,7 +12,6 @@ from ...application.usecases.load_text_usecase import (
 )
 from ...application.usecases.text_session_usecase import TextSessionUseCase
 from ...config.runtime_config import RuntimeConfig
-from ...integration.file_segment_provider import FileSegmentProvider
 from ...models.dto.text_session import SegmentResult, TextHandle, TextKind
 from ...workers.text_load_worker import TextLoadWorker
 
@@ -45,11 +44,17 @@ class TextAdapter(QObject):
         runtime_config: RuntimeConfig,
         load_text_usecase: LoadTextUseCase,
         local_text_loader: "LocalTextLoader",
+        file_segment_provider_cls: "type | None" = None,
+        in_memory_provider_cls: "type | None" = None,
     ):
         super().__init__()
         self._runtime_config = runtime_config
         self._load_text_usecase = load_text_usecase
         self._local_text_loader = local_text_loader
+        # 由 container.py 装配注入的实现类（TextSessionUseCase 依赖端口协议，
+        # 具体 provider 经此注入；None 时懒加载默认实现兜底）
+        self._file_segment_provider_cls = file_segment_provider_cls
+        self._in_memory_provider_cls = in_memory_provider_cls
         self._text_loading = False
         self._thread_pool = QThreadPool.globalInstance()
         self._load_generation = 0
@@ -315,6 +320,11 @@ class TextAdapter(QObject):
     def refresh_runtime_config(self) -> None:
         self._runtime_config.reload()
 
+    @property
+    def runtime_config(self) -> RuntimeConfig:
+        """公共只读访问器：Bridge 等外部层经此读取配置，禁止直接触碰私有字段。"""
+        return self._runtime_config
+
     def get_base_url(self) -> str:
         """获取当前 API 服务地址。"""
         return self._runtime_config.base_url
@@ -334,7 +344,13 @@ class TextAdapter(QObject):
             return None
 
         small_threshold = self._runtime_config.text_session.small_file_threshold
-        provider = FileSegmentProvider(file_path, small_file_threshold=small_threshold)
+        provider_cls = self._file_segment_provider_cls
+        if provider_cls is None:
+            # 兼容直接构造（测试/独立使用）：懒加载默认实现
+            from ...integration.file_segment_provider import FileSegmentProvider
+
+            provider_cls = FileSegmentProvider
+        provider = provider_cls(file_path, small_file_threshold=small_threshold)
         provider.load_index_cache()
         total_chars = provider.get_total_chars()
         if provider._index and not provider._text:
@@ -351,6 +367,7 @@ class TextAdapter(QObject):
             provider,
             handle,
             full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
+            in_memory_provider_cls=self._in_memory_provider_cls,
         )
         self._session_slice_size = slice_size
         return self._text_session_usecase.get_segment(start_slice, slice_size)
@@ -410,6 +427,7 @@ class TextAdapter(QObject):
             provider,
             handle,
             full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
+            in_memory_provider_cls=self._in_memory_provider_cls,
         )
         result = usecase.get_segment(start_slice, slice_size)
         return usecase, result

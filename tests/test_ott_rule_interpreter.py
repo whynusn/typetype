@@ -100,6 +100,20 @@ class TestValidateUrl:
         assert validate_url("http://169.254.169.254/latest/meta-data") is False
         assert validate_url("http://[fe80::1]/api") is False
 
+    def test_rejects_cgnat_shared_space(self) -> None:
+        # RFC 6598 CGNAT 100.64.0.0/10：is_private 不覆盖，须显式拦截
+        assert validate_url("http://100.64.0.1/api") is False
+        assert validate_url("http://100.64.255.254/api") is False
+        assert validate_url("http://[::ffff:100.64.0.1]/api") is False
+
+    def test_rejects_multicast(self) -> None:
+        # 224.0.0.0/4 组播：仅 is_multicast 覆盖
+        assert validate_url("http://224.0.0.1/api") is False
+        assert validate_url("http://239.255.255.250/api") is False
+
+    def test_rejects_other_link_local_explicit(self) -> None:
+        assert validate_url("http://169.254.1.1/api") is False
+
     def test_rejects_dns_resolution_failure(self) -> None:
         with patch(
             "src.backend.integration.ott_rule_interpreter.socket.getaddrinfo",
@@ -311,6 +325,24 @@ class TestOttRuleInterpreter:
         assert entries[0]["authority"] == "rule:test-rule"
         assert entries[0]["source_key"] == "rule:test-rule"
 
+    def test_list_entries_authority_override(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        entries = interp.list_entries(
+            self._rule(), "r1", max_pages=1, authority="authority:a1"
+        )
+        assert entries[0]["authority"] == "authority:a1"
+        assert entries[0]["source_key"] == "authority:a1"
+
+    def test_list_entries_authority_defaults_to_rule_id(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        entries = interp.list_entries(self._rule(), "r1", max_pages=1)
+        assert entries[0]["authority"] == "rule:r1"
+        assert entries[0]["source_key"] == "rule:r1"
+
     def test_list_entries_deterministic_id(self) -> None:
         data = [{"title": "T", "content": "same content"}]
         client = _mock_client(data)
@@ -369,6 +401,22 @@ class TestOttRuleInterpreter:
         # 每页 1 条 × 3 页（step 归一到 1），而非 1000 条
         assert len(entries) == 3
         assert client.get.call_count == 3
+
+    def test_list_entries_invalid_pagination_rejected_without_error(self) -> None:
+        # 不可信 manifest 的 max_pages="abc"：整条规则拒绝（返回空），不抛异常
+        client = _mock_client([{"title": "T", "content": "C"}])
+        interp = OttRuleInterpreter(client)
+        for bad in (
+            {"max_pages": "abc"},
+            {"start": "x", "step": 1, "max_pages": 2},
+            {"step": []},
+        ):
+            rule = self._rule(pagination=bad)
+            assert interp.list_entries(rule, "r1", max_pages=2) == []
+        # 合法字符串仍被解析
+        rule = self._rule(pagination={"start": "1", "step": "1", "max_pages": "2"})
+        entries = interp.list_entries(rule, "r1", max_pages=2)
+        assert len(entries) == 2
 
     def test_list_entries_stops_when_empty_page(self) -> None:
         page1 = [{"title": "T", "content": "C"}]
@@ -575,7 +623,7 @@ class TestRegexWorkerProtocol:
         import subprocess
         import sys
 
-        from src.backend.integration.ott_rule_interpreter import REGEX_WORKER_PATH
+        from src.backend.integration.ott_dsl import REGEX_WORKER_PATH
 
         payload = json.dumps(
             {"pattern": "<h1>(?P<title>.*?)</h1>", "text": "<h1>Hi</h1>"}
@@ -595,7 +643,7 @@ class TestRegexWorkerProtocol:
         import subprocess
         import sys
 
-        from src.backend.integration.ott_rule_interpreter import REGEX_WORKER_PATH
+        from src.backend.integration.ott_dsl import REGEX_WORKER_PATH
 
         payload = json.dumps({"pattern": "(a+)+", "text": "aaa"}).encode()
         proc = subprocess.run(
@@ -622,6 +670,7 @@ class TestSchemaV2:
             "request": {
                 "url": "https://example.com/api",
                 "method": "POST",
+                "headers": {"Content-Type": "application/json"},
                 "body": "",
             },
             "steps": [{"fn": "concat", "args": ["!"]}],
@@ -763,6 +812,32 @@ class TestSchemaV2:
         interp = OttRuleInterpreter(client)
         rule = self._v2_rule(steps=None, body=object())
         assert interp.list_entries(rule, "r1") == []
+
+    def test_post_body_requires_content_type_header(self) -> None:
+        # 含请求体（body/steps）未声明 Content-Type → 整条规则校验拒绝
+        client = _mock_client([])
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(body="x")
+        rule["request"].pop("headers", None)
+        assert interp.list_entries(rule, "r1") == []
+        assert client.post.called is False
+
+    def test_post_body_with_content_type_header_allowed(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(body="x")
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
+
+    def test_post_body_content_type_case_insensitive(self) -> None:
+        data = [{"title": "T", "content": "C"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._v2_rule(body="x")
+        rule["request"]["headers"] = {"content-type": "text/plain"}
+        entries = interp.list_entries(rule, "r1", max_pages=1)
+        assert len(entries) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ from ..models.dto.fetched_text import FetchedText
 from ..models.dto.text_catalog_item import TextCatalogItem
 from .ott_cached_fetcher import OttCachedFetcher
 from .ott_catalog import catalog_items_from_sources
-from .ott_client import OttClient
+from .ott_client import DEFAULT_STATIC_SEGMENT_SIZE, OttClient
 from .ott_legacy import legacy_static_entries
 from .ott_normalization import safe_int
 
@@ -146,7 +146,7 @@ class OttTextProvider:
         entry_id: str,
         revision_id: str,
         segment_index: int,
-        source_segment_size: int = 1000,
+        source_segment_size: int = DEFAULT_STATIC_SEGMENT_SIZE,
     ) -> dict | None:
         if (
             not self._validate_identifier(entry_id)
@@ -244,6 +244,9 @@ class OttTextProvider:
     # ------------------------------------------------------------------
     # 缓存读写
     # ------------------------------------------------------------------
+
+    # 测试专用：以下 _cache_path / _read_cache / _write_cache 仅测试依赖使用，
+    # 生产路径统一经 OttCachedFetcher（_cache）读写，不要在生产调用这些方法。
 
     def _cache_path(self, cache_key: str) -> Path:
         return self._cache.cache_path(cache_key)

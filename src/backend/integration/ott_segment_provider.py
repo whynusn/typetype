@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..utils.logger import log_warning
+from .ott_client import DEFAULT_STATIC_SEGMENT_SIZE
 from .ott_text_provider import OttTextProvider
 
 
@@ -12,7 +14,7 @@ class OttSegmentProvider:
         entry_id: str,
         revision_id: str,
         total_chars: int,
-        source_segment_size: int = 1000,
+        source_segment_size: int = DEFAULT_STATIC_SEGMENT_SIZE,
     ) -> None:
         self._registry_provider = registry_provider
         self._entry_id = entry_id
@@ -50,5 +52,13 @@ class OttSegmentProvider:
         )
         if segment is None:
             raise RuntimeError(f"无法获取 OTT 分段: {index}")
+        content = str(segment.get("content", "") or "")
+        # 服务端分段短于期望大小：提示但按短读继续（不抛错，避免整段不可读）
+        if content and len(content) < self._source_segment_size:
+            log_warning(
+                f"[OttSegmentProvider] 服务端分段短于声明大小: "
+                f"entry={self._entry_id} index={index} "
+                f"got={len(content)} < {self._source_segment_size}"
+            )
         self._cache[index] = segment
         return segment

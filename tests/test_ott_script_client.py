@@ -702,7 +702,11 @@ class TestScriptCache:
         resp.text = source
         resp.headers = {"content-length": str(len(source))}
         resp.raise_for_status = MagicMock()
-        mock_http.get.return_value = resp
+        resp.iter_text.return_value = iter([source])
+        stream_ctx = MagicMock()
+        stream_ctx.__enter__.return_value = resp
+        stream_ctx.__exit__.return_value = False
+        mock_http.stream.return_value = stream_ctx
 
         cache = ScriptCache(tmp_path / "scripts", mock_http)
         result = cache.get_script("https://example.com/script.py")
@@ -721,7 +725,11 @@ class TestScriptCache:
         resp.text = dangerous
         resp.headers = {"content-length": str(len(dangerous))}
         resp.raise_for_status = MagicMock()
-        mock_http.get.return_value = resp
+        resp.iter_text.return_value = iter([dangerous])
+        stream_ctx = MagicMock()
+        stream_ctx.__enter__.return_value = resp
+        stream_ctx.__exit__.return_value = False
+        mock_http.stream.return_value = stream_ctx
 
         cache = ScriptCache(tmp_path / "scripts", mock_http)
         result = cache.get_script("https://example.com/bad.py")
@@ -739,7 +747,7 @@ class TestScriptCache:
 
         # 网络失败
         mock_http = MagicMock(spec=httpx.Client)
-        mock_http.get.side_effect = httpx.ConnectError("offline")
+        mock_http.stream.side_effect = httpx.ConnectError("offline")
 
         cache = ScriptCache(cache_dir, mock_http)
         result = cache.get_script("https://example.com/s.py", ttl_seconds=0)
@@ -752,7 +760,7 @@ class TestScriptDisabled:
         mock_http = MagicMock(spec=httpx.Client)
         cache = ScriptCache(tmp_path / "scripts", mock_http, enabled=False)
         assert cache.get_script("https://example.com/s.py") is None
-        mock_http.get.assert_not_called()
+        mock_http.stream.assert_not_called()
 
     def test_sandbox_disabled_returns_empty(self) -> None:
         sandbox = ScriptSandbox(enabled=False)

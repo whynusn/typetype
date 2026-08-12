@@ -361,7 +361,7 @@ class RepoManifestCache:
         if not repo.url:
             return None
         cache_key = repo_cache_key(repo.url)
-        cached = self._read_cache(cache_key)
+        cached = self._read_validated_cache(cache_key)
         if cached is not None:
             # TTL 过期或 manifest 自身 expires_at 过期（TUF-lite）都算 stale：
             # 返回缓存 + 后台刷新（stale-while-revalidate，不硬失败）。
@@ -394,23 +394,28 @@ class RepoManifestCache:
         data, etag = self._fetch_manifest_with_mirrors(repo, cache_key)
         if data is None:
             # 网络失败：离线兜底返回缓存（无视 TTL）
-            return self._read_cache(cache_key)
+            return self._read_validated_cache(cache_key)
         _, served = self._accept_manifest(cache_key, repo, data, etag)
         return served
 
     def _accept_manifest(
         self, cache_key: str, repo: SourceRepoEntry, data: dict, etag: str
     ) -> tuple[bool, dict | None]:
-        """校验 + TUF-lite 检查 + 写缓存 + 撤销/信任更新。
+        """校验 + TUF-lite 检查 + 先验签后落盘 + 撤销/信任更新。
 
         ADR-011 Phase 2.7/3.6 语义（链式 snapshot 设计）：
         - 校验失败 / expires_at 过期 / snapshot_hash 回滚 → 拒绝新 manifest，
           回退旧缓存（服务 stale），不替换缓存；
-        - 只有被接受的 manifest 才更新信任状态与撤销清单（revocations 仅
-          来自已接受、签名生效的 manifest，订阅即信任边界，TOFU 模型）；
-        - last_snapshot_hash 恒记录最近一次被接受 manifest 的 hash，作为
-          下一版 snapshot_hash 的链参照（即使输入 manifest 无 snapshot_hash
-          也推进参照，参照始终等于当前服务内容）。
+        - 先验签后落盘：签名 failed、首次有效签名（待 UI 确认）、公钥变更
+          （待重新确认）、key 级撤销、pending 粘性 → 拒绝替换缓存，回退旧
+          缓存（TOFU 未确认的内容不服务，订阅即信任边界）；
+        - 只有被接受且签名验证通过的 manifest 才应用 revocations（撤销清单
+          仅来自签名生效的 manifest，防伪造屏蔽投毒）；无签名 manifest
+          （unverified）接受但不应用 revocations；
+        - 验签与 snapshot 链参照均以网络原始 dict 为口径：canonical 字节必须
+          与生产方签名/快照链一致（归一化重构会改变字节导致验签必失败），
+          缓存存储原始内容，读取时再归一化；
+        - last_snapshot_hash 恒记录最近一次被接受 manifest 的原始 hash。
 
         Returns:
             (True, new_manifest)  新 manifest 已接受；
@@ -419,30 +424,38 @@ class RepoManifestCache:
         validated = validate_repo_manifest(data)
         if validated is None:
             log_warning(f"[RepoManifest] manifest 校验失败: {redact_url(repo.url)}")
-            return False, self._read_cache(cache_key)
+            return False, self._read_validated_cache(cache_key)
         if self._manifest_expired(validated):
             # 过期内容不得作为 fresh 使用：保留旧缓存
             log_warning(
                 f"[RepoManifest] manifest 已过期(expires_at)，保留旧缓存: "
                 f"{redact_url(repo.url)}"
             )
-            return False, self._read_cache(cache_key)
+            return False, self._read_validated_cache(cache_key)
         if self._check_snapshot_rollback(cache_key, repo, validated):
             log_warning(
                 f"[RepoManifest] snapshot 回滚检测，拒绝替换缓存: "
                 f"{redact_url(repo.url)}"
             )
-            return False, self._read_cache(cache_key)
-        self._write_cache(cache_key, validated)
+            return False, self._read_validated_cache(cache_key)
+        # 先验签后落盘：信任判定未达接受条件一律拒绝替换缓存（服务旧缓存）
+        trust_result = self._verify_trust(data, repo)
+        if trust_result not in ("verified", "unverified"):
+            log_warning(
+                f"[RepoManifest] 信任判定 {trust_result}，拒绝替换缓存: "
+                f"{redact_url(repo.url)}"
+            )
+            return False, self._read_validated_cache(cache_key)
+        # 接受：缓存网络原始内容（字节口径与生产方一致），推进链参照
+        self._write_cache(cache_key, data)
         if self._runtime_config is not None:
             self._runtime_config.update_source_repo_refresh(
                 repo.url,
                 etag=etag,
-                last_snapshot_hash=manifest_hash(validated),
+                last_snapshot_hash=manifest_hash(data),
             )
-        self._apply_revocations(validated)
-        # 签名校验并更新订阅的 trust_state（TOFU + key 级撤销）
-        self._verify_trust(validated, repo)
+        if trust_result == "verified":
+            self._apply_revocations(validated)
         return True, validated
 
     def _fetch_manifest_with_mirrors(
@@ -451,7 +464,7 @@ class RepoManifestCache:
         data, etag = self._fetch_manifest(repo.url, cache_key, repo.etag)
         if data is not None:
             return data, etag
-        cached = self._read_cache(cache_key)
+        cached = self._read_validated_cache(cache_key)
         if not cached:
             return None, ""
         for mirror in cached.get("mirrors", []):
@@ -586,6 +599,17 @@ class RepoManifestCache:
             return None
         return data if isinstance(data, dict) else None
 
+    def _read_validated_cache(self, cache_key: str) -> dict | None:
+        """读缓存并归一化；校验失败视为无缓存（返回 None）。
+
+        缓存存储网络原始内容（与生产方签名/快照链口径一致），所有对外
+        消费点必须经此归一化后再使用。
+        """
+        cached = self._read_cache(cache_key)
+        if cached is None:
+            return None
+        return validate_repo_manifest(cached)
+
     def _write_cache(self, cache_key: str, data: dict) -> None:
         path = self.cache_path(cache_key)
         try:
@@ -707,15 +731,25 @@ class RepoManifestCache:
         except OSError:
             log_warning("[RepoManifest] 清除缓存失败")
 
-    def _verify_trust(self, manifest: dict, repo: SourceRepoEntry) -> None:
-        """校验 manifest 签名并更新 repo.trust_state（TOFU）。
+    def _verify_trust(self, manifest: dict, repo: SourceRepoEntry) -> str:
+        """校验 manifest 签名并更新 repo.trust_state（TOFU），返回信任判定。
 
         ADR-011 决策 12：TOFU 首次信任必须 UI 显式确认。签名有效但
         未固定公钥（首次）或公钥发生变更时，进入 pending 状态等待用户
         确认/拒绝，不再自动 verified；pending 在刷新间保持粘性。
+
+        manifest 必须是网络原始 dict（未归一化）——签名 canonical 以
+        生产方签发的原始字节为准，归一化重构会改变字节导致误判。
+
+        返回判定（_accept_manifest 据此决定是否替换缓存）：
+        - "verified"：签名有效且固定公钥匹配（已确认）
+        - "unverified"：无签名信息（老仓库兼容，接受但不应用 revocations）
+        - "pending_new_key" / "pending_changed_key" / "pending_revoked" /
+          "pending"：待用户确认（一律拒绝替换缓存）
+        - "failed"：签名无效或校验异常（拒绝替换缓存）
         """
         if self._runtime_config is None:
-            return
+            return "unverified"
         trust = manifest.get("trust") or {}
         signature = trust.get("signature", "")
         pubkey = trust.get("pubkey", "")
@@ -723,18 +757,18 @@ class RepoManifestCache:
         if not signature or not pubkey:
             # 无签名信息 → 未验证
             self._runtime_config.set_source_repo_trust(repo.url, "unverified")
-            return
+            return "unverified"
 
         try:
             valid = self._verify_ed25519_signature(manifest, pubkey, signature)
         except Exception as e:
             log_warning(f"[RepoManifest] 签名校验异常: {redact_url(repo.url)} — {e}")
             self._runtime_config.set_source_repo_trust(repo.url, "failed")
-            return
+            return "failed"
 
         if not valid:
             self._runtime_config.set_source_repo_trust(repo.url, "failed")
-            return
+            return "failed"
 
         # ADR-011 Phase 2.7：manifest 声明撤销自身公钥 → 信任降级 pending，
         # 用户重新确认/拒绝（决策 12）。签名仍须有效：撤销声明是已签名内容
@@ -748,7 +782,7 @@ class RepoManifestCache:
                 f"[RepoManifest] 仓库公钥被自身撤销，信任降级待确认: "
                 f"{redact_url(repo.url)}"
             )
-            return
+            return "pending_revoked"
 
         if not repo.pinned_pubkey:
             # 首次有效签名：固定公钥，进入 pending，等待用户 UI 确认
@@ -756,17 +790,20 @@ class RepoManifestCache:
                 repo.url, "pending", pinned_pubkey=pubkey
             )
             log_info(f"[RepoManifest] 首次有效签名，待用户确认: {redact_url(repo.url)}")
+            return "pending_new_key"
         elif repo.pinned_pubkey != pubkey:
             # 公钥变更 → 回到 pending（固定新公钥），需用户重新确认/拒绝
             self._runtime_config.set_source_repo_trust(
                 repo.url, "pending", pinned_pubkey=pubkey
             )
             log_warning(f"[RepoManifest] 公钥变更，待用户确认: {redact_url(repo.url)}")
+            return "pending_changed_key"
         elif repo.trust_state == "pending":
             # pending 粘性：刷新保持 pending，等待用户操作后再转 verified
-            return
+            return "pending"
         else:
             self._runtime_config.set_source_repo_trust(repo.url, "verified")
+            return "verified"
 
     @staticmethod
     def _verify_ed25519_signature(

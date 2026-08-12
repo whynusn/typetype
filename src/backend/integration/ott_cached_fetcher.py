@@ -188,6 +188,17 @@ class OttCachedFetcher:
         try:
             response = self._client.get(url)
             response.raise_for_status()
+            headers = getattr(response, "headers", None)
+            if max_bytes > 0 and headers is not None:
+                try:
+                    declared = int(headers.get("content-length", -1))
+                except (TypeError, ValueError):
+                    declared = -1
+                if declared > max_bytes:
+                    log_warning(
+                        f"[OttTextProvider] 响应体超限: {redact_url(url)} ({declared} > {max_bytes})"
+                    )
+                    return None
             if max_bytes > 0 and len(response.content) > max_bytes:
                 log_warning(
                     f"[OttTextProvider] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"

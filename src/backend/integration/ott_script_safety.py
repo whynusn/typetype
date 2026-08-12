@@ -55,8 +55,25 @@ BANNED_IMPORTS = frozenset(
     }
 )
 
-# 危险内置函数
-BANNED_BUILTIN_CALLS = frozenset({"eval", "exec", "compile", "__import__"})
+# 危险内置函数（运行时受限 builtins 已兜底，此处为第一道静态防线：
+# 文件 IO、交互/调试出口、命名空间探测等一律拒绝）
+BANNED_BUILTIN_CALLS = frozenset(
+    {
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "open",
+        "globals",
+        "locals",
+        "vars",
+        "breakpoint",
+        "help",
+        "exit",
+        "quit",
+        "input",
+    }
+)
 
 # 危险属性调用：(模块, 函数名)
 BANNED_ATTRIBUTE_CALLS = frozenset(
@@ -110,6 +127,7 @@ BANNED_DUNDER_ATTRIBUTES = frozenset(
         "__setattr__",
         "__delattr__",
         "__module__",
+        "__import__",
     }
 )
 

@@ -95,6 +95,7 @@ def main():
         base_url_update_callback=update_base_url,
         slice_metrics_prefs_store=slice_metrics_store,
         text_slice_progress_store=text_slice_progress_store,
+        ott_segment_provider_cls=adapters.ott_segment_provider_cls,
     )
     bridge.initializeLoginState()
     bridge.loadCatalog()

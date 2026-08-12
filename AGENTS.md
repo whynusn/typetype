@@ -456,6 +456,43 @@ onActiveChanged: {
 
 **历史**：2026-07-27 ADR-010 Phase 3 落地。
 
+### ⚠️ manifest 验签与 snapshot 链必须以网络原始字节为口径
+
+**问题**：`_accept_manifest` 曾对 `validate_repo_manifest()` 归一化重构后的 dict 验签并计算 `last_snapshot_hash`。归一化会补默认字段、重建嵌套（mirrors/sources/trust）、strip 字符串——canonical JSON 字节与生产方签发内容不同，生产路径验签必失败（verified 永远不可达）、防回滚必误判。
+
+**正确做法**：
+- `_verify_trust` 接收网络原始 dict（剔除 `trust` 字段后 canonical 验签）；`last_snapshot_hash` 用 `manifest_hash(data)`（raw 整体含 trust）
+- 缓存写**网络原始内容**，读取时经 `_read_validated_cache()` 归一化后再消费（校验失败视为无缓存）
+- **先验签后落盘**：签名 failed / 首次有效签名 / 公钥变更 / key 级撤销 / pending 粘性 → 拒绝替换缓存（TOFU 未确认内容不服务，服务旧缓存或空）
+- revocations 仅在验签通过（verified）时应用；无签名 manifest 接受（unverified）但不应用 revocations（防伪造屏蔽投毒）
+- 改验签/链逻辑时禁止对归一化 dict 操作；新测试须用真实 ed25519 密钥对 raw manifest 签名
+
+**历史**：2026-08-12 边界审计修复（修复前生产路径验签恒失败）。
+
+### ⚠️ 沙箱启动序列：能力探测必须早于 RLIMIT_NPROC，seccomp 必须显式调用
+
+**问题**：`ott_script_runner.py` 的 `_apply_seccomp()` 曾**零调用**（构造了 BPF 从未安装）；且 `seccomp_available()` 探测需 fork 子进程，但 `_set_resource_limits()` 已设 `RLIMIT_NPROC=(0,0)` → 探测恒 False → seccomp 恒跳过（双重失效）。另：白名单模块预导入原发生在 Landlock 之后，Crypto 等 C 扩展 dlopen 会被文件系统白名单拒绝。
+
+**正确做法**（main() 顺序固定，不可调换）：
+1. `landlock_available()` + `seccomp_available()` 探测（必须在 RLIMIT_NPROC=0 之前，结果缓存）
+2. `_preload_allowed_modules()`（Landlock 前触发 .so 加载）
+3. `_set_resource_limits()` → `_apply_landlock()` → `_apply_seccomp()` → `run_script()`
+- Landlock 探测可用但安装失败（add_rule/restrict_self 抛错）→ raise RuntimeError 拒绝执行，不静默裸奔
+- `ALLOWED_MODULES` 禁止含 `builtins`（脚本 `import builtins` 即拿到真实 eval/open/exec）
+- 新增 runner 能力时先确认 main() 序列；seccomp 任何改动须同时更新 `seccomp_available` 探测与调用点
+
+**历史**：2026-08-12 边界审计修复。
+
+### ⚠️ bridge 直取 `_session_context` 的已知偏差（待清理）
+
+**问题**：bridge.py 仍有 4 处（`applySliceMode` 恢复路径、`collectSliceResult` 进度保存，约 2114/2184/2259/2672 行）直接读写 `self._typing_adapter._session_context` 私有状态（`_slice_pass_counts`/`_slice_stats`/`_slice_text` 等），违反"Bridge 禁止直接访问 SessionContext，必须经 TypingAdapter 代理"。
+
+**现状**：2026-08-12 审计后主路径（`_restore_pending_progress`）已封装为 `TypingAdapter.restore_slice_progress()`，其余 4 处因涉及 slice 进度语义且无测试保障，暂记为已知偏差不机械搬运。
+
+**正确做法**：新代码不得新增此类穿透；清理时先在 TypingAdapter 上封装公共方法（恢复/保存进度各一）并补针对性测试，再替换 bridge 调用点。
+
+**历史**：2026-08-12 边界审计发现。
+
 ---
 
 ## 文档编写规范

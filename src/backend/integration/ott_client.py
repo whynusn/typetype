@@ -11,7 +11,8 @@ import hashlib
 from collections.abc import Callable
 from urllib.parse import urlencode
 
-from .ott_normalization import normalize_source, normalize_summary, safe_int
+from .ott_normalization import normalize_source, normalize_summary, redact_url, safe_int
+from ..utils.logger import log_warning
 
 FetchJson = Callable[[str, str, str | None, int], dict | None]
 FetchText = Callable[[str, str, str | None, int], str | None]
@@ -112,10 +113,17 @@ class OttClient:
                 self._max_content_bytes,
             )
             if data is None:
-                return None if not result else result
+                # 任一页失败 → 整列表视为失败，不得把半截列表当完整结果
+                log_warning(
+                    f"[OttClient] 分页中断: {redact_url(base_url)} 第 {page} 页请求失败"
+                )
+                return None
             raw = data.get("entries", [])
             if not isinstance(raw, list):
-                return None if not result else result
+                log_warning(
+                    f"[OttClient] 分页响应非法: {redact_url(base_url)} 第 {page} 页 entries 非列表"
+                )
+                return None
             result.extend(
                 normalize_summary(e, self._authority)
                 for e in raw
@@ -209,7 +217,7 @@ class OttClient:
         segment_size_hint: int,
     ) -> dict | None:
         content = self._fetch_text(
-            f"ott/static/segments/{revision_id}/{segment_index}",
+            f"ott/static/segments/{entry_id}/{revision_id}/{segment_index}",
             f"{base_url}/segments/{revision_id}/{segment_index}.txt",
             None,
             self._max_content_bytes,

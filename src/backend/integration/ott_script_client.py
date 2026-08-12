@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import shutil
@@ -20,6 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -38,11 +40,14 @@ SCRIPT_EXEC_TIMEOUT_S = 30.0
 MAX_ENTRIES_PER_SCRIPT = 1000
 # 一次性管道（os.pipe）缓冲上限：写入值须一次写完且不被父进程阻塞
 PIPE_SECRET_MAX_BYTES = 64 * 1024
+# 子进程 stdout JSON 上限：超出即拒绝（防子进程输出撑爆主进程内存）
+STDOUT_MAX_BYTES = 10 * 1024 * 1024
+# 单条 entry content 上限：超出拒绝该条
+ENTRY_CONTENT_MAX_BYTES = 10 * 1024 * 1024
 
 # 沙箱允许的模块白名单
 ALLOWED_MODULES = frozenset(
     {
-        "builtins",
         "json",
         "re",
         "time",
@@ -77,6 +82,63 @@ def script_cache_key(url: str) -> str:
     return f"script-{digest}"
 
 
+def _validate_script_url(url: str) -> bool:
+    """脚本下载 URL 最小校验：仅 http/https 且 host 非内网 IP 字面量。
+
+    本地实现（不复用 ott_rule_interpreter.validate_url）：rule 版做 DNS 解析
+    且限 80/443 端口，下载路径不需要这么重，也避免测试依赖真实 DNS。
+    域名形式 host 放行（公网性由 manifest 审核保证）；IP 字面量必须公网。
+    """
+    if not isinstance(url, str) or not url.strip():
+        return False
+    try:
+        parsed = urlparse(url.strip())
+    except (ValueError, OSError):
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False  # file:// 等 scheme 一律拒绝
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    hostname = hostname.lower().rstrip(".")
+    if hostname in ("localhost", "localhost.localdomain"):
+        return False
+    try:
+        addr = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True  # 域名形式，放行
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return not (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_link_local
+        or addr.is_multicast
+        or addr.is_reserved
+        or addr.is_unspecified
+    )
+
+
+def _normalize_expected_checksum(expected: str) -> str:
+    """归一化期望 checksum：容忍 'sha256:' 前缀与大小写，返回小写 hex。"""
+    value = expected.strip().lower()
+    if value.startswith("sha256:"):
+        value = value[len("sha256:") :].strip()
+    return value
+
+
+def _checksum_matches(source: str, expected: str) -> bool:
+    """脚本源码 sha256 与期望 checksum 比对；期望为空视为放行。"""
+    expected = _normalize_expected_checksum(expected)
+    if not expected:
+        return True
+    return hashlib.sha256(source.encode("utf-8")).hexdigest() == expected
+
+
+class _ScriptTooLargeError(ValueError):
+    """下载字节超过 SCRIPT_MAX_BYTES。"""
+
+
 class ScriptCache:
     """脚本下载与缓存。"""
 
@@ -93,24 +155,52 @@ class ScriptCache:
         self._enabled = enabled
         self._ttl_seconds = ttl_seconds
 
-    def get_script(self, url: str, ttl_seconds: int | None = None) -> str | None:
+    def get_script(
+        self,
+        url: str,
+        ttl_seconds: int | None = None,
+        *,
+        expected_checksum: str = "",
+    ) -> str | None:
         if not self._enabled:
             return None
         cache_key = script_cache_key(url)
         cached = self._read_cache(cache_key)
         ttl = self._ttl_seconds if ttl_seconds is None else ttl_seconds
+        if cached is not None and expected_checksum:
+            # 缓存内容同样要过 checksum（缓存可能来自旧版本未校验下载）
+            if not _checksum_matches(cached, expected_checksum):
+                log_warning(
+                    f"[ScriptCache] 缓存脚本 checksum 不匹配，重新下载: "
+                    f"{redact_url(url)}"
+                )
+                cached = None
         if cached is not None:
             if not self._is_expired(cache_key, ttl):
                 return cached
-        return self._fetch_and_cache(cache_key, url)
+        return self._fetch_and_cache(cache_key, url, expected_checksum)
 
-    def _fetch_and_cache(self, cache_key: str, url: str) -> str | None:
+    def _fetch_and_cache(
+        self, cache_key: str, url: str, expected_checksum: str = ""
+    ) -> str | None:
+        if not _validate_script_url(url):
+            log_warning(f"[ScriptCache] 脚本 URL 非法: {redact_url(url)}")
+            return self._read_cache(cache_key)
         try:
-            response = self._client.get(url, timeout=10.0)
-            response.raise_for_status()
-            source = response.text[:SCRIPT_MAX_BYTES]
+            source = self._download_limited(url, SCRIPT_MAX_BYTES)
+        except _ScriptTooLargeError:
+            log_warning(
+                f"[ScriptCache] 脚本超过 {SCRIPT_MAX_BYTES} 字节上限: {redact_url(url)}"
+            )
+            return self._read_cache(cache_key)
         except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
             log_warning(f"[ScriptCache] 下载失败: {redact_url(url)} — {e}")
+            return self._read_cache(cache_key)
+
+        if expected_checksum and not _checksum_matches(source, expected_checksum):
+            log_warning(
+                f"[ScriptCache] 脚本 checksum 不匹配，拒绝缓存与执行: {redact_url(url)}"
+            )
             return self._read_cache(cache_key)
 
         # AST 安全检查
@@ -122,6 +212,19 @@ class ScriptCache:
 
         self._write_cache(cache_key, source)
         return source
+
+    def _download_limited(self, url: str, max_bytes: int) -> str:
+        """流式下载脚本，累计超过 max_bytes 立即中止（防主进程 OOM）。"""
+        chunks: list[str] = []
+        total = 0
+        with self._client.stream("GET", url, timeout=10.0) as response:
+            response.raise_for_status()
+            for chunk in response.iter_text():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise _ScriptTooLargeError(f"响应体超过 {max_bytes} 字节上限")
+                chunks.append(chunk)
+        return "".join(chunks)
 
     def cache_path(self, cache_key: str) -> Path:
         return self._cache_dir / f"{cache_key}.py"
@@ -316,7 +419,11 @@ class ScriptSandbox:
                     r, w = os.pipe()
                     created_fds.extend([r, w])
                     try:
-                        os.write(w, value.encode("utf-8"))
+                        payload = value.encode("utf-8")
+                        written = 0
+                        # 循环写：os.write 可能部分写入，必须写完全部字节
+                        while written < len(payload):
+                            written += os.write(w, memoryview(payload)[written:])
                     finally:
                         os.close(w)
                         created_fds.remove(w)
@@ -377,6 +484,11 @@ class ScriptSandbox:
             log_warning(f"[ScriptSandbox] 脚本退出码 {proc.returncode}: {err_tail}")
             return []
 
+        # stdout 上限（防子进程输出撑爆主进程内存）
+        if len(stdout) > STDOUT_MAX_BYTES:
+            log_warning(f"[ScriptSandbox] 脚本 stdout 超过 {STDOUT_MAX_BYTES} 上限")
+            return []
+
         # 解析 stdout JSON
         try:
             raw_entries = json.loads(stdout)
@@ -403,15 +515,20 @@ class ScriptSandbox:
                 continue
             if "content" not in item:
                 continue
+            content = str(item.get("content", ""))
+            if len(content) > ENTRY_CONTENT_MAX_BYTES:
+                log_warning(
+                    f"[ScriptSandbox] 单条 entry 内容超过 "
+                    f"{ENTRY_CONTENT_MAX_BYTES} 上限，丢弃"
+                )
+                continue
             entry = {
                 "entry_id": item.get("entry_id")
-                or hashlib.sha256(
-                    str(item.get("content", "")).encode("utf-8")
-                ).hexdigest()[:16],
+                or hashlib.sha256(content.encode("utf-8")).hexdigest()[:16],
                 "title": str(item.get("title", "")),
-                "content": str(item.get("content", "")),
-                "char_count": len(str(item.get("content", ""))),
-                "charCount": len(str(item.get("content", ""))),
+                "content": content,
+                "char_count": len(content),
+                "charCount": len(content),
                 "content_mode": "inline",
                 "current_revision_id": item.get("revision_id", "v1"),
                 "source_key": item.get("source_key", "script"),

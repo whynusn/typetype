@@ -28,12 +28,13 @@ from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
 from .ott_cached_fetcher import OttCachedFetcher
 from .ott_normalization import _script_authority, redact_url
-from .ott_client import OttClient, FetchJson, FetchText
+from .ott_client import DEFAULT_STATIC_SEGMENT_SIZE, OttClient, FetchJson, FetchText
 from .ott_repo_manifest import RepoManifestCache, repo_cache_key
 from .ott_rule_interpreter import CLIENT_API_LEVEL, OttRuleInterpreter
 from .ott_script_client import ScriptCache, ScriptSandbox
 
 if TYPE_CHECKING:
+    from ..ports.async_executor import AsyncExecutor
     from ..ports.token_store import TokenStore
 
 
@@ -157,7 +158,7 @@ class _InstanceClient:
         with self._lock:
             self._failure_counts[url] = self._failure_counts.get(url, 0) + 1
 
-    def _make_fetch_json(self, url: str) -> FetchJson:
+    def _make_fetch_json(self) -> FetchJson:
         def fetch(
             cache_key: str, fetch_url: str, mirror_url: str | None, max_bytes: int
         ) -> dict | None:
@@ -182,7 +183,7 @@ class _InstanceClient:
             primary_url=url,
             mirror_url="",
             authority=self.authority,
-            fetch_json=self._make_fetch_json(url),
+            fetch_json=self._make_fetch_json(),
             fetch_text=self._make_fetch_text(),
             max_content_bytes=self._max_content_bytes,
         )
@@ -249,7 +250,10 @@ class _InstanceClient:
             client = self._client_for(url)
             try:
                 seg = client.get_segment(
-                    entry_id, revision_id, segment_index, segment_size
+                    entry_id,
+                    revision_id,
+                    segment_index,
+                    segment_size,
                 )
             except Exception as e:
                 log_warning(
@@ -264,11 +268,62 @@ class _InstanceClient:
         return None
 
 
-class _RuleClient:
+class _SourceClientBase:
+    """_RuleClient / _ScriptClient 公共实现：按 entry_id 查询与内容分段。
+
+    list_entries 由子类实现；get_entry / get_segment 基于其输出工作。
+    """
+
+    def get_entry(self, entry_id: str) -> dict | None:
+        """按 entry_id 从客户端产出中查找单条。"""
+        entries = self.list_entries()
+        if entries is None:
+            return None
+        for e in entries:
+            if e.get("entry_id") == entry_id:
+                return e
+        return None
+
+    def get_segment(
+        self,
+        entry_id: str,
+        revision_id: str,
+        segment_index: int,
+        segment_size: int = DEFAULT_STATIC_SEGMENT_SIZE,
+    ) -> dict | None:
+        """获取单条 entry 的内容分段（客户端本地切片）。"""
+        entry = self.get_entry(entry_id)
+        if entry is None:
+            return None
+        content = entry.get("content", "")
+        if not content:
+            return None
+        seg_size = max(1, segment_size)
+        start = (segment_index - 1) * seg_size
+        end = start + seg_size
+        segment_content = content[start:end]
+        if not segment_content:
+            return None
+        return {
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "index": segment_index,
+            "start_char": start,
+            "end_char": start + len(segment_content),
+            "char_count": len(segment_content),
+            "content_hash": "sha256:"
+            + hashlib.sha256(segment_content.encode("utf-8")).hexdigest(),
+            "content": segment_content,
+            "total_chars": len(content),
+        }
+
+
+class _RuleClient(_SourceClientBase):
     """单个 ott-rule 的客户端封装。
 
     调用 L1 解释器执行声明式规则，产出标准化 entry 列表。
-    authority = ``rule:{rule_id}``，与 ott-instance 命名空间隔离。
+    authority = ``rule:{repo_id}:{rule_id}``（repo_id 为空时回退
+    ``rule:{rule_id}``），与 ott-instance 命名空间隔离。
     """
 
     def __init__(
@@ -292,70 +347,30 @@ class _RuleClient:
         if cached is not None:
             return cached
         try:
-            entries = self._interpreter.list_entries(self._rule, self.rule_id)
+            # 契约 C2：非空 authority 时解释器负责 entry 的 authority/source_key，
+            # 客户端不再事后补丁
+            entries = self._interpreter.list_entries(
+                self._rule, self.rule_id, authority=self.authority
+            )
         except Exception as e:
             log_warning(f"[Federation] rule 执行异常 {self.rule_id}: {e}")
             return None
         if not entries:
             return []
-        for e in entries:
-            e["authority"] = self.authority
-            e["_authority"] = e["authority"]
         if self._entry_cache is not None:
             self._entry_cache.set(cache_key, entries)
         return entries
 
-    def get_entry(self, entry_id: str) -> dict | None:
-        """按 entry_id 从规则产出中查找单条。"""
-        entries = self.list_entries()
-        if entries is None:
-            return None
-        for e in entries:
-            if e.get("entry_id") == entry_id:
-                return e
-        return None
 
-    def get_segment(
-        self,
-        entry_id: str,
-        revision_id: str,
-        segment_index: int,
-        segment_size: int = 1000,
-    ) -> dict | None:
-        """获取规则源单条的内容分段。"""
-        entry = self.get_entry(entry_id)
-        if entry is None:
-            return None
-        content = entry.get("content", "")
-        if not content:
-            return None
-        seg_size = max(1, segment_size)
-        start = (segment_index - 1) * seg_size
-        end = start + seg_size
-        segment_content = content[start:end]
-        if not segment_content:
-            return None
-        return {
-            "entry_id": entry_id,
-            "revision_id": revision_id,
-            "index": segment_index,
-            "start_char": start,
-            "end_char": start + len(segment_content),
-            "char_count": len(segment_content),
-            "content_hash": "sha256:"
-            + hashlib.sha256(segment_content.encode("utf-8")).hexdigest(),
-            "content": segment_content,
-            "total_chars": len(content),
-        }
-
-
-class _ScriptClient:
+class _ScriptClient(_SourceClientBase):
     """单个 ott-script 的客户端封装。
 
     下载脚本 → AST 安全检查 → 沙箱执行 → 产出标准化 entry 列表。
     authority = ``script:{sha256(url)[:12]}``（按 URL 指纹隔离）。
     secret_names 来自 manifest 的 permissions.secrets 声明（信任边界）：
     仅声明的凭据名会传给 ScriptSandbox 注入，脚本无法自行请求任意凭据。
+    checksum 来自 manifest source 的 checksum 字段，非空时按契约 C1
+    交给 ScriptCache 校验脚本字节 sha256。
     """
 
     def __init__(
@@ -368,6 +383,7 @@ class _ScriptClient:
         secret_names: list[str] | None = None,
         network_allowlist: list[str] | None = None,
         min_api_level: int | None = None,
+        checksum: str = "",
     ) -> None:
         self.url = url
         self.label = label
@@ -378,13 +394,18 @@ class _ScriptClient:
         self._secret_names = list(secret_names) if secret_names else []
         self._network_allowlist = list(network_allowlist) if network_allowlist else []
         self._min_api_level = min_api_level
+        self._checksum = checksum
 
     def list_entries(self) -> list[dict] | None:
         cache_key = f"script:{self.url}"
         cached = self._entry_cache.get(cache_key) if self._entry_cache else None
         if cached is not None:
             return cached
-        source = self._cache.get_script(self.url)
+        # 契约 C1：checksum 非空时交给 ScriptCache 校验脚本字节 sha256
+        if self._checksum:
+            source = self._cache.get_script(self.url, expected_checksum=self._checksum)
+        else:
+            source = self._cache.get_script(self.url)
         if source is None:
             log_warning(f"[Federation] script 下载失败: {redact_url(self.url)}")
             return None
@@ -408,49 +429,6 @@ class _ScriptClient:
         if self._entry_cache is not None:
             self._entry_cache.set(cache_key, entries)
         return entries
-
-    def get_entry(self, entry_id: str) -> dict | None:
-        """按 entry_id 从脚本产出中查找单条。"""
-        entries = self.list_entries()
-        if entries is None:
-            return None
-        for e in entries:
-            if e.get("entry_id") == entry_id:
-                return e
-        return None
-
-    def get_segment(
-        self,
-        entry_id: str,
-        revision_id: str,
-        segment_index: int,
-        segment_size: int = 1000,
-    ) -> dict | None:
-        """获取脚本源单条的内容分段。"""
-        entry = self.get_entry(entry_id)
-        if entry is None:
-            return None
-        content = entry.get("content", "")
-        if not content:
-            return None
-        seg_size = max(1, segment_size)
-        start = (segment_index - 1) * seg_size
-        end = start + seg_size
-        segment_content = content[start:end]
-        if not segment_content:
-            return None
-        return {
-            "entry_id": entry_id,
-            "revision_id": revision_id,
-            "index": segment_index,
-            "start_char": start,
-            "end_char": start + len(segment_content),
-            "char_count": len(segment_content),
-            "content_hash": "sha256:"
-            + hashlib.sha256(segment_content.encode("utf-8")).hexdigest(),
-            "content": segment_content,
-            "total_chars": len(content),
-        }
 
 
 def _declared_script_secrets(source: dict) -> list[str]:
@@ -508,11 +486,17 @@ class OttFederationProvider:
         manifest_cache: RepoManifestCache,
         max_content_bytes: int = 1_048_576,
         token_store: TokenStore | None = None,
+        async_executor: AsyncExecutor | None = None,
     ) -> None:
         self._runtime_config = runtime_config
         self._manifest_cache = manifest_cache
         self._max_content_bytes = max_content_bytes
         self._token_store = token_store
+        self._async_executor = async_executor
+        if async_executor is None:
+            log_warning(
+                "[Federation] 未注入 async_executor，instance 缓存 stale 刷新禁用"
+            )
         self._entry_cache = _EntryCache(runtime_config.registry.cache_ttl_seconds)
         self._clients_cache: (
             dict[str, _InstanceClient | _RuleClient | _ScriptClient] | None
@@ -669,7 +653,7 @@ class OttFederationProvider:
             config=self._runtime_config.registry,
             cache_dir=cache_dir,
             http_client=self._shared_http_client(),
-            async_executor=None,
+            async_executor=self._async_executor,
         )
         clients[authority] = _InstanceClient(
             authority=authority,
@@ -727,6 +711,7 @@ class OttFederationProvider:
             secret_names=_declared_script_secrets(source),
             network_allowlist=_declared_script_network(source),
             min_api_level=_declared_script_api_level(source),
+            checksum=source.get("checksum", ""),
         )
 
     def _instance_cache_dir(self, authority: str) -> Path:
@@ -775,30 +760,6 @@ class OttFederationProvider:
             seen[key] = e
         return list(seen.values())
 
-    def list_all_sources(self) -> list[dict]:
-        clients = self._build_clients()
-        if not clients:
-            return []
-        all_sources: list[dict] = []
-        seen: dict[str, dict] = {}
-        for authority, client in clients.items():
-            if not isinstance(client, _InstanceClient):
-                continue
-            sources = client.list_sources()
-            if sources:
-                for s in sources:
-                    if isinstance(s, dict):
-                        s["_authority"] = authority
-                    key = (
-                        f"{authority}:{s.get('source_key', '')}"
-                        if isinstance(s, dict)
-                        else ""
-                    )
-                    if key and key not in seen:
-                        seen[key] = s
-                        all_sources.append(s)
-        return all_sources
-
     def get_entry(self, authority: str, entry_id: str) -> dict | None:
         clients = self._build_clients()
         client = clients.get(authority)
@@ -817,19 +778,48 @@ class OttFederationProvider:
         entry_id: str,
         revision_id: str,
         segment_index: int,
-        segment_size: int = 1000,
+        segment_size: int = DEFAULT_STATIC_SEGMENT_SIZE,
     ) -> dict | None:
         clients = self._build_clients()
         client = clients.get(authority)
         if client is None:
             return None
-        return client.get_segment(entry_id, revision_id, segment_index, segment_size)
+        seg = client.get_segment(entry_id, revision_id, segment_index, segment_size)
+        if seg is None:
+            return None
+        # 对齐 get_entry：content_hash 在屏蔽清单 → 视为不存在
+        if seg.get("content_hash") in self._blocked_content_hashes():
+            return None
+        return seg
 
     def list_repos(self) -> list[dict]:
-        """返回已启用订阅及其 manifest 摘要（供 UI 订阅管理使用）。"""
+        """返回订阅及其 manifest 摘要（供 UI 订阅管理使用）。
+
+        disabled 订阅不拉取 manifest（零网络），仅用本地 repo 元数据
+        标注 enabled=false。
+        """
         result: list[dict] = []
         for repo in self._runtime_config.source_repos.repos:
             if not repo.url:
+                continue
+            if not repo.enabled:
+                result.append(
+                    {
+                        "url": repo.url,
+                        "enabled": False,
+                        "trust_state": repo.trust_state,
+                        "added_at": repo.added_at,
+                        "loaded": False,
+                        "name": "",
+                        "description": "",
+                        "repo_id": "",
+                        "authorities": [],
+                        "instance_count": 0,
+                        "error": None,
+                        "incompatible_reason": None,
+                        "unsupported_sources": [],
+                    }
+                )
                 continue
             manifest = self._manifest_for(repo)
             reason = _repo_incompatibility(manifest) if manifest else None

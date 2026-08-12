@@ -319,6 +319,68 @@ def test_get_local_text_content_returns_empty_for_non_local_source():
     assert adapter.get_local_text_content("jisubei") == ""
 
 
+def test_start_file_text_session_uses_injected_provider_cls(tmp_path):
+    from src.backend.config.runtime_config import RuntimeConfig
+    from src.backend.integration.file_segment_provider import FileSegmentProvider
+    from src.backend.models.dto.text_session import TextKind
+
+    runtime_config = RuntimeConfig()
+    adapter = TextAdapter(
+        runtime_config=runtime_config,
+        load_text_usecase=MagicMock(),
+        local_text_loader=MagicMock(),
+        file_segment_provider_cls=FileSegmentProvider,
+    )
+    p = tmp_path / "sample.txt"
+    p.write_text("你好世界", encoding="utf-8")
+
+    result = adapter.startFileTextSession(
+        file_path=str(p),
+        kind=TextKind.LOCAL_ARTICLE,
+        identifier="a1",
+        title="示例",
+        version="v1",
+        slice_size=2,
+    )
+
+    assert result is not None
+    assert result.content == "你好"
+    assert adapter.text_session_usecase is not None
+
+
+def test_start_file_text_session_falls_back_to_default_provider(tmp_path):
+    """未注入 file_segment_provider_cls 时懒加载默认实现兜底（兼容直接构造）。"""
+    from src.backend.config.runtime_config import RuntimeConfig
+    from src.backend.models.dto.text_session import TextKind
+
+    runtime_config = RuntimeConfig()
+    adapter = TextAdapter(
+        runtime_config=runtime_config,
+        load_text_usecase=MagicMock(),
+        local_text_loader=MagicMock(),
+    )
+    p = tmp_path / "sample.txt"
+    p.write_text("你好世界", encoding="utf-8")
+
+    result = adapter.startFileTextSession(
+        file_path=str(p),
+        kind=TextKind.LOCAL_ARTICLE,
+        identifier="a1",
+        title="示例",
+        version="v1",
+        slice_size=2,
+    )
+
+    assert result is not None
+    assert result.content == "你好"
+
+
+def test_runtime_config_public_accessor():
+    adapter, runtime_config, _ = _build_adapter()
+
+    assert adapter.runtime_config is runtime_config
+
+
 def test_lookup_text_id_async_latest_only_emits_latest_result():
     import threading
     from PySide6.QtCore import QCoreApplication
