@@ -158,6 +158,8 @@ class Adapters:
     registry: RegistryAdapter
     upload_text: UploadTextAdapter
     key_listener: KeyListener | None
+    # OttSegmentProvider 类（Bridge 分片会话用），container 装配一次、两处复用
+    ott_segment_provider_cls: type | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +245,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
         runtime_config=runtime_config,
         manifest_cache=manifest_cache,
         max_content_bytes=runtime_config.registry.max_content_bytes,
+        async_executor=manifest_async_executor,
     )
 
     return Providers(
@@ -447,6 +450,9 @@ def create_adapters(
 ) -> Adapters:
     from ..application.session_context import TypingSessionContext
     from ..integration.file_font_repository import FileFontRepository
+    from ..integration.file_segment_provider import FileSegmentProvider
+    from ..integration.in_memory_segment_provider import InMemorySegmentProvider
+    from ..integration.ott_segment_provider import OttSegmentProvider
     from ..integration.system_identifier import SystemIdentifier
     from ..integration.key_listener_factory import create_key_listener
     from ..integration.global_key_listener import GlobalKeyListener
@@ -481,6 +487,10 @@ def create_adapters(
         runtime_config=runtime_config,
         load_text_usecase=use_cases.load_text,
         local_text_loader=infra.local_text_loader,
+        # TextSessionUseCase 只依赖 TextSegmentProvider 端口协议，
+        # 具体实现类经此处装配注入
+        file_segment_provider_cls=FileSegmentProvider,
+        in_memory_provider_cls=InMemorySegmentProvider,
     )
     auth_adapter = AuthAdapter(auth_service=services.auth)
     char_stats_adapter = CharStatsAdapter(char_stats_service=services.char_stats)
@@ -517,16 +527,37 @@ def create_adapters(
     leaderboard_gateway = LeaderboardGateway(
         leaderboard_provider=services.leaderboard_fetcher,
     )
+
+    def _make_registry_provider():
+        """按当前配置延迟创建 OttTextProvider（设置页后填 URL 的场景）。
+
+        LeaderboardAdapter 经本工厂获得 provider，不再自行内联导入/实例化
+        integration 对象（httpx.Client / OttTextProvider / cache 路径全部收编于此）。
+        """
+        if not runtime_config.registry.primary_url:
+            return None
+        from ..integration.ott_text_provider import OttTextProvider
+        from .app_paths import registry_cache_dir
+        import httpx
+
+        return OttTextProvider(
+            config=runtime_config.registry,
+            cache_dir=registry_cache_dir(),
+            http_client=httpx.Client(timeout=10.0, trust_env=False),
+        )
+
     leaderboard_adapter = LeaderboardAdapter(
         leaderboard_gateway=leaderboard_gateway,
         runtime_config=runtime_config,
         registry_provider=providers.registry,
+        registry_provider_factory=_make_registry_provider,
     )
 
-    # OTT Repo 联邦目录适配层
+    # OTT Repo 联邦目录适配层（订阅配置直接注入，不穿透 federation 私有字段）
     registry_adapter = RegistryAdapter(
         federation=providers.federation,
         manifest_cache=providers.manifest_cache,
+        runtime_config=runtime_config,
     )
 
     # Upload text
@@ -564,6 +595,7 @@ def create_adapters(
         registry=registry_adapter,
         upload_text=upload_text_adapter,
         key_listener=key_listener,
+        ott_segment_provider_cls=OttSegmentProvider,
     )
 
 

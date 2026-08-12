@@ -19,6 +19,7 @@ from ...application.exception_handler import GlobalExceptionHandler
 from ...utils.logger import log_info, log_warning
 
 if TYPE_CHECKING:
+    from ...config.runtime_config import RuntimeConfig
     from ...integration.ott_federation_provider import OttFederationProvider
     from ...integration.ott_repo_manifest import RepoManifestCache
 
@@ -39,10 +40,14 @@ class RegistryAdapter(QObject):
         self,
         federation: "OttFederationProvider",
         manifest_cache: "RepoManifestCache",
+        runtime_config: "RuntimeConfig | None" = None,
     ) -> None:
         super().__init__()
         self._federation = federation
         self._manifest_cache = manifest_cache
+        # 订阅配置由 container.py 直接注入本适配器持有，
+        # 不穿透 federation 的私有字段（ott_federation_provider 禁改）。
+        self._runtime_config = runtime_config
         self._thread_pool = QThreadPool.globalInstance()
         self._repos_loading = False
         self._entries_loading = False
@@ -67,8 +72,13 @@ class RegistryAdapter(QObject):
         if not url:
             self.reposLoadFailed.emit("订阅地址不能为空")
             return
+        if self._runtime_config is None:
+            # 未注入 runtime_config：无法持久化，必须显式失败而不是静默 no-op
+            self.reposLoadFailed.emit("配置系统未就绪，无法添加订阅")
+            log_warning("[RegistryAdapter] addRepo 失败：runtime_config 未注入")
+            return
         try:
-            self._federation._runtime_config.add_source_repo(url)
+            self._runtime_config.add_source_repo(url)
             log_info(f"[RegistryAdapter] 添加订阅: {url}")
             self.refreshRepos()
         except Exception as e:
@@ -81,7 +91,11 @@ class RegistryAdapter(QObject):
         """移除一条订阅并刷新列表。"""
         url = (url or "").strip().rstrip("/")
         try:
-            removed = self._federation._runtime_config.remove_source_repo(url)
+            removed = (
+                self._runtime_config.remove_source_repo(url)
+                if self._runtime_config is not None
+                else False
+            )
             if removed:
                 self._manifest_cache.clear_cache(url)
                 log_info(f"[RegistryAdapter] 移除订阅: {url}")
@@ -96,7 +110,8 @@ class RegistryAdapter(QObject):
         """启用/禁用一条订阅并刷新列表。"""
         url = (url or "").strip().rstrip("/")
         try:
-            self._federation._runtime_config.set_source_repo_enabled(url, enabled)
+            if self._runtime_config is not None:
+                self._runtime_config.set_source_repo_enabled(url, enabled)
             self.refreshRepos()
         except Exception as e:
             self.reposLoadFailed.emit(
@@ -108,7 +123,8 @@ class RegistryAdapter(QObject):
         """用户确认信任订阅（TOFU pending → verified）并刷新列表。"""
         url = (url or "").strip().rstrip("/")
         try:
-            self._federation._runtime_config.confirm_source_repo_trust(url)
+            if self._runtime_config is not None:
+                self._runtime_config.confirm_source_repo_trust(url)
             log_info(f"[RegistryAdapter] 确认信任订阅: {url}")
             self.refreshRepos()
         except Exception as e:
@@ -121,7 +137,8 @@ class RegistryAdapter(QObject):
         """用户拒绝信任订阅（TOFU pending → unverified，清空固定公钥）并刷新列表。"""
         url = (url or "").strip().rstrip("/")
         try:
-            self._federation._runtime_config.reject_source_repo_trust(url)
+            if self._runtime_config is not None:
+                self._runtime_config.reject_source_repo_trust(url)
             log_info(f"[RegistryAdapter] 拒绝信任订阅: {url}")
             self.refreshRepos()
         except Exception as e:
@@ -138,7 +155,10 @@ class RegistryAdapter(QObject):
         self._set_repos_loading(True)
 
         def _refresh() -> list[dict]:
-            for repo in self._federation._runtime_config.source_repos.repos:
+            repos = (
+                self._runtime_config.source_repos.repos if self._runtime_config else []
+            )
+            for repo in repos:
                 if repo.url == url:
                     self._manifest_cache.refresh_manifest(repo)
                     break

@@ -449,7 +449,7 @@ src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + rep
 
 - 订阅 manifest 拉取与联邦聚合均走 Worker（不阻塞 UI）
 - 离线时返回缓存 manifest（无视 TTL 兜底）
-- 签名（裸 Ed25519，minisign 已移除）+ TOFU 已实现（ADR-011 Phase 2.3）：`trust_state` 门控 L3 执行，签名是 L3 的执行门槛而非徽章；L0/L1/L2 签名仍仅作信任信号
+- 签名（裸 Ed25519，minisign 已移除）+ TOFU 已实现（ADR-011 Phase 2.3）：`trust_state` 门控 L3 执行，签名是 L3 的执行门槛而非徽章；L0/L1/L2 签名仍仅作信任信号；验签与 snapshot 链以**网络原始字节**为口径（归一化重构会改变 canonical 字节）；先验签后落盘——pending（首次/公钥变更/撤销）期间拒绝替换缓存，TOFU 未确认内容不服务；revocations 仅签名验证通过的 manifest 应用
 - authority 冲突时按 repo 分组并列展示，由用户选择
 
 ### L1 规则（ott-rule）URL 约束

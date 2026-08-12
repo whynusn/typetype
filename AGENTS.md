@@ -126,7 +126,7 @@
 
 ### 架构约束
 
-**绑定规则**：Presentation 只能依赖 Application 层，禁止依赖 Domain 层。
+**绑定规则**：Presentation 禁止依赖 Integration/Infrastructure 与 Domain 实体/存储；允许直连纯业务服务（`TypingService`/`CharStatsService`/`AuthService`，见 [ARCHITECTURE.md 依赖规则](../docs/ARCHITECTURE.md#依赖规则)）。Bridge 不得直接访问 `SessionContext` 或持有 Integration 对象，状态访问一律经对应 Adapter 代理。
 
 **决策规则**：
 - 有编排逻辑 → 必须走 UseCase
@@ -455,6 +455,41 @@ onActiveChanged: {
 - 安全边界为子进程隔离：脚本逃逸最多获得 256MB 内存 + 30s CPU，无法写主进程内存；`RLIMIT_NPROC=0` 禁止 fork；网络可访问（抓取需要）但受 CPU 时间约束；Landlock（内核 5.13+，不可用时静默降级）将文件系统访问限制在脚本目录 + `sys.prefix` + `/etc` + `/dev` 白名单，逃逸读取任意文件被内核拒绝
 
 **历史**：2026-07-27 ADR-010 Phase 3 落地。
+
+### ⚠️ manifest 验签与 snapshot 链必须以网络原始字节为口径
+
+**问题**：`_accept_manifest` 曾对 `validate_repo_manifest()` 归一化重构后的 dict 验签并计算 `last_snapshot_hash`。归一化会补默认字段、重建嵌套（mirrors/sources/trust）、strip 字符串——canonical JSON 字节与生产方签发内容不同，生产路径验签必失败（verified 永远不可达）、防回滚必误判。
+
+**正确做法**：
+- `_verify_trust` 接收网络原始 dict（剔除 `trust` 字段后 canonical 验签）；`last_snapshot_hash` 用 `manifest_hash(data)`（raw 整体含 trust）
+- 缓存写**网络原始内容**，读取时经 `_read_validated_cache()` 归一化后再消费（校验失败视为无缓存）
+- **先验签后落盘**：签名 failed / 首次有效签名 / 公钥变更 / key 级撤销 / pending 粘性 → 拒绝替换缓存（TOFU 未确认内容不服务，服务旧缓存或空）
+- revocations 仅在验签通过（verified）时应用；无签名 manifest 接受（unverified）但不应用 revocations（防伪造屏蔽投毒）
+- 改验签/链逻辑时禁止对归一化 dict 操作；新测试须用真实 ed25519 密钥对 raw manifest 签名
+
+**历史**：2026-08-12 边界审计修复（修复前生产路径验签恒失败）。
+
+### ⚠️ 沙箱启动序列：能力探测必须早于 RLIMIT_NPROC，seccomp 必须显式调用
+
+**问题**：`ott_script_runner.py` 的 `_apply_seccomp()` 曾**零调用**（构造了 BPF 从未安装）；且 `seccomp_available()` 探测需 fork 子进程，但 `_set_resource_limits()` 已设 `RLIMIT_NPROC=(0,0)` → 探测恒 False → seccomp 恒跳过（双重失效）。另：白名单模块预导入原发生在 Landlock 之后，Crypto 等 C 扩展 dlopen 会被文件系统白名单拒绝。
+
+**正确做法**（main() 顺序固定，不可调换）：
+1. `landlock_available()` + `seccomp_available()` 探测（必须在 RLIMIT_NPROC=0 之前，结果缓存）
+2. `_preload_allowed_modules()`（Landlock 前触发 .so 加载）
+3. `_set_resource_limits()` → `_apply_landlock()` → `_apply_seccomp()` → `run_script()`
+- Landlock 探测可用但安装失败（add_rule/restrict_self 抛错）→ raise RuntimeError 拒绝执行，不静默裸奔
+- `ALLOWED_MODULES` 禁止含 `builtins`（脚本 `import builtins` 即拿到真实 eval/open/exec）
+- 新增 runner 能力时先确认 main() 序列；seccomp 任何改动须同时更新 `seccomp_available` 探测与调用点
+
+**历史**：2026-08-12 边界审计修复。
+
+### ⚠️ 进度持久化编排残留：Bridge 直持 TextSliceProgressStore（待下沉）
+
+**问题**：进度序列化/恢复/存储编排仍散落在 Bridge（`collectSliceResult`/`_update_progress_current_slice`/`applySliceMode`），Bridge 构造直持 `TextSliceProgressStore`（integration 对象），违反 ARCHITECTURE.md "Bridge 直接持有 Integration 对象 ❌"。2026-08-12 已消除 Bridge 直取 `_session_context` 的 4 处穿透（统一经 `TypingAdapter` 代理：`restore_slice_progress()`/`get_slice_progress_snapshot()`/`get_slice_criteria_text()`/`slice_text`，`SessionContext.slice_progress_state()` 为状态拥有者自序列化），但 store 编排仍在 Bridge。
+
+**正确做法**：下沉到 Application 层（方案 B）：`TextSliceProgressStore` 经 Port 协议注入 UseCase，Bridge 收敛为纯 Slot 转发。`SessionContext` 的自序列化接口（`slice_progress_state()`/`apply_metrics_dict()`/`slice_text`）已就位，是下沉的前置。
+
+**历史**：2026-08-12 边界审计发现，同日消除 bridge 穿透（方案 A）；store 下沉留待后续批次。
 
 ---
 

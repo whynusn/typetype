@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from unittest.mock import MagicMock, patch
@@ -14,13 +15,16 @@ from src.backend.config.runtime_config import (
     SourceRepoEntry,
     SourceReposConfig,
 )
+from src.backend.integration import ott_rule_interpreter as interpreter_module
 from src.backend.integration.ott_federation_provider import (
     _EntryCache,
     OttFederationProvider,
     _RuleClient,
+    _ScriptClient,
 )
 from src.backend.integration.ott_repo_manifest import RepoManifestCache
 from src.backend.integration.ott_rule_interpreter import OttRuleInterpreter
+from src.backend.integration.ott_script_client import ScriptCache, ScriptSandbox
 
 
 # ---------------------------------------------------------------------------
@@ -135,20 +139,26 @@ class TestRuleClient:
 
         mock_client.get.side_effect = [resp1, resp_empty]
 
-        interp = OttRuleInterpreter(mock_client)
-        client = _RuleClient(
-            rule_id="r1",
-            rule={
-                "request": {"url": "https://example.com/api"},
-                "extract": {"title": "$.title", "content": "$.content"},
-            },
-            interpreter=interp,
-        )
-        entries = client.list_entries()
+        # sandbox DNS 把 example.com 解析到保留段（198.18.0.0/15，is_private），
+        # validate_url 会拒绝该 URL → 测试环境必须 patch 为公网 IP
+        with patch.object(
+            interpreter_module, "_resolve_host", return_value=["93.184.215.14"]
+        ):
+            interp = OttRuleInterpreter(mock_client)
+            client = _RuleClient(
+                rule_id="r1",
+                rule={
+                    "request": {"url": "https://example.com/api"},
+                    "extract": {"title": "$.title", "content": "$.content"},
+                },
+                interpreter=interp,
+            )
+            entries = client.list_entries()
         assert entries is not None
         assert len(entries) == 1
+        # 契约 C2：非空 authority 时解释器负责 authority/source_key，客户端不补丁
         assert entries[0]["authority"] == "rule:r1"
-        assert entries[0]["_authority"] == "rule:r1"
+        assert entries[0]["source_key"] == "rule:r1"
         assert entries[0]["title"] == "T1"
 
     def test_returns_empty_list_when_no_entries(self) -> None:
@@ -169,6 +179,42 @@ class TestRuleClient:
         interp.list_entries.side_effect = RuntimeError("boom")
         client = _RuleClient(rule_id="r1", rule={}, interpreter=interp)
         assert client.list_entries() is None
+
+
+class TestScriptClientChecksum:
+    def test_checksum_passed_to_script_cache(self) -> None:
+        """契约 C1：checksum 非空时透传给 ScriptCache.get_script(expected_checksum=...)。"""
+        cache = MagicMock(spec=ScriptCache)
+        cache.get_script.return_value = "def fetch_entries():\n    return []\n"
+        sandbox = MagicMock(spec=ScriptSandbox)
+        sandbox.execute.return_value = []
+        client = _ScriptClient(
+            url="https://example.com/scripts/a.py",
+            label="A",
+            script_cache=cache,
+            sandbox=sandbox,
+            checksum="sha256:" + "ab" * 32,
+        )
+        assert client.list_entries() == []
+        cache.get_script.assert_called_once_with(
+            "https://example.com/scripts/a.py",
+            expected_checksum="sha256:" + "ab" * 32,
+        )
+
+    def test_no_checksum_plain_call(self) -> None:
+        """checksum 为空时不传 expected_checksum（兼容 C1 落地前后的 ScriptCache）。"""
+        cache = MagicMock(spec=ScriptCache)
+        cache.get_script.return_value = "def fetch_entries():\n    return []\n"
+        sandbox = MagicMock(spec=ScriptSandbox)
+        sandbox.execute.return_value = []
+        client = _ScriptClient(
+            url="https://example.com/scripts/a.py",
+            label="A",
+            script_cache=cache,
+            sandbox=sandbox,
+        )
+        assert client.list_entries() == []
+        cache.get_script.assert_called_once_with("https://example.com/scripts/a.py")
 
 
 # ---------------------------------------------------------------------------
@@ -278,3 +324,55 @@ def test_entry_cache_expires_after_ttl():
     assert cache.get("k") is not None
     cache._items["k"] = (time.time() - 2, [{"entry_id": "e1"}])
     assert cache.get("k") is None
+
+
+# ---------------------------------------------------------------------------
+# 屏蔽过滤与 disabled 订阅
+# ---------------------------------------------------------------------------
+
+
+class TestSegmentBlockingAndDisabledRepos:
+    def test_get_segment_blocked_hash_returns_none(self, tmp_path) -> None:
+        """get_segment 对齐 get_entry：content_hash 在屏蔽清单 → None。"""
+        provider = _federation_with_rule(tmp_path)
+        entry_content = "Content1"
+        entry = {
+            "entry_id": "rule-entry-1",
+            "title": "T1",
+            "content": entry_content,
+            "current_revision_id": "rev1",
+            "content_mode": "inline",
+        }
+        authority = "rule:rule-test.example.org:sample-rule"
+        with patch.object(OttRuleInterpreter, "list_entries", return_value=[entry]):
+            seg = provider.get_segment(authority, "rule-entry-1", "rev1", 1)
+        assert seg is not None
+        assert seg["content"] == entry_content
+
+        blocked_hash = (
+            "sha256:" + hashlib.sha256(entry_content.encode("utf-8")).hexdigest()
+        )
+        provider._runtime_config.blocked_content_hashes = [blocked_hash]
+        with patch.object(OttRuleInterpreter, "list_entries", return_value=[entry]):
+            seg = provider.get_segment(authority, "rule-entry-1", "rev1", 1)
+        assert seg is None
+
+    def test_list_repos_disabled_repo_no_network(self, tmp_path) -> None:
+        """disabled 订阅：list_repos 不拉 manifest（零网络），本地数据标注 enabled=false。"""
+        provider = _federation_with_rule(tmp_path)
+        provider._runtime_config.source_repos.repos[0].enabled = False
+        with patch.object(provider, "_manifest_for") as mock_manifest:
+            repos = provider.list_repos()
+        mock_manifest.assert_not_called()
+        assert len(repos) == 1
+        assert repos[0]["enabled"] is False
+        assert repos[0]["loaded"] is False
+
+    def test_list_repos_enabled_repo_still_loads_manifest(self, tmp_path) -> None:
+        """启用订阅保持原行为：list_repos 走 manifest 摘要。"""
+        provider = _federation_with_rule(tmp_path)
+        with patch.object(provider, "_manifest_for", wraps=provider._manifest_for):
+            repos = provider.list_repos()
+        assert len(repos) == 1
+        assert repos[0]["enabled"] is True
+        assert repos[0]["loaded"] is True

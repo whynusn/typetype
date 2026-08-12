@@ -645,14 +645,21 @@ def test_missing_signature_sets_unverified(tmp_path):
 
 
 def test_revocations_merge_into_blocked_hashes(tmp_path):
-    """manifest 携带 revocations[].content_hash → 并入本地屏蔽清单。"""
-    config, repo = _config_with_repo(tmp_path, url="https://revoke.org/r.json")
+    """已确认信任（verified）仓库的 manifest revocations → 并入本地屏蔽清单。"""
+    priv = Ed25519PrivateKey.generate()
     manifest = _valid_manifest()
     manifest["revocations"] = [
         {"content_hash": "sha256:deadbeef"},
         {"content_hash": "sha256:beefdead"},
         {"junk": True},  # 非法条目丢弃
     ]
+    manifest = _sign_manifest(manifest, priv)
+    config, repo = _config_with_repo(
+        tmp_path,
+        url="https://revoke.org/r.json",
+        trust_state="verified",
+        pinned_pubkey=manifest["trust"]["pubkey"],
+    )
     client = MagicMock(spec=httpx.Client)
     client.get.return_value = _mock_response(manifest)
     cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
@@ -662,11 +669,93 @@ def test_revocations_merge_into_blocked_hashes(tmp_path):
     assert "sha256:beefdead" in config.blocked_content_hashes
 
 
+def test_unsigned_manifest_revocations_not_applied(tmp_path):
+    """无签名（unverified）manifest 的 revocations 不并入屏蔽清单（防投毒）。"""
+    config, repo = _config_with_repo(tmp_path, url="https://unsigned.org/r.json")
+    manifest = _valid_manifest()
+    manifest.pop("trust", None)
+    manifest["revocations"] = [{"content_hash": "sha256:deadbeef"}]
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = _mock_response(manifest)
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    assert cache.get_manifest(repo) is not None
+    assert "sha256:deadbeef" not in config.blocked_content_hashes
+    assert repo.trust_state == "unverified"
+
+
+def test_signed_manifest_pending_then_verified_accept(tmp_path):
+    """生产路径端到端：raw 签名 manifest 首次 → pending 拒绝替换；确认后接受。"""
+    priv = Ed25519PrivateKey.generate()
+    manifest = _sign_manifest(_valid_manifest(), priv)
+    config, repo = _config_with_repo(tmp_path)
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = _mock_response(manifest)
+    cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
+
+    # 首次有效签名：pending + 固定公钥，拒绝替换（无旧缓存 → None，未落盘）
+    assert cache.refresh_manifest(repo) is None
+    assert repo.trust_state == "pending"
+    assert repo.pinned_pubkey == manifest["trust"]["pubkey"]
+    assert not cache.cache_path(repo_cache_key(repo.url)).exists()
+
+    # 用户确认 → verified → 下次刷新接受
+    config.confirm_source_repo_trust(repo.url)
+    result = cache.refresh_manifest(repo)
+    assert result is not None
+    assert result["repo_id"] == manifest["repo_id"]
+    assert repo.trust_state == "verified"
+    assert repo.last_snapshot_hash == manifest_hash(manifest)
+
+
+def test_signature_verified_on_raw_not_normalized(tmp_path):
+    """回归：验签 canonical 以原始字节为准（归一化重构不得影响验签结果）。"""
+    priv = Ed25519PrivateKey.generate()
+    manifest = _valid_manifest()
+    manifest["name"] = "  示例文库  "  # validate 会 strip，改变 canonical 字节
+    signed = _sign_manifest(manifest, priv)
+
+    config, repo = _config_with_repo(
+        tmp_path,
+        trust_state="verified",
+        pinned_pubkey=signed["trust"]["pubkey"],
+    )
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=MagicMock(spec=httpx.Client),
+        async_executor=None,
+        runtime_config=config,
+    )
+    # 原始 dict 验签通过
+    assert cache._verify_trust(signed, repo) == "verified"
+    assert repo.trust_state == "verified"
+
+    # 对照：归一化重构后的 dict 验签必须失败（证明签名口径是原始字节）
+    normalized = validate_repo_manifest(signed)
+    assert normalized is not None
+    config2, repo2 = _config_with_repo(
+        tmp_path,
+        url="https://normalized.org/r.json",
+        trust_state="verified",
+        pinned_pubkey=signed["trust"]["pubkey"],
+    )
+    cache2 = RepoManifestCache(
+        cache_dir=tmp_path / "cache2",
+        http_client=MagicMock(spec=httpx.Client),
+        async_executor=None,
+        runtime_config=config2,
+    )
+    assert cache2._verify_trust(normalized, repo2) == "failed"
+    assert repo2.trust_state == "failed"
+
+
 def test_no_revocations_no_blocked_hashes(tmp_path):
     """无 revocations 的 manifest 不产生任何屏蔽。"""
     config, repo = _config_with_repo(tmp_path, url="https://none.org/r.json")
+    manifest = _valid_manifest()
+    manifest.pop("trust", None)  # 无签名仓库
     client = MagicMock(spec=httpx.Client)
-    client.get.return_value = _mock_response(_valid_manifest())
+    client.get.return_value = _mock_response(manifest)
     cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
 
     assert cache.get_manifest(repo) is not None
@@ -748,7 +837,9 @@ def test_incoming_expired_manifest_keeps_old_cache(tmp_path):
     config, repo = _config_with_repo(tmp_path, url="https://exp.org/r.json")
     client = MagicMock(spec=httpx.Client)
     m1 = _valid_manifest()
+    m1.pop("trust", None)  # 无签名仓库
     m2 = _valid_manifest()
+    m2.pop("trust", None)
     m2["repo_id"] = "new-content"
     m2["expires_at"] = "2020-01-01T00:00:00+00:00"
     client.get.side_effect = [_mock_response(m1), _mock_response(m2)]
@@ -768,7 +859,9 @@ def test_snapshot_hash_rollback_rejected(tmp_path):
     config, repo = _config_with_repo(tmp_path, url="https://snap.org/r.json")
     client = MagicMock(spec=httpx.Client)
     m1 = _valid_manifest()
+    m1.pop("trust", None)  # 无签名仓库
     m2 = _valid_manifest()
+    m2.pop("trust", None)
     m2["repo_id"] = "rolled-back"
     m2["snapshot_hash"] = "sha256:" + "0" * 64  # 不可能匹配 m1 的 hash
     client.get.side_effect = [_mock_response(m1), _mock_response(m2)]
@@ -776,7 +869,7 @@ def test_snapshot_hash_rollback_rejected(tmp_path):
 
     first = cache.refresh_manifest(repo)
     assert first is not None
-    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(m1))
+    assert repo.last_snapshot_hash == manifest_hash(m1)
     cache_file = cache.cache_path(repo_cache_key(repo.url))
     cached_before = cache_file.read_text(encoding="utf-8")
 
@@ -784,7 +877,7 @@ def test_snapshot_hash_rollback_rejected(tmp_path):
     assert second is not None
     assert second["repo_id"] == "texts.example.org"  # 回退旧缓存
     assert cache_file.read_text(encoding="utf-8") == cached_before  # 未替换
-    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(m1))
+    assert repo.last_snapshot_hash == manifest_hash(m1)
 
 
 def test_snapshot_hash_chain_accepted(tmp_path):
@@ -792,9 +885,11 @@ def test_snapshot_hash_chain_accepted(tmp_path):
     config, repo = _config_with_repo(tmp_path, url="https://chain.org/r.json")
     client = MagicMock(spec=httpx.Client)
     m1 = _valid_manifest()
+    m1.pop("trust", None)  # 无签名仓库
     m2 = _valid_manifest()
+    m2.pop("trust", None)
     m2["repo_id"] = "chained-v2"
-    m2["snapshot_hash"] = manifest_hash(validate_repo_manifest(m1))
+    m2["snapshot_hash"] = manifest_hash(m1)  # 生产方口径：原始 manifest hash
     client.get.side_effect = [_mock_response(m1), _mock_response(m2)]
     cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
 
@@ -802,14 +897,16 @@ def test_snapshot_hash_chain_accepted(tmp_path):
     second = cache.refresh_manifest(repo)
     assert second is not None
     assert second["repo_id"] == "chained-v2"
-    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(m2))
+    assert repo.last_snapshot_hash == manifest_hash(m2)
 
 
 def test_missing_tuf_fields_no_crash(tmp_path):
     """缺失 revocations/expires_at/snapshot_hash → 旧行为，不崩溃。"""
     config, repo = _config_with_repo(tmp_path, url="https://plain.org/r.json")
+    manifest = _valid_manifest()
+    manifest.pop("trust", None)  # 无签名仓库
     client = MagicMock(spec=httpx.Client)
-    client.get.return_value = _mock_response(_valid_manifest())  # 无新字段
+    client.get.return_value = _mock_response(manifest)
     cache = RepoManifestCache(tmp_path / "repos", client, None, runtime_config=config)
 
     result = cache.get_manifest(repo)
@@ -817,15 +914,14 @@ def test_missing_tuf_fields_no_crash(tmp_path):
     assert result["repo_id"] == "texts.example.org"
     assert config.blocked_content_hashes == []
     # 参照恒记录当前服务内容（可选语义：无 snapshot_hash 也推进链参照）
-    assert repo.last_snapshot_hash == manifest_hash(
-        validate_repo_manifest(_valid_manifest())
-    )
+    assert repo.last_snapshot_hash == manifest_hash(manifest)
 
 
 def test_first_fetch_with_snapshot_hash_establishes_chain(tmp_path):
     """首次拉取（无参照）时 snapshot_hash 不校验，接受并建立链。"""
     config, repo = _config_with_repo(tmp_path, url="https://first.org/r.json")
     manifest = _valid_manifest()
+    manifest.pop("trust", None)  # 无签名仓库
     manifest["snapshot_hash"] = "sha256:" + "f" * 64  # 无参照，任意值可接受
     client = MagicMock(spec=httpx.Client)
     client.get.return_value = _mock_response(manifest)
@@ -833,4 +929,4 @@ def test_first_fetch_with_snapshot_hash_establishes_chain(tmp_path):
 
     result = cache.get_manifest(repo)
     assert result is not None
-    assert repo.last_snapshot_hash == manifest_hash(validate_repo_manifest(manifest))
+    assert repo.last_snapshot_hash == manifest_hash(manifest)

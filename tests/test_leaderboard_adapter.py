@@ -114,3 +114,64 @@ class TestLoadTextListRequestId:
         # 当前请求失败 — 应触发信号（BaseWorker 已加 error_prefix）
         pool.started_workers[1].signals.failed.emit("加载文本列表失败：网络错误")
         assert failures == ["加载文本列表失败：网络错误"]
+
+
+class TestInitRegistryProviderFactory:
+    """_init_registry_provider 应使用 container 注入的 registry_provider_factory。"""
+
+    def test_uses_injected_factory(self):
+        leaderboard_gateway = MagicMock()
+        runtime_config = MagicMock()
+        runtime_config.registry.primary_url = "http://example.com/registry"
+        sentinel = object()
+        factory_calls = []
+
+        def factory():
+            factory_calls.append(1)
+            return sentinel
+
+        adapter = LeaderboardAdapter(
+            leaderboard_gateway=leaderboard_gateway,
+            runtime_config=runtime_config,
+            registry_provider_factory=factory,
+        )
+
+        adapter._init_registry_provider()
+
+        assert factory_calls == [1]
+        assert adapter._registry_provider is sentinel
+
+    def test_skips_factory_when_primary_url_empty(self):
+        leaderboard_gateway = MagicMock()
+        runtime_config = MagicMock()
+        runtime_config.registry.primary_url = ""
+        factory_calls = []
+
+        adapter = LeaderboardAdapter(
+            leaderboard_gateway=leaderboard_gateway,
+            runtime_config=runtime_config,
+            registry_provider_factory=lambda: factory_calls.append(1) or "x",
+        )
+
+        adapter._init_registry_provider()
+
+        assert factory_calls == []
+        assert adapter._registry_provider is None
+
+    def test_factory_exception_logged_and_provider_kept_none(self):
+        leaderboard_gateway = MagicMock()
+        runtime_config = MagicMock()
+        runtime_config.registry.primary_url = "http://example.com/registry"
+
+        def boom():
+            raise RuntimeError("创建失败")
+
+        adapter = LeaderboardAdapter(
+            leaderboard_gateway=leaderboard_gateway,
+            runtime_config=runtime_config,
+            registry_provider_factory=boom,
+        )
+
+        adapter._init_registry_provider()  # 不抛异常，走 log_warning
+
+        assert adapter._registry_provider is None

@@ -11,7 +11,7 @@ except ImportError:
     fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
-from .app_paths import builtin_ott_repo_url, user_config_path
+from .app_paths import builtin_ott_repo_url, default_ott_hub_url, user_config_path
 from ..utils.logger import log_error, log_info
 from .text_source_config import TextSourceConfig, TextSourceEntry
 
@@ -241,6 +241,11 @@ class RuntimeConfig:
         default_factory=dict
     )  # UI 配置（主题/外观等），RinUI 通过桥写入
     _config_path: str | None = field(default=None, repr=False)
+    # ui 字段是否被本实例（RuntimeConfig.update_ui_config）修改过。
+    # 不参与序列化/比较：RinUI AppUIConfigManager 运行期直写 config.json 的
+    # ui 字段，RuntimeConfig 保存时若本标志为 False 则沿用磁盘值，避免用
+    # 启动时快照覆盖运行期主题切换等变更。
+    _ui_dirty: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
     def load_from_file(cls, config_path: str | None = None) -> "RuntimeConfig":
@@ -287,6 +292,10 @@ class RuntimeConfig:
             return
         self.source_repos.repos.append(
             SourceRepoEntry(url=builtin_ott_repo_url(), enabled=True)
+        )
+        # 默认订阅 hub（开箱即用）；离线兜底仍由 builtin 提供
+        self.source_repos.repos.append(
+            SourceRepoEntry(url=default_ott_hub_url(), enabled=True)
         )
 
     @classmethod
@@ -359,6 +368,8 @@ class RuntimeConfig:
         api_timeout = data.get("api_timeout", 20.0)
 
         sources_data = data.get("text_sources", {})
+        if not isinstance(sources_data, dict):
+            sources_data = {}
         sources = {}
         default_key = ""
 
@@ -454,7 +465,7 @@ class RuntimeConfig:
             base_url=cls._safe_str(ai_data.get("base_url"), ""),
             model=cls._safe_str(ai_data.get("model"), ""),
             api_format=cls._safe_str(ai_data.get("api_format"), "openai_chat"),
-            timeout=float(cls._safe_int(ai_data.get("timeout"), 30)),
+            timeout=cls._safe_float(ai_data.get("timeout"), 30.0),
             max_chars=cls._safe_int(ai_data.get("max_chars"), 300),
         )
 
@@ -499,7 +510,7 @@ class RuntimeConfig:
             repos.append(
                 SourceRepoEntry(
                     url=url,
-                    enabled=bool(item.get("enabled", True)),
+                    enabled=cls._safe_bool(item.get("enabled"), True),
                     trust_state=cls._safe_str(item.get("trust_state"), "unverified"),
                     pinned_pubkey=cls._safe_str(item.get("pinned_pubkey"), ""),
                     refresh_ttl_seconds=cls._safe_int(
@@ -544,9 +555,30 @@ class RuntimeConfig:
     def _safe_bool(value, default: bool = False) -> bool:
         if isinstance(value, bool):
             return value
+        if isinstance(value, str):
+            v = value.strip().lower()
+            if v in ("true", "1", "yes"):
+                return True
+            if v in ("false", "0", "no", ""):
+                return False
+            return default
+        if isinstance(value, (int, float)):
+            return value != 0
+        return default
+
+    @staticmethod
+    def _safe_float(value, default: float = 0.0) -> float:
+        """JSON → float 安全转换。
+
+        直接 int() 会截断浮点（如 30.5 → 30），本方法保留精度；
+        非数字类型/非法字符串回退 default。
+        """
         if value is None or value == "":
             return default
-        return str(value).strip().lower() not in ("0", "false", "no", "off")
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
     @property
     def default_text_source_key(self) -> str:
@@ -771,18 +803,22 @@ class RuntimeConfig:
 
         - 以 _to_dict() 为基写入，确保所有已知字段一致
         - 合并已存在文件中 _to_dict() 不识别的未知字段（前向兼容）
-        - 使用文件锁（fcntl.lockf）防止并发写入冲突
+        - 使用文件锁（fcntl.lockf）保护"读-合并-写"临界区
+        - 原子写：先写同目录临时文件（flush + fsync），再 os.replace
+          原子替换，崩溃/序列化异常不会损坏原 config.json
+        - ui 字段冲突处理：见 _ui_dirty 注释
         """
         target_path = (
             Path(self._config_path) if self._config_path else user_config_path()
         )
+        tmp_path = target_path.with_name(target_path.name + ".tmp")
         try:
             new_data = self._to_dict()
 
             target_path.parent.mkdir(parents=True, exist_ok=True)
 
             # 文件锁：防止 RinUI AppUIConfigManager 等并发写入冲突。
-            # 必须在锁内读取现有文件，否则读取和截断写入之间仍有 lost-update 窗口。
+            # 必须在锁内读取现有文件，否则读取和替换之间仍有 lost-update 窗口。
             with target_path.open("a+", encoding="utf-8") as f:
                 try:
                     if fcntl is not None:
@@ -803,13 +839,37 @@ class RuntimeConfig:
                     if k not in new_data:
                         new_data[k] = v
 
-                f.seek(0)
-                f.truncate()
-                json.dump(new_data, f, ensure_ascii=False, indent=4)
-                f.write("\n")
-            self._config_path = str(target_path)
+                # ui 字段冲突修复：本实例未通过 update_ui_config 修改过 ui
+                # （_ui_dirty=False）时，沿用磁盘上现有 ui 值，避免用启动时
+                # 快照覆盖 AppUIConfigManager 运行期直写的主题切换等变更；
+                # 磁盘无 ui 键时回退 self.ui。_ui_dirty=True 时用 self.ui
+                # 并重置标志（本次保存已消费该修改）。
+                if not self._ui_dirty:
+                    if "ui" in existing:
+                        new_data["ui"] = existing["ui"]
+                else:
+                    self._ui_dirty = False
+
+                # 原子写：临时文件 + os.replace。os.replace 必须在持锁范围内
+                # 执行（否则释放锁到 replace 之间存在 lost-update 竞态窗口），
+                # 但 Windows 不允许替换仍被打开的文件——因此先关闭 f 句柄
+                # 再 replace（with 块退出时重复 close 是幂等的）。
+                with tmp_path.open("w", encoding="utf-8") as tmp:
+                    json.dump(new_data, tmp, ensure_ascii=False, indent=4)
+                    tmp.write("\n")
+                    tmp.flush()
+                    os.fsync(tmp.fileno())
+
+                f.close()
+                os.replace(tmp_path, target_path)
+                self._config_path = str(target_path)
         except Exception as e:
             log_error(f"[RuntimeConfig] 持久化配置失败：{e}")
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
 
     def reload(self) -> None:
         path = Path(self._config_path) if self._config_path else None
@@ -834,6 +894,7 @@ class RuntimeConfig:
         用法: runtime_config.update_ui_config(reader_font_path="/path")
         """
         self.ui.update(kwargs)
+        self._ui_dirty = True
         self._save_to_file()
 
     def _to_dict(self) -> dict:

@@ -185,6 +185,14 @@ def builtin_ott_repo_url() -> str:
     return (builtin_ott_repo_dir() / "ott-repo.json").as_uri()
 
 
+def default_ott_hub_url() -> str:
+    """默认 OTT 源仓库（hub）manifest URL。
+
+    全新安装首次启动自动订阅；已存在用户配置不自动添加（尊重既有选择）。
+    """
+    return "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json"
+
+
 def load_common_chars() -> list[str]:
     """加载高频五百中文汉字，用于启动时预热 char_stats 缓存。"""
     try:

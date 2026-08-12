@@ -236,6 +236,7 @@ class Bridge(QObject):
         base_url_update_callback: Callable[[str], None] | None = None,
         slice_metrics_prefs_store: "SliceMetricsPrefsStore | None" = None,
         text_slice_progress_store: "TextSliceProgressStore | None" = None,
+        ott_segment_provider_cls: "type | None" = None,
     ):
         super().__init__()
         self._typing_adapter = typing_adapter
@@ -258,6 +259,8 @@ class Bridge(QObject):
         self._base_url_update_callback = base_url_update_callback
         self._slice_metrics_prefs_store = slice_metrics_prefs_store
         self._text_slice_progress_store = text_slice_progress_store
+        # OttSegmentProvider 类由 container.py 装配注入（复用同一实现，参数每次实例化）
+        self._ott_segment_provider_cls = ott_segment_provider_cls
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
@@ -642,36 +645,13 @@ class Bridge(QObject):
 
         不删除存储中的进度条目——由 collectSliceResult 在用户完成一段后自然覆盖。
         这样即使用户继续进度后未完成一段就关闭应用，进度也不会丢失。
+
+        SessionContext 状态的读写全部收敛到 TypingAdapter.restore_slice_progress
+        （Bridge 禁止直接访问 SessionContext），本方法只透传 rp dict 并清理自身瞬态。
         """
         if not self._pending_restored_progress:
             return
-        ctx = self._typing_adapter._session_context
-        if not ctx:
-            self._pending_restored_progress = None
-            return
-        rp = self._pending_restored_progress
-        saved_counts = rp.get("slice_pass_counts")
-        if saved_counts:
-            for i, count in enumerate(saved_counts):
-                if i < len(ctx._slice_pass_counts):
-                    ctx._slice_pass_counts[i] = count
-        # 恢复 per-slice 指标
-        saved_slice_metrics = rp.get("slice_metrics")
-        if saved_slice_metrics:
-            # 保存端截断到 slice_index（性能优化），恢复端逐条覆盖 + 默认值填充
-            for i, m in enumerate(saved_slice_metrics):
-                if i < len(ctx._slice_metrics):
-                    ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
-            ctx.restore_slice_metrics(ctx.slice_index)
-        # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
-        saved_slice_stats = rp.get("slice_stats")
-        if saved_slice_stats and ctx._slice_stats is not None:
-            # 初始化 _slice_stats 到正确大小，用 None 填充，再用保存值覆盖
-            while len(ctx._slice_stats) < ctx.slice_total:
-                ctx._slice_stats.append(None)
-            for i, s in enumerate(saved_slice_stats):
-                if i < ctx.slice_total:
-                    ctx._slice_stats[i] = s
+        self._typing_adapter.restore_slice_progress(self._pending_restored_progress)
         self._pending_restore_key = ""
         self._pending_restored_progress = None
 
@@ -862,7 +842,7 @@ class Bridge(QObject):
         因此 primary_url 为空时从第一个 enabled 订阅反推显示，保证用户
         设置的主地址在重启后仍可见。
         """
-        cfg = self._text_adapter._runtime_config
+        cfg = self._text_adapter.runtime_config
         if cfg.registry.primary_url:
             return cfg.registry.primary_url
         for repo in cfg.source_repos.repos:
@@ -873,12 +853,12 @@ class Bridge(QObject):
     @Property(str, notify=registryUrlChanged)
     def registryMirrorUrl(self) -> str:
         """注册表镜像地址。"""
-        return self._text_adapter._runtime_config.registry.mirror_url
+        return self._text_adapter.runtime_config.registry.mirror_url
 
     @Property(bool, notify=scriptsEnabledChanged)
     def scriptsEnabled(self) -> bool:
         """ott-script（L3）脚本是否启用。"""
-        return self._text_adapter._runtime_config.registry.scripts_enabled
+        return self._text_adapter.runtime_config.registry.scripts_enabled
 
     @Property(str, notify=windowTitleChanged)
     def windowTitle(self) -> str:
@@ -1445,6 +1425,32 @@ class Bridge(QObject):
             on_error=lambda msg: self.textLoadFailed.emit(msg),
         )
 
+    def _make_ott_segment_provider(
+        self,
+        adapter,
+        entry_id: str,
+        revision_id: str,
+        total_chars: int,
+        source_segment_size: int,
+    ):
+        """创建 OttSegmentProvider 实例。
+
+        实现类由 container.py 装配注入（`ott_segment_provider_cls`）；
+        直接构造（测试/独立使用）时懒加载默认实现兜底。
+        """
+        provider_cls = self._ott_segment_provider_cls
+        if provider_cls is None:
+            from src.backend.integration.ott_segment_provider import OttSegmentProvider
+
+            provider_cls = OttSegmentProvider
+        return provider_cls(
+            adapter,
+            entry_id,
+            revision_id,
+            total_chars,
+            source_segment_size,
+        )
+
     def _build_federated_segment_session(
         self,
         adapter: "_FederationSegmentAdapter",
@@ -1457,10 +1463,9 @@ class Bridge(QObject):
         title: str,
         authority: str,
     ) -> dict:
-        from src.backend.integration.ott_segment_provider import OttSegmentProvider
         from src.backend.models.dto.text_session import TextKind
 
-        provider = OttSegmentProvider(
+        provider = self._make_ott_segment_provider(
             adapter,
             entry_id,
             revision_id,
@@ -1502,10 +1507,9 @@ class Bridge(QObject):
         source_segment_size: int,
         title: str,
     ) -> dict:
-        from src.backend.integration.ott_segment_provider import OttSegmentProvider
         from src.backend.models.dto.text_session import TextKind
 
-        provider = OttSegmentProvider(
+        provider = self._make_ott_segment_provider(
             provider_adapter,
             entry_id,
             revision_id,
@@ -2060,20 +2064,14 @@ class Bridge(QObject):
         title: str = "",
     ) -> None:
         """实际执行分片设置（被 setupSliceMode 调用）。"""
+        # 保存进度时的指标（可能含降击值）由 restore_slice_progress 统一处理，
+        # 这里仅推进起始片
         effective_start_slice = start_slice
         if restored_progress:
             saved_slice = restored_progress.get("current_slice", 1)
             saved_total = restored_progress.get("total_slices", 0)
             if saved_slice > 1 and saved_slice <= saved_total:
                 effective_start_slice = saved_slice
-
-        # 保存进度时的指标（可能含降击值），用于恢复 per-slice 数据
-        saved_metrics = (
-            restored_progress.get("metrics", {}) if restored_progress else {}
-        )
-        saved_slice_metrics = (
-            restored_progress.get("slice_metrics") if restored_progress else None
-        )
 
         # 用原始用户指标初始化 per-slice 列表（确保未访问片段保持原始值）
         total = self._typing_adapter.setup_slice_mode(
@@ -2105,34 +2103,10 @@ class Bridge(QObject):
         if total <= 0:
             return
 
-        # 恢复历史达标次数和指标配置
+        # 恢复历史达标次数和指标配置（统一经 TypingAdapter 代理，
+        # 禁止直读 SessionContext 私有状态）
         if restored_progress:
-            ctx = self._typing_adapter._session_context
-            if not ctx:
-                return
-            if restored_progress.get("slice_pass_counts"):
-                saved_counts = restored_progress["slice_pass_counts"]
-                for i, count in enumerate(saved_counts):
-                    if i < len(ctx._slice_pass_counts):
-                        ctx._slice_pass_counts[i] = count
-            # 恢复保存时的标量指标（含降击值）
-            if saved_metrics:
-                ctx._apply_metrics_dict(saved_metrics)
-            # 恢复 per-slice 指标（已访问片段的降击历史）
-            if saved_slice_metrics:
-                # 保存端截断到 slice_index（性能优化），恢复端逐条覆盖 + 默认值填充
-                for i, m in enumerate(saved_slice_metrics):
-                    if i < len(ctx._slice_metrics):
-                        ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
-                ctx.restore_slice_metrics(ctx.slice_index)
-            # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
-            saved_slice_stats = restored_progress.get("slice_stats")
-            if saved_slice_stats and ctx._slice_stats is not None:
-                while len(ctx._slice_stats) < ctx.slice_total:
-                    ctx._slice_stats.append(None)
-                for i, s in enumerate(saved_slice_stats):
-                    if i < ctx.slice_total:
-                        ctx._slice_stats[i] = s
+            self._typing_adapter.restore_slice_progress(restored_progress)
 
         # 同步参数到 pending_slice_params，使 loadNextSlice 使用相同的自动推进逻辑
         self._coordinator.pending_slice_params.update(
@@ -2177,8 +2151,8 @@ class Bridge(QObject):
         if self._text_slice_progress_store and self._typing_adapter.is_slice_mode():
             from datetime import datetime
 
-            ctx = self._typing_adapter._session_context
-            if ctx:
+            snapshot = self._typing_adapter.get_slice_progress_snapshot()
+            if snapshot:
                 # source-based 路径（本地文库、练单器）始终使用后端标识作为进度 key，
                 # 不受全文乱序影响。_progress_key_override 用于全文乱序本地文库路径
                 # （source_slice_backend 为 None 但需要使用 local_article 前缀 key）。
@@ -2194,41 +2168,29 @@ class Bridge(QObject):
                     )
                 else:
                     # text-based 路径：使用乱序前原文（如有）生成稳定的 key
-                    raw = self._progress_key_text or ctx._slice_text
+                    raw = self._progress_key_text or snapshot["slice_text"]
                     text = _compute_progress_key("custom_text", raw)
                 if not text:
                     return
                 title = self._typing_adapter.text_title
                 # 保存下一片索引（用户正在打的片），而非刚完成的片
                 next_slice = (
-                    (ctx.slice_index % ctx.slice_total) + 1
-                    if ctx.slice_total > 0
-                    else ctx.slice_index
+                    (snapshot["slice_index"] % snapshot["slice_total"]) + 1
+                    if snapshot["slice_total"] > 0
+                    else snapshot["slice_index"]
                 )
                 progress = {
                     "last_accessed": datetime.now().isoformat(),
-                    "total_slices": ctx.slice_total,
+                    "total_slices": snapshot["slice_total"],
                     "current_slice": next_slice,
-                    "slice_size": ctx._slice_size if hasattr(ctx, "_slice_size") else 0,
-                    "slice_pass_counts": list(ctx._slice_pass_counts),
-                    "slice_stats": list(ctx._slice_stats),
-                    "metrics": {
-                        "key_stroke_min": ctx._key_stroke_min,
-                        "speed_min": ctx._speed_min,
-                        "accuracy_min": ctx._accuracy_min,
-                        "pass_count_min": ctx._pass_count_min,
-                        "on_fail_action": ctx.on_fail_action,
-                        "auto_decrease_enabled": ctx.auto_decrease_enabled,
-                        "key_stroke_decrease": ctx._key_stroke_decrease,
-                        "speed_decrease": ctx._speed_decrease,
-                        "accuracy_decrease": ctx._accuracy_decrease,
-                    },
+                    "slice_size": snapshot["slice_size"],
+                    "slice_pass_counts": snapshot["slice_pass_counts"],
+                    "slice_stats": snapshot["slice_stats"],
+                    "metrics": snapshot["metrics"],
                     "advance_mode": self._coordinator.pending_slice_params.get(
                         "advance_mode", "sequential"
                     ),
-                    "slice_metrics": [
-                        m.copy() for m in ctx._slice_metrics[: ctx.slice_index]
-                    ],
+                    "slice_metrics": snapshot["slice_metrics"],
                     "shuffle_seed": self._current_shuffle_seed,
                 }
                 log_info(
@@ -2252,9 +2214,6 @@ class Bridge(QObject):
             or not self._typing_adapter.is_slice_mode()
         ):
             return
-        ctx = self._typing_adapter._session_context
-        if not ctx:
-            return
         if self._progress_key_override:
             key = self._progress_key_override
         elif self._coordinator.source_slice_backend == "local_article":
@@ -2266,11 +2225,11 @@ class Bridge(QObject):
                 "trainer", self._coordinator.source_slice_trainer_id
             )
         else:
-            raw = self._progress_key_text or ctx._slice_text
+            raw = self._progress_key_text or self._typing_adapter.slice_text
             key = _compute_progress_key("custom_text", raw)
         entry, hash_key = self._find_progress(key)
         if entry and hash_key:
-            entry["current_slice"] = ctx.slice_index
+            entry["current_slice"] = self._typing_adapter.slice_index
             self._text_slice_progress_store.save_progress(
                 key, entry.get("text_title", ""), entry
             )
@@ -2665,13 +2624,7 @@ class Bridge(QObject):
     def getSliceCriteria(self) -> str:
         """返回当前达标条件文字（含降击后更新）。"""
         if self._typing_adapter.is_slice_mode():
-            ctx = self._typing_adapter._session_context
-            if ctx:
-                ks = ctx._key_stroke_min
-                spd = ctx._speed_min
-                acc = ctx._accuracy_min
-                pc = ctx._pass_count_min
-                return f"击键≥{ks:.2f}  速度≥{spd}  键准≥{acc}%  达标≥{pc}次"
+            return self._typing_adapter.get_slice_criteria_text()
         return ""
 
     @Slot(result="QVariantMap")
@@ -2689,7 +2642,7 @@ class Bridge(QObject):
     @Slot(str)
     def setRegistryPrimaryUrl(self, new_url: str) -> None:
         """更新注册表主地址并持久化。"""
-        self._text_adapter._runtime_config.update_registry_url(primary_url=new_url)
+        self._text_adapter.runtime_config.update_registry_url(primary_url=new_url)
         # 清除 catalog 缓存使新 URL 生效
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
@@ -2698,7 +2651,7 @@ class Bridge(QObject):
     @Slot(str)
     def setRegistryMirrorUrl(self, new_url: str) -> None:
         """更新注册表镜像地址并持久化。"""
-        self._text_adapter._runtime_config.update_registry_url(mirror_url=new_url)
+        self._text_adapter.runtime_config.update_registry_url(mirror_url=new_url)
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
         self.registryUrlChanged.emit()
@@ -2706,7 +2659,7 @@ class Bridge(QObject):
     @Slot(str, str)
     def setRegistryUrls(self, primary_url: str, mirror_url: str) -> None:
         """更新注册表地址并持久化。"""
-        self._text_adapter._runtime_config.update_registry_url(
+        self._text_adapter.runtime_config.update_registry_url(
             primary_url=primary_url,
             mirror_url=mirror_url,
         )
@@ -2717,7 +2670,7 @@ class Bridge(QObject):
     @Slot(bool)
     def setScriptsEnabled(self, enabled: bool) -> None:
         """更新 ott-script（L3）开关并持久化。"""
-        self._text_adapter._runtime_config.update_scripts_enabled(enabled)
+        self._text_adapter.runtime_config.update_scripts_enabled(enabled)
         self.scriptsEnabledChanged.emit()
 
     # ------------------------------------------------------------------
@@ -3155,22 +3108,20 @@ class Bridge(QObject):
 
     @Property(int, notify=typingHistoryChanged)
     def typingHistoryMaxRecords(self) -> int:
-        if self._text_adapter and self._text_adapter._runtime_config:
-            return self._text_adapter._runtime_config.typing_history_max_records
+        if self._text_adapter and self._text_adapter.runtime_config:
+            return self._text_adapter.runtime_config.typing_history_max_records
         return 2000
 
     @Slot(int)
     def setTypingHistoryMaxRecords(self, max_records: int) -> None:
         """更新打字历史最大保留条数。"""
-        if not (self._text_adapter and self._text_adapter._runtime_config):
+        if not (self._text_adapter and self._text_adapter.runtime_config):
             return
-        self._text_adapter._runtime_config.update_typing_history_max_records(
-            max_records
-        )
+        self._text_adapter.runtime_config.update_typing_history_max_records(max_records)
         # 如果当前记录数超过新上限，截断
         if self._typing_history_gateway:
             self._typing_history_gateway._max_records = (
-                self._text_adapter._runtime_config.typing_history_max_records
+                self._text_adapter.runtime_config.typing_history_max_records
             )
             # 立即截断超限记录
             data = self._typing_history_gateway._load_normalized()
@@ -3193,7 +3144,7 @@ class Bridge(QObject):
 
         首次读取时检测 font_config.json 历史文件并自动迁移。
         """
-        result = self._text_adapter._runtime_config._ui_get(
+        result = self._text_adapter.runtime_config._ui_get(
             "reader_font_path", default=""
         )
         if result:
@@ -3210,7 +3161,7 @@ class Bridge(QObject):
                     data = json.load(f)
                 old_value = data.get("reader_font_path", "")
                 if old_value:
-                    self._text_adapter._runtime_config.update_ui_config(
+                    self._text_adapter.runtime_config.update_ui_config(
                         reader_font_path=old_value
                     )
                     return old_value
@@ -3220,4 +3171,4 @@ class Bridge(QObject):
 
     def _save_reader_font_path(self, file_path: str) -> None:
         """通过 RuntimeConfig 持久化 reader_font_path 到 config.json。"""
-        self._text_adapter._runtime_config.update_ui_config(reader_font_path=file_path)
+        self._text_adapter.runtime_config.update_ui_config(reader_font_path=file_path)

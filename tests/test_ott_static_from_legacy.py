@@ -72,9 +72,10 @@ class TestLegacyScriptAsRule:
         assert "$.hitokoto" in data["rule"]["extract"].values()
 
     def test_hitokoto_rule_produces_entries(self) -> None:
-        """解释器执行 hitokoto rule 能抓到条目（mock HTTP）。"""
+        """解释器执行 hitokoto rule 能抓到条目（mock HTTP + 公网 DNS）。"""
+        from src.backend.integration import ott_rule_interpreter as interpreter_mod
         from src.backend.integration.ott_rule_interpreter import OttRuleInterpreter
-        from unittest.mock import MagicMock
+        from unittest.mock import MagicMock, patch
         import httpx
 
         path = FIXTURES / "rule-samples" / "hitokoto.json"
@@ -95,8 +96,15 @@ class TestLegacyScriptAsRule:
         resp.iter_text = MagicMock(return_value=iter([json.dumps(hitokoto_data)]))
         mock_client.get.return_value = resp
 
-        interp = OttRuleInterpreter(mock_client)
-        entries = interp.list_entries(rule["rule"], rule["rule_id"], max_pages=1)
+        # 沙箱 DNS 会把 v1.hitokoto.cn 解析到基准网段（198.18.0.0/15），
+        # validate_url 正确拦截；测试环境依赖真实 DNS，故打桩为公网 IP。
+        with patch.object(
+            interpreter_mod,
+            "_resolve_host",
+            return_value=["1.1.1.1"],
+        ):
+            interp = OttRuleInterpreter(mock_client)
+            entries = interp.list_entries(rule["rule"], rule["rule_id"], max_pages=1)
         assert len(entries) == 1
         assert entries[0]["content"] == "山重水复疑无路，柳暗花明又一村。"
         assert entries[0]["title"] == "陆游《游山西村》"

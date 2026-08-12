@@ -34,7 +34,11 @@ def _mock_http(json_data=None, text=""):
     response.text = text
     response.headers = {"content-length": str(len(text))}
     response.raise_for_status = MagicMock()
-    client.get.return_value = response
+    response.iter_text.return_value = iter([text])
+    stream_ctx = MagicMock()
+    stream_ctx.__enter__.return_value = response
+    stream_ctx.__exit__.return_value = False
+    client.stream.return_value = stream_ctx
     return client
 
 
@@ -149,13 +153,7 @@ class TestScriptClient:
             '    return [{"title": "S1", '
             '"content": "ScriptContent"}]\n'
         )
-        mock_http = MagicMock(spec=httpx.Client)
-        resp = MagicMock(spec=httpx.Response)
-        resp.status_code = 200
-        resp.text = script_source
-        resp.headers = {"content-length": str(len(script_source))}
-        resp.raise_for_status = MagicMock()
-        mock_http.get.return_value = resp
+        mock_http = _mock_http(text=script_source)
 
         cache = ScriptCache(tmp_path / "scripts", mock_http)
         sandbox = ScriptSandbox()
@@ -182,13 +180,7 @@ class TestScriptClient:
         script_source = (
             'def fetch_entries():\n    return [{"title": "S1", "content": "C"}]\n'
         )
-        mock_http = MagicMock(spec=httpx.Client)
-        resp = MagicMock(spec=httpx.Response)
-        resp.status_code = 200
-        resp.text = script_source
-        resp.headers = {"content-length": str(len(script_source))}
-        resp.raise_for_status = MagicMock()
-        mock_http.get.return_value = resp
+        mock_http = _mock_http(text=script_source)
 
         cache = ScriptCache(tmp_path / "scripts", mock_http)
         sandbox = ScriptSandbox()
@@ -212,7 +204,7 @@ class TestScriptClient:
 
     def test_returns_none_on_download_failure(self, tmp_path) -> None:
         mock_http = MagicMock(spec=httpx.Client)
-        mock_http.get.side_effect = httpx.ConnectError("offline")
+        mock_http.stream.side_effect = httpx.ConnectError("offline")
 
         cache = ScriptCache(tmp_path / "scripts", mock_http)
         sandbox = ScriptSandbox()
@@ -285,13 +277,7 @@ class TestScriptClientSecrets:
             "def fetch_entries():\n"
             '    return [{"title": "S", "content": sandbox.get_secret("k")}]\n'
         )
-        mock_http = MagicMock(spec=httpx.Client)
-        resp = MagicMock(spec=httpx.Response)
-        resp.status_code = 200
-        resp.text = script_source
-        resp.headers = {"content-length": str(len(script_source))}
-        resp.raise_for_status = MagicMock()
-        mock_http.get.return_value = resp
+        mock_http = _mock_http(text=script_source)
 
         cache = ScriptCache(tmp_path / "scripts", mock_http)
         sandbox = ScriptSandbox(token_store=_FakeTokenStore({"k": "secret-value"}))

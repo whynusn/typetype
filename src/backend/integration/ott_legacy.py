@@ -20,50 +20,32 @@ def legacy_static_entries(
         content_data = fetch_content(source_key)
         if content_data is None:
             continue
+        source_label = str(item.get("label", source_key) or source_key)
+        raw = content_data.get("entries", [])
+        if not isinstance(raw, list) or not raw:
+            raw = [
+                {
+                    "title": content_data.get("title", source_label),
+                    "content": content_data.get("content", ""),
+                    "fetched_at": content_data.get("fetched_at", ""),
+                    "metadata": content_data.get("metadata", {}),
+                }
+            ]
         result.extend(
-            normalize_legacy_content_entries(
-                source_key,
-                item,
-                content_data,
-                sanitize_content,
-                authority,
-            )
+            {
+                "entry_id": "",
+                "title": str(entry.get("title", "") or source_label),
+                "content": sanitize_content(str(entry.get("content", ""))),
+                "source_key": source_key,
+                "source_label": source_label,
+                "charCount": len(str(entry.get("content", "") or "")),
+                "char_count": len(str(entry.get("content", "") or "")),
+                "fetched_at": str(entry.get("fetched_at", "")),
+                "category": str(item.get("category", "")),
+                "content_mode": "inline",
+                "authority": authority,
+            }
+            for entry in raw
+            if isinstance(entry, dict) and entry.get("content")
         )
     return result
-
-
-def normalize_legacy_content_entries(
-    source_key: str,
-    source_item: dict,
-    data: dict,
-    sanitize_content: Callable[[str], str],
-    authority: str,
-) -> list[dict]:
-    source_label = str(source_item.get("label", source_key) or source_key)
-    raw = data.get("entries", [])
-    if not isinstance(raw, list) or not raw:
-        raw = [
-            {
-                "title": data.get("title", source_label),
-                "content": data.get("content", ""),
-                "fetched_at": data.get("fetched_at", ""),
-                "metadata": data.get("metadata", {}),
-            }
-        ]
-    return [
-        {
-            "entry_id": "",
-            "title": str(entry.get("title", "") or source_label),
-            "content": sanitize_content(str(entry.get("content", ""))),
-            "source_key": source_key,
-            "source_label": source_label,
-            "charCount": len(str(entry.get("content", "") or "")),
-            "char_count": len(str(entry.get("content", "") or "")),
-            "fetched_at": str(entry.get("fetched_at", "")),
-            "category": str(source_item.get("category", "")),
-            "content_mode": "inline",
-            "authority": authority,
-        }
-        for entry in raw
-        if isinstance(entry, dict) and entry.get("content")
-    ]

@@ -101,6 +101,29 @@ class TestShuffleAllVirtual:
         result = shuffled.get_segment(1, len(text))
         assert sorted(result.content) == sorted(text)
 
+    def test_shuffle_full_uses_injected_provider_cls(self):
+        """container 注入的 InMemory provider 实现类应被 _shuffle_full 使用。"""
+        created: list[str] = []
+
+        class TrackingProvider(InMemorySegmentProvider):
+            def __init__(self, text: str) -> None:
+                super().__init__(text)
+                created.append(text)
+
+        handle = _make_handle(len("Hello"))
+        usecase = TextSessionUseCase(
+            InMemorySegmentProvider("Hello"),
+            handle,
+            1_000_000,
+            in_memory_provider_cls=TrackingProvider,
+        )
+
+        shuffled = usecase.shuffle_all_virtual(seed=1)
+
+        assert len(created) == 1
+        assert sorted(created[0]) == sorted("Hello")
+        assert shuffled is not usecase
+
     def test_returns_new_usecase(self):
         usecase = _make_usecase("abc")
         shuffled = usecase.shuffle_all_virtual(seed=1)

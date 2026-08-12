@@ -1,8 +1,11 @@
 """ott-script 子进程沙箱入口。
 
-由 ScriptSandbox 通过 subprocess.run() 启动，在独立 Python 进程内执行
-用户脚本。资源限制（内存/CPU/proc 数）在导入任何模块之前设置，确保
-恶意脚本无法绕过。
+由 ScriptSandbox 通过 subprocess.Popen() 启动，在独立 Python 进程内执行
+用户脚本。启动序列（顺序不可调换）：
+    1. 沙箱能力探测（landlock/seccomp，需 fork 子进程 → 必须先于
+       RLIMIT_NPROC=0）；
+    2. 预导入白名单模块（触发 C 扩展 .so 加载 → 必须先于 Landlock）；
+    3. 资源限制（内存/CPU/proc 数）→ Landlock → seccomp → 执行。
 
 用法：
     python ott_script_runner.py <script_path>
@@ -29,7 +32,12 @@ import traceback
 from urllib.parse import urlparse
 
 
-# ── 资源限制（必须在导入任何第三方模块之前设置）──────────────────────────
+# ── 资源限制（必须在脚本编译/执行之前设置）──────────────────────────────
+
+# 脚本单次读取上限：与 ott_script_client.SCRIPT_MAX_BYTES 同值。
+# runner 作为独立可执行脚本运行（不 import 包内模块），故各自定义，
+# 修改时两处必须同步。
+_SCRIPT_MAX_BYTES = 256 * 1024
 
 
 def _set_resource_limits() -> None:
@@ -234,8 +242,10 @@ def _apply_landlock(script_dir: str) -> None:
                 os.close(file_fd)
         _landlock_set_no_new_privs()
         _landlock_restrict_self(ruleset_fd)
-    except OSError:
-        pass
+    except OSError as e:
+        # 探测可用（内核支持）但安装失败 → 环境异常，宁拒不裸奔
+        # （run_script 的双沙箱拒绝检查依赖探测缓存，这里直接阻断）
+        raise RuntimeError(f"Landlock 安装失败，拒绝执行 L3 脚本: {e}") from e
     finally:
         try:
             os.close(ruleset_fd)
@@ -655,6 +665,20 @@ def _import_allowed_module(mod_name: str):
         return None
 
 
+def _preload_allowed_modules() -> None:
+    """预热白名单模块（必须在 Landlock 限制文件系统之前调用）。
+
+    触发 C 扩展（Crypto/bs4 等）的 .so 加载；Landlock 之后 sys.modules
+    命中即不再重新 dlopen，规避受限路径下共享库解析失败。与 run_script
+    内的注入循环同集合，幂等。
+    """
+    for mod_name in sorted(ALLOWED_MODULES):
+        try:
+            _import_allowed_module(mod_name)
+        except Exception:
+            pass
+
+
 # ── 一次性凭据 fd 助手（ADR-011 Phase 5.4）─────────────────────────────
 
 
@@ -1022,7 +1046,7 @@ def run_script(
     # 读取脚本源码
     try:
         with open(script_path, encoding="utf-8") as f:
-            source = f.read(256 * 1024)  # 256KB 上限
+            source = f.read(_SCRIPT_MAX_BYTES)  # 256KB 上限（与 client 同值）
     except OSError as e:
         raise RuntimeError(f"无法读取脚本: {e}") from e
 
@@ -1071,12 +1095,19 @@ def main(argv: list[str]) -> int:
         secrets, allowlist = _parse_runner_config(sys.stdin.read())
 
     try:
+        # 1) 沙箱能力探测：需 fork 子进程（RLIMIT_NPROC=0 前），结果缓存
+        landlock_available()
+        seccomp_available()
+        # 2) 预导入白名单模块：触发 C 扩展 .so 加载（Landlock 前）
+        _preload_allowed_modules()
+        # 3) 资源限制 → Landlock → seccomp（顺序固定）
         _set_resource_limits()
         # httpx 及其 zlib/ssl 依赖必须在 Landlock 限制文件系统前加载，
         # 否则系统 Python 从 /lib 读取 libz.so.1 / libssl 会被拒绝。
         import httpx  # noqa: F401
 
         _apply_landlock(os.path.dirname(os.path.abspath(script_path)))
+        _apply_seccomp()
         entries = run_script(script_path, secrets or None, allowlist)
         # 序列化结果到 stdout
         json.dump(entries, sys.stdout, ensure_ascii=False, default=str)

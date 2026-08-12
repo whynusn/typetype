@@ -107,6 +107,10 @@ class TypingSessionContext:
     def slice_total(self) -> int:
         return self._slice_total
 
+    @property
+    def slice_text(self) -> str:
+        return self._slice_text
+
     def can_submit_score(self) -> bool:
         return self._upload_status == UploadStatus.CONFIRMED
 
@@ -434,7 +438,7 @@ class TypingSessionContext:
             "accuracy_decrease": self._accuracy_decrease,
         }
 
-    def _apply_metrics_dict(self, m: dict) -> None:
+    def apply_metrics_dict(self, m: dict) -> None:
         """从字典恢复标量指标。"""
         self._key_stroke_min = m.get("key_stroke_min", self._key_stroke_min)
         self._speed_min = m.get("speed_min", self._speed_min)
@@ -465,7 +469,7 @@ class TypingSessionContext:
         """从 per-slice 指标恢复指定片的标量指标。"""
         target = idx - 1
         if 0 <= target < len(self._slice_metrics):
-            self._apply_metrics_dict(self._slice_metrics[target])
+            self.apply_metrics_dict(self._slice_metrics[target])
 
     def get_slice_metrics(self, idx: int) -> dict | None:
         """返回指定片的指标字典，越界返回 None。"""
@@ -538,6 +542,26 @@ class TypingSessionContext:
         if 0 <= target_index < len(self._slice_pass_counts):
             return self._slice_pass_counts[target_index]
         return 0
+
+    def slice_progress_state(self) -> dict:
+        """返回分片会话状态快照（进度序列化用）。
+
+        状态拥有者自序列化：Bridge 等调用方禁止直读私有字段，统一经本
+        方法取数。slice_metrics 截断到当前片索引（保存端性能优化，恢复
+        端逐条覆盖）；metrics 为当前标量指标（含降击值）。
+        """
+        return {
+            "slice_text": self._slice_text,
+            "slice_size": self._slice_size,
+            "slice_total": self._slice_total,
+            "slice_index": self._slice_index,
+            "slice_pass_counts": list(self._slice_pass_counts),
+            "slice_stats": list(self._slice_stats),
+            "slice_metrics": [
+                m.copy() for m in self._slice_metrics[: self._slice_index]
+            ],
+            "metrics": self._build_current_metrics_dict(),
+        }
 
     def exit_slice_mode(self) -> None:
         """退出载文模式，清理分片相关状态。"""

@@ -610,9 +610,75 @@ class TypingAdapter(QObject):
             return self._session_context.get_slice_metrics(idx)
         return None
 
+    def restore_slice_progress(self, rp: dict) -> None:
+        """从保存的进度 dict 恢复分片状态（达标次数 + per-slice 指标 + 成绩快照）。
+
+        Bridge 等调用方禁止直接访问 SessionContext，恢复逻辑统一收敛到本代理方法。
+        越界条目静默忽略；数据缺失（None / 空 dict）时安全跳过。
+        """
+        ctx = self._session_context
+        if not ctx:
+            return
+        # 恢复标量指标（含降击值，metrics 是当前片阈值快照）
+        saved_metrics = rp.get("metrics")
+        if saved_metrics and isinstance(saved_metrics, dict):
+            ctx.apply_metrics_dict(saved_metrics)
+        # 恢复达标次数
+        saved_counts = rp.get("slice_pass_counts")
+        if saved_counts:
+            for i, count in enumerate(saved_counts):
+                if i < len(ctx._slice_pass_counts):
+                    ctx._slice_pass_counts[i] = count
+        # 恢复 per-slice 指标（保存端截断到 slice_index，恢复端逐条覆盖 + 默认值填充）
+        saved_slice_metrics = rp.get("slice_metrics")
+        if saved_slice_metrics:
+            for i, m in enumerate(saved_slice_metrics):
+                if i < len(ctx._slice_metrics):
+                    ctx._slice_metrics[i] = m.copy() if isinstance(m, dict) else m
+            ctx.restore_slice_metrics(ctx.slice_index)
+        # 恢复成绩快照（用于 get_slice_status / check_slice_result 显示历史成绩）
+        saved_slice_stats = rp.get("slice_stats")
+        if saved_slice_stats and ctx._slice_stats is not None:
+            # 初始化 _slice_stats 到正确大小，用 None 填充，再用保存值覆盖
+            while len(ctx._slice_stats) < ctx.slice_total:
+                ctx._slice_stats.append(None)
+            for i, s in enumerate(saved_slice_stats):
+                if i < ctx.slice_total:
+                    ctx._slice_stats[i] = s
+
     def get_last_slice_stats(self) -> dict | None:
         """获取最近一次分片完成时的 score_data 快照。"""
         return self._last_slice_stats
+
+    def get_slice_progress_snapshot(self) -> dict:
+        """代理：返回分片会话状态快照（进度序列化用，禁止直读 SessionContext）。
+
+        字段与 SessionContext.slice_progress_state() 一致：slice_text /
+        slice_size / slice_total / slice_index / slice_pass_counts /
+        slice_stats / slice_metrics / metrics。
+        """
+        if self._session_context:
+            return self._session_context.slice_progress_state()
+        return {}
+
+    @property
+    def slice_text(self) -> str:
+        """代理：当前分片文本（进度键计算用）。"""
+        if self._session_context:
+            return self._session_context.slice_text
+        return ""
+
+    def get_slice_criteria_text(self) -> str:
+        """代理：返回当前达标条件文字（含降击后更新）。"""
+        if not self._session_context:
+            return ""
+        metrics = self._session_context.slice_progress_state().get("metrics", {})
+        return (
+            f"击键≥{metrics.get('key_stroke_min', 0.0):.2f}  "
+            f"速度≥{metrics.get('speed_min', 0)}  "
+            f"键准≥{metrics.get('accuracy_min', 0)}%  "
+            f"达标≥{metrics.get('pass_count_min', 0)}次"
+        )
 
     def build_aggregate_score(self, slice_stats: list[dict], slice_count: int) -> str:
         """计算所有片的聚合成绩，返回 HTML 消息。"""

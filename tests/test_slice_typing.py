@@ -318,7 +318,7 @@ def test_restore_progress_preserves_unvisited_slice_metrics():
         accuracy_decrease=5,
     )
     # 恢复保存的标量指标和 per-slice 指标
-    ctx2._apply_metrics_dict(saved_metrics)
+    ctx2.apply_metrics_dict(saved_metrics)
     ctx2._slice_metrics = [m.copy() for m in saved_slice_metrics]
 
     # 第一段应有降击后的值

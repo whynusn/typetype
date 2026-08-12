@@ -17,16 +17,14 @@ import ipaddress
 import json
 import re
 import socket
-import subprocess
-import sys
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
-from .ott_dsl import DslError, run_steps
+from ..utils.logger import log_warning
+from .ott_dsl import DslError, _run_regex, run_steps
 from .ott_normalization import normalize_summary
 from .regex_worker import (
     REGEX_WORKER_MAX_INPUT_CHARS as REGEX_MAX_INPUT_CHARS,
@@ -42,18 +40,17 @@ DEFAULT_MAX_BYTES = 1_048_576
 DEFAULT_MAX_PAGES = 5
 TOTAL_FETCH_TIMEOUT_S = 10.0
 # 客户端实现的 DSL API level（schema v2 rights.min_api_level 对照值）。
-# DSL 引擎（43 原语）+ schema v2 已落地 → 2；未来新增能力递增。
+# DSL 引擎（45 原语）+ schema v2 已落地 → 2；未来新增能力递增。
 CLIENT_API_LEVEL = 2
-# ReDoS 防护（安全红线 3）：正则输入截断 ≤10KB（常量由 regex_worker 导出）；子进程执行 + 1s 硬超时
-REGEX_TIMEOUT_S = 1.0
-# ponytail: 跟随 ott_script_client 的子进程模式（sys.executable + 脚本）；
-# 打包版若需支持正则需改用独立可执行/嵌入式 worker
-REGEX_WORKER_PATH = Path(__file__).with_name("regex_worker.py")
 
 
 # ---------------------------------------------------------------------------
 # URL 校验
 # ---------------------------------------------------------------------------
+
+
+# CGNAT 共享地址空间（RFC 6598），不在 is_private 覆盖内，显式拦截
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
 
 
 def _parse_numeric_ip_literal(hostname: str) -> int | None:
@@ -80,10 +77,11 @@ def _parse_numeric_ip_literal(hostname: str) -> int | None:
 
 
 def _is_blocked_address(addr: ipaddress._BaseAddress) -> bool:
-    """环回/私有/保留/链路本地/IPv4 映射地址一律拦截。
+    """环回/私有/保留/链路本地/未指定/CGNAT/组播/IPv4 映射地址一律拦截。
 
     Python 的 IPv6Address.is_loopback 不识别 ::ffff:127.0.0.1 等映射地址，
-    必须显式检查 ipv4_mapped。
+    必须显式检查 ipv4_mapped。CGNAT（100.64.0.0/10）与组播 224.0.0.0/4
+    不在 is_private 覆盖内，须显式判定。
     """
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
         mapped = addr.ipv4_mapped
@@ -92,8 +90,19 @@ def _is_blocked_address(addr: ipaddress._BaseAddress) -> bool:
             or mapped.is_loopback
             or mapped.is_reserved
             or mapped.is_link_local
+            or mapped.is_unspecified
+            or mapped.is_multicast
+            or mapped in _CGNAT_NETWORK
         )
-    return addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local
+    return (
+        addr.is_private
+        or addr.is_loopback
+        or addr.is_reserved
+        or addr.is_link_local
+        or addr.is_unspecified
+        or addr.is_multicast
+        or (isinstance(addr, ipaddress.IPv4Address) and addr in _CGNAT_NETWORK)
+    )
 
 
 def _resolve_host(hostname: str) -> list[str]:
@@ -206,6 +215,25 @@ def _url_allowed_by_permissions(url: str, permissions: dict) -> bool:
         if host == allowed or host.endswith("." + allowed):
             return True
     return False
+
+
+def _parse_page_int(value: Any) -> int | None:
+    """安全解析分页整数（不可信 manifest）。非法值返回 None（调用方拒绝整条规则）。
+
+    int() 直转对 "abc" 抛 ValueError，此处吸收；bool 视为非法（int(True)==1
+    属于意外接受）。
+    """
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _declares_content_type(headers: dict) -> bool:
+    """请求体规则必须显式声明 Content-Type（大小写不敏感）。"""
+    return any(isinstance(k, str) and k.lower() == "content-type" for k in headers)
 
 
 # ---------------------------------------------------------------------------
@@ -338,7 +366,8 @@ def _extract_regex(text: str, pattern: str) -> dict[str, str]:
     """用命名正则提取字段。失败返回空 dict。
 
     ReDoS 防护（安全红线 3）：正则不在宿主进程执行，由 regex_worker 子进程
-    执行并受 1s 硬超时；输入截断 ≤10KB；嵌套量词静态拒绝。
+    执行并受 1s 硬超时；输入截断 ≤10KB；嵌套量词静态拒绝。子进程调度复用
+    ott_dsl._run_regex。
     """
     if not pattern or not text:
         return {}
@@ -346,23 +375,8 @@ def _extract_regex(text: str, pattern: str) -> dict[str, str]:
         text = text[:REGEX_MAX_INPUT_CHARS]
     if _has_nested_quantifier(pattern):
         return {}
-    payload = json.dumps({"pattern": pattern, "text": text}).encode("utf-8")
-    try:
-        proc = subprocess.run(
-            [sys.executable, str(REGEX_WORKER_PATH)],
-            input=payload,
-            capture_output=True,
-            timeout=REGEX_TIMEOUT_S,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return {}
-    if proc.returncode != 0:
-        return {}
-    try:
-        result = json.loads(proc.stdout)
-    except (json.JSONDecodeError, ValueError):
-        return {}
-    if not isinstance(result, dict) or not result.get("ok"):
+    result = _run_regex({"pattern": pattern, "text": text})
+    if result is None:
         return {}
     groups = result.get("groups")
     if isinstance(groups, dict):
@@ -457,7 +471,10 @@ def extract_fields(data: Any, extract_spec: dict[str, str]) -> dict[str, str]:
 
 
 def apply_transform(value: str, transforms: list[str] | None) -> str:
-    """对单个值应用变换管道。"""
+    """对单个值应用变换管道。
+
+    生产路径经 list_entries（apply_transforms_to_entry），此函数仅供测试与调试。
+    """
     if not transforms or not isinstance(value, str):
         return value
     result = value
@@ -536,7 +553,7 @@ class OttRuleInterpreter:
         self,
         http_client: httpx.Client,
         max_bytes: int = DEFAULT_MAX_BYTES,
-        api_level: int = 1,
+        api_level: int = CLIENT_API_LEVEL,
     ) -> None:
         self._client = http_client
         self._max_bytes = max_bytes
@@ -549,8 +566,14 @@ class OttRuleInterpreter:
         rule: dict,
         rule_id: str,
         max_pages: int = DEFAULT_MAX_PAGES,
-    ) -> list[dict]:
-        """执行规则，返回标准化 entry 列表。"""
+        *,
+        authority: str = "",
+    ) -> list[dict] | None:
+        """执行规则，返回标准化 entry 列表；规则非法返回 []。
+
+        ``authority`` 非空时，产出 entry 的 authority/source_key 均使用该值
+        （federation 侧多 authority 命名空间隔离）；为空回退 ``rule:{rule_id}``。
+        """
         if not isinstance(rule, dict):
             return []
 
@@ -588,26 +611,46 @@ class OttRuleInterpreter:
         headers = request_spec.get("headers") or {}
         if not isinstance(headers, dict):
             headers = {}
+        # Content-Type 强制：含请求体（request.body 或 steps）的规则必须显式
+        # 声明 Content-Type（大小写不敏感），否则校验拒绝
+        if steps is not None or "body" in request_spec:
+            if not _declares_content_type(headers):
+                log_warning(
+                    f"[OttRuleInterpreter] 规则 {rule_id} 含请求体但未声明 "
+                    "Content-Type，整条规则拒绝"
+                )
+                return []
         body = self._build_request_body(request_spec.get("body", ""), steps)
         if body is None:
             # steps 求值失败（超限/未知原语）→ 整条规则跳过
             return []
 
-        # 分页参数
+        # 分页参数（不可信 manifest：安全解析，非法值 → 整条规则拒绝，不抛异常）
         page_param = (
             pagination.get("param", "page") if isinstance(pagination, dict) else "page"
         )
+        if not isinstance(page_param, str) or not page_param:
+            page_param = "page"
         page_start = (
-            int(pagination.get("start", 1)) if isinstance(pagination, dict) else 1
+            _parse_page_int(pagination.get("start", 1))
+            if isinstance(pagination, dict)
+            else 1
         )
         page_step = (
-            int(pagination.get("step", 1)) if isinstance(pagination, dict) else 1
+            _parse_page_int(pagination.get("step", 1))
+            if isinstance(pagination, dict)
+            else 1
         )
         rule_max_pages = (
-            int(pagination.get("max_pages", max_pages))
-            if isinstance(pagination, dict)
+            _parse_page_int(pagination.get("max_pages", max_pages))
+            if (isinstance(pagination, dict))
             else max_pages
         )
+        if page_start is None or page_step is None or rule_max_pages is None:
+            log_warning(
+                f"[OttRuleInterpreter] 规则 {rule_id} 分页参数非法，整条规则拒绝"
+            )
+            return []
         effective_max_pages = min(int(max_pages), int(rule_max_pages), 20)
         if page_step <= 0:
             # 不可信 manifest 可能声明 step=0：page 永不前进，循环只会被
@@ -642,7 +685,9 @@ class OttRuleInterpreter:
                 extracted = extract_fields(item, extract_spec)
                 if not extracted:
                     continue
-                entry = self._build_entry(extracted, rule, rule_id, page, url)
+                entry = self._build_entry(
+                    extracted, rule, rule_id, page, url, authority
+                )
                 entry = apply_transforms_to_entry(entry, transforms, replace_map)
                 all_entries.append(entry)
 
@@ -793,8 +838,13 @@ class OttRuleInterpreter:
         rule_id: str,
         page: int,
         url: str,
+        authority: str,
     ) -> dict:
-        """构建标准化 entry dict。"""
+        """构建标准化 entry dict。
+
+        ``authority`` 非空时作为 entry 的 authority/source_key（federation
+        多 authority 命名空间隔离）；为空回退 ``rule:{rule_id}``。
+        """
         title = extracted.get("title", "")
         content = extracted.get("content", "")
         if not title and content:
@@ -807,8 +857,12 @@ class OttRuleInterpreter:
 
         revision_raw = hashlib.sha256(f"{url}:{page}".encode("utf-8")).hexdigest()[:12]
 
-        authority = f"rule:{rule_id}"
-        source_key = f"rule:{rule_id}"
+        if authority:
+            entry_authority = authority
+            source_key = authority
+        else:
+            entry_authority = f"rule:{rule_id}"
+            source_key = f"rule:{rule_id}"
         source_label = rule.get("label") or rule_id
 
         base = {
@@ -826,27 +880,11 @@ class OttRuleInterpreter:
             "current_revision_id": revision_raw,
             "segment_count": 0,
             "segment_size_hint": 0,
-            "authority": authority,
+            "authority": entry_authority,
         }
         # 复用 normalize_summary 保证字段形状一致，再补回 content（normalize 不保留）
-        normalized = normalize_summary(base, authority)
+        normalized = normalize_summary(base, entry_authority)
         normalized["content"] = content
         normalized["_rule_id"] = rule_id
         normalized["_page"] = page
         return normalized
-
-
-# ---------------------------------------------------------------------------
-# 便捷函数
-# ---------------------------------------------------------------------------
-
-
-def interpret_rule(
-    rule: dict,
-    rule_id: str,
-    http_client: httpx.Client,
-    max_pages: int = DEFAULT_MAX_PAGES,
-) -> list[dict]:
-    """一次性执行规则并返回 entry 列表。"""
-    interpreter = OttRuleInterpreter(http_client)
-    return interpreter.list_entries(rule, rule_id, max_pages=max_pages)

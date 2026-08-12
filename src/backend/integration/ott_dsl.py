@@ -38,8 +38,36 @@ MAX_DEPTH = 32
 MAX_CALLS = 1000
 MAX_STEPS = 8
 MAX_STEP_TRANSFER_BYTES = 2 * 1_048_576
+# ReDoS 防护（安全红线 3）：正则输入截断 ≤10KB（常量由 regex_worker 导出）；
+# 子进程执行 + 1s 硬超时。常量与子进程调度统一归本模块（低层），
+# L1 解释器（ott_rule_interpreter）import 复用，避免重复定义。
 REGEX_TIMEOUT_S = 1.0
 REGEX_WORKER_PATH = Path(__file__).with_name("regex_worker.py")
+
+
+def _run_regex(payload: dict) -> dict | None:
+    """子进程执行 regex_worker；超时/启动失败/非 JSON 输出返回 None。
+
+    供本模块正则原语与 L1 解释器（_extract_regex）复用的唯一子进程通道。
+    """
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(REGEX_WORKER_PATH)],
+            input=json.dumps(payload).encode("utf-8"),
+            capture_output=True,
+            timeout=REGEX_TIMEOUT_S,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        result = json.loads(proc.stdout)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(result, dict) or not result.get("ok"):
+        return None
+    return result
 
 
 class DslError(Exception):
@@ -177,25 +205,8 @@ def _regex_worker(
         return None
     if _has_nested_quantifier(pattern):
         return None
-    payload = json.dumps(
-        {"op": op, "pattern": pattern, "text": text, "repl": repl}
-    ).encode("utf-8")
-    try:
-        proc = subprocess.run(
-            [sys.executable, str(REGEX_WORKER_PATH)],
-            input=payload,
-            capture_output=True,
-            timeout=REGEX_TIMEOUT_S,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    if proc.returncode != 0:
-        return None
-    try:
-        result = json.loads(proc.stdout)
-    except (json.JSONDecodeError, ValueError):
-        return None
-    if not isinstance(result, dict) or not result.get("ok"):
+    result = _run_regex({"op": op, "pattern": pattern, "text": text, "repl": repl})
+    if result is None:
         return None
     content = result.get("content")
     return content if isinstance(content, str) else None
@@ -436,7 +447,11 @@ def _evaluate(expr: Any, budget: _Budget, depth: int = 0) -> Any:
 
 
 def evaluate(expr: Any) -> Any:
-    """求值单个表达式树；字面量原样返回。"""
+    """求值单个表达式树；字面量原样返回。
+
+    生产路径经 run_steps（解释器 list_entries 内求值 steps），
+    此函数仅供测试与调试。
+    """
     return _evaluate(expr, _Budget())
 
 

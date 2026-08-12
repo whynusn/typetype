@@ -1121,3 +1121,168 @@ def test_registry_scripts_enabled_to_dict_round_trip():
     assert data["registry"]["scripts_enabled"] is False
     reloaded = RuntimeConfig._from_dict(data)
     assert reloaded.registry.scripts_enabled is False
+
+
+# ---------------------------------------------------------------------------
+# 写入链路审计修复（原子写 / ui 合并 / _safe_bool / _safe_float）
+# ---------------------------------------------------------------------------
+
+
+def test_save_to_file_atomic_on_serialize_error_preserves_original(
+    monkeypatch, tmp_path: Path
+):
+    """json.dump 中途抛异常 → 原 config.json 内容保持完好，无残留 .tmp。"""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    original = (
+        json.dumps(
+            {"base_url": "http://old", "text_sources": {}, "custom_unknown": 1},
+            indent=4,
+        )
+        + "\n"
+    )
+    user_config.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+    config = RuntimeConfig.load_from_file(str(user_config))
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("serialize boom")
+
+    monkeypatch.setattr("src.backend.config.runtime_config.json.dump", boom)
+    config._save_to_file()
+
+    assert user_config.read_text(encoding="utf-8") == original
+    assert not user_config.with_name(user_config.name + ".tmp").exists()
+
+
+def test_save_preserves_rinui_direct_ui_write(monkeypatch, tmp_path: Path):
+    """AppUIConfigManager 直写磁盘的新 ui 主题，在 RuntimeConfig 保存时不被覆盖。"""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://old",
+                "ui": {"theme": {"current_theme": "Light"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+    config = RuntimeConfig.load_from_file(str(user_config))
+
+    # 模拟 RinUI AppUIConfigManager 不经 RuntimeConfig 直写磁盘
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://old",
+                "ui": {"theme": {"current_theme": "Dark"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config.add_source_repo("https://repo.example.org/r.json")
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert saved["ui"]["theme"]["current_theme"] == "Dark"
+    assert any(
+        r["url"] == "https://repo.example.org/r.json" for r in saved["source_repos"]
+    )
+
+
+def test_update_ui_config_overrides_disk_ui_on_save(monkeypatch, tmp_path: Path):
+    """update_ui_config() 后保存 → 磁盘 ui 是 RuntimeConfig 写的值（含本实例快照）。"""
+    user_config = tmp_path / "user" / "config.json"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://old",
+                "ui": {"theme": {"current_theme": "Light"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "src.backend.config.runtime_config.user_config_path",
+        lambda: user_config,
+    )
+    config = RuntimeConfig.load_from_file(str(user_config))
+
+    # 磁盘被外部（AppUIConfigManager）改成 Dark，但 RuntimeConfig 随后
+    # update_ui_config → 以本实例值（Light 快照 + 新键）整体写出
+    user_config.write_text(
+        json.dumps(
+            {
+                "base_url": "http://old",
+                "ui": {"theme": {"current_theme": "Dark"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config.update_ui_config(reader_font_path="/new/font.ttf")
+
+    saved = json.loads(user_config.read_text(encoding="utf-8"))
+    assert saved["ui"]["reader_font_path"] == "/new/font.ttf"
+    assert saved["ui"]["theme"]["current_theme"] == "Light"
+
+
+def test_source_repo_enabled_string_false_is_not_truthy():
+    """手写 \"enabled\": \"false\"（字符串）必须解析为 False，而非被 bool() 判为 True。"""
+    config = RuntimeConfig._from_dict(
+        {"source_repos": [{"url": "https://a.org/r.json", "enabled": "false"}]}
+    )
+    assert config.source_repos.repos[0].enabled is False
+    assert config.source_repos.enabled_repos == []
+
+    # _safe_bool 全语义
+    assert RuntimeConfig._safe_bool("true", False) is True
+    assert RuntimeConfig._safe_bool("TRUE", False) is True
+    assert RuntimeConfig._safe_bool("1", False) is True
+    assert RuntimeConfig._safe_bool("yes", False) is True
+    assert RuntimeConfig._safe_bool("false", True) is False
+    assert RuntimeConfig._safe_bool("0", True) is False
+    assert RuntimeConfig._safe_bool("no", True) is False
+    assert RuntimeConfig._safe_bool("", True) is False
+    assert RuntimeConfig._safe_bool(0, True) is False
+    assert RuntimeConfig._safe_bool(5, False) is True
+    assert RuntimeConfig._safe_bool("garbage", True) is True
+    assert RuntimeConfig._safe_bool(None, True) is True
+
+
+def test_text_sources_null_loads_as_empty(tmp_path: Path):
+    """text_sources 为 null / 列表时不崩，按空 sources 处理。"""
+    config = RuntimeConfig._from_dict({"text_sources": None})
+    assert config.text_source_config.sources == {}
+    config2 = RuntimeConfig._from_dict({"text_sources": []})
+    assert config2.text_source_config.sources == {}
+
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps({"text_sources": None}), encoding="utf-8")
+    config3 = RuntimeConfig.load_from_file(str(cfg_path))
+    assert config3.text_source_config.sources == {}
+
+
+def test_ai_timeout_float_precision_roundtrip():
+    """ai.timeout 浮点精度往返不丢（30.5 不被 int() 截断成 30.0）。"""
+    config = RuntimeConfig._from_dict({"ai": {"timeout": 30.5}})
+    assert config.ai.timeout == 30.5
+    config2 = RuntimeConfig._from_dict(config._to_dict())
+    assert config2.ai.timeout == 30.5
+
+    # 数字字符串同样按 float 解析，不截断
+    config3 = RuntimeConfig._from_dict({"ai": {"timeout": "12.75"}})
+    assert config3.ai.timeout == 12.75
+
+    # 非法值回退默认
+    config4 = RuntimeConfig._from_dict({"ai": {"timeout": "abc"}})
+    assert config4.ai.timeout == 30.0
+    assert RuntimeConfig._safe_float("3.25", 1.0) == 3.25
+    assert RuntimeConfig._safe_float(None, 1.0) == 1.0
+    assert RuntimeConfig._safe_float("oops", 1.0) == 1.0

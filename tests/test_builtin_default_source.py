@@ -8,7 +8,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from src.backend.config.app_paths import builtin_ott_repo_dir, builtin_ott_repo_url
+from src.backend.config.app_paths import (
+    builtin_ott_repo_dir,
+    builtin_ott_repo_url,
+    default_ott_hub_url,
+)
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.integration.ott_federation_provider import OttFederationProvider
 from src.backend.integration.ott_repo_manifest import (
@@ -39,10 +43,11 @@ def _isolate_instance_cache(tmp_path, monkeypatch) -> None:
 
 def test_fresh_config_seeds_builtin_repo(tmp_path):
     config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
-    assert len(config.source_repos.repos) == 1
-    repo = config.source_repos.repos[0]
-    assert repo.url == builtin_ott_repo_url()
-    assert repo.enabled
+    urls = [r.url for r in config.source_repos.repos]
+    # 默认订阅 = 内置离线兜底 + hub（开箱即用）
+    assert builtin_ott_repo_url() in urls
+    assert default_ott_hub_url() in urls
+    assert all(r.enabled for r in config.source_repos.repos)
 
 
 def test_explicit_empty_source_repos_not_reseeded(tmp_path):
@@ -65,7 +70,8 @@ def test_stale_only_subscription_reseeded_to_builtin(tmp_path):
         encoding="utf-8",
     )
     config = RuntimeConfig.load_from_file(str(path))
-    assert [r.url for r in config.source_repos.repos] == [builtin_ott_repo_url()]
+    urls = [r.url for r in config.source_repos.repos]
+    assert urls == [builtin_ott_repo_url(), default_ott_hub_url()]
 
 
 def test_setting_remote_primary_keeps_builtin(tmp_path):
