@@ -134,6 +134,22 @@ class TestBridgeClient:
             "https://bridge.example.com/api"
         )
 
+    def test_content_truncated_by_utf8_bytes_not_chars(self) -> None:
+        """字节上限必须按 UTF-8 字节数截断，且不落在多字节字符中间。"""
+        # 4 个 3 字节汉字 = 12 字节；上限 8 字节应保留前 2 个汉字 + 可解码前缀
+        client = _BridgeClient(
+            bridge_kind="generic-http",
+            endpoint="https://bridge.example.com/api",
+            label="Test Bridge",
+            http_client=_mock_http({"content": "甲乙丙丁"}),
+            max_content_bytes=8,
+        )
+        entries = client.list_entries()
+        assert entries is not None
+        # 8 字节 = 2 个 3 字节汉字 + 2 字节截断尾部（errors="ignore" 丢弃半个字符）
+        assert len(entries[0]["content"].encode("utf-8")) <= 8
+        assert entries[0]["content"] == "甲乙"
+
     def test_entries_list_normalized(self) -> None:
         client = _BridgeClient(
             bridge_kind="generic-http",

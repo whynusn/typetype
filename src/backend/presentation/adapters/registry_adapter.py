@@ -72,9 +72,13 @@ class RegistryAdapter(QObject):
         if not url:
             self.reposLoadFailed.emit("订阅地址不能为空")
             return
+        if self._runtime_config is None:
+            # 未注入 runtime_config：无法持久化，必须显式失败而不是静默 no-op
+            self.reposLoadFailed.emit("配置系统未就绪，无法添加订阅")
+            log_warning("[RegistryAdapter] addRepo 失败：runtime_config 未注入")
+            return
         try:
-            if self._runtime_config is not None:
-                self._runtime_config.add_source_repo(url)
+            self._runtime_config.add_source_repo(url)
             log_info(f"[RegistryAdapter] 添加订阅: {url}")
             self.refreshRepos()
         except Exception as e:

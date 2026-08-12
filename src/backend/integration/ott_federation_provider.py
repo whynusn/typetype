@@ -517,11 +517,13 @@ class _BridgeClient(_SourceClientBase):
             if not isinstance(content, str) or not content.strip():
                 continue
             content = content.strip()
-            if (
-                self._max_content_bytes
-                and len(content.encode("utf-8")) > self._max_content_bytes
-            ):
-                content = content[: self._max_content_bytes]
+            if self._max_content_bytes:
+                # 按 UTF-8 字节数安全截断（避免切片落在多字节字符中间）
+                encoded = content.encode("utf-8")
+                if len(encoded) > self._max_content_bytes:
+                    content = encoded[: self._max_content_bytes].decode(
+                        "utf-8", errors="ignore"
+                    )
             entry_id = str(item.get("entry_id") or "") or (
                 "bridge:" + hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
             )

@@ -35,6 +35,10 @@ if TYPE_CHECKING:
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 
+# CGNAT 共享地址空间（RFC 6598，100.64.0.0/10），不在 ipaddress.is_private
+# 覆盖内；与 ott_rule_interpreter 的 URL 拦截策略对齐，显式拦截。
+_CGNAT_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+
 SCRIPT_MAX_BYTES = 256 * 1024  # 256 KB
 SCRIPT_EXEC_TIMEOUT_S = 30.0
 MAX_ENTRIES_PER_SCRIPT = 1000
@@ -116,6 +120,9 @@ def _validate_script_url(url: str) -> bool:
         or addr.is_multicast
         or addr.is_reserved
         or addr.is_unspecified
+        # CGNAT 共享地址空间（RFC 6598，100.64.0.0/10）不在 is_private 覆盖内，
+        # 与 ott_rule_interpreter.validate_url 的策略对齐，显式拦截
+        or (isinstance(addr, ipaddress.IPv4Address) and addr in _CGNAT_NETWORK)
     )
 
 
@@ -214,13 +221,17 @@ class ScriptCache:
         return source
 
     def _download_limited(self, url: str, max_bytes: int) -> str:
-        """流式下载脚本，累计超过 max_bytes 立即中止（防主进程 OOM）。"""
+        """流式下载脚本，累计超过 max_bytes 立即中止（防主进程 OOM）。
+
+        iter_text() 返回 str，len() 是字符数而非 UTF-8 字节数；非 ASCII 内容
+        可能绕过上限，必须按编码后的字节数累计。
+        """
         chunks: list[str] = []
         total = 0
         with self._client.stream("GET", url, timeout=10.0) as response:
             response.raise_for_status()
             for chunk in response.iter_text():
-                total += len(chunk)
+                total += len(chunk.encode("utf-8"))
                 if total > max_bytes:
                     raise _ScriptTooLargeError(f"响应体超过 {max_bytes} 字节上限")
                 chunks.append(chunk)
@@ -484,8 +495,9 @@ class ScriptSandbox:
             log_warning(f"[ScriptSandbox] 脚本退出码 {proc.returncode}: {err_tail}")
             return []
 
-        # stdout 上限（防子进程输出撑爆主进程内存）
-        if len(stdout) > STDOUT_MAX_BYTES:
+        # stdout 上限（防子进程输出撑爆主进程内存）；text=True 下 len() 是
+        # 字符数，必须按 UTF-8 字节数对比，避免多字节文本绕过上限
+        if len(stdout.encode("utf-8")) > STDOUT_MAX_BYTES:
             log_warning(f"[ScriptSandbox] 脚本 stdout 超过 {STDOUT_MAX_BYTES} 上限")
             return []
 
@@ -516,7 +528,7 @@ class ScriptSandbox:
             if "content" not in item:
                 continue
             content = str(item.get("content", ""))
-            if len(content) > ENTRY_CONTENT_MAX_BYTES:
+            if len(content.encode("utf-8")) > ENTRY_CONTENT_MAX_BYTES:
                 log_warning(
                     f"[ScriptSandbox] 单条 entry 内容超过 "
                     f"{ENTRY_CONTENT_MAX_BYTES} 上限，丢弃"

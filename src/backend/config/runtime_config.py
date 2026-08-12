@@ -850,15 +850,16 @@ class RuntimeConfig:
                 else:
                     self._ui_dirty = False
 
-                # 原子写：临时文件 + os.replace
+                # 原子写：临时文件 + os.replace（必须仍在持锁范围内执行，
+                # 否则释放锁到 replace 之间存在 lost-update 竞态窗口）
                 with tmp_path.open("w", encoding="utf-8") as tmp:
                     json.dump(new_data, tmp, ensure_ascii=False, indent=4)
                     tmp.write("\n")
                     tmp.flush()
                     os.fsync(tmp.fileno())
 
-            os.replace(tmp_path, target_path)
-            self._config_path = str(target_path)
+                os.replace(tmp_path, target_path)
+                self._config_path = str(target_path)
         except Exception as e:
             log_error(f"[RuntimeConfig] 持久化配置失败：{e}")
             try:
