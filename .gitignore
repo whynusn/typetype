@@ -92,3 +92,7 @@ worktrees/
 # Presentation deck (project-adjacent, not part of source)
 ppt-swiss/
 .omo/
+
+# Session/harness artifacts
+.zcode/
+.trellis/

@@ -1,0 +1,200 @@
+{
+  "protocol": "ott-repo",
+  "version": "1.1",
+  "type": "repository",
+  "repo_id": "io.github.whynusn.ott-source-hub",
+  "name": "OTT Source Hub",
+  "description": "通用 OTT 多源仓库，适配 L0/L1/L1.5/L2/L3 全层级协议。每个源独立目录，按需扩展。",
+  "maintainer": {
+    "name": "Whynu",
+    "homepage": "https://github.com/whynusn"
+  },
+  "license": "CC-BY-SA-4.0",
+  "updated_at": "2026-08-12T23:30:00+08:00",
+  "mirrors": [
+    {
+      "url": "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json",
+      "priority": 1
+    }
+  ],
+  "sources": [
+    {
+      "type": "ott-rule",
+      "rule_id": "hitokoto",
+      "label": "一言（中文句子）",
+      "rule": {
+        "kind": "json-api",
+        "request": {
+          "url": "https://v1.hitokoto.cn/?c=i",
+          "method": "GET",
+          "headers": {
+            "Accept": "application/json"
+          }
+        },
+        "extract": {
+          "title": "$.from",
+          "content": "$.hitokoto"
+        },
+        "transform": [
+          "trim"
+        ],
+        "permissions": {
+          "network": [
+            "v1.hitokoto.cn"
+          ]
+        },
+        "rights": {
+          "min_api_level": 1
+        }
+      },
+      "tags": [
+        "quote",
+        "chinese",
+        "dynamic"
+      ],
+      "default_enabled": true
+    },
+    {
+      "type": "ott-rule",
+      "rule_id": "jisubei",
+      "label": "极速杯（赛文 API）",
+      "rule": {
+        "kind": "json-api",
+        "request": {
+          "url": "https://www.jsxiaoshi.com/index.php/Api/Text/getContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": null
+        },
+        "steps": [
+          {
+            "fn": "concat",
+            "args": [
+              {
+                "fn": "concat",
+                "args": [
+                  "{\"0\": \"",
+                  {
+                    "fn": "regex_replace",
+                    "args": [
+                      {
+                        "fn": "base64_encode",
+                        "args": [
+                          {
+                            "fn": "aes_cbc_encrypt",
+                            "args": [
+                              {
+                                "fn": "utf8_encode",
+                                "args": [
+                                  "c9ec834c80f77237"
+                                ]
+                              },
+                              {
+                                "fn": "utf8_encode",
+                                "args": [
+                                  "db4d6bfde3057dca"
+                                ]
+                              },
+                              {
+                                "fn": "utf8_encode",
+                                "args": [
+                                  {
+                                    "fn": "concat",
+                                    "args": [
+                                      {
+                                        "fn": "concat",
+                                        "args": [
+                                          "{\"competitionType\": 0, \"snumflag\": \"1\", \"from\": \"web\", \"timestamp\": ",
+                                          {
+                                            "fn": "str",
+                                            "args": [
+                                              {
+                                                "fn": "now_unix",
+                                                "args": []
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      },
+                                      ", \"version\": \"v2.1.5\", \"subversions\": 17108}"
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "^.",
+                      ""
+                    ]
+                  }
+                ]
+              },
+              "\"}"
+            ]
+          }
+        ],
+        "permissions": {
+          "network": [
+            "www.jsxiaoshi.com"
+          ]
+        },
+        "rights": {
+          "min_api_level": 2
+        },
+        "extract": {
+          "title": "$.msg.a_name",
+          "content": "$.msg.0"
+        }
+      },
+      "tags": [
+        "typing",
+        "jisubei",
+        "chinese",
+        "daily"
+      ],
+      "default_enabled": true
+    },
+    {
+      "type": "ott-bridge",
+      "bridge_kind": "generic-http",
+      "endpoint": "https://v1.jinrishici.com/all.json",
+      "label": "今日诗词（古诗）",
+      "requires_credentials": false,
+      "tags": [
+        "poetry",
+        "chinese",
+        "dynamic"
+      ],
+      "default_enabled": true
+    },
+    {
+      "type": "ott-script",
+      "url": "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/adapters/zenquotes/code/script.py",
+      "label": "英文名言（zenquotes）",
+      "checksum": "sha256:a022f406c796ac54084a98fd2b870314cd8a006870b7f7ffdc46c0b8dad602e1",
+      "permissions": {
+        "network": [
+          "zenquotes.io"
+        ]
+      },
+      "rights": {
+        "min_api_level": 2
+      },
+      "tags": [
+        "quotes",
+        "english",
+        "dynamic"
+      ],
+      "default_enabled": true
+    }
+  ],
+  "trust": {
+    "pubkey": "8b8392d551ddb45173db18ceb076d8cbb0eb46990b91a33a60b51edb45900335",
+    "signature": "82b0580faa082824668eb23472137cb5fa7f438006147a25312e84311de3ce0e605e68867e7cd308da88e12b5a133928709001fda5e7cdbf93d67d0d70bec403",
+    "required": false
+  }
+}

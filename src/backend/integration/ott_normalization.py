@@ -14,6 +14,15 @@ def _script_authority(url: str) -> str:
     return f"script:{hashlib.sha256(url.encode('utf-8')).hexdigest()[:12]}"
 
 
+def _bridge_authority(endpoint: str) -> str:
+    """桥接 authority：``bridge:{sha256(endpoint)[:12]}``。
+
+    以 bridge endpoint 指纹做命名空间，防不同桥接源产出同 entry_id 被 dedupe
+    吞掉。与 ott-instance / ott-rule / ott-script 命名空间隔离。
+    """
+    return f"bridge:{hashlib.sha256(endpoint.encode('utf-8')).hexdigest()[:12]}"
+
+
 def local_path_from_file_uri(url: str) -> Path:
     """将 file:// URI 转为本地路径（兼容 Windows 盘符）。"""
     path = urlparse(url).path

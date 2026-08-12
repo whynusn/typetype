@@ -20,14 +20,14 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from ..config.runtime_config import RuntimeConfig, SourceRepoEntry
 from ..utils.logger import log_info, log_warning
 from .ott_cached_fetcher import OttCachedFetcher
-from .ott_normalization import _script_authority, redact_url
+from .ott_normalization import _bridge_authority, _script_authority, redact_url
 from .ott_client import DEFAULT_STATIC_SEGMENT_SIZE, OttClient, FetchJson, FetchText
 from .ott_repo_manifest import RepoManifestCache, repo_cache_key
 from .ott_rule_interpreter import CLIENT_API_LEVEL, OttRuleInterpreter
@@ -431,6 +431,119 @@ class _ScriptClient(_SourceClientBase):
         return entries
 
 
+class _BridgeClient(_SourceClientBase):
+    """单个 ott-bridge 的客户端封装。
+
+    首个内置桥协议为 ``generic-http``（无凭据 GET endpoint → JSON entry）。
+    对 endpoint 发 GET 请求，按协议契约解析响应为标准化 entry 列表。
+    authority = ``bridge:{sha256(endpoint)[:12]}``（endpoint 指纹隔离）。
+    未知 bridge_kind / 需凭据的桥按协议契约跳过（客户端不应猜测 wire format）。
+    """
+
+    def __init__(
+        self,
+        bridge_kind: str,
+        endpoint: str,
+        label: str,
+        http_client: httpx.Client,
+        entry_cache: _EntryCache | None = None,
+        max_content_bytes: int = 0,
+    ) -> None:
+        self.bridge_kind = bridge_kind
+        self.endpoint = endpoint
+        self.label = label
+        self.authority = _bridge_authority(endpoint)
+        self._http_client = http_client
+        self._entry_cache = entry_cache
+        self._max_content_bytes = max_content_bytes
+
+    def list_entries(self) -> list[dict] | None:
+        if self.bridge_kind != "generic-http":
+            log_warning(
+                f"[Federation] bridge_kind {self.bridge_kind!r} 未实现，跳过: "
+                f"{redact_url(self.endpoint)}"
+            )
+            return None
+        cache_key = f"bridge:{self.authority}"
+        cached = self._entry_cache.get(cache_key) if self._entry_cache else None
+        if cached is not None:
+            return cached
+        try:
+            data = self._fetch_generic_http()
+        except Exception as e:
+            log_warning(f"[Federation] bridge 请求异常 {self.authority}: {e}")
+            return None
+        entries = self._normalize_bridge_response(data)
+        if not entries:
+            return []
+        for e in entries:
+            e["authority"] = self.authority
+            e["_authority"] = self.authority
+            e["source_label"] = self.label or e.get("source_label", "桥接源")
+        if self._entry_cache is not None:
+            self._entry_cache.set(cache_key, entries)
+        return entries
+
+    def _fetch_generic_http(self) -> Any:
+        """GET endpoint 并返回解析后的 JSON 数据。
+
+        仅 http(s) endpoint；响应 JSON 需为 object（单条或 {"entries": [...]}）。
+        """
+        url = self.endpoint
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            raise ValueError(f"非 http(s) bridge endpoint: {redact_url(url)}")
+        resp = self._http_client.get(url)
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict):
+            raise ValueError("generic-http 响应必须是 JSON object")
+        return data
+
+    def _normalize_bridge_response(self, data: dict) -> list[dict]:
+        """按 generic-http 契约把响应归一化为 entry 列表。
+
+        单条：{title, content, ...}；列表：{"entries": [{...}, ...]}。
+        entry_id 缺省时从 content hash 派生稳定 id（重复内容去重）。
+        """
+        if isinstance(data.get("entries"), list):
+            raw_items = data["entries"]
+        else:
+            raw_items = [data]
+        entries: list[dict] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            content = content.strip()
+            if (
+                self._max_content_bytes
+                and len(content.encode("utf-8")) > self._max_content_bytes
+            ):
+                content = content[: self._max_content_bytes]
+            entry_id = str(item.get("entry_id") or "") or (
+                "bridge:" + hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
+            )
+            entries.append(
+                {
+                    "entry_id": entry_id,
+                    "title": str(item.get("title") or "") or "桥接文本",
+                    "content": content,
+                    "preview": str(item.get("preview") or "") or content[:80],
+                    "source_key": str(item.get("source_key") or "") or "bridge",
+                    "char_count": len(content),
+                    "content_mode": "inline",
+                    "current_revision_id": "v1",
+                    "tags": item.get("tags")
+                    if isinstance(item.get("tags"), list)
+                    else [],
+                    "category": str(item.get("category") or "") or "",
+                }
+            )
+        return entries
+
+
 def _declared_script_secrets(source: dict) -> list[str]:
     """提取 manifest 脚本源声明的 permissions.secrets（容错，缺省为空）。
 
@@ -510,15 +623,17 @@ class OttFederationProvider:
 
     def _build_clients(
         self,
-    ) -> dict[str, _InstanceClient | _RuleClient | _ScriptClient]:
-        """遍历所有已启用订阅，提取 ott-instance / ott-rule / ott-script，按 authority 建客户端。"""
+    ) -> dict[str, _InstanceClient | _RuleClient | _ScriptClient | _BridgeClient]:
+        """遍历所有已启用订阅，提取 ott-instance / ott-rule / ott-bridge / ott-script，按 authority 建客户端。"""
         signature = self._clients_signature()
         if (
             self._clients_cache is not None
             and signature == self._clients_cache_signature
         ):
             return self._clients_cache
-        clients: dict[str, _InstanceClient | _RuleClient | _ScriptClient] = {}
+        clients: dict[
+            str, _InstanceClient | _RuleClient | _ScriptClient | _BridgeClient
+        ] = {}
         # 复用同一个解释器/沙箱实例（内部无状态）
         interpreter = OttRuleInterpreter(
             http_client=self._shared_http_client(),
@@ -572,8 +687,11 @@ class OttFederationProvider:
                         self._entry_cache,
                     )
                 elif source_type == "ott-bridge":
-                    log_warning(
-                        f"[Federation] ott-bridge 暂不支持，跳过: {redact_url(repo.url)}"
+                    self._build_bridge_client(
+                        clients,
+                        source,
+                        self._shared_http_client(),
+                        self._entry_cache,
                     )
         self._clients_cache = clients
         self._clients_cache_signature = self._clients_signature()
@@ -712,6 +830,32 @@ class OttFederationProvider:
             network_allowlist=_declared_script_network(source),
             min_api_level=_declared_script_api_level(source),
             checksum=source.get("checksum", ""),
+        )
+
+    @staticmethod
+    def _build_bridge_client(
+        clients: dict[
+            str, _InstanceClient | _RuleClient | _ScriptClient | _BridgeClient
+        ],
+        source: dict,
+        http_client: httpx.Client,
+        entry_cache: _EntryCache | None = None,
+    ) -> None:
+        bridge_kind = source.get("bridge_kind", "")
+        endpoint = source.get("endpoint", "")
+        if not bridge_kind or not endpoint:
+            return
+        label = source.get("label", "")
+        # 用 endpoint 指纹作 authority key（防跨 bridge 源 entry_id 冲突）
+        key = _bridge_authority(endpoint)
+        if key in clients:
+            return
+        clients[key] = _BridgeClient(
+            bridge_kind=bridge_kind,
+            endpoint=endpoint,
+            label=label,
+            http_client=http_client,
+            entry_cache=entry_cache,
         )
 
     def _instance_cache_dir(self, authority: str) -> Path:

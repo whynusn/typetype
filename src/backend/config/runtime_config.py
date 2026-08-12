@@ -11,7 +11,7 @@ except ImportError:
     fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
-from .app_paths import builtin_ott_repo_url, user_config_path
+from .app_paths import builtin_ott_repo_url, default_ott_hub_url, user_config_path
 from ..utils.logger import log_error, log_info
 from .text_source_config import TextSourceConfig, TextSourceEntry
 
@@ -292,6 +292,10 @@ class RuntimeConfig:
             return
         self.source_repos.repos.append(
             SourceRepoEntry(url=builtin_ott_repo_url(), enabled=True)
+        )
+        # 默认订阅 hub（开箱即用）；离线兜底仍由 builtin 提供
+        self.source_repos.repos.append(
+            SourceRepoEntry(url=default_ott_hub_url(), enabled=True)
         )
 
     @classmethod
