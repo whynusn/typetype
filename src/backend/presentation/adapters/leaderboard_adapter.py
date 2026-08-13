@@ -209,45 +209,6 @@ class LeaderboardAdapter(QObject):
         )
         self._thread_pool.start(worker)
 
-    def loadRegistryEntries(self) -> None:
-        """加载开源文库（OTT）聚合的全部条目（扁平列表，含预载内容）。"""
-        if self._registry_provider is None:
-            self._init_registry_provider()
-        if self._registry_provider is None:
-            self._on_catalog_load_failed("注册表文本源未配置")
-            return
-
-        self._set_catalog_loading(True)
-        self._catalog_request_generation += 1
-        request_generation = self._catalog_request_generation
-
-        def _fetch() -> list[dict]:
-            return self._registry_provider.fetch_all_entries()
-
-        from ...workers.base_worker import BaseWorker
-
-        worker = BaseWorker(task=_fetch, error_prefix="加载开源文库条目失败")
-        worker.setAutoDelete(True)
-        worker.signals.succeeded.connect(
-            lambda entries, gen=request_generation: self._on_entries_loaded(
-                gen, entries
-            )
-        )
-        worker.signals.failed.connect(
-            lambda msg, gen=request_generation: self._on_catalog_load_failed_gen(
-                gen, msg
-            )
-        )
-        worker.signals.finished.connect(lambda: self._release_submit_worker(worker))
-        self._submit_workers.add(worker)
-        self._thread_pool.start(worker)
-
-    def _on_entries_loaded(self, request_generation: int, entries: list[dict]) -> None:
-        if request_generation != self._catalog_request_generation:
-            return
-        self._set_catalog_loading(False)
-        self.catalogLoaded.emit(entries)
-
     def _on_catalog_loaded_gen(
         self, request_generation: int, catalog: list[dict]
     ) -> None:
@@ -424,52 +385,6 @@ class LeaderboardAdapter(QObject):
     @property
     def catalog_loading(self) -> bool:
         return self._catalog_loading
-
-    def fetch_registry_text(self, source_key: str):
-        """从开源文库获取单篇文本内容。返回 (text_id, content, title, entries) 或 raise。"""
-        if self._registry_provider is None:
-            raise RuntimeError("注册表文本源未配置")
-        fetched = self._registry_provider.fetch_text_by_key(source_key)
-        if fetched is None:
-            raise RuntimeError(f"无法获取注册表文本({source_key})")
-        return (
-            fetched.text_id or 0,
-            fetched.content or "",
-            fetched.title or "",
-            fetched.entries or [],
-            {
-                "source_key": fetched.source_key,
-                "entry_id": fetched.entry_id,
-                "revision_id": fetched.revision_id,
-                "content_mode": fetched.content_mode,
-                "segment_count": fetched.segment_count,
-                "segment_size_hint": fetched.segment_size_hint,
-                "content_hash": fetched.content_hash,
-            },
-        )
-
-    def fetch_ott_entry_text(self, entry_id: str):
-        """Fetch one OTT Core v1 inline entry by stable entry_id."""
-        if self._registry_provider is None:
-            raise RuntimeError("OTT 文本源未配置")
-        fetched = self._registry_provider.fetch_text_by_entry_id(entry_id)
-        if fetched is None or not fetched.content:
-            raise RuntimeError(f"无法获取 OTT 文本({entry_id})")
-        return (
-            fetched.text_id or 0,
-            fetched.content or "",
-            fetched.title or "",
-            fetched.entries or [],
-            {
-                "source_key": fetched.source_key,
-                "entry_id": fetched.entry_id,
-                "revision_id": fetched.revision_id,
-                "content_mode": fetched.content_mode,
-                "segment_count": fetched.segment_count,
-                "segment_size_hint": fetched.segment_size_hint,
-                "content_hash": fetched.content_hash,
-            },
-        )
 
     def submit_to_thread_pool(self, fn, on_result, on_error):
         """将 callable 提交到后台线程池执行，结果回调到主线程。
