@@ -1513,3 +1513,25 @@ class TestSourceRefreshOverrides:
         parsed = RuntimeConfig._from_dict(d)
         assert parsed.get_source_refresh_override("auth:1") is None
         assert parsed.get_source_refresh_override("auth:2") is None
+
+    def test_static_override_roundtrips(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:s", "static", 0)
+        d = cfg._to_dict()
+        parsed = RuntimeConfig._from_dict(d)
+        assert parsed.get_source_refresh_override("auth:s") == {"mode": "static"}
+
+    def test_on_demand_override_roundtrips(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:o", "on_demand", 0)
+        parsed = RuntimeConfig._from_dict(cfg._to_dict())
+        assert parsed.get_source_refresh_override("auth:o") == {"mode": "on_demand"}
+
+    def test_interval_override_roundtrips(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:i", "interval", 3600)
+        parsed = RuntimeConfig._from_dict(cfg._to_dict())
+        assert parsed.get_source_refresh_override("auth:i") == {
+            "mode": "interval",
+            "interval_seconds": 3600,
+        }

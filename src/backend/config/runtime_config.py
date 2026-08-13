@@ -693,8 +693,8 @@ class RuntimeConfig:
                 mode = ov.get("mode")
                 if mode not in ("static", "interval", "on_demand"):
                     continue
-                interval = ov.get("interval_seconds")
-                if not isinstance(interval, int):
+                interval = ov.get("interval_seconds", 0)
+                if not isinstance(interval, int) or isinstance(interval, bool):
                     continue  # 非 int 秒数 → 丢弃该条目（不静默强制转换）
                 overrides[authority] = {
                     "mode": mode,
