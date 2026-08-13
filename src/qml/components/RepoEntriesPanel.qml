@@ -24,6 +24,7 @@ Frame {
     signal entryClicked(var entry)      // 点击条目，透传原始条目对象
     signal refreshRequested()           // 顶部刷新 / 错误态重试
     signal manageRequested()            // 「管理订阅」按钮
+    signal refreshSourceRequested(string authority)  // 单源刷新请求
 
     // ---- 内部 ----
     property string selectedSourceLabel: ""
@@ -286,10 +287,38 @@ Frame {
                                 Item { Layout.fillWidth: true }
 
                                 Text {
-                                    visible: root._charCount(model.entry) > 0
-                                    text: root._charCount(model.entry) + " 字"
+                                    visible: text.length > 0
+                                    text: root._charCount(model.entry) > 0
+                                          ? (root._charCount(model.entry) + " 字" + (model.entry.last_fetched_relative ? " · " + model.entry.last_fetched_relative : ""))
+                                          : (model.entry.last_fetched_relative || "")
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
+                                }
+
+                                // 新鲜度徽章（后端 _decorate 输出 freshness）
+                                Rectangle {
+                                    visible: model.entry.freshness !== undefined && model.entry.freshness !== ""
+                                    Layout.preferredWidth: 8
+                                    Layout.preferredHeight: 8
+                                    radius: 4
+                                    color: model.entry.freshness === "on_demand" ? Theme.currentTheme.colors.systemCriticalColor
+                                         : model.entry.freshness === "stale" ? Theme.currentTheme.colors.systemCautionColor
+                                         : Theme.currentTheme.colors.primaryColor
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: model.entry.freshness === "on_demand" ? qsTr("每次随机，可抽新")
+                                                : model.entry.freshness === "stale" ? qsTr("已过期，可刷新")
+                                                : qsTr("最新")
+                                }
+
+                                ToolButton {
+                                    Layout.preferredWidth: 24
+                                    Layout.preferredHeight: 24
+                                    icon.name: "ic_fluent_arrow_sync_20_regular"
+                                    flat: true
+                                    visible: model.entry.freshness === "stale" || model.entry.freshness === "on_demand"
+                                    enabled: !root.loading
+                                    onClicked: root.refreshSourceRequested(model.entry.authority || model.entry._authority || "")
+                                    ToolTip { text: qsTr("刷新该源"); visible: parent.hovered }
                                 }
                             }
 

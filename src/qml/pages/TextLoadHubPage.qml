@@ -540,6 +540,7 @@ FluentPage {
                     root.checkProgress()
                 }
                 onRefreshRequested: { if (appBridge) appBridge.loadFederatedEntries() }
+                onRefreshSourceRequested: function(authority) { if (appBridge) appBridge.refreshFederatedSource(authority) }
                 onManageRequested: {
                     if (Window.window && Window.window.navigationView)
                         Window.window.navigationView.push(Qt.resolvedUrl("ReposManagementPage.qml"))
