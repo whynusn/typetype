@@ -1,13 +1,14 @@
-"""打字会话状态机 — 集中管理会话级别状态和成绩提交资格推导。
+"""打字会话状态机 — 集中管理会话级别状态。
 
 职责：
-- 持有会话阶段（SessionPhase）、来源模式（SourceMode）、上传资格（UploadStatus）
+- 持有会话阶段（SessionPhase）、来源模式（SourceMode）
 - 管理分片载文状态（分片列表、当前片索引、重打条件、成绩快照）
 - 通过显式转换方法管理状态流转
-- 自动推导成绩提交资格（can_submit_score / get_eligibility_reason）
 
 不负责：
-- 网络请求（text_id 回查由 TextAdapter 协调）
+- 网络请求（text_id 回查已随 typetype-server 耦合移除，ADR-013）
+- 成绩提交资格推导（成绩上传已移除；`UploadStatus` 保留枚举以兼容旧引用，
+  状态恒为 NA）
 - Qt 信号（由 TypingAdapter 桥接）
 - 打字统计逻辑（由 TypingService 负责）
 """
@@ -15,7 +16,6 @@
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import Callable
 
 
 class SessionPhase(Enum):
@@ -78,9 +78,6 @@ class TypingSessionContext:
         self._speed_decrease: int = 0
         self._accuracy_decrease: int = 0
 
-        self._on_upload_status_changed: list[Callable[[UploadStatus], None]] = []
-        self._on_eligibility_reason_changed: list[Callable[[str], None]] = []
-
     # === 查询接口 ===
 
     @property
@@ -93,6 +90,7 @@ class TypingSessionContext:
 
     @property
     def upload_status(self) -> UploadStatus:
+        # 成绩上传已移除：状态恒为 NA（保留枚举兼容旧引用）
         return self._upload_status
 
     @property
@@ -112,21 +110,10 @@ class TypingSessionContext:
         return self._slice_text
 
     def can_submit_score(self) -> bool:
-        return self._upload_status == UploadStatus.CONFIRMED
+        # 成绩提交已随 typetype-server 耦合移除
+        return False
 
     def get_eligibility_reason(self) -> str:
-        if self._source_mode in (SourceMode.SLICE, SourceMode.SHUFFLE):
-            return "分片/乱序模式，成绩不提交排行榜"
-        if self._source_mode == SourceMode.CLIPBOARD:
-            return "剪贴板文本，成绩不提交排行榜"
-        if self._source_mode == SourceMode.WENLAI:
-            return "晴发文文本，成绩不提交排行榜"
-        if self._source_mode == SourceMode.LOCAL_ARTICLE:
-            return "本地长文，成绩不提交排行榜"
-        if self._source_mode == SourceMode.TRAINER:
-            return "练单器，成绩不提交排行榜"
-        if self._upload_status == UploadStatus.PENDING:
-            return "正在确认成绩提交资格..."
         return "成绩不提交排行榜"
 
     # === 设置接口 ===
@@ -135,54 +122,46 @@ class TypingSessionContext:
         self._source_mode = SourceMode.NETWORK
         self._text_id = text_id
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_local_session(self, source_key: str, text_id: int | None = None) -> None:
         self._source_mode = SourceMode.LOCAL
         self._text_id = text_id
         self._text_id_resolved = text_id is not None
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_custom_session(self, source_key: str) -> None:
         self._source_mode = SourceMode.CUSTOM
         self._text_id = None
         self._text_id_resolved = False
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_clipboard_session(self) -> None:
         self._source_mode = SourceMode.CLIPBOARD
         self._text_id = None
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_shuffle_session(self) -> None:
         self._source_mode = SourceMode.SHUFFLE
         self._text_id = None
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_wenlai_session(self) -> None:
         self._source_mode = SourceMode.WENLAI
         self._text_id = None
         self._text_id_resolved = True
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_local_article_session(self) -> None:
         self._source_mode = SourceMode.LOCAL_ARTICLE
         self._text_id = None
         self._text_id_resolved = True
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_trainer_session(self) -> None:
         self._source_mode = SourceMode.TRAINER
         self._text_id = None
         self._text_id_resolved = True
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     # === 分片载文 ===
 
@@ -235,7 +214,6 @@ class TypingSessionContext:
         self._text_id = None
         self._text_id_resolved = True
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
 
     def setup_slice_mode(
         self,
@@ -279,7 +257,6 @@ class TypingSessionContext:
         self._text_id = None
         self._slice_index = self._start_slice
         self._phase = SessionPhase.READY
-        self._derive_upload_status()
         return self._slice_total
 
     def get_current_slice_text(self) -> str:
@@ -582,7 +559,6 @@ class TypingSessionContext:
     def complete_typing(self) -> None:
         if self._phase == SessionPhase.TYPING:
             self._phase = SessionPhase.COMPLETED
-            self._derive_upload_status()
 
     def reset(self) -> None:
         self._phase = SessionPhase.IDLE
@@ -598,7 +574,6 @@ class TypingSessionContext:
     def set_text_id(self, text_id: int | None) -> None:
         self._text_id = text_id
         self._text_id_resolved = True
-        self._derive_upload_status()
 
     def set_slice_index(self, idx: int) -> None:
         """直接设置当前片索引（用于无尽循环模式）。"""
@@ -624,50 +599,4 @@ class TypingSessionContext:
             self._slice_index -= 1
             self._phase = SessionPhase.READY
 
-    # === 订阅 ===
-
-    def subscribe_upload_status(self, callback: Callable[[UploadStatus], None]) -> None:
-        self._on_upload_status_changed.append(callback)
-
-    def subscribe_eligibility_reason(self, callback: Callable[[str], None]) -> None:
-        self._on_eligibility_reason_changed.append(callback)
-
     # === 内部 ===
-
-    def _derive_upload_status(self) -> None:
-        new_status = self._compute_upload_status()
-        if new_status != self._upload_status:
-            self._upload_status = new_status
-            self._notify_upload_status()
-            self._notify_eligibility_reason()
-
-    _INELIGIBLE_MODES = frozenset(
-        {
-            SourceMode.SLICE,
-            SourceMode.SHUFFLE,
-            SourceMode.CLIPBOARD,
-            SourceMode.WENLAI,
-            SourceMode.LOCAL_ARTICLE,
-            SourceMode.TRAINER,
-        }
-    )
-    _PENDING_MODES = frozenset({SourceMode.LOCAL, SourceMode.CUSTOM})
-
-    def _compute_upload_status(self) -> UploadStatus:
-        if self._source_mode in self._INELIGIBLE_MODES:
-            return UploadStatus.NA
-        if self._text_id is not None and self._text_id > 0:
-            return UploadStatus.CONFIRMED
-        if self._text_id_resolved:
-            return UploadStatus.INELIGIBLE
-        if self._source_mode in self._PENDING_MODES:
-            return UploadStatus.PENDING
-        return UploadStatus.INELIGIBLE
-
-    def _notify_upload_status(self) -> None:
-        for cb in self._on_upload_status_changed:
-            cb(self._upload_status)
-
-    def _notify_eligibility_reason(self) -> None:
-        for cb in self._on_eligibility_reason_changed:
-            cb(self.get_eligibility_reason())

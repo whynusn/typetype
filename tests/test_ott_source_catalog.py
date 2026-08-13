@@ -1,11 +1,16 @@
+"""OTT source catalog 测试：OttClient 协议路由 + catalog_items_from_sources。
+
+单实例 OttTextProvider 已删除（ADR-013 决策 5），目录获取统一走
+OttClient（federation 路径）。legacy registry_index.json fallback 已移除。
+"""
+
 import json
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import httpx
 
-from src.backend.config.runtime_config import RegistryConfig
-from src.backend.integration.ott_text_provider import OttTextProvider
+from src.backend.integration.ott_catalog import catalog_items_from_sources
+from src.backend.integration.ott_client import OttClient
 
 
 def _mock_response(json_data, status_code=200):
@@ -22,24 +27,32 @@ def _mock_response(json_data, status_code=200):
     return response
 
 
-def _make_provider(
-    tmp_path: Path,
-    responses: list,
-    config: RegistryConfig | None = None,
-) -> tuple[OttTextProvider, MagicMock]:
+def _make_client(
+    responses: list, authority: str = "ott.example.com"
+) -> tuple[OttClient, MagicMock]:
     client = MagicMock(spec=httpx.Client)
     client.get.side_effect = responses
-    provider = OttTextProvider(
-        config or RegistryConfig(primary_url="https://ott.example.com"),
-        tmp_path / "cache",
-        http_client=client,
+
+    def fetch_json(cache_key, url, mirror_url, max_bytes):
+        response = client.get(url)
+        if response.status_code >= 400:
+            return None
+        data = response.json()
+        return data if isinstance(data, dict) else None
+
+    ott = OttClient(
+        primary_url="https://ott.example.com",
+        mirror_url="",
+        authority=authority,
+        fetch_json=fetch_json,
+        fetch_text=lambda *args: None,
+        max_content_bytes=1_048_576,
     )
-    return provider, client
+    return ott, client
 
 
-def test_get_catalog_prefers_ott_service_sources(tmp_path):
-    provider, client = _make_provider(
-        tmp_path,
+def test_list_sources_prefers_service_sources():
+    provider, client = _make_client(
         [
             _mock_response(
                 {
@@ -57,19 +70,17 @@ def test_get_catalog_prefers_ott_service_sources(tmp_path):
         ],
     )
 
-    result = provider.get_catalog()
+    sources = provider.list_sources()
 
-    assert [item.source_key for item in result] == ["poem"]
-    assert result[0].label == "诗句"
-    assert result[0].charCount == 12
+    assert [s["source_key"] for s in sources] == ["poem"]
+    assert sources[0]["label"] == "诗句"
     assert (
         client.get.call_args_list[0].args[0] == "https://ott.example.com/ott/v1/sources"
     )
 
 
-def test_get_catalog_uses_static_sources_when_service_unavailable(tmp_path):
-    provider, client = _make_provider(
-        tmp_path,
+def test_list_sources_uses_static_when_service_unavailable():
+    provider, client = _make_client(
         [
             _mock_response(None, 404),
             _mock_response(
@@ -86,54 +97,16 @@ def test_get_catalog_uses_static_sources_when_service_unavailable(tmp_path):
         ],
     )
 
-    result = provider.get_catalog()
+    sources = provider.list_sources()
 
-    assert [item.source_key for item in result] == ["static_poem"]
+    assert [s["source_key"] for s in sources] == ["static_poem"]
     assert (
         client.get.call_args_list[1].args[0] == "https://ott.example.com/sources.json"
     )
 
 
-def test_get_catalog_falls_back_to_legacy_index(tmp_path):
-    config = RegistryConfig(primary_url="https://ott.example.com")
-    config.mirror_url = ""
-    provider, client = _make_provider(
-        tmp_path,
-        [
-            _mock_response(None, 404),
-            _mock_response(None, 404),
-            _mock_response(
-                {
-                    "sources": [
-                        {
-                            "id": 7,
-                            "source_key": "legacy",
-                            "label": "旧目录",
-                            "charCount": 20,
-                        }
-                    ]
-                }
-            ),
-        ],
-        config,
-    )
-
-    result = provider.get_catalog()
-    urls = [call.args[0] for call in client.get.call_args_list]
-
-    assert result[0].source_key == "legacy"
-    assert result[0].id == 7
-    assert urls == [
-        "https://ott.example.com/ott/v1/sources",
-        "https://ott.example.com/sources.json",
-        "https://ott.example.com/registry_index.json",
-    ]
-    assert all("/api/" not in url and "/ott-admin/" not in url for url in urls)
-
-
-def test_get_catalog_tolerates_malformed_numeric_fields(tmp_path):
-    provider, _client = _make_provider(
-        tmp_path,
+def test_list_sources_tolerates_malformed_numeric_fields():
+    provider, _client = _make_client(
         [
             _mock_response(
                 {
@@ -150,8 +123,55 @@ def test_get_catalog_tolerates_malformed_numeric_fields(tmp_path):
         ],
     )
 
-    result = provider.get_catalog()
+    sources = provider.list_sources()
 
-    assert result[0].source_key == "bad_count"
-    assert result[0].id == 1
-    assert result[0].charCount == 0
+    assert sources[0]["source_key"] == "bad_count"
+    assert sources[0]["id"] == 0
+    assert sources[0]["char_count"] == 0
+
+
+def test_catalog_items_from_sources_maps_normalized_fields():
+    items = catalog_items_from_sources(
+        [
+            {
+                "id": 7,
+                "source_key": "poem",
+                "label": "诗句",
+                "description": "每日诗句",
+                "char_count": 12,
+                "category": "poem",
+            }
+        ]
+    )
+
+    assert items[0].source_key == "poem"
+    assert items[0].id == 7
+    assert items[0].label == "诗句"
+    assert items[0].description == "每日诗句"
+    assert items[0].charCount == 12
+
+
+def test_catalog_items_from_sources_tolerates_malformed_numeric_fields():
+    items = catalog_items_from_sources(
+        [
+            {
+                "id": "oops",
+                "source_key": "bad_count",
+                "label": "Bad Count",
+                "char_count": "oops",
+            }
+        ]
+    )
+
+    assert items[0].source_key == "bad_count"
+    assert items[0].id == 1
+    assert items[0].charCount == 0
+
+
+def test_catalog_items_from_sources_drops_items_without_source_key():
+    items = catalog_items_from_sources(
+        [{"id": 1, "label": "no key"}, {"source_key": "ok", "label": "有效"}]
+    )
+
+    assert len(items) == 1
+    assert items[0].source_key == "ok"

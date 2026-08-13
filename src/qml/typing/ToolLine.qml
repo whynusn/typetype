@@ -14,7 +14,6 @@ QQC.Pane {
     signal requestLoadWenlai
     signal requestAiText
     signal requestRetype
-    signal requestToggleLeaderboard
     signal requestShuffle
     signal requestOpenSliceConfig // 打开载文设置 Dialog
     signal requestSendText // 发文：复制文本段+元数据到剪贴板
@@ -126,29 +125,6 @@ QQC.Pane {
             anchors.verticalCenter: parent.verticalCenter
             running: root.aiTextLoading
             visible: root.aiTextLoading
-        }
-
-        // Spacer to push leaderboard button to the right
-        Item {
-            width: Math.max(0, parent.width - rowLayout.implicitWidth)
-        }
-
-        // 排行榜切换按钮（最右侧）
-        Button {
-            id: leaderboardToggle
-            width: 36
-            height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            text: "🏆"
-            onClicked: {
-                root.requestToggleLeaderboard();
-            }
-
-            ToolTip {
-                text: qsTr("排行榜")
-                parent: parent
-                visible: parent.hovered
-            }
         }
     }
 }

@@ -18,7 +18,6 @@ def catalog_items_from_sources(sources: list[dict]) -> list[TextCatalogItem]:
                 label=str(item.get("label", item["source_key"]) or item["source_key"]),
                 description=str(item.get("description", "") or ""),
                 charCount=safe_int(char_count),
-                has_ranking=bool(item.get("has_ranking", False)),
                 category=str(item.get("category", "") or ""),
                 update_freq=str(item.get("update_freq", "") or ""),
             )

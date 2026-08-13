@@ -1,5 +1,5 @@
 # TypeType 架构设计手册
-<!-- 状态: active | 最后验证: 2026-08-10 -->
+<!-- 状态: active | 最后验证: 2026-08-13 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -11,7 +11,7 @@
 
 ---
 
-> 最后更新：2026-08-10
+> 最后更新：2026-08-13
 
 ---
 
@@ -75,7 +75,7 @@ QML UI
 | Domain | `*Service` | 纯业务逻辑、状态管理、统计计算 |
 | Ports | 各 Port 协议 | 抽象协议 |
 | Integration | 各 Port 实现 | Port 实现 |
-| Infrastructure | `ApiClient` / `network_errors` | 通用 HTTP 客户端、网络异常分类 |
+| Infrastructure | `ApiClient` / `network_errors` | 通用 HTTP 客户端（晴发文/AI 等第三方服务使用）、网络异常分类 |
 
 ---
 
@@ -110,11 +110,12 @@ src/backend/
 
 ### 载文入口
 
-| 入口 | 文件 | 触发方式 | 分类 | 分段模式 | 乱序 | 成绩提交 |
-|:--- |:--- |:--- |:--- |:---|:---|:---|
-| 剪贴板 | `ToolLine.qml` 按钮 | Ctrl+V | 本地 | ✅ | ✅ | ❌ |
-| 载文中心 | `TextLoadHubPage.qml` | 侧边栏 / F2（自定义） | 本地 + 官方网络 | ✅ | ✅ | 极速杯等可提交 |
-| 晴发文 | `TypingPage.qml` Ctrl+R | 快捷键 / 工具栏按钮 | **第三方网络** | **服务端分段** ¹ | ❌ | ❌ |
+| 入口 | 文件 | 触发方式 | 分类 | 分段模式 | 乱序 |
+|:--- |:--- |:--- |:--- |:---|:---|
+| 剪贴板 | `ToolLine.qml` 按钮 | Ctrl+V | 本地 | ✅ | ✅ |
+| 载文中心 | `TextLoadHubPage.qml` | 侧边栏 / F2（自定义） | 本地 + OTT 订阅 | ✅ | ✅ |
+| 晴发文 | `TypingPage.qml` Ctrl+R | 快捷键 / 工具栏按钮 | **第三方网络** | **服务端分段** ¹ | ❌ |
+| AI 智能推荐 | 设置页 / 工具栏按钮 | 手动触发 | **第三方网络**（LLM 出题） | ❌ | ❌ |
 
 ¹ 晴发文不走 App 的分片/乱序机制，文本分段由晴发文服务端提供 (`loadPrevWenlaiSegment` / `loadNextWenlaiSegment`)。
 
@@ -122,7 +123,7 @@ src/backend/
 
 - **第 1 层（本地文件）**：剪贴板、自定义、本地文库、练单器、前/中/后五百、打词必备单字 — 文本来自本地文件或用户输入
 - **第 2 层（开源文库 / OTT）**：OTT Core v1 只读分发协议提供的文本（通过 OTT Repo 订阅或内置离线源）— 由 `TextLoadHubPage.qml` 的「开源文库」标签接入
-- **第 3 层（即时拉取）**：极速杯 — 文本来自 TypeType 后端 (`typetype-server`)；晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)
+- **第 3 层（即时拉取）**：晴发文 — 文本来自晴跟打作者维护的服务端 (qingfawen.fcxxz.com)；AI 智能推荐 — 文本由 LLM API 按薄弱字生成
 
 #### 分段模式与乱序
 
@@ -134,15 +135,9 @@ OTT segmented 大文本使用服务端定义的 segment 边界，并通过 `OttS
 
 晴发文单独在服务端做分段，App 侧只做逐段推进。
 
-#### 排行榜支持
+#### 排行榜与成绩提交
 
-| 载文来源 | 排行榜 | 条件 |
-|:--- |:--- |:--- |
-| 极速杯 | ✅ | 文本需在服务端注册，成绩确认后提交 |
-| 本地前五百等 | ✅ | 通过文件 hash 校验确保一致性 |
-| 其他本地载文 | ❌ | 文本来源不确定，无法公平排行 |
-| 晴发文 | ❌ | 第三方载文，不参与 TypeType 排行榜 |
-| 分片/乱序模式 | ❌ | 修改了原文顺序或篇幅 |
+typetype-server 已随 [ADR-013](./decisions/013-converge-to-three-repo-model.md) 移除：客户端不再有服务端排行榜、成绩上传、账号体系与 `text_id` 回查。成绩统计均为本地（字符级 SQLite 统计 + 打字历史），载文来源不再区分排行榜资格。去中心化排行榜按 ADR-012 独立推进，本次未留占位。
 
 ---
 
@@ -151,14 +146,14 @@ OTT segmented 大文本使用服务端定义的 segment 边界，并通过 `OttS
 ### 文本加载链路
 
 ```
-ToolLine.qml
-  -> appBridge.requestLoadText(sourceKey)
-  -> Bridge -> TextAdapter
+ToolLine.qml / TextLoadHubPage.qml
+  -> appBridge.requestLoadText(sourceKey) 或联邦载文 Slot
+  -> Bridge -> TextAdapter / RegistryAdapter
   -> LoadTextUseCase.plan_load(sourceKey)
   -> TextSourceGateway -> TextLoadPlan
   -> TextLoadWorker（后台线程）
   -> LoadTextUseCase.load(plan)
-  -> QtLocalTextLoader 或 RemoteTextProvider
+  -> QtLocalTextLoader（本地文件）/ OttFederationProvider（OTT 联邦，Worker）
   -> Adapter emit textLoaded() -> TypingPage.applyLoadedText()
 ```
 
@@ -183,27 +178,20 @@ WeakCharsPage.qml
   -> Adapter emit weakestCharsLoaded -> QML 渲染
 ```
 
-### 认证链路
+### OTA 更新链路
 
 ```
-ProfilePage.qml
-  -> appBridge.login() -> AuthAdapter
-  -> AuthService -> ApiClientAuthProvider
-  -> ApiClient -> SecureStorage 保存 token
+启动时 main.py -> trigger_auto_update_check()
+  -> UpdateAdapter.start_auto_check()（后台 Worker，静默失败）
+  -> UpdateChecker.check_for_update()  // GitHub API → 已验签 version.json 降级链
+  -> checkFinished(available, version, error) -> QML「关于与更新」区
+
+用户触发 downloadAndInstallUpdate(version)
+  -> UpdateAdapter 下载（直链 + update.mirrors 镜像逐个尝试，sha256 校验）
+  -> 解压到临时目录 -> resources/updater/* 平台小更新器替换安装目录并重启
 ```
 
-### 服务地址配置链路
-
-```
-SettingsPage.qml
-  -> appBridge.setBaseUrl(url)
-  -> Bridge.base_url_update_callback()  // 闭包，上抛到 main.py
-  -> RuntimeConfig.update_base_url()    // strip + 派生 URL + 持久化
-  -> 遍历 url_dependent 列表传播 URL
-  -> Bridge.emit(baseUrlChanged)        // QML 属性绑定刷新
-```
-
-> **设计要点**：Bridge 不直接依赖 Integration 对象，通过回调闭包上抛到装配层处理。
+> **设计要点**：Bridge 不直接依赖 Integration 对象，更新检查/下载均走 `UpdateAdapter` 代理 + Worker。
 
 ---
 
@@ -234,7 +222,6 @@ Adapter 做业务来源路由
 |:--- |:--- |
 | `TextSourceGateway` 持有并做来源路由 | ✅ |
 | `TextAdapter` 持有并做 UI 展示 | ✅ |
-| `TextAdapter.get_base_url()` 代理只读属性 | ✅ |
 | `TextAdapter` 依据配置做业务决策 | ❌ |
 | Bridge 直接依赖 RuntimeConfig | ❌ |
 | Bridge 直接持有 Integration 对象 | ❌ |
@@ -245,7 +232,8 @@ Adapter 做业务来源路由
 
 | 场景 | 通常改 |
 |:--- |:--- |
-| 新增文本来源 | `config/` → `text_source_gateway.py` → `RemoteTextProvider` → 测试 |
+| 新增本地文本来源 | `config.json` `text_sources` 加条目（`{label, local_path}`），零代码 |
+| 新增远程文本源 | 订阅 OTT Repo 源仓库（`source_repos`），或新增独立 Provider 栈（参考晴发文） |
 | 新增统计规则 | `TypingService` / `CharStatsService` → entity/DTO → 测试 |
 | 新增 QML 能力 | QML 页面 → `Bridge` → 对应 `Adapter` → 必要时加 worker |
 | 新增跨组件业务流程 | `application/usecases/` → gateway/port → adapter 调用 |
@@ -290,44 +278,33 @@ onActivated → Qt.callLater() 延迟触发信号
 > 决策依据：ADR-008（`docs/decisions/008-text-source-three-layer-model.md`）。
 > 按「数据如何到达客户端」划分三层，不强行统一。
 >
-> **命名约定**：第 2 层的用户-facing 名称是**开源文库**；标准边界是 OTT Core v1。`/ott/v1` 是协议路径版本，OTT adapter 当前包版本是独立的 `0.5.0`；不要把旧 adapter 文案中的 “v2” 当成协议版本。实现类型为 `OttTextProvider` + `OttClient`。`registry.primary_url` 和 `Loader.REGISTRY` 仅作为已有配置兼容标识保留，旧 `RegistryTextProvider` 是导入兼容别名。
+> **命名约定**：第 2 层的用户-facing 名称是**开源文库**；标准边界是 OTT Core v1。`/ott/v1` 是协议路径版本，OTT adapter 当前包版本是独立的 `0.5.0`；不要把旧 adapter 文案中的 “v2” 当成协议版本。实现类型为 `OttFederationProvider`（多 repo 联邦聚合）+ `OttClient`。旧的 `OttTextProvider` / `RegistryTextProvider` / `registry.primary_url` / `Loader` / `LeaderboardMode` 已随 ADR-013 移除，OTT 统一走 `source_repos` 订阅。
 
 ### 三层职责对照
 
 | 维度 | 第 1 层：本地文件 | 第 2 层：开源文库 | 第 3 层：即时拉取 |
 |:---|:---|:---|:---|
-| **`loader`** | `LOCAL_FILE` | `REGISTRY` | `REMOTE_API`（+ 独立 Pipeline，如晴发文）|
-| **数据来源** | 用户/打包 txt | 用户本地运行脚本生成 JSON | 服务端/第三方实时 API |
+| **数据来源** | 用户/打包 txt | OTT Repo 订阅源仓库 | 第三方实时 API / LLM |
 | **时效性** | 静态 | 日级/周级延迟可接受 | 秒级，用户实时交互 |
 | **网络韧性要求** | 无 | 低（离线读缓存兜底）| 高（实时）|
 | **客户端缓存** | 不需要 | **必须**（TTL + stale-while-revalidate） | 不需要 |
-| **账号要求** | 无 | 无 | 用户自有账号（token_store）|
-| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `OttTextProvider` + `OttSegmentProvider` | ✅ `RemoteTextProvider` + 晴发文独立 Pipeline |
-| **Loader 路由** | `text_source_config.py` `Loader.LOCAL_FILE` | `Loader.REGISTRY` | `Loader.REMOTE_API` |
+| **账号要求** | 无 | 无 | 晴发文有（token_store）；AI 有（keyring）|
+| **现配实现** | ✅ `QtLocalTextLoader` | ✅ `OttFederationProvider` + `OttSegmentProvider` | ✅ 晴发文 / AI 智能推荐独立 Pipeline |
+| **配置入口** | `config.json` `text_sources` | `config.json` `source_repos` | 独立配置段 / 设置页 |
 
 ### 文本源扩展路径
 
 | 想加什么 | 走哪层 | 改动量 |
 |:---|:---|:---|
-| 新本地练习文件 | 第 1 层 | `config.json` 加 1 行（`loader: local_file`），零代码 |
+| 新本地练习文件 | 第 1 层 | `config.json` `text_sources` 加 1 行（`{label, local_path}`），零代码 |
 | 静态文集（每日一文、古诗文等）| 第 2 层 | OTT 仓库加脚本或导入内容；typetype 通过 `/ott/v1` 读取 |
-| 服务端排行榜文本（极速杯等）| 第 3 层 | `config.json` 加 1 行（`loader: remote_api`），服务端注册 |
 | 第三方带认证实时源 | 第 3 层 | 完整 Port + Gateway + UseCase + Adapter（参考晴发文）|
 
-### 二维正交设计
+### v2 来源模型（ADR-013 收敛后）
 
-每个文本来源由 `TextSourceEntry` 的两个正交维度定义：
-
-- **`loader`**：数据从哪来 → 决定 `TextSourceGateway` 路由到哪个 Provider
-- **`leaderboard_mode`**：成绩怎么处理 → 决定 text_id 决策路径
-
-```python
-# 常见组合
-本地纯练习:     loader=LOCAL_FILE,  leaderboard_mode=NONE
-本地排行榜文本: loader=LOCAL_FILE,  leaderboard_mode=LOCAL_LOOKUP
-服务端网络源:   loader=REMOTE_API,  leaderboard_mode=SERVER_RESOLVED
-开源文库:       loader=REGISTRY,    leaderboard_mode=SERVER_RESOLVED
-```
+- `Loader` 收敛为仅 `LOCAL_FILE`，`LeaderboardMode` 枚举整体删除，`TextSourceEntry` 简化为 `{key, label, local_path}`（均为本地文件）。
+- OTT 订阅不再进 `text_sources`：源仓库条目统一在 `source_repos` 订阅，由 `RegistryAdapter`（Worker 异步）聚合到载文中心「开源文库」标签。
+- 晴发文 / AI 智能推荐保持独立 Pipeline，不经过 `TextSourceGateway` 路由。
 
 ### 晴发文特殊地位
 
@@ -335,32 +312,42 @@ onActivated → Qt.callLater() 延迟触发信号
 不走 `TextSourceGateway` 路由。它是第 3 层（即时拉取）的参照实现，保持不动。
 
 ```
-         TextSourceConfig.sources
+         TextSourceConfig.sources（v2：仅本地文件）
                    │
-    ┌──────────────┼──────────────┐
-    ▼              ▼              ▼
- 第1层          第2层          第3层
-本地文件       开源文库       RemoteTextProvider
-               (Registry)      (jisubei 等)
+                   ▼
+                 第1层
+               本地文件
+         (QtLocalTextLoader)
+
+         OttFederationProvider（第 2 层，走 source_repos 订阅）
+                   │
+                   ▼
+                 开源文库
+         (ott-instance / ott-rule / ott-script)
 
                     ┌────── 晴发文独立 Pipeline ──────┐
                     │  WenlaiProvider → WenlaiGateway │
                     │  → LoadWenlaiTextUseCase        │
                     │  → WenlaiAdapter               │
                     └────────────────────────────────┘
+
+                    ┌────── AI 智能推荐独立 Pipeline ──┐
+                    │  LlmTextProvider → AiGateway    │
+                    │  → AiTextAdapter                │
+                    └────────────────────────────────┘
 ```
 
 ### 开源文库缓存层
 
-内部实现为 `OttTextProvider` + `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/sources.json`、`/entries.json` 等) → 旧静态 `registry_index.json` + `content/{source_key}.json` 兼容布局的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
+内部实现为 `OttFederationProvider`（多 repo 联邦）+ `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/sources.json`、`/entries.json` 等) 的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
 
-缓存层五层决策树：
+缓存层决策树（`RepoManifestCache` / 条目缓存）：
 
 ```
 fetch_text_by_key(key)
   ├─ cache_hit + 未过期 → 返回缓存
   ├─ cache_hit + 过期 → 返回 stale + 后台刷新（stale-while-revalidate）
-  ├─ cache miss + 在线 → primary_url → mirror_url，成功写缓存
+  ├─ cache miss + 在线 → 请求订阅源仓库 URL，成功写缓存
   └─ cache miss + 离线 → 返回 stale（无视 TTL 兜底）
 ```
 
@@ -380,7 +367,7 @@ Directory（可选，发现层）                ← 未来 Phase 2+
 
 | 组件 | 位置 | 职责 |
 |:---|:---|:---|
-| `SourceRepoEntry` / `SourceReposConfig` | `runtime_config.py` | 订阅列表数据模型 + 旧 `registry.primary_url` 自动迁移 |
+| `SourceRepoEntry` / `SourceReposConfig` | `runtime_config.py` | 订阅列表数据模型（v2：纯订阅，`registry.primary_url` 已删除） |
 | `RepoManifestCache` | `integration/ott_repo_manifest.py` | 单订阅 manifest 拉取与缓存（TTL/stale/原子写/后台刷新） |
 | `validate_repo_manifest()` | `integration/ott_repo_manifest.py` | manifest 校验与归一化（遵循 OTT Repo v1 草案） |
 | `OttFederationProvider` | `integration/ott_federation_provider.py` | 多 repo 联邦聚合（ott-instance + ott-rule）、authority 命名空间隔离、priority + 健康度 failover |
@@ -392,7 +379,8 @@ Directory（可选，发现层）                ← 未来 Phase 2+
 | `ott_script_runner.py` | `integration/ott_script_runner.py` | 子进程沙箱入口（资源限制 + 受限 builtins + 白名单模块 + stdout JSON） |
 | `validate_script_source()` | `integration/ott_script_safety.py` | 脚本 AST 安全检查（黑名单 import/call + 动态导入检测） |
 | `RegistryAdapter` | `presentation/adapters/registry_adapter.py` | 订阅管理 + 条目聚合的 Qt 适配层（Worker 异步） |
-| `ReposManagementPanel` | `components/ReposManagementPanel.qml` | 载文中心「源仓库」标签页 UI |
+| `ReposManagementPanel` | `components/ReposManagementPanel.qml` | 源仓库订阅管理面板（承载于独立页面 `ReposManagementPage.qml`） |
+| `RepoEntriesPanel` | `components/RepoEntriesPanel.qml` | 载文中心「开源文库」标签的联邦条目列表面板（选中即载入） |
 
 ### 订阅数据流
 
@@ -436,14 +424,18 @@ src/backend/integration/
 src/backend/presentation/adapters/
   └─ registry_adapter.py                    # RegistryAdapter（Qt 适配层）
 src/backend/config/container.py             # + manifest_cache, federation, registry_adapter
-src/qml/components/ReposManagementPanel.qml # 源仓库管理面板
+src/qml/components/ReposManagementPanel.qml # 源仓库管理面板（独立页面承载）
+src/qml/components/RepoEntriesPanel.qml      # 开源文库条目列表面板
+src/qml/components/WenlaiSourcePanel.qml     # 晴发文即时源面板
+src/qml/components/AiSourcePanel.qml         # AI 推荐即时源面板
 src/qml/helpers/TextSourceBehaviors.js      # + repos 来源分派
-src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + reposItems
+src/qml/pages/TextLoadHubPage.qml           # 6 来源 tab（本地/开源/练单/晴发文/AI/自定义）+ Segmented 切换
+src/qml/pages/ReposManagementPage.qml       # 订阅管理独立子页面
 ```
 
 ### 配置字段
 
-见 [config.md](reference/config.md) `source_repos` 子字段表。旧 `registry.primary_url` 加载时自动迁移为一条等价订阅。
+见 [config.md](reference/config.md)（v2 schema：`schema_version=2`，`ott` / `update` / `source_repos` 等顶级段）。订阅列表 `source_repos` 的字段见 `source_repos` 子字段表。
 
 ### 客户端约束
 
@@ -473,6 +465,34 @@ src/qml/pages/TextLoadHubPage.qml           # + 源仓库 Segmented 标签 + rep
 
 ---
 
+## OTA 更新（ADR-014）
+
+> 决策依据：ADR-014（`docs/decisions/014-ota-update-check-and-mirror-download.md`）。
+
+### 架构定位
+
+| 组件 | 位置 | 职责 |
+|:---|:---|:---|
+| `APP_VERSION` | `src/backend/version.py` | 运行时版本单一事实源（Nuitka 产物内不可读 pyproject.toml） |
+| `UpdateChecker` | `integration/update_checker.py` | GitHub API → 已验签 `version.json` 降级链 + 镜像下载 + sha256 校验 |
+| `UpdateWorker` | `workers/update_worker.py` | 后台异步检查（节流 + 静默失败） |
+| `UpdateAdapter` | `presentation/adapters/update_adapter.py` | 平台资产匹配、下载解压、调用 updater 脚本；Bridge 信号代理 |
+| `updater.sh` / `updater.bat` | `resources/updater/` | 平台替换/重启小工具 |
+| `scripts/gen_version_manifest.py` | `scripts/` | CI 生成并签名 `version.json`（tag / assets / sha256 / Ed25519） |
+| `build-release.yml` `assert-version` | `.github/workflows/` | 发布 tag / pyproject / `APP_VERSION` 一致性断言 |
+
+### 配置字段
+
+`update` 段：`enabled` / `auto_check` / `check_interval_hours` / `channel` / `mirrors`（详见 [config.md](reference/config.md)）。
+
+### 客户端约束
+
+- 更新检查/下载均走 Worker（不阻塞 UI）；自动检查失败静默
+- 下载按「直链 + `update.mirrors` 镜像」逐个尝试，**每个下载必须 sha256 校验**，失败立即丢弃换下一个源
+- 安装用原子目录切换（新目录就绪 → 改名切换 → 失败回滚保留旧目录）；每次全量归档，不做差分更新
+
+---
+
 ## 后续方向
 
 | 优先级 | 方向 |
@@ -497,4 +517,4 @@ RinUI 是 vendored 第三方框架。必要的修改记录在 `RinUI/LOCAL_MODIF
 
 ## 当前限制
 
-客户端暂无防作弊措施，服务端亦未做防攻击处理。部分依赖服务端信任链的功能（排行榜、成绩提交）可能数据不可靠。
+客户端暂无防作弊措施。联网内容（OTT 订阅、规则/脚本源）以来源自身可信度为准；晴发文/AI 为第三方即时服务，受第三方可用性与账号限制影响。

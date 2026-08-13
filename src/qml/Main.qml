@@ -14,9 +14,6 @@ FluentWindow {
     minimumHeight: 520
     title: appBridge ? appBridge.windowTitle : "TypeType"
 
-    // Expose loggedin state to NavigationView for page injection
-    property bool loggedin: appBridge ? appBridge.loggedin : false
-
     // 全局通知管理器
     property alias appNotificationManager: appNotificationManager
 
@@ -58,12 +55,6 @@ FluentWindow {
             title: qsTr("薄弱字"),
             page: Qt.resolvedUrl("pages/WeakCharsPage.qml"),
             icon: "ic_fluent_text_quote_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("文本排行"),
-            page: Qt.resolvedUrl("pages/TextLeaderboardPage.qml"),
-            icon: "ic_fluent_trophy_20_regular",
             position: Position.None
         },
         {

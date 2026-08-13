@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ..config.runtime_config import RegistryConfig
+from ..config.runtime_config import OttConfig
 from ..utils.logger import log_info, log_warning
 from .ott_normalization import local_path_from_file_uri, redact_url
 
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class OttCachedFetcher:
     def __init__(
         self,
-        config: RegistryConfig,
+        config: OttConfig,
         cache_dir: Path,
         http_client: httpx.Client,
         async_executor: AsyncExecutor | None,
@@ -94,9 +94,9 @@ class OttCachedFetcher:
                     data = self._fetch_json(mirror_url, max_bytes=max_bytes)
                 if data is not None:
                     self.write_cache(cache_key, data)
-                    log_info(f"[OttTextProvider] 后台刷新成功: {cache_key}")
+                    log_info(f"[OttCachedFetcher] 后台刷新成功: {cache_key}")
                 else:
-                    log_warning(f"[OttTextProvider] 后台刷新失败: {cache_key}")
+                    log_warning(f"[OttCachedFetcher] 后台刷新失败: {cache_key}")
             finally:
                 self._release_refresh_lock(cache_key, lock)
 
@@ -120,9 +120,9 @@ class OttCachedFetcher:
                     content = self._fetch_text(mirror_url, max_bytes=max_bytes)
                 if content is not None:
                     self.write_cache(cache_key, {"content": content})
-                    log_info(f"[OttTextProvider] 后台刷新成功: {cache_key}")
+                    log_info(f"[OttCachedFetcher] 后台刷新成功: {cache_key}")
                 else:
-                    log_warning(f"[OttTextProvider] 后台刷新失败: {cache_key}")
+                    log_warning(f"[OttCachedFetcher] 后台刷新失败: {cache_key}")
             finally:
                 self._release_refresh_lock(cache_key, lock)
 
@@ -165,20 +165,20 @@ class OttCachedFetcher:
                     declared = -1
                 if declared > max_bytes:
                     log_warning(
-                        f"[OttTextProvider] 响应体超限: {redact_url(url)} ({declared} > {max_bytes})"
+                        f"[OttCachedFetcher] 响应体超限: {redact_url(url)} ({declared} > {max_bytes})"
                     )
                     return None
             if max_bytes > 0 and len(response.content) > max_bytes:
                 log_warning(
-                    f"[OttTextProvider] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"
+                    f"[OttCachedFetcher] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"
                 )
                 return None
             data = response.json()
         except httpx.HTTPError as e:
-            log_warning(f"[OttTextProvider] HTTP 请求失败: {redact_url(url)} — {e}")
+            log_warning(f"[OttCachedFetcher] HTTP 请求失败: {redact_url(url)} — {e}")
             return None
         except (ValueError, TypeError, OSError) as e:
-            log_warning(f"[OttTextProvider] 响应解析失败: {redact_url(url)} — {e}")
+            log_warning(f"[OttCachedFetcher] 响应解析失败: {redact_url(url)} — {e}")
             return None
         return data if isinstance(data, dict) else None
 
@@ -196,16 +196,16 @@ class OttCachedFetcher:
                     declared = -1
                 if declared > max_bytes:
                     log_warning(
-                        f"[OttTextProvider] 响应体超限: {redact_url(url)} ({declared} > {max_bytes})"
+                        f"[OttCachedFetcher] 响应体超限: {redact_url(url)} ({declared} > {max_bytes})"
                     )
                     return None
             if max_bytes > 0 and len(response.content) > max_bytes:
                 log_warning(
-                    f"[OttTextProvider] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"
+                    f"[OttCachedFetcher] 响应体超限: {redact_url(url)} ({len(response.content)} > {max_bytes})"
                 )
                 return None
         except httpx.HTTPError as e:
-            log_warning(f"[OttTextProvider] HTTP 请求失败: {redact_url(url)} — {e}")
+            log_warning(f"[OttCachedFetcher] HTTP 请求失败: {redact_url(url)} — {e}")
             return None
         return response.text
 
@@ -247,7 +247,7 @@ class OttCachedFetcher:
                 shutil.rmtree(self._cache_dir)
                 self._cache_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
-            log_warning("[OttTextProvider] 清除缓存失败")
+            log_warning("[OttCachedFetcher] 清除缓存失败")
 
     def read_cache(self, cache_key: str) -> dict | None:
         path = self.cache_path(cache_key)

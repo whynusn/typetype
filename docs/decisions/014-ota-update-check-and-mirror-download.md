@@ -1,6 +1,8 @@
 # ADR-014: OTA 更新检查与镜像加速下载（GitHub Releases）
 
-<!-- 状态: proposed | 决策日期: 2026-08-13 -->
+<!-- 状态: accepted | 决策日期: 2026-08-13 | 最后验证: 2026-08-13 -->
+
+> 实施状态（2026-08-13，Wave 2）：**决策 1-6 已落地**。`version.py`（APP_VERSION）+ `build-release.yml` 新增 `assert-version` job（tag==pyproject==APP_VERSION 三断言）；`update_checker.py`（API→version.json 降级链 + 镜像下载 + sha256 强制校验 + Ed25519 验签）；`update_worker.py`/`update_adapter.py`/`resources/updater/{sh,bat}`/设置页「关于与更新」区；`update` 配置段入 v2 schema。镜像默认列表已按 2026-08-13 实测更新（见决策 3）。`UPDATE_PUBKEY` 仍为测试密钥占位，正式发布前须替换（待确认 1）。
 
 > 本 ADR 与 [ADR-013](./013-converge-to-three-repo-model.md) 正交（三仓收敛不依赖本机制），独立评审与排期。核心结论：**typetype 内置基于 GitHub Releases 的 OTA 更新检查（API 权威 + version.json CDN 降级链），二进制下载走内置镜像列表 fallback，所有下载强制 sha256 校验，版本清单 Ed25519 验签（独立于 L3 适配器 key）**。
 
@@ -72,9 +74,9 @@
 | GitHub API 限流/封锁 | 低 | version.json CDN 降级链 |
 | macOS 产物已知打不开（Gatekeeper） | 中 | 本次更新器机制不解决打包质量问题；若 macOS 产物无法使用，则 macOS 端更新器可能长期无实际可分发产物，见待确认 4 |
 
-## 待确认
+## 待确认（实施后状态）
 
-1. 版本清单签名 key：独立生成 vs 复用 ADR-011 key 体系（推荐**独立 key**——发布信任与 L3 代码信任域隔离，理由见决策 4）。
-2. 自动检查默认间隔（建议 24h）与「更新提示」交互形式（系统通知 vs 设置页标记 vs 启动时弹窗）。
-3. 镜像站默认列表：ghproxy 系第三方前缀代理稳定性差异大，实施时需实测可用性再定默认集合。
-4. **macOS 产物问题**：`typetype-macos.zip` 持续发布但用户反馈无法正常打开（疑 Gatekeeper 未签名/未公证，或 `--mode=app` 产物结构问题）。本 ADR 的更新器假设产物可用——macOS 打包质量修复是否纳入本次范围？（建议单独立项，不影响本 ADR 的 Linux/Windows 落地。）
+1. **版本清单签名 key**（✅ 需在正式发布前完成）：独立生成发布 key（与 ADR-011 L3 适配器 key 隔离——「能宣告新版本并替换整个应用的 key」与「能分发沙箱内脚本的 key」是不同信任域，泄露影响面差一个量级），私钥存 GitHub secret `UPDATE_SIGNING_SECRET_KEY`，公钥替换 `update_checker.py:UPDATE_PUBKEY`（当前为测试密钥占位），并更新 `scripts/gen_version_manifest.py` 默认值。
+2. 自动检查默认间隔（落地为 24h）与「更新提示」交互形式（落地为设置页标记；启动自动检查静默、设置页打开时展示）。
+3. **镜像站默认列表** ✅ 已实测（2026-08-13，curl 12s 超时，两批 20 个候选）：可用 `ghproxy.net`(1.1s)/`gh-proxy.com`(1.7s)/`gh.ddlc.top`(1.8s)/`ghproxy.link`(1.1s)/`gh.996650.xyz`(1.3s)；失效 `ghproxy.com`/`mirror.ghproxy.com`/`gh.llkk.cc`/`ghps.cc` 等。`DEFAULT_DOWNLOAD_MIRRORS` 已更新为 5 个实测可用镜像；jsDelivr（`cdn.jsdelivr.net`，稳定 200）同时用于 manifest 降级链与默认 hub URL。⚠️ 第三方镜像稳定性随网络环境波动，若上线后发现失效需替换。
+4. **macOS 产物问题** ✅ 已批准独立立项（2026-08-13）：`typetype-macos.zip` 用户反馈无法正常打开（疑 Gatekeeper 未签名/未公证，或 `--mode=app` 产物结构问题）→ 单独立项跟踪（另开 ADR/issue），本 ADR 的 Linux/Windows 落地不受阻塞。

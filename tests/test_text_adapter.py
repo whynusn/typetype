@@ -4,11 +4,7 @@ from src.backend.application.usecases.load_text_usecase import (
     LoadTextResult,
     TextLoadPlan,
 )
-from src.backend.config.text_source_config import (
-    LeaderboardMode,
-    Loader,
-    TextSourceEntry,
-)
+from src.backend.config.text_source_config import TextSourceEntry
 from src.backend.presentation.adapters.text_adapter import TextAdapter
 
 
@@ -139,42 +135,6 @@ def test_request_load_text_reports_planning_errors_without_runtime_config_lookup
     runtime_config.get_text_source.assert_not_called()
 
 
-def test_stale_local_text_id_lookup_result_is_not_emitted():
-    adapter, _, load_text_usecase = _build_adapter()
-    executor = CapturingExecutor()
-    adapter._lookup_executor = executor
-
-    load_text_usecase.lookup_text_id.side_effect = lambda source_key, content: {
-        "old text": 111,
-        "new text": 222,
-    }[content]
-    resolved: list[int] = []
-    adapter.localTextIdResolved.connect(
-        lambda text_id, generation: resolved.append(text_id)
-    )
-
-    adapter.lookup_text_id("local", "old text")
-    adapter.lookup_text_id("local", "new text")
-    # latest-only + single-flight: second request replaces pending payload,
-    # so only one worker thread should run and only latest result emitted.
-    assert len(executor.submitted) == 1
-    executor.submitted[0]()
-
-    assert resolved == [222]
-
-
-def test_invalidated_local_text_id_lookup_does_not_call_server():
-    adapter, _, load_text_usecase = _build_adapter()
-    executor = CapturingExecutor()
-    adapter._lookup_executor = executor
-
-    adapter.lookup_text_id("local", "old text")
-    adapter.invalidate_pending_text_id_lookup()
-    executor.submitted[0]()
-
-    load_text_usecase.lookup_text_id.assert_not_called()
-
-
 def test_stale_text_load_worker_success_is_ignored_after_clear_active():
     adapter, _, load_text_usecase = _build_adapter()
     source_entry = TextSourceEntry(key="local", label="Local", local_path="local.txt")
@@ -221,15 +181,12 @@ def test_get_source_options_include_local_metadata():
         "builtin_demo": TextSourceEntry(
             key="builtin_demo",
             label="本地示例",
-            loader=Loader.LOCAL_FILE,
-            leaderboard_mode=LeaderboardMode.NONE,
             local_path="resources/texts/builtin_demo.txt",
         ),
-        "jisubei": TextSourceEntry(
-            key="jisubei",
-            label="极速杯",
-            loader=Loader.REMOTE_API,
-            leaderboard_mode=LeaderboardMode.SERVER_RESOLVED,
+        "local_b": TextSourceEntry(
+            key="local_b",
+            label="本地B",
+            local_path="resources/texts/local_b.txt",
         ),
     }
 
@@ -240,9 +197,9 @@ def test_get_source_options_include_local_metadata():
             "isLocal": True,
         },
         {
-            "key": "jisubei",
-            "label": "极速杯",
-            "isLocal": False,
+            "key": "local_b",
+            "label": "本地B",
+            "isLocal": True,
         },
     ]
 
@@ -254,36 +211,35 @@ def test_startup_source_uses_default_when_default_is_local():
         "builtin_demo": TextSourceEntry(
             key="builtin_demo",
             label="本地示例",
-            loader=Loader.LOCAL_FILE,
             local_path="resources/texts/builtin_demo.txt",
         ),
-        "old": TextSourceEntry(key="old", label="Old", loader=Loader.REMOTE_API),
+        "old": TextSourceEntry(key="old", label="Old"),
     }
 
     assert adapter.get_startup_source_key() == "builtin_demo"
 
 
-def test_startup_source_falls_back_to_first_local_when_default_is_remote():
+def test_startup_source_prefers_local_sources():
+    """v2 收敛后所有来源均为本地（is_local 恒 True），默认 key 优先。"""
     adapter, runtime_config, _ = _build_adapter()
     runtime_config.text_source_config.default_key = "old"
     runtime_config.text_source_config.sources = {
-        "old": TextSourceEntry(key="old", label="Old", loader=Loader.REMOTE_API),
+        "old": TextSourceEntry(key="old", label="Old"),
         "builtin_demo": TextSourceEntry(
             key="builtin_demo",
             label="本地示例",
-            loader=Loader.LOCAL_FILE,
             local_path="resources/texts/builtin_demo.txt",
         ),
     }
 
-    assert adapter.get_startup_source_key() == "builtin_demo"
+    assert adapter.get_startup_source_key() == "old"
 
 
-def test_startup_source_keeps_remote_default_when_no_local_source_exists():
+def test_startup_source_keeps_default_when_no_local_source_exists():
     adapter, runtime_config, _ = _build_adapter()
     runtime_config.text_source_config.default_key = "old"
     runtime_config.text_source_config.sources = {
-        "old": TextSourceEntry(key="old", label="Old", loader=Loader.REMOTE_API),
+        "old": TextSourceEntry(key="old", label="Old"),
     }
 
     assert adapter.get_startup_source_key() == "old"
@@ -379,43 +335,3 @@ def test_runtime_config_public_accessor():
     adapter, runtime_config, _ = _build_adapter()
 
     assert adapter.runtime_config is runtime_config
-
-
-def test_lookup_text_id_async_latest_only_emits_latest_result():
-    import threading
-    from PySide6.QtCore import QCoreApplication
-
-    adapter, _, load_text_usecase = _build_adapter()
-    app = QCoreApplication.instance() or QCoreApplication([])
-    emitted: list[int] = []
-    adapter.localTextIdResolved.connect(
-        lambda text_id, generation: emitted.append(text_id)
-    )
-
-    gate_first = threading.Event()
-    gate_second = threading.Event()
-
-    def lookup_side_effect(source_key: str, content: str):
-        if content == "A":
-            gate_first.wait(timeout=1)
-            return 111
-        gate_second.wait(timeout=1)
-        return 222
-
-    load_text_usecase.lookup_text_id.side_effect = lookup_side_effect
-
-    adapter.lookup_text_id("k", "A")
-    adapter.lookup_text_id("k", "B")
-
-    gate_second.set()
-    gate_first.set()
-
-    # 轮询等待后台线程结束
-    import time
-
-    deadline = time.time() + 1.0
-    while time.time() < deadline and not emitted:
-        app.processEvents()
-        time.sleep(0.01)
-
-    assert emitted == [222]

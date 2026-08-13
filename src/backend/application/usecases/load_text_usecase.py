@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import re
 
-from ...config.text_source_config import LeaderboardMode, TextSourceEntry
+from ...config.text_source_config import TextSourceEntry
 from ...ports.clipboard import ClipboardReader
 from ..gateways.text_source_gateway import TextSourceGateway
 
@@ -74,17 +74,8 @@ class LoadTextUseCase:
             text=fetched.content,
             text_id=fetched.text_id,
             source_label=result_title,
-            source_key=self._lookup_source_key(plan.source_entry, fetched),
+            source_key=plan.source_entry.key,
         )
-
-    @staticmethod
-    def _lookup_source_key(source_entry: TextSourceEntry, fetched) -> str:
-        """仅本地排行榜文本（LOCAL_LOOKUP 模式）需要异步回查服务端 text_id。"""
-        if fetched.text_id is not None:
-            return ""
-        if source_entry.leaderboard_mode == LeaderboardMode.LOCAL_LOOKUP:
-            return source_entry.key
-        return ""
 
     def load_from_clipboard(self) -> LoadTextResult:
         """从剪贴板加载文本。"""
@@ -101,13 +92,6 @@ class LoadTextUseCase:
             source_label="剪贴板",
             source_key="",
         )
-
-    def lookup_text_id(self, source_key: str, content: str) -> int | None:
-        """按内容 hash 回查服务端 text_id（供异步回查使用）。
-
-        通过 Gateway 的公开方法访问，不暴露 Gateway 引用。
-        """
-        return self._text_gateway.lookup_text_id(source_key, content)
 
     @classmethod
     def _extract_clipboard_text(cls, raw_text: str) -> str:

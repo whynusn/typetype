@@ -65,22 +65,36 @@ def test_text_load_hub_uses_expected_bridge_contract():
     source = qml_source + js_source
     refs = _get_qml_refs(source)
     assert "property bool active: false" in qml_source
-    assert "textListLoading" in refs and "textListLoading" in BRIDGE_PROPERTIES
+    # textListLoading/loadTextList/loadCatalog 已随 typetype-server 耦合移除
+    # （ADR-013）；目录功能由联邦 loadFederatedEntries 承担
     assert "localArticleLoading" in refs and "localArticleLoading" in BRIDGE_PROPERTIES
     assert "trainerLoading" in refs and "trainerLoading" in BRIDGE_PROPERTIES
-    assert "loadTextList" in refs and "loadTextList" in BRIDGE_SLOTS
     assert "loadLocalArticles" in refs and "loadLocalArticles" in BRIDGE_SLOTS
-    assert "loadCatalog" in BRIDGE_SLOTS
     assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
     assert (
         "loadLocalArticleSegment" in refs and "loadLocalArticleSegment" in BRIDGE_SLOTS
     )
     assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
-    # OTT 源仓库联邦聚合 Slot
-    assert "addRepo" in refs and "addRepo" in BRIDGE_SLOTS
-    assert "removeRepo" in refs and "removeRepo" in BRIDGE_SLOTS
-    assert "setRepoEnabled" in refs and "setRepoEnabled" in BRIDGE_SLOTS
-    assert "refreshRepos" in refs and "refreshRepos" in BRIDGE_SLOTS
+    # OTT 源仓库联邦聚合 Slot（hub 直接浏览/载入联邦条目）
+    assert "loadFederatedEntries" in refs and "loadFederatedEntries" in BRIDGE_SLOTS
+    assert (
+        "loadFederatedEntrySegment" in refs
+        and "loadFederatedEntrySegment" in BRIDGE_SLOTS
+    )
+    assert (
+        "loadFederatedInlineEntry" in refs
+        and "loadFederatedInlineEntry" in BRIDGE_SLOTS
+    )
+    # 晴发文 / AI 即时拉取入口纳入载文中心
+    assert "loadRandomWenlaiText" in refs and "loadRandomWenlaiText" in BRIDGE_SLOTS
+    assert "requestAiText" in refs and "requestAiText" in BRIDGE_SLOTS
+    # 订阅管理 bridge Slot 由独立 ReposManagementPage 引用（hub 不再直连）
+    management_qml = QML_DIR / "pages/ReposManagementPage.qml"
+    mgmt_refs = _get_qml_refs(management_qml.read_text(encoding="utf-8"))
+    assert "addRepo" in mgmt_refs and "addRepo" in BRIDGE_SLOTS
+    assert "removeRepo" in mgmt_refs and "removeRepo" in BRIDGE_SLOTS
+    assert "setRepoEnabled" in mgmt_refs and "setRepoEnabled" in BRIDGE_SLOTS
+    assert "refreshRepos" in mgmt_refs and "refreshRepos" in BRIDGE_SLOTS
     assert "SliceCriteriaPanel" in qml_source
     assert "TextInfoCard" in qml_source
     assert (

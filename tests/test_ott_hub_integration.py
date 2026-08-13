@@ -20,7 +20,7 @@ import jsonschema
 import pytest
 
 from src.backend.config.runtime_config import (
-    RegistryConfig,
+    OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
@@ -67,9 +67,7 @@ def _mock_http(json_data):
 def _federation_with_hub(tmp_path, trust_state="verified", script_data=None):
     """创建一个订阅 hub 的 OttFederationProvider（manifest 预写缓存跳过网络）。"""
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = RegistryConfig(
-        cache_ttl_seconds=3600, max_content_bytes=1_048_576
-    )
+    config.ott = OttConfig(cache_ttl_seconds=3600, max_content_bytes=1_048_576)
     repo_entry = SourceRepoEntry(
         url="https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json",
         enabled=True,

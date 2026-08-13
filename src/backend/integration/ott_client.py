@@ -1,8 +1,9 @@
 """OTT Core v1 client helpers.
 
 This client owns protocol routing between the Service Profile (`/ott/v1`) and
-the Static Profile. Caching and HTTP transport stay in OttTextProvider for
-now so this can be introduced without changing the persistence model.
+the Static Profile. Caching and HTTP transport are injected by the caller
+(``OttCachedFetcher`` in federation), keeping protocol routing decoupled from
+the persistence model.
 """
 
 from __future__ import annotations

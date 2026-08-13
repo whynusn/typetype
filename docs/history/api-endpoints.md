@@ -1,5 +1,7 @@
-# 服务端 API 端点速查
-<!-- 状态: active | 最后验证: 2026-05-14 -->
+# 服务端 API 端点速查（已归档）
+<!-- 状态: archived | 归档日期: 2026-08-13 -->
+
+> **⛔ 已归档：typetype-server 已移除（ADR-013）**。本文档描述的服务端（`typetype-server`，Java Spring Boot）已从三仓模型中删除，客户端不再包含排行榜、成绩提交、登录注册、远程文本列表等任何服务端交互。保留仅供历史追溯，不作为当前开发参考。
 
 > 后端项目：`typetype-server`（Java Spring Boot）
 > 基础 URL：由 `RuntimeConfig.base_url` 配置，默认 `http://127.0.0.1:8080`

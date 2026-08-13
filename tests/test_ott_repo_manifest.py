@@ -391,6 +391,69 @@ def test_mirror_failover_without_cache_returns_none(tmp_path):
     assert client.get.call_count == 1
 
 
+def test_to_jsdelivr_url():
+    """raw.githubusercontent.com → cdn.jsdelivr.net 转换；非 raw URL 不降级。"""
+    from src.backend.integration.ott_repo_manifest import _to_jsdelivr_url
+
+    assert (
+        _to_jsdelivr_url(
+            "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json"
+        )
+        == "https://cdn.jsdelivr.net/gh/whynusn/ott-source-hub@main/ott-repo.json"
+    )
+    assert (
+        _to_jsdelivr_url(
+            "https://raw.githubusercontent.com/a/b/main/adapters/x/code/script.py"
+        )
+        == "https://cdn.jsdelivr.net/gh/a/b@main/adapters/x/code/script.py"
+    )
+    # 非 GitHub raw URL → 不降级（None）
+    assert _to_jsdelivr_url("https://texts.example.org/ott-repo.json") is None
+    assert _to_jsdelivr_url("file:///tmp/ott-repo.json") is None
+    # 路径段不足 → 不降级
+    assert _to_jsdelivr_url("https://raw.githubusercontent.com/a/b") is None
+
+
+def test_first_fetch_failure_falls_back_to_jsdelivr(tmp_path):
+    """首次拉取失败（无缓存）→ raw 主地址失败后尝试 jsDelivr CDN 降级。"""
+    manifest = _valid_manifest()
+    client = MagicMock(spec=httpx.Client)
+    fail_resp = _mock_response(json_data=None, status_code=500)
+    ok_resp = _mock_response(json_data=manifest, status_code=200)
+    client.get.side_effect = [fail_resp, ok_resp]
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+    )
+    repo = SourceRepoEntry(
+        url="https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json"
+    )
+
+    assert cache.refresh_manifest(repo) is not None
+    urls = [call.args[0] for call in client.get.call_args_list]
+    assert urls == [
+        "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json",
+        "https://cdn.jsdelivr.net/gh/whynusn/ott-source-hub@main/ott-repo.json",
+    ]
+
+
+def test_first_fetch_failure_non_raw_url_no_jsdelivr(tmp_path):
+    """非 raw URL 首拉失败 → 无 CDN 降级，返回 None。"""
+    client = MagicMock(spec=httpx.Client)
+    fail_resp = _mock_response(json_data=None, status_code=500)
+    client.get.return_value = fail_resp
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+    )
+    repo = SourceRepoEntry(url="https://texts.example.org/ott-repo.json")
+
+    assert cache.refresh_manifest(repo) is None
+    assert client.get.call_count == 1
+
+
 # ---------------------------------------------------------------------------
 # RepoManifestCache (offline / cache-only)
 # ---------------------------------------------------------------------------

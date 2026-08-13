@@ -850,11 +850,12 @@ class OttRuleInterpreter:
         if not title and content:
             title = content[:60]
 
-        # 确定性 ID：sha256(content + page) 前 16 hex
-        entry_id_raw = hashlib.sha256(f"{content}:{page}".encode("utf-8")).hexdigest()[
-            :16
-        ]
+        # 确定性 ID：sha256(content) 前 16 hex——内容为身份，不掺 page。
+        # page 参与 ID 会导致同内容多页产生不同 entry_id，federation 的
+        # authority:entry_id 去重失效（2026-08-13 实测 hitokoto 同句 ×5）。
+        entry_id_raw = hashlib.sha256(content.encode("utf-8")).hexdigest()[:16]
 
+        # revision 掺 page：同内容不同页 = 新修订，进度键仍可区分
         revision_raw = hashlib.sha256(f"{url}:{page}".encode("utf-8")).hexdigest()[:12]
 
         if authority:

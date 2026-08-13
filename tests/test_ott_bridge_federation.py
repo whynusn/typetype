@@ -6,6 +6,7 @@
 - 非 http(s) endpoint / 非 object 响应 / 空 content 拒绝
 - 未知 bridge_kind 跳过
 - federation 全链路：bridge 源被构建为 _BridgeClient、authority 指纹命名、条目聚合
+- list_repos 上报 bridge authority / unsupported bridge_kind
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from unittest.mock import MagicMock
 import httpx
 
 from src.backend.config.runtime_config import (
-    RegistryConfig,
+    OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
@@ -82,9 +83,7 @@ def _federation_with_bridge(
 ):
     """创建一个带 bridge 订阅的 OttFederationProvider。"""
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = RegistryConfig(
-        cache_ttl_seconds=3600, max_content_bytes=1_048_576
-    )
+    config.ott = OttConfig(cache_ttl_seconds=3600, max_content_bytes=1_048_576)
 
     repo_entry = SourceRepoEntry(
         url="https://bridge-test.example.org/ott-repo.json",
@@ -243,6 +242,31 @@ class TestBridgeFederation:
         assert entries[0]["_authority"] == _bridge_authority(
             "https://bridge.example.com/api"
         )
+
+    def test_list_repos_reports_supported_bridge_authority(self, tmp_path) -> None:
+        """支持的 ott-bridge（generic-http）必须在 list_repos authorities 中上报。"""
+        provider, _ = _federation_with_bridge(
+            tmp_path,
+            bridge_data={"title": "T", "content": "来自桥的内容"},
+        )
+        repos = provider.list_repos()
+        assert repos[0]["authorities"] == [
+            _bridge_authority("https://bridge.example.com/api")
+        ]
+        assert repos[0]["unsupported_sources"] == []
+
+    def test_list_repos_unsupported_bridge_kind(self, tmp_path) -> None:
+        """未实现的 bridge_kind 进 unsupported_sources；generic-http 不进。"""
+        provider, _ = _federation_with_bridge(
+            tmp_path,
+            bridge_kind="wenlai",
+            bridge_data={"title": "T", "content": "x"},
+        )
+        repos = provider.list_repos()
+        assert repos[0]["unsupported_sources"] == ["Test Bridge"]
+        assert repos[0]["authorities"] == [
+            _bridge_authority("https://bridge.example.com/api")
+        ]
 
     def test_bridge_entry_inline_typing_path(self, tmp_path) -> None:
         """桥条目 content_mode=inline → 走 loadFederatedInlineEntry 打字路径。"""

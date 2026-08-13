@@ -63,6 +63,23 @@ def _normalize_snapshot_hash(value: str) -> str:
     return value.removeprefix("sha256:").strip().lower()
 
 
+def _to_jsdelivr_url(url: str) -> str | None:
+    """raw.githubusercontent.com/{owner}/{repo}/{ref}/{path} → cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}。
+
+    用于主地址首次拉取失败时的 CDN 降级：GitHub raw 直连在国内网络常超时
+    （2026-08-13 实测 HTTP 000），jsDelivr 实测稳定可达。非 GitHub raw URL
+    返回 None（不降级）。
+    """
+    prefix = "https://raw.githubusercontent.com/"
+    if not url.startswith(prefix):
+        return None
+    parts = url[len(prefix) :].split("/", 3)
+    if len(parts) < 4:
+        return None
+    owner, repo, ref, path = parts
+    return f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}"
+
+
 def _normalize_revocations(value: Any) -> list[dict]:
     """归一化 revocations 列表（ADR-011 Phase 2.7）。
 
@@ -466,6 +483,17 @@ class RepoManifestCache:
             return data, etag
         cached = self._read_validated_cache(cache_key)
         if not cached:
+            # 首次拉取失败（无缓存可镜像）：尝试 jsDelivr CDN 降级，
+            # 兜底 GitHub raw 直连超时（2026-08-13 实测）。
+            fallback = _to_jsdelivr_url(repo.url)
+            if fallback:
+                data, etag = self._fetch_manifest(fallback, cache_key, repo.etag)
+                if data is not None:
+                    log_info(
+                        f"[RepoManifest] 主地址失败，jsDelivr CDN 命中: "
+                        f"{redact_url(fallback)}"
+                    )
+                    return data, etag
             return None, ""
         for mirror in cached.get("mirrors", []):
             if not isinstance(mirror, dict):

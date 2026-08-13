@@ -17,7 +17,6 @@ FluentPage {
     }
 
     property bool toLocal: true
-    property bool toCloud: false
     property bool uploading: false
     property string filePath: ""  // 导入的文件路径
     property int maxContentLength: 10000  // 手动输入字数上限
@@ -27,9 +26,7 @@ FluentPage {
         contentArea.text = "";
         filePath = "";
         localCheckBox.checked = true;
-        cloudCheckBox.checked = false;
         toLocal = true;
-        toCloud = false;
     }
 
     function showInfo(severity, title, text) {
@@ -180,19 +177,6 @@ FluentPage {
         }
     }
 
-    SettingCard {
-        Layout.fillWidth: true
-        title: qsTr("云端（仅管理员）")
-        description: qsTr("上传到服务端，需登录且具有管理员权限")
-        icon.name: "ic_fluent_cloud_20_regular"
-
-        CheckBox {
-            id: cloudCheckBox
-            enabled: appBridge ? appBridge.loggedin : false
-            onCheckedChanged: uploadPage.toCloud = checked
-        }
-    }
-
     // 上传进度
     ProgressBar {
         Layout.fillWidth: true
@@ -227,8 +211,8 @@ FluentPage {
                     showInfo(Severity.Error, qsTr("验证失败"), qsTr("请输入标题"));
                     return;
                 }
-                if (!uploadPage.toLocal && !uploadPage.toCloud) {
-                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请至少选择一个上传目标"));
+                if (!uploadPage.toLocal) {
+                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请选择本地文本库"));
                     return;
                 }
 
@@ -249,9 +233,9 @@ FluentPage {
                 uploadPage.uploading = true;
                 if (appBridge) {
                     if (hasFile) {
-                        appBridge.uploadTextFromFile(title, uploadPage.filePath, "custom", uploadPage.toLocal, uploadPage.toCloud);
+                        appBridge.uploadTextFromFile(title, uploadPage.filePath, "custom", uploadPage.toLocal, false);
                     } else {
-                        appBridge.uploadText(title, contentArea.text.trim(), "custom", uploadPage.toLocal, uploadPage.toCloud);
+                        appBridge.uploadText(title, contentArea.text.trim(), "custom", uploadPage.toLocal, false);
                     }
                 }
             }
@@ -269,12 +253,6 @@ FluentPage {
                 showInfo(Severity.Success, qsTr("上传成功"), message || qsTr("文本已成功上传"));
             } else {
                 showInfo(Severity.Error, qsTr("上传失败"), message);
-            }
-        }
-        function onLoggedinChanged() {
-            if (appBridge && !appBridge.loggedin) {
-                uploadPage.toCloud = false;
-                cloudCheckBox.checked = false;
             }
         }
         function onTextFileLoaded(preview) {

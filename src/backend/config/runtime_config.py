@@ -11,7 +11,12 @@ except ImportError:
     fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
 from ..models.dto.text_catalog_item import TextCatalogItem
-from .app_paths import builtin_ott_repo_url, default_ott_hub_url, user_config_path
+from .app_paths import (
+    builtin_ott_repo_url,
+    default_ott_hub_url,
+    user_config_dir,
+    user_config_path,
+)
 from ..utils.logger import log_error, log_info
 from .text_source_config import TextSourceConfig, TextSourceEntry
 
@@ -112,38 +117,60 @@ def _default_scripts_enabled() -> bool:
 
 
 @dataclass
-class RegistryConfig:
-    """开源文库（Registry/OTT）配置。"""
+class OttConfig:
+    """OTT 运行时参数（ADR-013 决策 4：由旧 registry 段收纳而来）。
 
-    primary_url: str = ""
-    mirror_url: str = ""
+    - cache_ttl_seconds：rule/script 缓存 TTL
+    - max_content_bytes：单条目内容上限（federation 传入沙箱）
+    - scripts_enabled：L3 ott-script 沙箱开关
+    """
+
     cache_ttl_seconds: int = 3600
     max_content_bytes: int = 1_048_576
     scripts_enabled: bool = field(default_factory=_default_scripts_enabled)
 
     def __post_init__(self) -> None:
-        # 确保 primary_url 是合法字符串，否则视为禁用
-        if not isinstance(self.primary_url, str):
-            self.primary_url = ""
-        self.primary_url = self.primary_url.strip()
-        if self.primary_url:
-            self.primary_url = self.primary_url.rstrip("/")
-            # primary 有值时，mirror 为空才补默认镜像
-            if not isinstance(self.mirror_url, str) or not self.mirror_url.strip():
-                self.mirror_url = (
-                    "https://raw.githubusercontent.com/whynusn/open-typing-texts/main"
-                )
-            else:
-                self.mirror_url = self.mirror_url.strip().rstrip("/")
-        else:
-            # primary_url 为空 → 整个 registry 禁用，mirror_url 也置空
-            self.mirror_url = ""
         if self.cache_ttl_seconds < 0:
             self.cache_ttl_seconds = 3600
         if self.max_content_bytes < 0:
             self.max_content_bytes = 1_048_576
         if not isinstance(self.scripts_enabled, bool):
             self.scripts_enabled = _default_scripts_enabled()
+
+
+@dataclass
+class UpdateConfig:
+    """OTA 更新检查配置（ADR-014 决策 6）。
+
+    - enabled：是否启用更新检查
+    - auto_check：启动后后台自动检查
+    - check_interval_hours：自动检查间隔
+    - channel：发布通道（stable / beta，预留）
+    - mirrors：二进制下载镜像前缀列表（默认空，运行时填默认直链/镜像）
+    """
+
+    enabled: bool = True
+    auto_check: bool = True
+    check_interval_hours: int = 24
+    channel: str = "stable"
+    mirrors: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.enabled, bool):
+            self.enabled = True
+        if not isinstance(self.auto_check, bool):
+            self.auto_check = True
+        if (
+            not isinstance(self.check_interval_hours, int)
+            or self.check_interval_hours <= 0
+        ):
+            self.check_interval_hours = 24
+        if not isinstance(self.channel, str) or self.channel not in {"stable", "beta"}:
+            self.channel = "stable"
+        if not isinstance(self.mirrors, list):
+            self.mirrors = []
+        else:
+            self.mirrors = [m for m in self.mirrors if isinstance(m, str) and m]
 
 
 @dataclass
@@ -187,10 +214,7 @@ class SourceRepoEntry:
 
 @dataclass
 class SourceReposConfig:
-    """多 authority 源仓库订阅列表（OTT Repo 控制面）。
-
-    旧 RegistryConfig.primary_url 在加载时自动迁移为一条等价订阅。
-    """
+    """多 authority 源仓库订阅列表（OTT Repo 控制面）。"""
 
     repos: list[SourceRepoEntry] = field(default_factory=list)
 
@@ -219,18 +243,22 @@ class TextSessionConfig:
 
 @dataclass
 class RuntimeConfig:
-    """运行时配置，从 JSON 文件加载。"""
+    """运行时配置，从 JSON 文件加载（schema_version=2，ADR-013 决策 3/4）。"""
 
-    base_url: str = "http://127.0.0.1:8080"
-    api_timeout: float = (
-        20.0  # 启动期常量：仅 container.py 创建 ApiClient 时使用，运行时不传播变更
-    )
+    SCHEMA_VERSION: ClassVar[int] = 2
+
+    # v1 顶层特征键：v2 schema 中不存在。用于迁移触发判断——即使配置被
+    # 意外 stamp 成 schema_version=2（如 _save_to_file 合并未知字段保留了
+    # base_url/registry），只要残留 v1 特征键就补跑迁移（自愈，迁移幂等）。
+    V1_LEGACY_KEYS: ClassVar[tuple[str, ...]] = ("base_url", "api_timeout", "registry")
+
     typing_history_max_records: int = 2000  # 打字历史最多保留条数
     blocked_content_hashes: list[str] = field(default_factory=list)
 
     text_source_config: TextSourceConfig = field(default_factory=TextSourceConfig)
     wenlai: WenlaiConfig = field(default_factory=WenlaiConfig)
-    registry: RegistryConfig = field(default_factory=RegistryConfig)
+    ott: OttConfig = field(default_factory=OttConfig)
+    update: UpdateConfig = field(default_factory=UpdateConfig)
     source_repos: SourceReposConfig = field(default_factory=SourceReposConfig)
     ai: AiConfig = field(default_factory=AiConfig)
     text_session: TextSessionConfig = field(default_factory=TextSessionConfig)
@@ -248,6 +276,22 @@ class RuntimeConfig:
     _ui_dirty: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
+    @classmethod
+    def _needs_v1_migration(cls, data: Any) -> bool:
+        """是否需要对配置执行 v1→v2 迁移。
+
+        - 非 dict / 缺 schema_version / schema_version 非当前版本 → 迁移
+        - schema_version 已是 v2 但残留 v1 特征键（base_url/api_timeout/registry）
+          → 迁移（自愈：被 _save_to_file 合并未知字段污染的历史配置）
+        - 干净 v2 → False（幂等：不再触发）
+        """
+        if not isinstance(data, dict):
+            return True
+        if data.get("schema_version") != cls.SCHEMA_VERSION:
+            return True
+        return any(k in data for k in cls.V1_LEGACY_KEYS)
+
+    @classmethod
     def load_from_file(cls, config_path: str | None = None) -> "RuntimeConfig":
         if config_path is None:
             config_path = str(user_config_path())
@@ -261,34 +305,207 @@ class RuntimeConfig:
                 config = cls(_config_path=config_path)
                 config._ensure_builtin_default_repo()
                 return config
+
+            if cls._needs_v1_migration(data):
+                # v1（缺 schema_version 或残留 v1 特征键）→ 幂等迁移并写回；
+                # 已是干净 v2 直接加载。
+                raw = data if isinstance(data, dict) else {}
+                had_repos = bool(raw.get("source_repos"))
+                migrated = cls._migrate_legacy_v1(raw)
+                cls._write_migrated(config_path, migrated)
+                data = migrated
+
+                config = cls._from_dict(data)
+                config._config_path = config_path  # 先绑定路径，后续 save 写入目标文件
+                if had_repos and not config.source_repos.repos:
+                    # 原有「清空后重新 ensure_builtin」语义：v1 有订阅但迁移
+                    # （example.org 占位清理）后全部被移除 → 补默认订阅并持久化，
+                    # 避免下次启动读空订阅丢失默认源。
+                    config._ensure_builtin_default_repo()
+                    config._save_to_file()
+                elif "source_repos" not in data:
+                    # 全新/极简 v1 配置无 source_repos 键 → 补默认订阅（与 v2 路径一致）
+                    config._ensure_builtin_default_repo()
+                    config._save_to_file()
+                return config
+
             config = cls._from_dict(data)
+            config._config_path = config_path
+            # 占位订阅清理：每次加载都执行（不依赖 v1→v2 schema 迁移）。
+            # 干净 v2 配置残留的 example.org 占位同样需要清理（2026-08-13 实测：
+            # 配置被旧版 _save_to_file 合并未知字段污染后，仅凭 schema_version
+            # 判断迁移无法自愈）。清理后若清空全部订阅 → 补默认订阅并持久化。
+            if config._cleanup_stale_subscriptions():
+                if not config.source_repos.repos:
+                    config._ensure_builtin_default_repo()
+                config._save_to_file()
             if "source_repos" not in data:
                 config._ensure_builtin_default_repo()
-            config._config_path = config_path
+            return config
+
         else:
             config = cls(_config_path=config_path)
             config._ensure_builtin_default_repo()
 
-        had_nonempty_repos = bool(config.source_repos.repos)
-        # 清理已知的测试/占位订阅（客户端不自动订阅任何远程源，
-        # 订阅必须由用户显式添加）
-        config._cleanup_stale_subscriptions()
-        if (
-            had_nonempty_repos
-            and not config.source_repos.repos
-            and not config.registry.primary_url
-        ):
-            config._ensure_builtin_default_repo()
         return config
 
-    def _cleanup_stale_subscriptions(self) -> None:
-        """移除已知的测试/占位订阅。"""
+    def _cleanup_stale_subscriptions(self) -> bool:
+        """移除测试/占位订阅（URL 含 example.org）并持久化。
+
+        每次加载都执行（不依赖 v1→v2 schema 迁移）：干净 v2 配置也可能
+        残留 example.org 占位（如历史版本 _save_to_file 合并未知字段写入，
+        2026-08-13 实测）。返回是否发生了清理。
+        """
         stale = [r for r in self.source_repos.repos if "example.org" in r.url]
+        if not stale:
+            return False
         for r in stale:
             self.remove_source_repo(r.url)
+        return True
+
+    @classmethod
+    def _migrate_legacy_v1(cls, raw_data: dict) -> dict:
+        """v1 → v2 幂等迁移（纯函数，不写盘）。
+
+        只处理旧 v1 结构（ADR-013 决策 3/4/6，Phase 0）：
+        - 删除 `base_url`、`api_timeout`
+        - 删除 `registry.primary_url` / `registry.mirror_url`
+        - `registry.{cache_ttl_seconds, max_content_bytes, scripts_enabled}`
+          保值迁移到新顶级段 `ott`
+        - `text_sources`：丢弃 server/registry 条目与
+          `loader`/`leaderboard_mode`/`source_type`/`has_ranking` 键；
+          本地条目重写为 `{label, local_path}`
+        - `font_config.json` 折叠进 `ui.reader_font_path`（文件保留不删）
+        - 移除 URL 含 `example.org` 的 `source_repos` 占位订阅
+        - stamp `"schema_version": 2`
+        """
+        data = dict(raw_data)
+
+        # 删除 server 耦合字段
+        data.pop("base_url", None)
+        data.pop("api_timeout", None)
+
+        # registry 段：primary_url/mirror_url 删除，运行时参数收纳到新顶级段 ott
+        registry = data.get("registry")
+        if isinstance(registry, dict):
+            ott: dict[str, Any] = {}
+            if registry.get("cache_ttl_seconds") is not None:
+                ott["cache_ttl_seconds"] = cls._safe_int(
+                    registry.get("cache_ttl_seconds"), 3600
+                )
+            if registry.get("max_content_bytes") is not None:
+                ott["max_content_bytes"] = cls._safe_int(
+                    registry.get("max_content_bytes"), 1_048_576
+                )
+            if registry.get("scripts_enabled") is not None:
+                ott["scripts_enabled"] = cls._safe_bool(
+                    registry.get("scripts_enabled"), _default_scripts_enabled()
+                )
+            if ott:
+                data["ott"] = ott
+        data.pop("registry", None)
+
+        # text_sources：丢弃 server/registry 条目与 legacy 字段，
+        # 本地条目重写为 {label, local_path}（保留 local_path）
+        sources = data.get("text_sources")
+        if isinstance(sources, dict):
+            rewritten: dict[str, Any] = {}
+            for key, source in sources.items():
+                if not isinstance(source, dict):
+                    continue
+                loader = source.get("loader")
+                source_type = source.get("source_type")
+                if loader in ("remote_api", "registry") or source_type in (
+                    "network",
+                    "registry",
+                ):
+                    continue  # server/registry 条目整体丢弃
+                local_path = source.get("local_path")
+                if not isinstance(local_path, str) or not local_path:
+                    continue  # v2 仅本地文件来源，无路径条目无意义
+                rewritten[key] = {
+                    "label": source.get("label", key),
+                    "local_path": local_path,
+                }
+            if rewritten:
+                data["text_sources"] = rewritten
+            else:
+                data.pop("text_sources", None)
+
+        # font_config.json 折叠（仅当 ui.reader_font_path 为空；文件保留不删）
+        cls._merge_font_config(data)
+
+        # example.org 占位订阅清理（原 _cleanup_stale_subscriptions 逻辑并入迁移）
+        source_repos = data.get("source_repos")
+        if isinstance(source_repos, list):
+            kept = [
+                r
+                for r in source_repos
+                if isinstance(r, dict)
+                and isinstance(r.get("url"), str)
+                and "example.org" not in r["url"]
+            ]
+            data["source_repos"] = kept
+
+        # stamp
+        data["schema_version"] = cls.SCHEMA_VERSION
+        return data
+
+    @classmethod
+    def _merge_font_config(cls, data: dict) -> None:
+        """font_config.json 折叠：reader_font_path 合并进 ui.reader_font_path。
+
+        仅当 `~/.config/typetype/font_config.json`（跨平台用 user_config_dir()）
+        存在且 `ui.reader_font_path` 为空时生效；font_config.json 本身保留不动。
+        """
+        try:
+            font_cfg_path = user_config_dir() / "font_config.json"
+            if not font_cfg_path.exists():
+                return
+            font_cfg = json.loads(font_cfg_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        reader_font_path = font_cfg.get("reader_font_path")
+        if not isinstance(reader_font_path, str) or not reader_font_path:
+            return
+        ui = data.get("ui")
+        if not isinstance(ui, dict):
+            ui = {}
+        if ui.get("reader_font_path"):
+            return  # ui.reader_font_path 已存在，不覆盖
+        ui["reader_font_path"] = reader_font_path
+        data["ui"] = ui
+
+    @staticmethod
+    def _write_migrated(config_path: str, data: dict) -> None:
+        """迁移后的 v2 配置写回磁盘（文件锁 + 原子写，复用 _save_to_file 思路）。"""
+        target_path = Path(config_path)
+        tmp_path = target_path.with_name(target_path.name + ".tmp")
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            with target_path.open("a+", encoding="utf-8") as f:
+                try:
+                    if fcntl is not None:
+                        fcntl.lockf(f.fileno(), fcntl.LOCK_EX)
+                except (OSError, AttributeError):
+                    pass  # 非 Unix 平台或锁不可用时降级
+                with tmp_path.open("w", encoding="utf-8") as tmp:
+                    json.dump(data, tmp, ensure_ascii=False, indent=4)
+                    tmp.write("\n")
+                    tmp.flush()
+                    os.fsync(tmp.fileno())
+                f.close()
+                os.replace(tmp_path, target_path)
+        except Exception as e:
+            log_error(f"[RuntimeConfig] 迁移后写回配置失败：{e}")
+            try:
+                if tmp_path.exists():
+                    tmp_path.unlink()
+            except OSError:
+                pass
 
     def _ensure_builtin_default_repo(self) -> None:
-        if self.registry.primary_url or self.source_repos.repos:
+        if self.source_repos.repos:
             return
         self.source_repos.repos.append(
             SourceRepoEntry(url=builtin_ott_repo_url(), enabled=True)
@@ -327,8 +544,10 @@ class RuntimeConfig:
     def _ensure_config_sections(cls, target: Path) -> None:
         """Merge any top-level sections from defaults that the user config lacks.
 
-        Handles corrupted JSON gracefully by regenerating from defaults.
-        Uses file lock to prevent concurrent write conflicts.
+        v1（缺 schema_version）配置先跑幂等迁移，再合并缺省段，保证
+        schema_version 的 stamp 只由迁移逻辑产生。Handles corrupted JSON
+        gracefully by regenerating from defaults. Uses file lock to prevent
+        concurrent write conflicts.
         """
         try:
             data = json.loads(target.read_text(encoding="utf-8"))
@@ -347,6 +566,9 @@ class RuntimeConfig:
                 log_error(f"[RuntimeConfig] 写入配置文件失败：{target}")
             return
 
+        if cls._needs_v1_migration(data):
+            data = cls._migrate_legacy_v1(data if isinstance(data, dict) else {})
+
         defaults = cls._fresh_with_builtin()._to_dict()
         missing = {k: v for k, v in defaults.items() if k not in data}
         if missing:
@@ -364,9 +586,6 @@ class RuntimeConfig:
 
     @classmethod
     def _from_dict(cls, data: dict) -> "RuntimeConfig":
-        base_url = data.get("base_url", "http://127.0.0.1:8080")
-        api_timeout = data.get("api_timeout", 20.0)
-
         sources_data = data.get("text_sources", {})
         if not isinstance(sources_data, dict):
             sources_data = {}
@@ -374,6 +593,8 @@ class RuntimeConfig:
         default_key = ""
 
         for key, source_data in sources_data.items():
+            if not isinstance(source_data, dict):
+                continue
             sources[key] = TextSourceEntry.from_dict(
                 key=key,
                 label=source_data.get("label", key),
@@ -405,45 +626,37 @@ class RuntimeConfig:
             user_id=cls._safe_int(wenlai_data.get("user_id"), 0),
         )
 
-        r_data = data.get("registry", {})
-        if not isinstance(r_data, dict):
-            r_data = {}
-        raw_primary = r_data.get("primary_url")
-        raw_mirror = r_data.get("mirror_url")
-        registry = RegistryConfig(
-            primary_url=cls._safe_str(raw_primary, "", allow_empty=True)
-            if isinstance(raw_primary, str)
-            else "",
-            mirror_url=cls._safe_str(raw_mirror, "", allow_empty=True)
-            if isinstance(raw_mirror, str)
-            else "",
-            cache_ttl_seconds=cls._safe_int(r_data.get("cache_ttl_seconds"), 3600),
-            max_content_bytes=cls._safe_int(r_data.get("max_content_bytes"), 1_048_576),
+        ott_data = data.get("ott", {})
+        if not isinstance(ott_data, dict):
+            ott_data = {}
+        ott = OttConfig(
+            cache_ttl_seconds=cls._safe_int(ott_data.get("cache_ttl_seconds"), 3600),
+            max_content_bytes=cls._safe_int(
+                ott_data.get("max_content_bytes"), 1_048_576
+            ),
             scripts_enabled=cls._safe_bool(
-                r_data.get("scripts_enabled"), _default_scripts_enabled()
+                ott_data.get("scripts_enabled"), _default_scripts_enabled()
             ),
         )
 
-        # 解析 source_repos，并在缺少时从旧 registry.primary_url 自动迁移。
+        update_data = data.get("update", {})
+        if not isinstance(update_data, dict):
+            update_data = {}
+        raw_mirrors = update_data.get("mirrors")
+        update = UpdateConfig(
+            enabled=cls._safe_bool(update_data.get("enabled"), True),
+            auto_check=cls._safe_bool(update_data.get("auto_check"), True),
+            check_interval_hours=cls._safe_int(
+                update_data.get("check_interval_hours"), 24
+            ),
+            channel=cls._safe_str(update_data.get("channel"), "stable"),
+            mirrors=[m for m in raw_mirrors if isinstance(m, str) and m]
+            if isinstance(raw_mirrors, list)
+            else [],
+        )
+
+        # 解析 source_repos（v2：纯订阅列表，无 primary_url 迁移）
         source_repos = cls._parse_source_repos(data.get("source_repos"))
-        if not source_repos.repos and registry.primary_url:
-            source_repos = SourceReposConfig(
-                repos=[
-                    SourceRepoEntry(
-                        url=registry.primary_url,
-                        enabled=True,
-                        trust_state="unverified",
-                        refresh_ttl_seconds=registry.cache_ttl_seconds,
-                    )
-                ]
-            )
-        if source_repos.repos and registry.primary_url:
-            # 仅当 primary_url 不匹配任何订阅（陈旧地址）时才清空；
-            # 与订阅一致的 primary_url 保留，作为跨重启"旧 primary"识别依据，
-            # 供 update_registry_url 换地址/清空时移除旧订阅（僵尸订阅清理）。
-            if not any(r.url == registry.primary_url for r in source_repos.repos):
-                registry.primary_url = ""
-                registry.mirror_url = ""
 
         ts_data = data.get("text_session", {})
         if not isinstance(ts_data, dict):
@@ -480,15 +693,14 @@ class RuntimeConfig:
             else []
         )
         return cls(
-            base_url=base_url,
-            api_timeout=api_timeout,
             typing_history_max_records=cls._safe_int(
                 data.get("typing_history_max_records"), 2000
             ),
             blocked_content_hashes=blocked_content_hashes,
             text_source_config=text_source_config,
             wenlai=wenlai,
-            registry=registry,
+            ott=ott,
+            update=update,
             source_repos=source_repos,
             ai=ai,
             text_session=text_session,
@@ -599,24 +811,16 @@ class RuntimeConfig:
         self.catalog_items = items
 
     def update_text_source(self, key: str, label: str, local_path: str) -> None:
-        """添加或更新一个本地文本源并持久化到 config.json。"""
-        from .text_source_config import Loader, LeaderboardMode, TextSourceEntry
+        """添加或更新一个本地文本源并持久化到 config.json（v2：{label, local_path}）。"""
+        from .text_source_config import TextSourceEntry
 
         self.text_source_config.sources[key] = TextSourceEntry(
             key=key,
             label=label,
-            loader=Loader.LOCAL_FILE,
-            leaderboard_mode=LeaderboardMode.NONE,
             local_path=local_path,
         )
         if not self.text_source_config.default_key:
             self.text_source_config.default_key = key
-        self._save_to_file()
-
-    def update_base_url(self, new_base_url: str) -> None:
-        """更新 base_url 并持久化到 config.json。"""
-        new_base_url = new_base_url.rstrip("/")
-        self.base_url = new_base_url
         self._save_to_file()
 
     def update_registry_url(
@@ -625,48 +829,50 @@ class RuntimeConfig:
         primary_url: str | None = None,
         mirror_url: str | None = None,
     ) -> None:
-        """更新 Registry 服务地址并持久化到 config.json。
+        """更新 Registry 主地址订阅并持久化（v2 纯订阅化，ADR-013 决策 5）。
 
-        旧 primary 识别与 bridge.registryPrimaryUrl 显示同源：registry
-        字段优先，为空时回退到首个 enabled 订阅（兼容旧代码产出的
-        primary_url="" + 订阅在的升级态配置）。仅当显式传入的 primary
-        实际变化（old != new）时才同步订阅；同值重应用只持久化字段，
-        避免复活用户主动禁用/删除的订阅。仅改镜像（mirror-only）同样
-        不触碰订阅。
-        - 设置新地址 → 落一条订阅（去重复用），并移除旧 primary 对应订阅
-        - 清空地址（设置页语义"留空则禁用"）→ 移除对应订阅，避免僵尸订阅
-        - 同值重应用（old == new，如仅改镜像）→ 只持久化，不触碰订阅
+        v2 起 `registry.primary_url`/`mirror_url` 字段已删除，本方法只维护
+        `source_repos` 订阅：
+        - 显式传入 primary_url（新地址）→ 去重落一条订阅，并移除旧主订阅
+        - primary_url 为空串（设置页语义"留空则禁用"）→ 移除当前主订阅
+        - 目标地址已存在订阅（含被禁用）→ 同值重应用，不复活/不删除
+        - 仅传 mirror_url（mirror-only）→ v2 无 mirror 概念，仅持久化不触碰订阅
         """
-        old_primary = self.registry.primary_url
-        if not old_primary:
-            for repo in self.source_repos.repos:
-                if repo.enabled and not repo.url.startswith("file://"):
-                    old_primary = repo.url
-                    break
-        if primary_url is not None:
-            primary_url = primary_url.strip()
-            self.registry.primary_url = primary_url.rstrip("/") if primary_url else ""
-        if mirror_url is not None:
-            self.registry.mirror_url = mirror_url.rstrip("/") if mirror_url else ""
         if primary_url is None:
-            # mirror-only：不触碰订阅，仅持久化镜像地址
+            # mirror-only：无订阅动作，仅持久化（兼容旧调用方）
             self._save_to_file()
             return
-        new_primary = self.registry.primary_url
-        # 换地址或清空时，移除旧 primary 对应的订阅（僵尸订阅清理）
+
+        old_primary = ""
+        for repo in self.source_repos.repos:
+            if repo.enabled and not repo.url.startswith("file://"):
+                old_primary = repo.url
+                break
+
+        new_primary = primary_url.strip().rstrip("/") if primary_url else ""
+
+        # 同值重应用：目标地址已存在订阅（无论启用与否）→ 仅持久化，不触碰
+        # 订阅，避免复活用户主动禁用/删除的订阅。
+        if any(r.url == new_primary for r in self.source_repos.repos):
+            self._save_to_file()
+            return
+
+        # 清空地址 → 移除当前主订阅（僵尸订阅清理）
+        if not new_primary:
+            if old_primary:
+                self.remove_source_repo(old_primary)
+            else:
+                self._save_to_file()
+            return
+
+        # 换地址 → 移除旧主订阅，去重落新订阅（add_source_repo 内部去重并启用）
         if old_primary and old_primary != new_primary:
             self.remove_source_repo(old_primary)
-        if new_primary and old_primary != new_primary:
-            # 换地址才同步订阅：add_source_repo 内部去重并启用。
-            # 同值重应用（old == new，如设置页仅改镜像）不触碰订阅，
-            # 否则会复活用户主动禁用的订阅（round-5 P2）。
-            self.add_source_repo(new_primary)
-        else:
-            self._save_to_file()
+        self.add_source_repo(new_primary)
 
     def update_scripts_enabled(self, enabled: bool) -> None:
-        """更新 ott-script（L3）开关并持久化到 config.json。"""
-        self.registry.scripts_enabled = bool(enabled)
+        """更新 ott-script（L3）开关并持久化到 config.json（ott 段）。"""
+        self.ott.scripts_enabled = bool(enabled)
         self._save_to_file()
 
     def add_blocked_content_hash(self, content_hash: str) -> None:
@@ -708,19 +914,12 @@ class RuntimeConfig:
         return entry
 
     def remove_source_repo(self, url: str) -> bool:
-        """移除一条源仓库订阅并持久化。
-
-        删除的正是 primary_url 对应订阅时同步清空 primary_url，防止
-        _from_dict 的旧 primary 自动迁移在下次启动时复活该订阅。
-        """
+        """移除一条源仓库订阅并持久化。"""
         url = url.strip().rstrip("/") if url else ""
         new_repos = [r for r in self.source_repos.repos if r.url != url]
         if len(new_repos) == len(self.source_repos.repos):
             return False
         self.source_repos.repos = new_repos
-        if self.registry.primary_url == url:
-            self.registry.primary_url = ""
-            self.registry.mirror_url = ""
         self._save_to_file()
         return True
 
@@ -876,13 +1075,12 @@ class RuntimeConfig:
         if path and path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             updated = self._from_dict(data)
-            self.base_url = updated.base_url
-            self.api_timeout = updated.api_timeout
             self.typing_history_max_records = updated.typing_history_max_records
             self.blocked_content_hashes = updated.blocked_content_hashes
             self.text_source_config = updated.text_source_config
             self.wenlai = updated.wenlai
-            self.registry = updated.registry
+            self.ott = updated.ott
+            self.update = updated.update
             self.source_repos = updated.source_repos
             self.ai = updated.ai
             self.text_session = updated.text_session
@@ -899,26 +1097,28 @@ class RuntimeConfig:
 
     def _to_dict(self) -> dict:
         return {
-            "base_url": self.base_url,
+            "schema_version": self.SCHEMA_VERSION,
             "default_text_source_key": self.default_text_source_key,
-            "api_timeout": self.api_timeout,
             "typing_history_max_records": self.typing_history_max_records,
             "blocked_content_hashes": list(self.blocked_content_hashes),
             "text_sources": {
                 key: {
                     "label": source.label,
-                    "loader": source.loader.value,
-                    "leaderboard_mode": source.leaderboard_mode.value,
                     **({"local_path": source.local_path} if source.local_path else {}),
                 }
                 for key, source in self.text_source_config.sources.items()
             },
-            "registry": {
-                "primary_url": self.registry.primary_url,
-                "mirror_url": self.registry.mirror_url,
-                "cache_ttl_seconds": self.registry.cache_ttl_seconds,
-                "max_content_bytes": self.registry.max_content_bytes,
-                "scripts_enabled": self.registry.scripts_enabled,
+            "ott": {
+                "cache_ttl_seconds": self.ott.cache_ttl_seconds,
+                "max_content_bytes": self.ott.max_content_bytes,
+                "scripts_enabled": self.ott.scripts_enabled,
+            },
+            "update": {
+                "enabled": self.update.enabled,
+                "auto_check": self.update.auto_check,
+                "check_interval_hours": self.update.check_interval_hours,
+                "channel": self.update.channel,
+                "mirrors": list(self.update.mirrors),
             },
             "source_repos": [
                 {

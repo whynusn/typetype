@@ -107,7 +107,7 @@ AGENTS.md > docs/guides/* > docs/ARCHITECTURE.md > docs/decisions/* > docs/refer
 | 新增/修改配置字段 | `docs/reference/config.md` | 事实 → 速查表 |
 | 新增/删除 QML 页面 | `docs/reference/qml-pages.md` | 事实 → 速查表 |
 | 新增/修改 Bridge Slot/Signal | `docs/reference/bridge-slots.md` | 事实 → 速查表 |
-| 新增/修改 API 端点 | `docs/reference/api-endpoints.md` | 事实 → 速查表 |
+| 服务端/第三方 API 契约 | 协议细节 → open-typing-texts 仓；第三方源 → 对应 Provider 文档 | 事实 → 参考实现 |
 | 发现**编码实践类**陷阱 | `AGENTS.md` § 已知陷阱 | 规则 → AI 规则源 |
 | 发现**架构设计类**陷阱 | `ARCHITECTURE.md` § 已知陷阱 | 事实 → 架构权威 |
 | 架构分层变更 | `ARCHITECTURE.md` 分层架构 + 依赖规则 | 事实 → 架构权威 |

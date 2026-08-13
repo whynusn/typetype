@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from src.backend.config.runtime_config import (
-    RegistryConfig,
+    OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
@@ -86,9 +86,7 @@ def _rule_manifest():
 def _federation_with_rule(tmp_path):
     """创建一个带规则订阅的 OttFederationProvider。"""
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = RegistryConfig(
-        cache_ttl_seconds=3600, max_content_bytes=1_048_576
-    )
+    config.ott = OttConfig(cache_ttl_seconds=3600, max_content_bytes=1_048_576)
 
     repo_entry = SourceRepoEntry(
         url="https://rule-test.example.org/ott-repo.json",

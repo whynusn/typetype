@@ -45,30 +45,21 @@ if TYPE_CHECKING:
     )
     from ..application.usecases.load_wenlai_text_usecase import LoadWenlaiTextUseCase
     from ..application.usecases.generate_ai_text_usecase import GenerateAiTextUseCase
-    from ..domain.services.auth_service import AuthService
     from ..domain.services.char_stats_service import CharStatsService
     from ..domain.services.typing_service import TypingService
     from ..infrastructure.api_client import ApiClient
-    from ..integration.api_client_auth_provider import ApiClientAuthProvider
-    from ..integration.api_client_score_submitter import ApiClientScoreSubmitter
     from ..integration.file_local_article_repository import FileLocalArticleRepository
     from ..integration.file_trainer_repository import FileTrainerRepository
     from ..integration.file_ziti_repository import FileZitiRepository
-    from ..integration.leaderboard_fetcher import LeaderboardFetcher
     from ..integration.qt_local_text_loader import QtLocalTextLoader
-    from ..integration.ott_text_provider import OttTextProvider
     from ..integration.ott_repo_manifest import RepoManifestCache
     from ..integration.ott_federation_provider import OttFederationProvider
-    from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.secure_token_store import SecureTokenStore
-    from ..integration.text_uploader import TextUploader
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
     from ..ports.key_listener import KeyListener
-    from ..presentation.adapters.auth_adapter import AuthAdapter
     from ..presentation.adapters.char_stats_adapter import CharStatsAdapter
     from ..presentation.adapters.font_adapter import FontAdapter
-    from ..presentation.adapters.leaderboard_adapter import LeaderboardAdapter
     from ..presentation.adapters.local_article_adapter import LocalArticleAdapter
     from ..presentation.adapters.text_adapter import TextAdapter
     from ..presentation.adapters.trainer_adapter import TrainerAdapter
@@ -77,6 +68,7 @@ if TYPE_CHECKING:
     from ..presentation.adapters.wenlai_adapter import WenlaiAdapter
     from ..presentation.adapters.registry_adapter import RegistryAdapter
     from ..presentation.adapters.ai_text_adapter import AiTextAdapter
+    from ..presentation.adapters.update_adapter import UpdateAdapter
     from ..presentation.adapters.ziti_adapter import ZitiAdapter
 
 
@@ -87,7 +79,6 @@ if TYPE_CHECKING:
 
 @dataclass
 class Infra:
-    api_client: ApiClient
     wenlai_api_client: ApiClient
     local_text_loader: QtLocalTextLoader
     token_store: SecureTokenStore
@@ -102,8 +93,6 @@ class Repos:
 
 @dataclass
 class Providers:
-    text: RemoteTextProvider
-    registry: OttTextProvider | None
     manifest_cache: RepoManifestCache
     federation: OttFederationProvider
     wenlai: WenlaiProvider
@@ -135,18 +124,12 @@ class UseCases:
 class Services:
     char_stats: CharStatsService
     typing: TypingService
-    auth: AuthService
-    auth_provider: ApiClientAuthProvider  # URL 更新链路需要
-    score_submitter: ApiClientScoreSubmitter
-    text_uploader: TextUploader
-    leaderboard_fetcher: LeaderboardFetcher  # URL 更新链路需要
 
 
 @dataclass
 class Adapters:
     typing: TypingAdapter
     text: TextAdapter
-    auth: AuthAdapter
     char_stats: CharStatsAdapter
     wenlai: WenlaiAdapter
     ai_text: AiTextAdapter
@@ -154,12 +137,13 @@ class Adapters:
     ziti: ZitiAdapter
     trainer: TrainerAdapter
     font: FontAdapter
-    leaderboard: LeaderboardAdapter
     registry: RegistryAdapter
     upload_text: UploadTextAdapter
     key_listener: KeyListener | None
     # OttSegmentProvider 类（Bridge 分片会话用），container 装配一次、两处复用
     ott_segment_provider_cls: type | None = None
+    # OTA 更新适配层（ADR-014）；并行 lane 未提供 update_checker 时为空
+    update: "UpdateAdapter | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +152,10 @@ class Adapters:
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
+# 晴发文 client 超时（秒）。原 server `api_timeout` 配置已随 typetype-server 耦合移除，
+# 晴发文/AI 分别使用各自独立 client 的默认超时。
+_WENLAI_HTTP_TIMEOUT = 20.0
+
 
 def create_infra(runtime_config: RuntimeConfig) -> Infra:
     from ..infrastructure.api_client import ApiClient
@@ -175,15 +163,13 @@ def create_infra(runtime_config: RuntimeConfig) -> Infra:
     from ..integration.secure_token_store import SecureTokenStore
     from ..application.gateways.wenlai_gateway import WenlaiGateway
 
-    api_client = ApiClient(timeout=runtime_config.api_timeout)
-    wenlai_api_client = ApiClient(timeout=runtime_config.api_timeout)
+    wenlai_api_client = ApiClient(timeout=_WENLAI_HTTP_TIMEOUT)
     local_text_loader = QtLocalTextLoader()
     token_store = SecureTokenStore()
     # 预读 token 到缓存
     token_store.get_token("current_user")
     token_store.get_token(WenlaiGateway.TOKEN_KEY)
     return Infra(
-        api_client=api_client,
         wenlai_api_client=wenlai_api_client,
         local_text_loader=local_text_loader,
         token_store=token_store,
@@ -207,10 +193,8 @@ def create_repos() -> Repos:
 
 def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from ..infrastructure.api_client import ApiClient
-    from ..integration.ott_text_provider import OttTextProvider
     from ..integration.ott_repo_manifest import RepoManifestCache
     from ..integration.ott_federation_provider import OttFederationProvider
-    from ..integration.remote_text_provider import RemoteTextProvider
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
     from ..application.gateways.wenlai_gateway import WenlaiGateway
@@ -218,19 +202,13 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     from .app_paths import registry_cache_dir
     import httpx
 
-    def _get_jwt_token() -> str:
-        return infra.token_store.get_token("current_user") or ""
-
     def _get_wenlai_token() -> str:
         return infra.token_store.get_token(WenlaiGateway.TOKEN_KEY) or ""
 
     def _get_ai_api_key() -> str:
         return infra.token_store.get_token("ai_api_key") or ""
 
-    # Registry cache refresh executor
-    registry_async_executor = QtAsyncExecutor()
-
-    # AI 使用独立 client，超时不同于主 api_client（LLM 生成较慢）
+    # AI 使用独立 client，超时不同于晴发文 client（LLM 生成较慢）
     ai_api_client = ApiClient(timeout=runtime_config.ai.timeout)
 
     # OTT Repo 控制面：manifest 缓存 + 联邦聚合层
@@ -244,26 +222,11 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     federation = OttFederationProvider(
         runtime_config=runtime_config,
         manifest_cache=manifest_cache,
-        max_content_bytes=runtime_config.registry.max_content_bytes,
+        max_content_bytes=runtime_config.ott.max_content_bytes,
         async_executor=manifest_async_executor,
     )
 
     return Providers(
-        text=RemoteTextProvider(
-            base_url=runtime_config.base_url,
-            api_client=infra.api_client,
-            token_provider=_get_jwt_token,
-        ),
-        registry=OttTextProvider(
-            config=runtime_config.registry,
-            cache_dir=registry_cache_dir(),
-            http_client=httpx.Client(
-                timeout=10.0, trust_env=False, follow_redirects=False
-            ),
-            async_executor=registry_async_executor,
-        )
-        if runtime_config.registry.primary_url
-        else None,
         manifest_cache=manifest_cache,
         federation=federation,
         wenlai=WenlaiProvider(
@@ -304,9 +267,7 @@ def create_gateways(
         score=ScoreGateway(clipboard=clipboard),
         text_source=TextSourceGateway(
             runtime_config=runtime_config,
-            text_provider=providers.text,
             local_text_loader=infra.local_text_loader,
-            registry_provider=providers.registry,
         ),
         wenlai=WenlaiGateway(
             runtime_config=runtime_config,
@@ -367,11 +328,6 @@ def create_use_cases(
 def create_services(infra: Infra, runtime_config: RuntimeConfig) -> Services:
     from ..domain.services.char_stats_service import CharStatsService
     from ..domain.services.typing_service import TypingService
-    from ..domain.services.auth_service import AuthService
-    from ..integration.api_client_auth_provider import ApiClientAuthProvider
-    from ..integration.api_client_score_submitter import ApiClientScoreSubmitter
-    from ..integration.text_uploader import TextUploader
-    from ..integration.leaderboard_fetcher import LeaderboardFetcher
     from ..integration.qt_async_executor import QtAsyncExecutor
     from ..integration.sqlite_char_stats_repository import SqliteCharStatsRepository
 
@@ -388,55 +344,9 @@ def create_services(infra: Infra, runtime_config: RuntimeConfig) -> Services:
 
     typing_service = TypingService(char_stats_service=char_stats_service)
 
-    # Auth
-    auth_provider = ApiClientAuthProvider(
-        api_client=infra.api_client,
-        login_url=f"{runtime_config.base_url}/api/v1/auth/login",
-        validate_url=f"{runtime_config.base_url}/api/v1/users/me",
-        refresh_url=f"{runtime_config.base_url}/api/v1/auth/refresh",
-        register_url=f"{runtime_config.base_url}/api/v1/auth/register",
-    )
-    auth_service = AuthService(
-        auth_provider=auth_provider, token_store=infra.token_store
-    )
-
-    # Score submitter（异步队列模式 + SQLite 持久化重试）
-    from ..integration.score_retry_store import ScoreRetryStore
-    from .app_paths import score_retry_db_path
-
-    retry_store = ScoreRetryStore(db_path=str(score_retry_db_path()))
-    retry_store.init_db()
-
-    score_submitter = ApiClientScoreSubmitter(
-        api_client=infra.api_client,
-        submit_url=f"{runtime_config.base_url}/api/v1/scores",
-        token_provider=lambda: infra.token_store.get_token("current_user") or "",
-        retry_store=retry_store,
-    )
-    score_submitter.start()  # 启动后台提交队列
-
-    # Text uploader
-    text_uploader = TextUploader(
-        api_client=infra.api_client,
-        upload_url=f"{runtime_config.base_url}/api/v1/texts/upload",
-        token_provider=lambda: infra.token_store.get_token("current_user") or "",
-    )
-
-    # Leaderboard fetcher
-    leaderboard_fetcher = LeaderboardFetcher(
-        api_client=infra.api_client,
-        base_url=runtime_config.base_url,
-        token_provider=lambda: infra.token_store.get_token("current_user") or "",
-    )
-
     return Services(
         char_stats=char_stats_service,
         typing=typing_service,
-        auth=auth_service,
-        auth_provider=auth_provider,
-        score_submitter=score_submitter,
-        text_uploader=text_uploader,
-        leaderboard_fetcher=leaderboard_fetcher,
     )
 
 
@@ -459,7 +369,6 @@ def create_adapters(
     from ..integration.mac_key_listener import MacKeyListener
     from ..presentation.adapters.typing_adapter import TypingAdapter
     from ..presentation.adapters.text_adapter import TextAdapter
-    from ..presentation.adapters.auth_adapter import AuthAdapter
     from ..presentation.adapters.char_stats_adapter import CharStatsAdapter
     from ..presentation.adapters.wenlai_adapter import WenlaiAdapter
     from ..presentation.adapters.ai_text_adapter import AiTextAdapter
@@ -467,11 +376,10 @@ def create_adapters(
     from ..presentation.adapters.ziti_adapter import ZitiAdapter
     from ..presentation.adapters.trainer_adapter import TrainerAdapter
     from ..presentation.adapters.font_adapter import FontAdapter
-    from ..presentation.adapters.leaderboard_adapter import LeaderboardAdapter
     from ..presentation.adapters.registry_adapter import RegistryAdapter
     from ..presentation.adapters.upload_text_adapter import UploadTextAdapter
+    from ..presentation.adapters.update_adapter import UpdateAdapter
     from ..application.gateways.font_gateway import FontGateway
-    from ..application.gateways.leaderboard_gateway import LeaderboardGateway
 
     # Session context
     session_context = TypingSessionContext()
@@ -480,7 +388,6 @@ def create_adapters(
     typing_adapter = TypingAdapter(
         typing_service=services.typing,
         score_gateway=gateways.score,
-        score_submitter=services.score_submitter,
         session_context=session_context,
     )
     text_adapter = TextAdapter(
@@ -492,7 +399,6 @@ def create_adapters(
         file_segment_provider_cls=FileSegmentProvider,
         in_memory_provider_cls=InMemorySegmentProvider,
     )
-    auth_adapter = AuthAdapter(auth_service=services.auth)
     char_stats_adapter = CharStatsAdapter(char_stats_service=services.char_stats)
     wenlai_adapter = WenlaiAdapter(
         gateway=gateways.wenlai,
@@ -523,36 +429,6 @@ def create_adapters(
     font_gateway = FontGateway(repository=font_repository)
     font_adapter = FontAdapter(gateway=font_gateway)
 
-    # Leaderboard
-    leaderboard_gateway = LeaderboardGateway(
-        leaderboard_provider=services.leaderboard_fetcher,
-    )
-
-    def _make_registry_provider():
-        """按当前配置延迟创建 OttTextProvider（设置页后填 URL 的场景）。
-
-        LeaderboardAdapter 经本工厂获得 provider，不再自行内联导入/实例化
-        integration 对象（httpx.Client / OttTextProvider / cache 路径全部收编于此）。
-        """
-        if not runtime_config.registry.primary_url:
-            return None
-        from ..integration.ott_text_provider import OttTextProvider
-        from .app_paths import registry_cache_dir
-        import httpx
-
-        return OttTextProvider(
-            config=runtime_config.registry,
-            cache_dir=registry_cache_dir(),
-            http_client=httpx.Client(timeout=10.0, trust_env=False),
-        )
-
-    leaderboard_adapter = LeaderboardAdapter(
-        leaderboard_gateway=leaderboard_gateway,
-        runtime_config=runtime_config,
-        registry_provider=providers.registry,
-        registry_provider_factory=_make_registry_provider,
-    )
-
     # OTT Repo 联邦目录适配层（订阅配置直接注入，不穿透 federation 私有字段）
     registry_adapter = RegistryAdapter(
         federation=providers.federation,
@@ -562,7 +438,6 @@ def create_adapters(
 
     # Upload text
     upload_text_adapter = UploadTextAdapter(
-        text_uploader=services.text_uploader,
         runtime_config=runtime_config,
     )
 
@@ -580,10 +455,25 @@ def create_adapters(
     if key_listener:
         log_info("因系统平台特殊性，全局监听器已启动")
 
+    # OTA 更新检查（ADR-014）：UpdateChecker 由并行 lane（update_checker.py）提供。
+    # 若该 lane 尚未完成，update_adapter 保持 None，启动/设置页自动降级隐藏更新能力。
+    update_adapter: UpdateAdapter | None = None
+    try:
+        from ..integration.update_checker import UpdateChecker
+
+        update_checker = UpdateChecker(
+            download_mirrors=runtime_config.update.mirrors or None
+        )
+        update_adapter = UpdateAdapter(
+            update_checker=update_checker,
+            runtime_config=runtime_config,
+        )
+    except ImportError:
+        log_info("更新检查模块（update_checker.py）未就绪，更新功能暂不可用")
+
     return Adapters(
         typing=typing_adapter,
         text=text_adapter,
-        auth=auth_adapter,
         char_stats=char_stats_adapter,
         wenlai=wenlai_adapter,
         ai_text=ai_text_adapter,
@@ -591,11 +481,11 @@ def create_adapters(
         ziti=ziti_adapter,
         trainer=trainer_adapter,
         font=font_adapter,
-        leaderboard=leaderboard_adapter,
         registry=registry_adapter,
         upload_text=upload_text_adapter,
         key_listener=key_listener,
         ott_segment_provider_cls=OttSegmentProvider,
+        update=update_adapter,
     )
 
 

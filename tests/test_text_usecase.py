@@ -1,9 +1,5 @@
 from dataclasses import dataclass
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
-from src.backend.config.text_source_config import (
-    LeaderboardMode,
-    Loader,
-)
 from src.backend.models.dto.fetched_text import FetchedText
 
 
@@ -11,8 +7,6 @@ from src.backend.models.dto.fetched_text import FetchedText
 class DummyTextSourceEntry:
     key: str
     label: str = ""
-    loader: Loader = Loader.LOCAL_FILE
-    leaderboard_mode: LeaderboardMode = LeaderboardMode.NONE
     local_path: str | None = None
 
 
@@ -72,14 +66,14 @@ def test_load_success():
     assert result.text_id == 123
 
 
-def test_load_non_ranking_local_text_does_not_request_server_text_id_lookup():
+def test_load_local_text_keeps_source_key():
+    """本地文本加载后 source_key 返回来源 key（客户端空壳化后无 text_id 回查）。"""
     gateway = DummyTextSourceGateway()
     gateway.set_source_entry(
         DummyTextSourceEntry(
             key="builtin_demo",
             label="本地示例",
             local_path="resources/texts/builtin_demo.txt",
-            leaderboard_mode=LeaderboardMode.NONE,
         )
     )
     gateway.set_success_result("local text", text_id=None)
@@ -91,30 +85,7 @@ def test_load_non_ranking_local_text_does_not_request_server_text_id_lookup():
     result = usecase.load(usecase.plan_load("builtin_demo"))
 
     assert result.success
-    assert result.source_key == ""
-
-
-def test_load_ranking_local_text_keeps_source_key_for_server_text_id_lookup():
-    gateway = DummyTextSourceGateway()
-    gateway.set_source_entry(
-        DummyTextSourceEntry(
-            key="fst_500",
-            label="前五百",
-            loader=Loader.LOCAL_FILE,
-            leaderboard_mode=LeaderboardMode.LOCAL_LOOKUP,
-            local_path="resources/texts/前五百.txt",
-        )
-    )
-    gateway.set_success_result("local ranking text", text_id=None)
-    usecase = LoadTextUseCase(
-        text_gateway=gateway,
-        clipboard_reader=DummyClipboardReader(),
-    )
-
-    result = usecase.load(usecase.plan_load("fst_500"))
-
-    assert result.success
-    assert result.source_key == "fst_500"
+    assert result.source_key == "builtin_demo"
 
 
 def test_load_failure():

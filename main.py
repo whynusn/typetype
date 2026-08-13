@@ -22,7 +22,6 @@ from src.backend.utils.logger import (
     install_qt_message_handler,
     is_debug_enabled,
     log_debug,
-    log_info,
 )
 
 # 在 ThemeManager 实例化之前修补 RinUI darkdetect 检测
@@ -50,21 +49,6 @@ def main():
         services, gateways, use_cases, providers, infra, runtime_config
     )
 
-    # URL 更新回调：列表迭代替代逐个调用
-    url_dependent = [
-        providers.text,
-        services.auth_provider,
-        services.score_submitter,
-        services.text_uploader,
-        services.leaderboard_fetcher,
-    ]
-
-    def update_base_url(new_url: str) -> None:
-        runtime_config.update_base_url(new_url)
-        for obj in url_dependent:
-            obj.update_base_url(runtime_config.base_url)
-        log_info(f"[main] base_url 已更新为: {runtime_config.base_url}")
-
     from src.backend.config.app_paths import (
         slice_metrics_prefs_path,
         text_slice_progress_path,
@@ -78,10 +62,8 @@ def main():
     bridge = Bridge(
         typing_adapter=adapters.typing,
         text_adapter=adapters.text,
-        auth_adapter=adapters.auth,
         char_stats_adapter=adapters.char_stats,
         upload_text_adapter=adapters.upload_text,
-        leaderboard_adapter=adapters.leaderboard,
         registry_adapter=adapters.registry,
         wenlai_adapter=adapters.wenlai,
         ai_text_adapter=adapters.ai_text,
@@ -92,13 +74,16 @@ def main():
         typing_totals_gateway=gateways.typing_totals,
         typing_history_gateway=gateways.typing_history,
         key_listener=adapters.key_listener,
-        base_url_update_callback=update_base_url,
         slice_metrics_prefs_store=slice_metrics_store,
         text_slice_progress_store=text_slice_progress_store,
         ott_segment_provider_cls=adapters.ott_segment_provider_cls,
+        update_adapter=adapters.update,
     )
-    bridge.initializeLoginState()
-    bridge.loadCatalog()
+
+    # ADR-014：QApplication 就绪后按配置触发一次后台自动更新检查（失败静默）。
+    # update_adapter 未装配（并行 lane 未完成）时无操作。
+    if runtime_config.update.enabled and runtime_config.update.auto_check:
+        bridge.trigger_auto_update_check()
 
     # QML 引擎
     rin_window = RinUIWindow()
@@ -122,8 +107,6 @@ def main():
     # 事件循环 + 清理
     exit_code = app.exec()
     services.char_stats.flush()
-    services.score_submitter.stop()  # 等待成绩提交队列清空
-    infra.api_client.close()
     providers.federation.close()
     if adapters.key_listener:
         adapters.key_listener.stop()

@@ -60,25 +60,29 @@ class TestSessionPhaseTransitions:
 
 
 class TestUploadStatusDerivation:
-    def test_network_session_confirmed(self):
+    def test_initial_state_na(self):
+        ctx = TypingSessionContext()
+        assert ctx.upload_status == UploadStatus.NA
+
+    def test_network_session_na(self):
         ctx = TypingSessionContext()
         ctx.setup_network_session(text_id=42, source_key="jisubei")
-        assert ctx.upload_status == UploadStatus.CONFIRMED
+        assert ctx.upload_status == UploadStatus.NA
 
-    def test_local_session_with_text_id(self):
+    def test_local_session_with_text_id_na(self):
         ctx = TypingSessionContext()
         ctx.setup_local_session(source_key="local", text_id=10)
-        assert ctx.upload_status == UploadStatus.CONFIRMED
+        assert ctx.upload_status == UploadStatus.NA
 
-    def test_local_session_without_text_id_pending(self):
+    def test_local_session_without_text_id_na(self):
         ctx = TypingSessionContext()
         ctx.setup_local_session(source_key="local")
-        assert ctx.upload_status == UploadStatus.PENDING
+        assert ctx.upload_status == UploadStatus.NA
 
-    def test_custom_session_pending(self):
+    def test_custom_session_na(self):
         ctx = TypingSessionContext()
         ctx.setup_custom_session(source_key="custom")
-        assert ctx.upload_status == UploadStatus.PENDING
+        assert ctx.upload_status == UploadStatus.NA
 
     def test_clipboard_session_na(self):
         ctx = TypingSessionContext()
@@ -116,36 +120,22 @@ class TestUploadStatusDerivation:
 
 
 class TestSetTextId:
-    def test_pending_to_confirmed(self):
+    def test_set_text_id_keeps_status_na(self):
         ctx = TypingSessionContext()
         ctx.setup_local_session(source_key="local")
-        assert ctx.upload_status == UploadStatus.PENDING
+        assert ctx.upload_status == UploadStatus.NA
 
         ctx.set_text_id(42)
-        assert ctx.upload_status == UploadStatus.CONFIRMED
+        assert ctx.upload_status == UploadStatus.NA
         assert ctx.text_id == 42
 
-    def test_pending_to_ineligible_on_none(self):
+    def test_set_text_id_none_keeps_status_na(self):
         ctx = TypingSessionContext()
         ctx.setup_local_session(source_key="local")
         ctx.set_text_id(None)
-        assert ctx.upload_status == UploadStatus.INELIGIBLE
+        assert ctx.upload_status == UploadStatus.NA
 
-    def test_pending_to_ineligible_on_zero(self):
-        ctx = TypingSessionContext()
-        ctx.setup_local_session(source_key="local")
-        ctx.set_text_id(0)
-        assert ctx.upload_status == UploadStatus.INELIGIBLE
-
-    def test_custom_session_resolved(self):
-        ctx = TypingSessionContext()
-        ctx.setup_custom_session(source_key="custom")
-        assert ctx.upload_status == UploadStatus.PENDING
-
-        ctx.set_text_id(99)
-        assert ctx.upload_status == UploadStatus.CONFIRMED
-
-    def test_na_stays_na(self):
+    def test_slice_session_set_text_id_na(self):
         ctx = TypingSessionContext()
         _setup_slice(ctx, total=3)
         ctx.set_text_id(42)
@@ -153,10 +143,10 @@ class TestSetTextId:
 
 
 class TestCanSubmitScore:
-    def test_confirmed_can_submit(self):
+    def test_can_submit_score_always_false(self):
         ctx = TypingSessionContext()
         ctx.setup_network_session(text_id=42, source_key="jisubei")
-        assert ctx.can_submit_score() is True
+        assert ctx.can_submit_score() is False
 
     def test_pending_cannot_submit(self):
         ctx = TypingSessionContext()
@@ -176,45 +166,19 @@ class TestCanSubmitScore:
 
 
 class TestEligibilityReason:
-    def test_slice_reason(self):
+    def test_reason_always_no_submission(self):
+        """成绩上传已移除，资格原因固定为不提交。"""
         ctx = TypingSessionContext()
         _setup_slice(ctx, total=5)
-        assert "分片" in ctx.get_eligibility_reason()
+        assert ctx.get_eligibility_reason() == "成绩不提交排行榜"
 
-    def test_shuffle_reason(self):
-        ctx = TypingSessionContext()
-        ctx.setup_shuffle_session()
-        assert "乱序" in ctx.get_eligibility_reason()
+        ctx2 = TypingSessionContext()
+        ctx2.setup_network_session(text_id=42, source_key="jisubei")
+        assert ctx2.get_eligibility_reason() == "成绩不提交排行榜"
 
-    def test_clipboard_reason(self):
-        ctx = TypingSessionContext()
-        ctx.setup_clipboard_session()
-        assert "剪贴板" in ctx.get_eligibility_reason()
-
-    def test_confirmed_reason(self):
-        ctx = TypingSessionContext()
-        ctx.setup_network_session(text_id=42, source_key="jisubei")
-        assert "提交排行榜" in ctx.get_eligibility_reason()
-
-    def test_pending_reason(self):
-        ctx = TypingSessionContext()
-        ctx.setup_local_session(source_key="local")
-        assert "确认" in ctx.get_eligibility_reason()
-
-    def test_wenlai_reason(self):
-        ctx = TypingSessionContext()
-        ctx.setup_wenlai_session()
-        assert ctx.get_eligibility_reason() == "晴发文文本，成绩不提交排行榜"
-
-    def test_local_article_reason(self):
-        ctx = TypingSessionContext()
-        ctx.setup_local_article_session()
-        assert ctx.get_eligibility_reason() == "本地长文，成绩不提交排行榜"
-
-    def test_trainer_reason(self):
-        ctx = TypingSessionContext()
-        ctx.setup_trainer_session()
-        assert ctx.get_eligibility_reason() == "练单器，成绩不提交排行榜"
+        ctx3 = TypingSessionContext()
+        ctx3.setup_clipboard_session()
+        assert ctx3.get_eligibility_reason() == "成绩不提交排行榜"
 
 
 class TestAdvanceSlice:
@@ -238,40 +202,21 @@ class TestAdvanceSlice:
 
 
 class TestSubscriptions:
-    def test_upload_status_notification(self):
-        changes: list[UploadStatus] = []
+    def test_no_upload_status_notification(self):
+        """成绩上传已移除：upload_status 恒为 NA，无订阅回调。"""
         ctx = TypingSessionContext()
-        ctx.subscribe_upload_status(lambda s: changes.append(s))
 
         ctx.setup_local_session(source_key="local")
-        assert changes == [UploadStatus.PENDING]
+        assert ctx.upload_status == UploadStatus.NA
 
         ctx.set_text_id(42)
-        assert changes == [UploadStatus.PENDING, UploadStatus.CONFIRMED]
+        assert ctx.upload_status == UploadStatus.NA
 
-    def test_eligibility_reason_notification(self):
-        reasons: list[str] = []
+    def test_eligibility_reason_constant(self):
         ctx = TypingSessionContext()
-        ctx.subscribe_eligibility_reason(lambda r: reasons.append(r))
 
         ctx.setup_network_session(text_id=42, source_key="jisubei")
-        assert len(reasons) == 1
-        assert "提交排行榜" in reasons[0]
-
-    def test_no_duplicate_notification(self):
-        changes: list[UploadStatus] = []
-        ctx = TypingSessionContext()
-        ctx.subscribe_upload_status(lambda s: changes.append(s))
-
-        # 初始已是 NA，setup_slice 推导也是 NA，不通知（无变化）
-        _setup_slice(ctx, total=3)
-        assert len(changes) == 0
-
-        # 从 NA 变为 CONFIRMED 才通知
-        ctx.reset()
-        ctx.setup_network_session(text_id=42, source_key="k")
-        assert len(changes) == 1
-        assert changes[0] == UploadStatus.CONFIRMED
+        assert ctx.get_eligibility_reason() == "成绩不提交排行榜"
 
 
 class TestSliceMode:

@@ -1,84 +1,147 @@
+"""OttCachedFetcher 缓存决策树测试（网络 / 磁盘缓存 / TTL / 镜像 failover）。
+
+单实例 OttTextProvider 已删除（ADR-013 决策 5），缓存职责收敛到
+OttCachedFetcher（federation 路径复用）。本文件直接测 OttCachedFetcher。
+"""
+
+import json
 import os
 import time
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import httpx
 
-from src.backend.config.runtime_config import RegistryConfig
-from src.backend.integration.ott_text_provider import OttTextProvider
-
-from .ott_text_provider_helpers import (
-    make_content_response,
-    make_provider,
-    mock_response,
-)
+from src.backend.config.runtime_config import OttConfig
+from src.backend.integration.ott_cached_fetcher import OttCachedFetcher
 
 
-def _age_cache_file(provider: OttTextProvider, cache_key: str, seconds_old: float):
-    path = provider._cache_path(cache_key)
+def mock_response(json_data, status_code=200):
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = status_code
+    response.json.return_value = json_data
+    response.content = json.dumps(json_data).encode("utf-8") if json_data else b""
+    response.text = json.dumps(json_data) if json_data else ""
+    if status_code >= 400:
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            str(status_code), request=MagicMock(), response=response
+        )
+    else:
+        response.raise_for_status = MagicMock()
+    return response
+
+
+def mock_text_response(text: str, status_code=200):
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = status_code
+    response.content = text.encode("utf-8")
+    response.text = text
+    if status_code >= 400:
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            str(status_code), request=MagicMock(), response=response
+        )
+    else:
+        response.raise_for_status = MagicMock()
+    return response
+
+
+def make_fetcher(
+    tmp_path: Path,
+    config: "OttConfig | None" = None,
+    client: MagicMock | None = None,
+    async_executor=None,
+) -> OttCachedFetcher:
+    cache_dir = tmp_path / "registry_cache"
+    return OttCachedFetcher(
+        config or OttConfig(),
+        cache_dir,
+        client or MagicMock(spec=httpx.Client),
+        async_executor,
+    )
+
+
+def _age_cache_file(cache_dir: Path, cache_key: str, seconds_old: float) -> None:
+    path = cache_dir / f"{cache_key}.json"
     if path.exists():
         old_time = time.time() - seconds_old
         os.utime(path, (old_time, old_time))
 
 
+class _SyncExecutor:
+    """同步执行后台刷新任务，便于测试过期重取路径。"""
+
+    def submit(self, fn) -> None:
+        fn()
+
+
 def test_cache_miss_fetches_network_and_writes_cache(tmp_path):
-    provider = make_provider(
-        tmp_path, responses=[mock_response(make_content_response())]
+    fetcher = make_fetcher(
+        tmp_path,
+        client=MagicMock(
+            spec=httpx.Client,
+            get=MagicMock(return_value=mock_response({"content": "缓存测试"})),
+        ),
     )
 
-    result = provider.fetch_text_by_key("article1")
+    result = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
 
     assert result is not None
-    assert result.content == "缓存测试"
-    assert provider._cache_path("content/article1").exists()
-    cached = provider._read_cache("content/article1")
+    assert result["content"] == "缓存测试"
+    cached = fetcher.read_cache("content/article1")
     assert cached is not None
     assert cached["content"] == "缓存测试"
 
 
 def test_cache_hit_returns_cached_without_network(tmp_path):
     client = MagicMock(spec=httpx.Client)
-    client.get.return_value = mock_response(make_content_response())
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=3600),
-        tmp_path / "cache",
-        http_client=client,
+    client.get.return_value = mock_response({"content": "缓存测试"})
+    fetcher = make_fetcher(
+        tmp_path,
+        config=OttConfig(cache_ttl_seconds=3600),
+        client=client,
     )
 
-    first = provider.fetch_text_by_key("article1")
-    second = provider.fetch_text_by_key("article1")
+    first = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
+    second = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
 
     assert first is not None
     assert second is not None
-    assert second.content == first.content
+    assert second == first
     assert client.get.call_count == 1
 
 
 def test_cache_expired_refetches_network(tmp_path):
-    from src.backend.integration.qt_async_executor import QtAsyncExecutor
-
     client = MagicMock(spec=httpx.Client)
     client.get.side_effect = [
-        mock_response(make_content_response("缓存测试")),
-        mock_response(make_content_response("新内容")),
+        mock_response({"content": "缓存测试"}),
+        mock_response({"content": "新内容"}),
     ]
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=60),
-        tmp_path / "cache",
-        http_client=client,
-        async_executor=QtAsyncExecutor(),
+    fetcher = make_fetcher(
+        tmp_path,
+        config=OttConfig(cache_ttl_seconds=60),
+        client=client,
+        async_executor=_SyncExecutor(),
     )
 
-    first = provider.fetch_text_by_key("article1")
-    _age_cache_file(provider, "content/article1", seconds_old=120)
-    second = provider.fetch_text_by_key("article1")
-    time.sleep(0.1)
-    cached = provider._read_cache("content/article1")
+    first = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
+    _age_cache_file(tmp_path / "registry_cache", "content/article1", seconds_old=120)
+    second = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
+    cached = fetcher.read_cache("content/article1")
 
     assert first is not None
-    assert first.content == "缓存测试"
+    assert first["content"] == "缓存测试"
     assert second is not None
-    assert second.content == "缓存测试"
+    assert second["content"] == "缓存测试"
     assert client.get.call_count == 2
     assert cached is not None
     assert cached["content"] == "新内容"
@@ -87,122 +150,149 @@ def test_cache_expired_refetches_network(tmp_path):
 def test_offline_returns_stale_cache(tmp_path):
     client = MagicMock(spec=httpx.Client)
     client.get.side_effect = [
-        mock_response(make_content_response("原始内容")),
+        mock_response({"content": "原始内容"}),
         httpx.ConnectError("offline"),
     ]
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=60),
-        tmp_path / "cache",
-        http_client=client,
+    fetcher = make_fetcher(
+        tmp_path,
+        config=OttConfig(cache_ttl_seconds=60),
+        client=client,
+        async_executor=_SyncExecutor(),
     )
 
-    first = provider.fetch_text_by_key("article1")
-    _age_cache_file(provider, "content/article1", seconds_old=120)
-    second = provider.fetch_text_by_key("article1")
+    first = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
+    _age_cache_file(tmp_path / "registry_cache", "content/article1", seconds_old=120)
+    second = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
 
     assert first is not None
-    assert first.content == "原始内容"
+    assert first["content"] == "原始内容"
     assert second is not None
-    assert second.content == "原始内容"
+    assert second["content"] == "原始内容"
 
 
 def test_offline_no_cache_returns_none(tmp_path):
     client = MagicMock(spec=httpx.Client)
     client.get.side_effect = httpx.ConnectError("offline")
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://cdn.example.com"),
-        tmp_path / "cache",
-        http_client=client,
+    fetcher = make_fetcher(tmp_path, client=client)
+
+    assert (
+        fetcher.fetch_json_with_cache(
+            "content/article1", "https://cdn.example.com/content/article1.json"
+        )
+        is None
     )
-    assert provider.fetch_text_by_key("article1") is None
 
 
 def test_cache_survives_mirror_failover(tmp_path):
-    config = RegistryConfig(
-        primary_url="https://primary.example.com",
-        mirror_url="https://mirror.example.com",
+    config = OttConfig(
+        cache_ttl_seconds=3600,
     )
-    provider = make_provider(
+    fetcher = make_fetcher(
         tmp_path,
         config,
-        [mock_response(None, 404), mock_response(make_content_response("镜像内容"))],
+        client=MagicMock(
+            spec=httpx.Client,
+            get=MagicMock(
+                side_effect=[
+                    mock_response(None, 404),
+                    mock_response({"content": "镜像内容"}),
+                ]
+            ),
+        ),
     )
 
-    result = provider.fetch_text_by_key("article1")
-    cached = provider._read_cache("content/article1")
+    result = fetcher.fetch_json_with_cache(
+        "content/article1",
+        "https://primary.example.com/content/article1.json",
+        mirror_url="https://mirror.example.com/content/article1.json",
+    )
+    cached = fetcher.read_cache("content/article1")
 
     assert result is not None
-    assert result.content == "镜像内容"
+    assert result["content"] == "镜像内容"
     assert cached is not None
     assert cached["content"] == "镜像内容"
 
 
 def test_cache_write_failure_does_not_crash(tmp_path):
     client = MagicMock(spec=httpx.Client)
-    client.get.return_value = mock_response(make_content_response("网络内容"))
-    cache_dir = tmp_path / "cache"
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://cdn.example.com"),
+    client.get.return_value = mock_response({"content": "网络内容"})
+    cache_dir = tmp_path / "registry_cache"
+    fetcher = OttCachedFetcher(
+        OttConfig(),
         cache_dir,
-        http_client=client,
+        client,
+        None,
     )
 
+    cache_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.chmod(0o444)
     try:
-        result = provider.fetch_text_by_key("article1")
+        result = fetcher.fetch_json_with_cache(
+            "content/article1", "https://cdn.example.com/content/article1.json"
+        )
         assert result is not None
-        assert result.content == "网络内容"
+        assert result["content"] == "网络内容"
     finally:
         cache_dir.chmod(0o755)
 
 
 def test_cache_corrupted_refetches_network(tmp_path):
     client = MagicMock(spec=httpx.Client)
-    client.get.return_value = mock_response(make_content_response("网络内容"))
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://cdn.example.com", cache_ttl_seconds=3600),
-        tmp_path / "cache",
-        http_client=client,
+    client.get.return_value = mock_response({"content": "网络内容"})
+    fetcher = make_fetcher(
+        tmp_path,
+        config=OttConfig(cache_ttl_seconds=3600),
+        client=client,
     )
-    cache_file = provider._cache_path("content/article1")
+    cache_file = tmp_path / "registry_cache" / "content" / "article1.json"
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     cache_file.write_text("NOT VALID JSON {{{", encoding="utf-8")
 
-    result = provider.fetch_text_by_key("article1")
+    result = fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
+    )
 
     assert result is not None
-    assert result.content == "网络内容"
+    assert result["content"] == "网络内容"
     assert client.get.call_count == 1
 
 
 def test_index_and_content_use_separate_cache_files(tmp_path):
     client = MagicMock(spec=httpx.Client)
-    client.get.return_value = mock_response(make_content_response())
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://cdn.example.com"),
-        tmp_path / "cache",
-        http_client=client,
+    client.get.return_value = mock_response({"content": "缓存测试"})
+    fetcher = make_fetcher(tmp_path, client=client)
+
+    fetcher.fetch_json_with_cache(
+        "content/article1", "https://cdn.example.com/content/article1.json"
     )
 
-    provider.fetch_text_by_key("article1")
-
-    assert provider._cache_path("content/article1").exists()
-    assert not provider._cache_path("index").exists()
+    assert (tmp_path / "registry_cache" / "content" / "article1.json").exists()
+    assert not (tmp_path / "registry_cache" / "index.json").exists()
 
 
-def test_validate_source_key_protects_cache_path(tmp_path):
-    provider = make_provider(tmp_path)
-    assert provider.fetch_text_by_key("../etc/passwd") is None
-    assert provider.fetch_text_by_key("foo/bar") is None
+def test_fetch_text_with_cache_roundtrip(tmp_path):
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = mock_text_response("分段正文")
+    fetcher = make_fetcher(tmp_path, client=client)
+
+    result = fetcher.fetch_text_with_cache(
+        "segments/rev_1/1", "https://cdn.example.com/segments/rev_1/1.txt"
+    )
+
+    assert result == "分段正文"
+    cached = fetcher.read_cache("segments/rev_1/1")
+    assert cached is not None
+    assert cached["content"] == "分段正文"
 
 
 def test_local_json_oversize_skipped_before_parse(tmp_path):
     """_read_local_json 先查文件大小，超限不解析（合法 JSON 也拒绝）。"""
-    from src.backend.integration.ott_cached_fetcher import OttCachedFetcher
-
-    fetcher = OttCachedFetcher(
-        RegistryConfig(), tmp_path / "cache", MagicMock(spec=httpx.Client), None
-    )
+    fetcher = make_fetcher(tmp_path)
     big = tmp_path / "big.json"
     big.write_text('{"content": "' + "x" * 500 + '"}', encoding="utf-8")
     assert fetcher._read_local_json(big.as_uri(), max_bytes=100) is None
@@ -211,8 +301,6 @@ def test_local_json_oversize_skipped_before_parse(tmp_path):
 
 def test_fetch_json_content_length_guard_skips_parse(tmp_path):
     """_fetch_json 用 content-length 预检，声明超限时不解析。"""
-    from src.backend.integration.ott_cached_fetcher import OttCachedFetcher
-
     client = MagicMock(spec=httpx.Client)
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = 200
@@ -221,6 +309,6 @@ def test_fetch_json_content_length_guard_skips_parse(tmp_path):
     resp.raise_for_status = MagicMock()
     client.get.return_value = resp
 
-    fetcher = OttCachedFetcher(RegistryConfig(), tmp_path / "cache", client, None)
+    fetcher = make_fetcher(tmp_path, client=client)
     assert fetcher._fetch_json("https://example.com/api", max_bytes=100) is None
     resp.json.assert_not_called()

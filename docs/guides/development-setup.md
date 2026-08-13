@@ -39,11 +39,11 @@ uv run ruff format --check .
 uv run ruff check . && uv run ruff format --check . && uv run pytest
 ```
 
-## 可选：配置 API 服务端地址
+## 可选：联网来源配置
 
-1. 首次启动时 `~/.config/typetype/config.json` 自动生成
-2. 编辑用户配置文件，设置 `base_url` 为你的后端地址
-3. 或使用运行时配置：设置页面输入地址 → 应用
+1. 首次启动时 `~/.config/typetype/config.json`（`schema_version=2`）自动生成
+2. 联网来源均为可选：开源文库（OTT Repo 订阅）默认含内置离线源 + 官方默认仓，开箱即用；晴发文 / AI 在设置页配置账号 / API Key
+3. 手动订阅 OTT Repo 源仓库：设置页「源仓库」面板添加 manifest URL，或编辑 `config.json` 的 `source_repos`
 
 ## 日志调试
 

@@ -13,6 +13,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  assert-version:
+    name: 断言版本一致（ADR-014 决策 1）
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 断言发布 tag == pyproject.version == APP_VERSION
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pyproject_version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          app_version="$(sed -n "s/^APP_VERSION = \"\(.*\)\"$/\1/p" src/backend/version.py | head -1)"
+          echo "tag=${GITHUB_REF_NAME} → ${tag}"
+          echo "pyproject.version=${pyproject_version}"
+          echo "APP_VERSION=${app_version}"
+          if [ "${tag}" != "${pyproject_version}" ] || [ "${tag}" != "${app_version}" ]; then
+            echo "❌ 版本不一致：tag(${tag}) pyproject(${pyproject_version}) APP_VERSION(${app_version})"
+            exit 1
+          fi
+          echo "✅ 三处版本一致"
+
   build-linux:
     name: 打包 - Linux
     runs-on: ubuntu-latest

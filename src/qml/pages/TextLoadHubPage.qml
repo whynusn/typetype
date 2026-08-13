@@ -10,8 +10,9 @@ import "../helpers/TextSourceBehaviors.js" as SrcBehav
 /**
  * 统一载文中心。
  *
- * 将极速杯、本地文库、开源文库、练单器、自定义 5 种来源收敛到单一页面。
- * 顶部为 Segmented 来源切换，左侧为对应列表/输入，右侧为统一的预览 + 切片设置 + 操作按钮。
+ * 将本地文库、开源文库、练单器、晴发文、AI 推荐、自定义 6 种来源收敛到单一页面。
+ * 顶部为 RinUI Segmented 来源切换，左侧为对应列表/输入，右侧为统一的预览 + 切片设置 + 操作按钮。
+ * 开源文库直接展示联邦聚合条目（RepoEntriesPanel），订阅管理独立子页面（ReposManagementPage）。
  */
 FluentPage {
     id: root
@@ -24,49 +25,47 @@ FluentPage {
     property string currentSource: initialSource || "local"
 
     // ---- 来源定义 ----
-    readonly property var sourceKeys: ["local", "repos", "trainer", "custom", "jisubei"]
+    readonly property var sourceKeys: ["local", "repos", "trainer", "wenlai", "ai", "custom"]
     readonly property var sourceLabels: [
         qsTr("本地文库"),
-        qsTr("源仓库"),
+        qsTr("开源文库"),
         qsTr("练单器"),
-        qsTr("自定义"),
-        qsTr("极速杯")
+        qsTr("晴发文"),
+        qsTr("AI 推荐"),
+        qsTr("自定义")
     ]
     readonly property var sourceIcons: [
         "ic_fluent_library_20_regular",
         "ic_fluent_cloud_arrow_down_20_regular",
         "ic_fluent_apps_list_detail_20_regular",
-        "ic_fluent_edit_20_regular",
-        "ic_fluent_document_text_20_regular"
+        "ic_fluent_book_20_regular",
+        "ic_fluent_sparkle_20_regular",
+        "ic_fluent_edit_20_regular"
     ]
 
     readonly property int currentSourceIndex: sourceKeys.indexOf(currentSource)
-    readonly property bool isListSource: currentSource !== "custom"
+    // 有右侧预览/切片面板的来源；晴发文/AI 为全宽全出血布局
+    readonly property bool isListSource: ["local", "repos", "trainer", "custom"].indexOf(currentSource) >= 0
 
     // ---- 响应式断点 ----
     readonly property bool wideMode: width >= 840
 
     // ---- 列表数据 ----
-    property var jisubeiItems: []
     property var localItems: []
-    property var reposItems: []
     property var trainerItems: []
 
     // ---- 当前选中项 ----
     property var selectedItem: null
     property string previewContent: ""
-    property int serverTextId: 0
     property string statusMessage: ""
     property string errorMessage: ""
     property bool sliceModeChecked: true
     property bool hasProgress: false
     property bool catalogLoading: false  // 目录加载状态
-    property bool reposLoading: appBridge ? appBridge.reposLoading : false
     property var federatedEntries: []    // 联邦聚合的条目（所有 repo 的条目）
-    property string _pendingSourceLabel: ""
-    property var _pendingAuthorities: []
+    property string reposEntriesError: ""  // 开源文库条目加载错误（喂给 RepoEntriesPanel.errorText）
     property bool _pendingFederatedContent: false
-    property var _repoEntryHandler: null  // RepoEntriesPage.entryClicked 处理器引用（防信号累积）
+    property bool federatedContentLoading: false  // 联邦条目载文请求进行中（载入跟打按钮 Busy）
 
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
@@ -75,11 +74,15 @@ FluentPage {
             // _pendingFederatedContent 会把后续任意 textContentLoaded 误判成
             // 联邦内容启动打字。激活时清 flag，废弃未完成的联邦载文流程。
             _pendingFederatedContent = false
-            if (initialSource) {
+            var sourceChanged = false
+            if (initialSource && initialSource !== currentSource) {
                 currentSource = initialSource
-                initialSource = ""
+                sourceChanged = true
             }
-            loadCurrentSource()
+            initialSource = ""
+            // currentSource 变化时 onCurrentSourceChanged 已触发 loadCurrentSource，
+            // 仅当来源未变时才在此显式加载，避免双重加载
+            if (!sourceChanged) loadCurrentSource()
             loadSlicePrefs()
         }
     }
@@ -87,9 +90,9 @@ FluentPage {
     onCurrentSourceChanged: {
         selectedItem = null
         previewContent = ""
-        serverTextId = 0
         errorMessage = ""
         statusMessage = ""
+        reposEntriesError = ""
         hasProgress = false
         if (active) loadCurrentSource()
     }
@@ -99,8 +102,6 @@ FluentPage {
         // 注册表分派当前来源的列表加载（bridge 调用 + 状态消息）
         var msg = SrcBehav.loadList(appBridge, currentSource)
         if (msg) statusMessage = msg
-        if (currentSource === "custom" && textLoadPanel)
-            textLoadPanel.onCatalogLoaded(appBridge ? appBridge.textSourceOptions : [])
     }
 
     function loadSlicePrefs() {
@@ -151,7 +152,6 @@ FluentPage {
 
         selectedItem = raw
         previewContent = ""
-        serverTextId = 0
         errorMessage = ""
         statusMessage = qsTr("已选择：%1").arg(itemDisplayTitle())
         hasProgress = false
@@ -175,7 +175,7 @@ FluentPage {
                                   textLoadPanel ? textLoadPanel.selectedSourceLabel : "")
     }
     function itemDisplayId() {
-        return SrcBehav.cardIdText(currentSource, selectedItem, serverTextId) ? serverTextId : null
+        return null
     }
     function itemDisplayCharCount() {
         return SrcBehav.cardCharCount(currentSource, selectedItem, previewContent,
@@ -189,13 +189,11 @@ FluentPage {
     // ---- 进度 key / identifier（数据统一由 TextSourceBehaviors 分派） ----
     function progressKeyType() {
         return SrcBehav.progressKeyAndId(currentSource, selectedItem, previewContent,
-                                         textLoadPanel ? textLoadPanel.contentText : "",
-                                         serverTextId).key
+                                         textLoadPanel ? textLoadPanel.contentText : "").key
     }
     function progressIdentifier() {
         return SrcBehav.progressKeyAndId(currentSource, selectedItem, previewContent,
-                                         textLoadPanel ? textLoadPanel.contentText : "",
-                                         serverTextId).identifier
+                                         textLoadPanel ? textLoadPanel.contentText : "").identifier
     }
 
     function checkProgress() {
@@ -279,70 +277,6 @@ FluentPage {
             Window.window.navigationView.push(Qt.resolvedUrl("TypingPage.qml"))
     }
 
-    /* 跳转到联邦条目列表页（在主作用域中访问 Window.window） */
-    function navigateToRepoEntries(filtered, label) {
-        if (!Window.window || !Window.window.navigationView) {
-            root.errorMessage = qsTr("导航未就绪")
-            return
-        }
-        console.log("[ReposPanel] pushing RepoEntriesPage with", filtered.length, "entries")
-        Window.window.navigationView.push(Qt.resolvedUrl("RepoEntriesPage.qml"))
-        /* push() 无返回值，用 callLater 等待页面创建后写回数据并连接信号。
-           NavigationView 按 URL 缓存页面实例，二次打开时 push 的 properties 不生效，
-           必须显式写回 entries/sourceLabel；handler 存根到 root，重连前先断开，
-           防止多次打开累积多个 entryClicked 处理器。 */
-        Qt.callLater(function() {
-            var nav = Window.window.navigationView
-            var pageInstances = nav.pageInstances
-            var keys = Object.keys(pageInstances)
-            for (var i = 0; i < keys.length; i++) {
-                var instance = pageInstances[keys[i]]
-                if (instance && instance.objectName === "RepoEntriesPage") {
-                    console.log("[ReposPanel] connecting entryClicked signal")
-                    instance.sourceLabel = label
-                    instance.entries = filtered
-                    if (root._repoEntryHandler)
-                        instance.entryClicked.disconnect(root._repoEntryHandler)
-                    root._repoEntryHandler = root._onRepoEntryClicked
-                    instance.entryClicked.connect(root._repoEntryHandler)
-                    break
-                }
-            }
-        })
-    }
-
-    /* 联邦条目点击处理（命名函数，供 navigateToRepoEntries 连接/断开） */
-    function _onRepoEntryClicked(entry) {
-        if (!appBridge || !entry) return
-        var authority = entry._authority || entry.authority || ""
-        var entryId = entry.entry_id || ""
-        var revisionId = entry.current_revision_id || entry.revision_id || "v1"
-        var totalChars = entry.char_count || entry.charCount || 0
-        var title = entry.title || entry.source_label || qsTr("联邦文本")
-        var segSize = entry.source_segment_size || entry.segment_size || 1000
-        if (!authority || !entryId) {
-            root.errorMessage = qsTr("条目缺少 authority 或 entry_id")
-            return
-        }
-        /* 根据内容模式选择加载方式 */
-        if (entry.content_mode === "segmented") {
-            /* 先进入打字页再异步加载分段（与 startSegmentedSource 一致），
-               否则 _on_ott_segment_session_started 完成后无人导航到 TypingPage */
-            root.navigateToTyping()
-            Qt.callLater(function() {
-                appBridge.loadFederatedEntrySegment(
-                    authority, entryId, revisionId,
-                    1, root.sliceModeChecked ? sliceSettingsPanel.sliceSize : totalChars,
-                    totalChars, segSize, title
-                )
-            })
-        } else {
-            /* inline 模式（规则/脚本源）直接加载内容 */
-            root._pendingFederatedContent = true
-            appBridge.loadFederatedInlineEntry(authority, entryId, revisionId, title)
-        }
-    }
-
     // 当前来源的加载状态（来源感知，不再把其它来源的 loading 混进来）
     function currentSourceLoading() {
         return SrcBehav.isLoading(currentSource, appBridge, root)
@@ -376,19 +310,6 @@ FluentPage {
 
         if (!selectedItem) { errorMessage = qsTr("请选择一个项目"); return null }
 
-
-        if (currentSource === "jisubei") {
-            if (!previewContent) { errorMessage = qsTr("文本内容尚未加载"); return null }
-            return {
-                source: "jisubei",
-                launchKind: capability.launchKind,
-                text: previewContent,
-                sourceKey: "jisubei",
-                title: itemDisplayTitle(),
-                textId: serverTextId
-            }
-        }
-
         if (currentSource === "local") {
             var id = SrcBehav.articleId(selectedItem)
             if (!id) { errorMessage = qsTr("文章缺少 ID"); return null }
@@ -415,6 +336,32 @@ FluentPage {
             }
         }
 
+        if (currentSource === "repos") {
+            var entry = selectedItem
+            var authority = entry._authority || entry.authority || ""
+            var entryId = entry.entry_id || ""
+            var revisionId = entry.current_revision_id || entry.revision_id || "v1"
+            var totalChars = entry.char_count || entry.charCount || 0
+            var title = entry.title || entry.source_label || qsTr("联邦文本")
+            // 后端字段为 segment_size_hint（旧 source_segment_size / segment_size 键从未存在）
+            var sourceSegmentSize = entry.segment_size_hint || 1000
+            if (!authority || !entryId) {
+                errorMessage = qsTr("条目缺少 authority 或 entry_id")
+                return null
+            }
+            return {
+                source: "repos",
+                launchKind: capability.launchKind,
+                authority: authority,
+                entryId: entryId,
+                revisionId: revisionId,
+                title: title,
+                totalChars: totalChars,
+                sourceSegmentSize: sourceSegmentSize,
+                contentMode: entry.content_mode || "inline"
+            }
+        }
+
         return null
     }
 
@@ -426,6 +373,8 @@ FluentPage {
             startMaterializedText(request, rp)
         } else if (request.launchKind === "segmented_source") {
             startSegmentedSource(request, rp)
+        } else if (request.launchKind === "federated_entry") {
+            startFederatedEntry(request, rp)
         } else {
             errorMessage = qsTr("不支持的载文方式")
         }
@@ -446,6 +395,30 @@ FluentPage {
             else if (request.loadSegmentMethod === "loadTrainerSegment")
                 appBridge.loadTrainerSegment(request.identifier, index, size)
         })
+    }
+
+    function startFederatedEntry(request, rp) {
+        if (!appBridge || !request) return
+        /* segmented：先进入打字页再异步加载分段（与 startSegmentedSource 一致），
+           否则 _on_ott_segment_session_started 完成后无人导航到 TypingPage */
+        if (request.contentMode === "segmented") {
+            setupSliceCriteria(rp)
+            navigateToTyping()
+            root.federatedContentLoading = true
+            Qt.callLater(function() {
+                appBridge.loadFederatedEntrySegment(
+                    request.authority, request.entryId, request.revisionId,
+                    1,
+                    root.sliceModeChecked ? sliceSettingsPanel.sliceSize : request.totalChars,
+                    request.totalChars, request.sourceSegmentSize, request.title
+                )
+            })
+            return
+        }
+        /* inline（规则/脚本源）直接加载内容，完成经 textContentLoaded → startMaterializedText */
+        root.federatedContentLoading = true
+        root._pendingFederatedContent = true
+        appBridge.loadFederatedInlineEntry(request.authority, request.entryId, request.revisionId, request.title)
     }
 
     function startMaterializedText(request, rp) {
@@ -480,10 +453,7 @@ FluentPage {
         if (!appBridge) return false
         // custom 来源字数校验（依赖 textLoadPanel，留在 hub）
         if (currentSource === "custom") return SrcBehav.customTextLen() > 0
-        // jisubei 需要服务端内容提前拉回（loadSelectedItem 依赖 previewContent）
-        if (currentSource === "jisubei")
-            return selectedItem !== null && previewContent.length > 0
-        // local / trainer 本地读取，选中即可载文
+        // local / trainer / repos 选中即可载文（repos 不依赖预览内容）
         return selectedItem !== null
     }
 
@@ -500,73 +470,21 @@ FluentPage {
         width: parent.width
         spacing: 16
 
-        // ---- 顶部来源切换（自定义 pill 导航，背景与高亮完全同高） ----
-        Item {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 40
+        // ---- 顶部来源切换（RinUI Segmented）----
+        Segmented {
+            id: sourceSegmented
+            currentIndex: root.currentSourceIndex
 
-            Rectangle {
-                anchors.fill: parent
-                radius: 8
-                color: Theme.currentTheme.colors.subtleColor
-                border.color: Theme.currentTheme.colors.dividerBorderColor
-                border.width: 1
-            }
+            SegmentedItem { text: qsTr("本地文库"); icon.name: "ic_fluent_library_20_regular" }
+            SegmentedItem { text: qsTr("开源文库"); icon.name: "ic_fluent_cloud_arrow_down_20_regular" }
+            SegmentedItem { text: qsTr("练单器"); icon.name: "ic_fluent_apps_list_detail_20_regular" }
+            SegmentedItem { text: qsTr("晴发文"); icon.name: "ic_fluent_book_20_regular" }
+            SegmentedItem { text: qsTr("AI 推荐"); icon.name: "ic_fluent_sparkle_20_regular" }
+            SegmentedItem { text: qsTr("自定义"); icon.name: "ic_fluent_edit_20_regular" }
 
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: 3
-                spacing: 2
-
-                Repeater {
-                    model: root.sourceKeys.length
-
-                    Rectangle {
-                        id: pill
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        radius: 6
-                        property bool isSelected: index === root.currentSourceIndex
-                        color: isSelected ? Theme.currentTheme.colors.controlFillColor : "transparent"
-                        border.color: isSelected ? Theme.currentTheme.colors.dividerBorderColor : "transparent"
-                        border.width: isSelected ? 1 : 0
-
-                        Row {
-                            anchors.centerIn: parent
-                            spacing: 5
-
-                            IconWidget {
-                                anchors.verticalCenter: parent.verticalCenter
-                                icon: root.sourceIcons[index]
-                                color: isSelected ? Theme.currentTheme.colors.primaryColor : Theme.currentTheme.colors.textSecondaryColor
-                                visible: icon !== ""
-                            }
-                            Text {
-                                anchors.verticalCenter: parent.verticalCenter
-                                text: root.sourceLabels[index]
-                                typography: Typography.Body
-                                color: isSelected ? Theme.currentTheme.colors.textColor : Theme.currentTheme.colors.textSecondaryColor
-                                font.weight: isSelected ? Font.DemiBold : Font.Normal
-                            }
-                        }
-
-                        MouseArea {
-                            id: pillArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.currentSource = root.sourceKeys[index]
-                        }
-
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: 6
-                            color: Theme.currentTheme.colors.subtleSecondaryColor
-                            opacity: pillArea.containsMouse && !isSelected ? 0.6 : 0
-                            z: -1
-                        }
-                    }
-                }
+            onCurrentIndexChanged: {
+                if (currentIndex >= 0 && currentIndex < root.sourceKeys.length)
+                    root.currentSource = root.sourceKeys[currentIndex]
             }
         }
 
@@ -581,9 +499,9 @@ FluentPage {
             // ---- 左侧内容 ----
         StackLayout {
             id: leftStack
-            Layout.fillWidth: !root.wideMode
+            Layout.fillWidth: !root.wideMode || !root.isListSource
             Layout.preferredWidth: root.wideMode ? Math.max(300, parent.width * 0.38) : parent.width
-            Layout.maximumWidth: root.wideMode ? 480 : parent.width
+            Layout.maximumWidth: root.isListSource && root.wideMode ? 480 : parent.width
             Layout.fillHeight: true
             currentIndex: root.currentSourceIndex
 
@@ -610,32 +528,25 @@ FluentPage {
                 }
             }
 
-            // index 1: repos — 源仓库订阅管理
-            ReposManagementPanel {
-                repos: root.reposItems
-                loading: root.currentSource === "repos" && root.reposLoading
-                onAddRepoRequested: function(url) { if (appBridge) appBridge.addRepo(url) }
-                onRemoveRepoRequested: function(url) { if (appBridge) appBridge.removeRepo(url) }
-                onToggleRepoRequested: function(url, enabled) { if (appBridge) appBridge.setRepoEnabled(url, enabled) }
-                onRefreshRepoRequested: function(url) { if (appBridge) appBridge.refreshRepo(url) }
-                onRefreshAllRequested: { if (appBridge) appBridge.refreshRepos() }
-                onConfirmRepoRequested: function(url) { if (appBridge) appBridge.confirmRepoTrust(url) }
-                onRejectRepoRequested: function(url) { if (appBridge) appBridge.rejectRepoTrust(url) }
-                onOpenSourceRequested: function(sourceLabel, authorities) {
-                    console.log("[ReposPanel] openSourceRequested:", sourceLabel, JSON.stringify(authorities))
-                    if (!appBridge) {
-                        console.log("[ReposPanel] appBridge is null")
-                        return
-                    }
-                    // 保存当前选中的 authorities，加载条目后跳转
-                    root._pendingSourceLabel = sourceLabel
-                    root._pendingAuthorities = authorities || []
-                    console.log("[ReposPanel] calling loadFederatedEntries, loading=", appBridge.federatedEntriesLoading)
-                    appBridge.loadFederatedEntries()
+            // index 1: repos — 开源文库（联邦条目直接浏览）
+            RepoEntriesPanel {
+                entries: root.federatedEntries
+                loading: root.currentSource === "repos" && (appBridge ? appBridge.federatedEntriesLoading : false)
+                errorText: root.reposEntriesError
+                selectedEntry: root.selectedItem
+                onEntryClicked: function(entry) {
+                    root.selectedItem = entry
+                    root.previewContent = entry.content || entry.preview || ""
+                    root.checkProgress()
+                }
+                onRefreshRequested: { if (appBridge) appBridge.loadFederatedEntries() }
+                onManageRequested: {
+                    if (Window.window && Window.window.navigationView)
+                        Window.window.navigationView.push(Qt.resolvedUrl("ReposManagementPage.qml"))
                 }
             }
 
-            // index 3: trainer — 练单器
+            // index 2: trainer — 练单器
             TextSourceListPanel {
                 title: qsTr("词库")
                 icon: "ic_fluent_apps_list_detail_20_regular"
@@ -646,8 +557,31 @@ FluentPage {
                 onRefreshRequested: { if (appBridge) appBridge.loadTrainers() }
             }
 
-            // index 3: custom — 自定义
+            // index 3: wenlai — 晴发文
+            WenlaiSourcePanel {
+                onLoadRequested: {
+                    root.navigateToTyping()
+                    Qt.callLater(function() {
+                        if (appBridge) appBridge.loadRandomWenlaiText()
+                    })
+                }
+            }
+
+            // index 4: ai — AI 推荐
+            AiSourcePanel {
+                onLoadRequested: {
+                    root.navigateToTyping()
+                    Qt.callLater(function() {
+                        if (appBridge) appBridge.requestAiText()
+                    })
+                }
+            }
+
+            // index 5: custom — 自定义
             Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+
                 Rectangle {
                     anchors.fill: parent
                     radius: 6
@@ -666,17 +600,6 @@ FluentPage {
                     defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
                 }
             }
-
-            // index 4: jisubei — 极速杯
-            TextSourceListPanel {
-                title: qsTr("文本列表")
-                icon: "ic_fluent_document_text_20_regular"
-                sourceItems: root.jisubeiItems
-                loading: root.currentSource === "jisubei" && (appBridge ? appBridge.textListLoading : false)
-                emptyText: qsTr("暂无文本")
-                onItemClicked: function(originalIndex) { root.selectListItem("jisubei", originalIndex) }
-                onRefreshRequested: { if (appBridge) appBridge.loadTextList("jisubei") }
-            }
         }
 
             // ---- 右侧预览与设置 ----
@@ -684,6 +607,7 @@ FluentPage {
                 id: rightPanel
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                visible: root.isListSource
                 radius: 6
                 hoverable: false
                 padding: 12
@@ -806,11 +730,18 @@ FluentPage {
                             onClicked: root.continueLastProgress()
                         }
 
+                        BusyIndicator {
+                            Layout.preferredWidth: 18
+                            Layout.preferredHeight: 18
+                            running: root.federatedContentLoading
+                            visible: running
+                        }
+
                         Button {
                             Layout.preferredHeight: 34
                             text: qsTr("载入跟打")
-                            highlighted: root.readyForLoad
-                            enabled: root.readyForLoad
+                            highlighted: root.readyForLoad && !root.federatedContentLoading
+                            enabled: root.readyForLoad && !root.federatedContentLoading
                             onClicked: root.loadSelectedItem()
                         }
                     }
@@ -901,37 +832,6 @@ FluentPage {
         target: appBridge
         enabled: root.active
 
-        function onTextListLoaded(texts) {
-            if (root.currentSource === "jisubei") {
-                root._syncToCurrentList(texts)
-                root.errorMessage = ""
-            }
-        }
-        function onTextListLoadFailed(message) {
-            if (root.currentSource === "jisubei") { root.errorMessage = message; root.statusMessage = "" }
-        }
-        function onTextContentLoaded(textId, content, title) {
-            if (!root.active) return
-            if (root.currentSource === "jisubei") {
-                root.serverTextId = textId || 0
-                root.previewContent = content || ""
-                root.statusMessage = qsTr("已载入：%1").arg(title || root.itemDisplayTitle())
-                root.errorMessage = ""
-                root.checkProgress()
-            }
-        }
-        function onReposChanged(repos) {
-            if (root.currentSource === "repos") {
-                root._syncToCurrentList(repos)
-                root.errorMessage = ""
-            }
-        }
-        function onReposLoadFailed(message) {
-            if (root.currentSource === "repos") {
-                root.errorMessage = message
-                root.statusMessage = ""
-            }
-        }
         function onLocalArticlesLoaded(articles) {
             if (root.active && root.currentSource === "local") {
                 root._syncToCurrentList(articles)
@@ -995,10 +895,10 @@ FluentPage {
     }
 
     // ---- 联邦跨页面信号（不依赖 root.active）----
-    // 联邦条目点击后 hub 已被 push 到 RepoEntriesPage/TypingPage，root.active 为 false，
-    // 若留在上方 enabled: root.active 的 Connections 中，textContentLoaded 落地信号会被
+    // 联邦条目载文后 hub 可能已被 push 到 TypingPage，root.active 为 false，
+    // 若留在上方 enabled: root.active 的 Connections 中，textContentLoaded/textLoaded 落地信号会被
     // 双重守卫丢弃（enabled 门控 + onTextContentLoaded 内 if (!root.active) return），
-    // 联邦 inline 条目永远无法开始打字。此处独立 Connections 常驻处理。
+    // 联邦条目永远无法开始打字。此处独立 Connections 常驻处理。
     Connections {
         target: appBridge
 
@@ -1006,6 +906,7 @@ FluentPage {
             if (!root._pendingFederatedContent) return
             /* 联邦 inline 条目内容加载完成，开始打字 */
             root._pendingFederatedContent = null
+            root.federatedContentLoading = false
             root.startMaterializedText({
                 source: "custom",
                 launchKind: "materialized_text",
@@ -1015,50 +916,35 @@ FluentPage {
                 textId: 0
             }, {})
         }
+        function onTextLoaded(text, textId, sourceLabel) {
+            /* 联邦 segmented 会话建立（textLoaded 落地），清除载文 busy 状态 */
+            root.federatedContentLoading = false
+        }
         function onTextLoadFailed(message) {
-            /* 联邦 inline 加载失败：清除 flag，防止残留的 _pendingFederatedContent
+            /* 联邦载文失败：清除 flag 与 busy 状态，防止残留的 _pendingFederatedContent
                把后续任意 textContentLoaded（如正常载文）误判成联邦内容 */
-            if (!root._pendingFederatedContent) return
-            root._pendingFederatedContent = null
-            root.errorMessage = message
-            root.statusMessage = ""
+            if (root.federatedContentLoading || root._pendingFederatedContent) {
+                root._pendingFederatedContent = null
+                root.federatedContentLoading = false
+                root.errorMessage = message
+                root.statusMessage = ""
+            }
         }
         function onRegistryFederatedEntriesLoadingChanged() {
             if (appBridge && appBridge.federatedEntriesLoading) {
                 root.statusMessage = qsTr("正在加载条目…")
-                root.errorMessage = ""
             }
         }
         function onRegistryFederatedEntriesLoadFailed(message) {
-            root.errorMessage = message
+            root.reposEntriesError = message
             root.statusMessage = ""
+            root.federatedContentLoading = false
         }
         function onRegistryFederatedEntriesLoaded(entries) {
-            console.log("[ReposPanel] entries loaded:", entries ? entries.length : 0)
             root.federatedEntries = entries || []
-            if (appBridge && appBridge.federatedEntriesLoading) {
-                root.statusMessage = ""
-            }
-            // 如果有待跳转的源，加载完成后跳转到条目列表页
-            var auths = root._pendingAuthorities
-            if (auths && auths.length > 0) {
-                var label = root._pendingSourceLabel
-                var filtered = []
-                for (var i = 0; i < entries.length; i++) {
-                    var entryAuth = entries[i].authority || ""
-                    for (var j = 0; j < auths.length; j++) {
-                        if (entryAuth === auths[j]) {
-                            filtered.push(entries[i])
-                            break
-                        }
-                    }
-                }
-                root._pendingAuthorities = []
-                root._pendingSourceLabel = ""
-                console.log("[ReposPanel] filtering done, filtered:", filtered.length)
-                // 调用主作用域的方法来完成导航（可访问 Window.window）
-                root.navigateToRepoEntries(filtered, label)
-            }
+            root.reposEntriesError = ""
+            var result = SrcBehav.syncItems("repos", root.federatedEntries)
+            root.statusMessage = result.statusMessage
         }
     }
 }

@@ -1,5 +1,5 @@
 # typetype 项目开发指南
-<!-- 状态: active | 最后验证: 2026-07-13 -->
+<!-- 状态: active | 最后验证: 2026-08-13 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -16,7 +16,7 @@
 1. **本文档 §3 代码风格 + §8 已知陷阱** — 编码约束和常见坑位
 2. **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** — 架构分层、数据流、依赖规则
 3. **[docs/reference/README.md](./docs/reference/README.md)** — 配置/QML/API 速查
-4. **本文档 §4-7** — 测试策略、服务端接入、平台权限、CI
+4. **本文档 §4-7** — 测试策略、平台权限、CI
 5. **[docs/history/](./docs/history/)** — 历史功能设计文档（已完成，仅作背景参考）
 
 > 已熟悉项目后，日常开发只需查阅 **§3 代码风格 + §8 已知陷阱** 即可。
@@ -100,15 +100,16 @@
 
 ### 配置系统架构
 
-`config.json` 是唯一的运行时配置文件，位于 `~/.config/typetype/config.json`。
+`config.json` 是唯一的运行时配置文件，位于 `~/.config/typetype/config.json`（`schema_version=2`，ADR-013）。
 
 | 文件 | 位置 | 内容 | 写入者 |
 |:--- |:--- |:--- |:--- |
-| `config.json` | `~/.config/typetype/` | 运行时配置（API 地址、文本源、AI 服务、UI 主题、字体偏好等） | `RuntimeConfig`（主）、`RinUI AppUIConfigManager`（ui 字段） |
-| `font_config.json`（已废弃） | `~/.config/typetype/` | 读屏字体路径 | 首次访问时自动迁移到 `config.json.ui.reader_font_path` |
+| `config.json` | `~/.config/typetype/` | 运行时配置（`ott`/`update`/`source_repos`/`wenlai`/`ai`/`ui` 段、本地 `text_sources` 等） | `RuntimeConfig`（主）、`RinUI AppUIConfigManager`（ui 字段） |
+| `font_config.json`（已废弃） | `~/.config/typetype/` | 读屏字体路径 | 旧文件在 v1 → v2 迁移时合并进 `config.json.ui.reader_font_path`（文件保留不删） |
 
 `RuntimeConfig` 设计要点：
-- `dataclass` 结构：顶级字段 + 子 Config dataclass（`WenlaiConfig`、`AiConfig`、`RegistryConfig`、`TextSessionConfig`）
+- `dataclass` 结构：顶级字段 + 子 Config dataclass（`WenlaiConfig`、`AiConfig`、`OttConfig`、`UpdateConfig`、`TextSessionConfig`、`SourceReposConfig`）
+- `schema_version=2`：缺版本（=v1）→ 一次性幂等迁移并写回 stamp v2；已是 v2 直接加载
 - `_from_dict` / `_to_dict`：JSON ↔ dataclass 序列化，`_save_to_file` 以 `_to_dict()` 为基全量写入
 - `__post_init__`：**范围校验**（如 `length < 0 → 0`）
 - `_safe_int` / `_safe_str`（在 `_from_dict` 中）：**JSON 类型转换**（如字符串 `"bad"` → 默认值 0）
@@ -126,7 +127,7 @@
 
 ### 架构约束
 
-**绑定规则**：Presentation 禁止依赖 Integration/Infrastructure 与 Domain 实体/存储；允许直连纯业务服务（`TypingService`/`CharStatsService`/`AuthService`，见 [ARCHITECTURE.md 依赖规则](../docs/ARCHITECTURE.md#依赖规则)）。Bridge 不得直接访问 `SessionContext` 或持有 Integration 对象，状态访问一律经对应 Adapter 代理。
+**绑定规则**：Presentation 禁止依赖 Integration/Infrastructure 与 Domain 实体/存储；允许直连纯业务服务（`TypingService`/`CharStatsService`，见 [ARCHITECTURE.md 依赖规则](../docs/ARCHITECTURE.md#依赖规则)）。Bridge 不得直接访问 `SessionContext` 或持有 Integration 对象，状态访问一律经对应 Adapter 代理。
 
 **决策规则**：
 - 有编排逻辑 → 必须走 UseCase
@@ -158,7 +159,7 @@
 - `FluentPage` 不使用 `layer.effect: OpacityMask`
 - **FluentPage 内容区子项必须用 `Layout.*` 而非 `anchors`**
 - **QQC 必须限定导入 `as QQC`**（避免与 RinUI 同名组件冲突）
-- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部来源切换（`RinUI Segmented`）进入；各来源共享同一组分片/达标组件，不再分散为多个独立入口页
+- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部 RinUI `Segmented` 切换 6 个来源 tab（本地文库/开源文库/练单器/晴发文/AI 推荐/自定义）；各来源共享同一组分片/达标组件，不再分散为多个独立入口页。开源文库 tab 直接展示联邦聚合条目（`RepoEntriesPanel`，选中即载入），订阅管理独立子页面 `ReposManagementPage.qml`（经 `navigationView.push(Qt.resolvedUrl("ReposManagementPage.qml"))` 进入）
 
 ---
 
@@ -170,23 +171,11 @@
 
 ---
 
-## 5. Spring Boot 服务端接入
+## 5. 服务端接入（已移除）
 
-已通过 `RemoteTextProvider`、`ApiClientScoreSubmitter`、`LeaderboardFetcher` 等接入 [typetype-server](https://github.com/whynusn/typetype-server)。
+typetype-server 已随 [ADR-013](./docs/decisions/013-converge-to-three-repo-model.md) 全部移除：排行榜、成绩上传、登录注册、远程文本列表、`text_id` 回查、`base_url`/`api_timeout` 均删除。客户端收敛为三仓模型（typetype / open-typing-texts / ott-source-hub）空壳客户端，OTT 统一走 `source_repos` 订阅，晴发文/AI 为独立第三方即时源。
 
-### 接入原则
-
-- 用例层只依赖 Port 协议，不直接依赖 HTTP 细节
-- Spring Boot 后端作为 integration 层实现注入
-
-### 新增服务端能力扩展路径
-
-1. `ports/` 定义新 Port 协议
-2. `integration/` 实现对应 adapter
-3. `container.py` 装配层注入
-4. 配置项通过 `RuntimeConfig` 管理
-
-> 当前接口列表见 [docs/reference/api-endpoints.md](./docs/reference/api-endpoints.md)。
+> 原服务端 API 文档已归档到 `docs/history/api-endpoints.md`。新增协议能力 → 先扩展 OTT Core / OTT Repo 协议（open-typing-texts 仓）再改 typetype；新增带认证实时源 → 参考晴发文完整独立 Pipeline。
 
 ---
 
@@ -203,7 +192,7 @@
 |:--- |:--- |
 | `ci.yml` | ruff check / format check |
 | `multi-platform-tests.yml` | Linux/Windows pytest |
-| `build-release.yml` | Linux/Windows Nuitka 打包与 release |
+| `build-release.yml` | Linux/Windows Nuitka 打包与 release；`assert-version` job 断言发布 tag / `pyproject.toml` / `src/backend/version.py` `APP_VERSION` 三者一致，并运行 `scripts/gen_version_manifest.py` 生成签名 `version.json` |
 
 本地验证：
 ```bash
@@ -271,9 +260,9 @@ onActiveChanged: {
 
 ### ⚠️ TextAdapter 所有文本加载必须走 Worker
 
-**问题**：本地文本加载在主线程同步执行导致 UI 阻塞（隐含同步 HTTP 回查服务端 ID）。
+**问题**：本地文本加载曾在主线程同步执行导致 UI 阻塞（旧实现隐含同步 HTTP 回查）。
 
-**正确做法**：所有加载统一走 Worker。两阶段异步：Worker 只读文件 → daemon thread 异步回查。
+**正确做法**：所有加载统一走 Worker。两阶段异步：Worker 只读文件 → daemon thread 异步回查（现本地载文已无回查，OTT 订阅走 `RegistryAdapter` Worker）。
 
 **历史**：2026-04-16 发现，2026-04-19 拆分为两阶段。
 
@@ -299,30 +288,29 @@ onActiveChanged: {
 
 **问题**：`config.json` 曾被四方无协调写入（RuntimeConfig、RinUI AppUIConfigManager、font_config.json 桥、用户手工编辑），存在 lost-update 风险。
 
-**现状**（2026-07-04 重构后）：
+**现状**（2026-07-04 重构 + 2026-08-13 v2 收口后）：
 - `RuntimeConfig._save_to_file()` 以 `_to_dict()` 为基全量写入，合并未知字段（前向兼容）
 - 写入时加 `fcntl.lockf` 文件锁防止并发冲突
-- `ui` 字段已成为 `RuntimeConfig` 的一等公民（`runtime_config.py:148`），通过 `update_ui_config()` 写入
-- `font_config.json` 已废弃：`reader_font_path` 改存 `config.json` 的 `ui.reader_font_path`，旧文件在首次访问时自动迁移
+- `ui` 字段已成为 `RuntimeConfig` 的一等公民，通过 `update_ui_config()` 写入
+- `font_config.json` 已并入 v1 → v2 一次性迁移：`reader_font_path` 折叠进 `config.json` 的 `ui.reader_font_path`（旧文件保留不删），不再是独立的运行期迁移点
 
 **已知限制**：
-- `api_timeout` 为启动期常量（`container.py` 创建 `ApiClient` 时使用），运行时不传播变更
 - RinUI `AppUIConfigManager` 仍直接读写 config.json 的 `ui` 字段（RinUI 框架内部机制），与 RuntimeConfig 的 `_save_to_file` 存在理论上的并发窗口，但 Python 单线程模型中风险极低
 
 **正确做法**：
 - 增加配置字段 → 加在 Config dataclass 上 + `_from_dict` + `_to_dict`，不要绕开 RuntimeConfig
 - 修改 UI 配置 → 通过 `runtime_config.update_ui_config(key=value)`，不要直接写文件
-- 新子配置 → 遵循 `WenlaiConfig / AiConfig / RegistryConfig` 模式：`@dataclass` + `__post_init__` 范围校验 + `_from_dict` 负责 JSON 类型转换
+- 新子配置 → 遵循 `WenlaiConfig / AiConfig / OttConfig / UpdateConfig` 模式：`@dataclass` + `__post_init__` 范围校验 + `_from_dict` 负责 JSON 类型转换
 
-**历史**：2026-07-04 多相位重构。
+**历史**：2026-07-04 多相位重构；2026-08-13 v2 schema 收口（ADR-013）。
 
-### ⚠️ OTT Repo 控制面订阅走 `source_repos`，不走 `registry.primary_url`
+### ⚠️ OTT Repo 控制面订阅统一走 `source_repos`（`registry.primary_url` 已删除）
 
-**问题**：ADR-010 落地后，客户端多 authority 订阅统一走 `RuntimeConfig.source_repos`（`SourceReposConfig`）。旧的 `registry.primary_url` / `mirror_url` 仍保留为兼容标识（单实例 OTT 数据面仍可用），但新订阅能力必须写 `source_repos`。
+**问题**：ADR-010 落地后，客户端多 authority 订阅统一走 `RuntimeConfig.source_repos`（`SourceReposConfig`）。旧 `registry.primary_url` / `mirror_url` 曾作为兼容标识保留，现随 ADR-013 v2 schema **整体删除**——配置段中不再存在这两个字段，单实例 OTT 数据面（`OttTextProvider` / `RegistryTextProvider` / `registry_index.json` fallback）一并移除，OTT 只走 `source_repos` 联邦。
 
-**现状**（Phase 1）：
+**现状**：
 - `SourceReposConfig` 是一组 `SourceRepoEntry`（url / enabled / trust_state / pinned_pubkey / refresh_ttl_seconds / etag / added_at / last_snapshot_hash）
-- 旧 `registry.primary_url` 在加载时**自动迁移**为一条等价 `source_repos` 订阅（TTL 沿用 `cache_ttl_seconds`）；已存在 `source_repos` 时不迁移
+- 旧 `registry.primary_url` 仅在 v1 → v2 迁移中按等价订阅保留（已存在 `source_repos` 时不重复）；`base_url`/`api_timeout` 直接丢弃
 - 订阅增删改通过 `RuntimeConfig.add_source_repo / remove_source_repo / set_source_repo_enabled / set_source_repo_trust`，不要直接操作 `source_repos.repos` 列表
 - manifest 拉取与缓存在 `RepoManifestCache`（TTL/stale-while-revalidate/原子写/后台刷新，复用 OTT Core v1 缓存决策树）
 - 联邦聚合在 `OttFederationProvider`：按 authority 命名空间隔离，同 authority 多镜像按 priority + 健康度指数退避 failover
@@ -333,63 +321,60 @@ onActiveChanged: {
 - 消费订阅列表 → 通过 `RegistryAdapter`（Worker 异步），不要在主线程拉取 manifest
 - 新子配置字段 → 加在 `SourceRepoEntry` + `_parse_source_repos` + `_to_dict`，保持 RuntimeConfig 为唯一序列化者
 
-**历史**：2026-07-26 Phase 1 落地（ADR-010）。
+**历史**：2026-07-26 Phase 1 落地（ADR-010）；2026-08-13 `primary_url`/`mirror_url` 随 ADR-013 v2 schema 删除。
 
-### ⚠️ TextSource 使用 Loader + LeaderboardMode 二维正交模型
+### ⚠️ TextSource 已收敛为 v2 纯本地模型（Loader/LeaderboardMode 已删除）
 
-**问题**：旧的 `SourceType` 枚举（`NETWORK / REGISTRY / LOCAL_RANKED / LOCAL_PRACTICE`）把"加载方式"和"排行榜行为"耦合在单一枚举中，导致 `LOCAL_RANKED` 和 `LOCAL_PRACTICE` 的区别不是本质性的（都是读本地文件），且新增来源类型时必须扩展枚举和 if 分支。
+**问题**：旧的 `SourceType` 枚举与 `Loader`/`LeaderboardMode` 二维模型曾把"加载方式"和"排行榜行为"耦合在一起，且随 typetype-server 移除全部失效。
 
-**现状**（2026-07-04 重构后）：
-- `TextSourceEntry` 现在由两个正交字段定义：`loader`（决定 Gateway 路由）+ `leaderboard_mode`（决定 text_id 决策）
-- `TextSourceEntry.is_local` 属性由 `loader == Loader.LOCAL_FILE` 派生
-- `has_ranking` 字段已废弃（从未有独立消费方）
-- 旧 `source_type` / `has_ranking` 配置项在加载时自动迁移到新字段
+**现状**（2026-08-13 ADR-013 收口后）：
+- `Loader` 收敛为仅 `LOCAL_FILE`，`LeaderboardMode` 枚举整体删除；`TextSourceEntry` 简化为 `{key, label, local_path}`，全部为本地文件
+- OTT 订阅不再进 `text_sources`：源仓库条目统一在 `source_repos`，由 `RegistryAdapter` 聚合到载文中心「开源文库」标签
+- 旧 `source_type` / `has_ranking` / `loader` / `leaderboard_mode` 迁移分支随 v1 → v2 迁移一并删除
 
 **正确做法**：
-- 添加新远程源 → 新增 `Loader` 枚举值 + Gateway 路由分支 + Provider 实现
-- 改变排行榜行为 → 设置 `leaderboard_mode`，不影响加载路径
-- `text_source_config.py` 是权威定义，`text_source_gateway.py` 和 `load_text_usecase.py` 分别只依赖 `loader` 和 `leaderboard_mode`
-- `is_local` 属性由 `TextSourceEntry.is_local` 提供，不要手工判断
+- 添加本地文本 → 在 `config.json` `text_sources` 加条目（`{label, local_path}`），或走设置页本地文本导入
+- 添加远程文本 → 订阅 OTT Repo 源仓库，或新增独立 Provider 栈（参考晴发文）；不要改 `text_sources` 结构
+- `TextSourceEntry.is_local` 属性恒为 `True`，不要依赖 loader 判断
 
-**历史**：2026-07-04 重构。
+**历史**：2026-07-04 重构引入二维模型；2026-08-13 随 ADR-013 删除。
 
 ### ⚠️ 开源文库缓存层必须读缓存，禁止直打网络
 
 **问题**：开源文库 provider 的 `_cache_dir` 曾长期只创建不读写，所有请求直打网络，弱网/离线即崩（`cache_ttl_seconds` 是死字段，`cache_dir` 创建但无读写）。
 
-**现状**（Phase 1a/1b 实现后）：
-- `OttTextProvider._fetch_json_with_cache()` 实现五层决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底
-- 基于文件 mtime + `cache_ttl_seconds`（默认 3600s）判断过期
+**现状**（Phase 1a/1b 实现，2026-08-13 移至 `OttCachedFetcher`）：
+- `OttCachedFetcher.fetch_json_with_cache()` 实现缓存决策树：cache hit → stale-while-revalidate → cache miss → 网络成功写缓存 → 离线兜底（`read_cache`/`write_cache`/`is_cache_expired`/`cache_path`）
+- 基于文件 mtime + `ott.cache_ttl_seconds`（默认 3600s）判断过期
 - 原子写：tmp + `Path.replace`，全方法 `try/except OSError` 兜底
-- 后台刷新：`QtAsyncExecutor` + `threading.Lock` 去重防重复刷新
+- 后台刷新：`AsyncExecutor` + `threading.Lock` 去重防重复刷新
+- 旧 `OttTextProvider` 已删除，缓存实现在 `integration/ott_cached_fetcher.py`，由联邦/规则/脚本客户端复用
 
 **正确做法**：
-- 修改 Registry 相关逻辑 → 通过 `_fetch_json_with_cache()` 走缓存层，不要绕过 `_read_cache`/`_write_cache`
-- 新增缓存路径 → 复用 `_cache_path(cache_key)` 统一文件布局
+- 修改 Registry 相关逻辑 → 通过 `fetch_json_with_cache()` / `fetch_text_with_cache()` 走缓存层，不要绕过 `read_cache`/`write_cache`
+- 新增缓存路径 → 复用 `cache_path(cache_key)` 统一文件布局
 - 缓存写入失败/读取失败 → 静默返回 None，不要阻塞主流程
 
-**历史**：2026-07-05 Phase 1a/1b 实现，ADR-008 §决策。
+**历史**：2026-07-05 Phase 1a/1b 实现，ADR-008 §决策；2026-08-13 随 `OttTextProvider` 删除迁移到 `OttCachedFetcher`（ADR-013）。
 
 ### ⚠️ typetype 只能依赖 OTT 只读协议，不能把 `/api/entries` 当标准路径
 
 **问题**：OTT adapter 的 `/api` 同时承载管理、脚本、删除、调度等私有能力。把 `/api/entries` 作为 typetype 标准客户端 fallback 会重新耦合管理面和只读分发面，并让大文本退化成全量正文分发。
 
-**现状**（2026-07-10 ADR-009 首轮落地）：
+**现状**（ADR-009 首轮落地 + 2026-08-13 ADR-013 收口后）：
 - OTT 标准客户端边界是 `/ott/v1` Service Profile 或 Static Profile
-- `OttTextProvider.get_catalog()` 优先读 `/ott/v1/sources`，再 fallback 到 Static `/sources.json`，最后 fallback 到旧 `registry_index.json`
-- `OttTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
-- `/ott/v1` 不可用时按 Static Profile → 旧静态 `registry_index.json` + `content/{source_key}.json` fallback，不 fallback `/api/entries`
-- inline OTT 条目通过联邦路径 `loadFederatedInlineEntry(authority, entry_id, revision_id)` 显式加载，不靠 `entry_id` 前缀猜测（旧单实例 `loadOttEntry` 已删除）
+- 目录/条目读取由 `OttFederationProvider` 统一承担（按 `source_repos` 订阅联邦聚合），优先读 `/ott/v1/sources`、`/ott/v1/entries`，再 fallback 到 Static Profile
+- 旧 `OttTextProvider` / `RegistryTextProvider` / `registry_index.json` 单实例数据面与 legacy fallback 已整体删除（ADR-013）
+- inline OTT 条目通过联邦路径 `loadFederatedInlineEntry(authority, entry_id, revision_id)` 显式加载，不靠 `entry_id` 前缀猜测
 - segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
-- `OttClient` 负责 Service Profile / Static Profile 读取顺序；`OttTextProvider` 负责缓存与 legacy fallback
-- `registry_text_provider.RegistryTextProvider` 只保留兼容导出，新代码禁止继续依赖旧模块名
+- `OttClient` 负责 Service Profile / Static Profile 读取顺序；缓存复用 `OttCachedFetcher`
 
 **正确做法**：
 - 新增 OTT 客户端能力 → 先扩展 `/ott/v1` 或 Static Profile，再改 typetype
 - 管理/脚本能力 → 留在 adapter Admin Profile `/ott-admin/v1`（旧 `/api` 仅兼容），typetype 只读客户端不要依赖
 - 大文本 → 使用服务端定义 segment；不要在 typetype 侧拉完整正文再自行切片
 
-**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移与 OTT adapter `/ott-admin/v1` 管理面拆分；2026-07-13 完成 source catalog、schema/validator、兼容测试包收口。
+**历史**：2026-07-10 ADR-009 首轮实现；2026-07-12 完成 `OttTextProvider` 命名迁移与 OTT adapter `/ott-admin/v1` 管理面拆分；2026-07-13 完成 source catalog、schema/validator、兼容测试包收口；2026-08-13 `OttTextProvider`/`registry_text_provider` 删除（ADR-013）。
 
 ### ⚠️ 晴发文（Wenlai）不得 CI 化，必须保持即时拉取
 
@@ -404,7 +389,7 @@ onActiveChanged: {
 **正确做法**：
 - 晴发文是第 3 层（即时拉取）的参照实现，保持不动
 - 未来若有第 2 个带认证的实时源，再抽象 `AuthenticatedRemoteProvider` Port（YAGNI）
-- 不得将晴发文纳入 Registry/CI 体系或 `TextSourceConfig.sources`
+- 不得将晴发文纳入 OTT Repo 订阅体系或 `TextSourceConfig.sources`
 
 **历史**：2026-07-05 ADR-008 §4.1 决策。
 
@@ -490,6 +475,17 @@ onActiveChanged: {
 **正确做法**：下沉到 Application 层（方案 B）：`TextSliceProgressStore` 经 Port 协议注入 UseCase，Bridge 收敛为纯 Slot 转发。`SessionContext` 的自序列化接口（`slice_progress_state()`/`apply_metrics_dict()`/`slice_text`）已就位，是下沉的前置。
 
 **历史**：2026-08-12 边界审计发现，同日消除 bridge 穿透（方案 A）；store 下沉留待后续批次。
+
+### ⚠️ OTA 版本一致性：`APP_VERSION` / `pyproject.toml` / 发布 tag 三处必须同步
+
+**问题**：`src/backend/version.py` 的 `APP_VERSION` 是**运行期**版本单一事实源（Nuitka 独立产物内不可读 pyproject.toml）；`pyproject.toml` version 是**构建期**来源；发布 tag（`v*`）是 release 标识。三者脱节会导致 OTA 更新检查拿不到匹配资产或跳过更新。
+
+**正确做法**（ADR-014）：
+- 改动版本号时三处必须同步修改；`build-release.yml` 的 `assert-version` job 会断言 tag == `pyproject.toml` == `APP_VERSION`
+- 发布流程：`scripts/gen_version_manifest.py` 生成并签名 `version.json`（含各平台资产 sha256），作为 release 资产附上
+- 版本降级/跳过由更新检查逻辑处理；客户端不发布测试版号（`channel` 预留 stable/beta）
+
+**历史**：2026-08-13 ADR-014 落地。
 
 ---
 

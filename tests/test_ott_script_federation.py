@@ -10,7 +10,7 @@ import pytest
 
 from src.backend.integration import ott_script_runner as runner
 from src.backend.config.runtime_config import (
-    RegistryConfig,
+    OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
@@ -70,9 +70,7 @@ def _federation_with_script(
     tmp_path, *, trust_state: str = "verified", permissions=None, rights=None
 ):
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = RegistryConfig(
-        cache_ttl_seconds=3600, max_content_bytes=1_048_576
-    )
+    config.ott = OttConfig(cache_ttl_seconds=3600, max_content_bytes=1_048_576)
 
     repo_entry = SourceRepoEntry(
         url="https://script-test.example.org/ott-repo.json",

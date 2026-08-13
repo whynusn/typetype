@@ -1,16 +1,58 @@
-from src.backend.config.runtime_config import RegistryConfig
+"""OttClient entry detail / 摘要路由测试（单实例 OttTextProvider 已删除）。
 
-from .ott_text_provider_helpers import (
-    make_provider,
-    make_provider_with_client,
-    mock_response,
-)
+legacy content/{source_key}.json 回查与 fetch_all_entries 编排已移除，
+此处直接验证 OttClient 的 Service Profile → Static Profile 路由与归一化。
+"""
+
+import json
+from unittest.mock import MagicMock
+
+import httpx
+
+from src.backend.config.runtime_config import OttConfig
+from src.backend.integration.ott_client import OttClient
 
 
-def test_fetch_text_by_entry_id_returns_ott_detail(tmp_path):
-    provider = make_provider(
-        tmp_path,
-        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+def mock_response(json_data, status_code=200):
+    response = MagicMock(spec=httpx.Response)
+    response.status_code = status_code
+    response.json.return_value = json_data
+    response.content = json.dumps(json_data).encode("utf-8") if json_data else b""
+    if status_code >= 400:
+        response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            str(status_code), request=MagicMock(), response=response
+        )
+    else:
+        response.raise_for_status = MagicMock()
+    return response
+
+
+def make_client(
+    responses: list, config: "OttConfig | None" = None
+) -> tuple[OttClient, MagicMock]:
+    client = MagicMock(spec=httpx.Client)
+    client.get.side_effect = responses
+
+    def fetch_json(cache_key, url, mirror_url, max_bytes):
+        response = client.get(url)
+        if response.status_code >= 400:
+            return None
+        data = response.json()
+        return data if isinstance(data, dict) else None
+
+    provider = OttClient(
+        primary_url="https://cdn.example.com",
+        mirror_url="",
+        authority="cdn.example.com",
+        fetch_json=fetch_json,
+        fetch_text=lambda *args: None,
+        max_content_bytes=config.max_content_bytes if config else 1_048_576,
+    )
+    return provider, client
+
+
+def test_get_entry_returns_ott_detail():
+    provider, _client = make_client(
         [
             mock_response(
                 {
@@ -23,22 +65,18 @@ def test_fetch_text_by_entry_id_returns_ott_detail(tmp_path):
                     "content": "标准正文",
                 }
             )
-        ],
+        ]
     )
 
-    result = provider.fetch_text_by_entry_id("ent_abc")
+    result = provider.get_entry("ent_abc")
 
     assert result is not None
-    assert result.content == "标准正文"
-    assert result.entry_id == "ent_abc"
-    assert result.revision_id == "rev_abc"
-    assert result.content_mode == "inline"
+    assert result["content"] == "标准正文"
+    assert result["entry_id"] == "ent_abc"
 
 
-def test_fetch_text_by_entry_id_accepts_non_ent_prefix(tmp_path):
-    provider = make_provider(
-        tmp_path,
-        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+def test_get_entry_accepts_non_ent_prefix():
+    provider, _client = make_client(
         [
             mock_response(
                 {
@@ -51,28 +89,18 @@ def test_fetch_text_by_entry_id_accepts_non_ent_prefix(tmp_path):
                     "content": "正文",
                 }
             )
-        ],
+        ]
     )
 
-    result = provider.fetch_text_by_entry_id("book_abc")
+    result = provider.get_entry("book_abc")
 
     assert result is not None
-    assert result.entry_id == "book_abc"
-    assert result.content == "正文"
+    assert result["entry_id"] == "book_abc"
+    assert result["content"] == "正文"
 
 
-def test_fetch_text_by_entry_id_ignores_legacy_content_shape(tmp_path):
-    provider = make_provider(
-        tmp_path,
-        responses=[mock_response({"content": "旧格式", "title": "Legacy"})],
-    )
-    assert provider.fetch_text_by_entry_id("legacy") is None
-
-
-def test_fetch_all_entries_prefers_ott_core_summary(tmp_path):
-    provider = make_provider(
-        tmp_path,
-        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+def test_list_entries_normalizes_summary():
+    provider, _client = make_client(
         [
             mock_response(
                 {
@@ -93,10 +121,10 @@ def test_fetch_all_entries_prefers_ott_core_summary(tmp_path):
                     "pages": 1,
                 }
             )
-        ],
+        ]
     )
 
-    assert provider.fetch_all_entries() == [
+    assert provider.list_entries() == [
         {
             "entry_id": "ent_1",
             "title": "诗",
@@ -117,10 +145,8 @@ def test_fetch_all_entries_prefers_ott_core_summary(tmp_path):
     ]
 
 
-def test_fetch_all_entries_tolerates_malformed_numeric_fields(tmp_path):
-    provider = make_provider(
-        tmp_path,
-        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+def test_list_entries_tolerates_malformed_numeric_fields():
+    provider, _client = make_client(
         [
             mock_response(
                 {
@@ -140,10 +166,10 @@ def test_fetch_all_entries_tolerates_malformed_numeric_fields(tmp_path):
                     "pages": "oops",
                 }
             )
-        ],
+        ]
     )
 
-    result = provider.fetch_all_entries()
+    result = provider.list_entries()
 
     assert result[0]["entry_id"] == "ent_bad_count"
     assert result[0]["char_count"] == 0
@@ -151,22 +177,19 @@ def test_fetch_all_entries_tolerates_malformed_numeric_fields(tmp_path):
     assert result[0]["segment_size_hint"] == 0
 
 
-def test_fetch_all_entries_empty_ott_result_does_not_fallback_to_api(tmp_path):
-    provider, client = make_provider_with_client(
-        tmp_path,
-        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
-        [mock_response({"entries": [], "page": 1, "pages": 0, "total": 0})],
+def test_list_entries_empty_result_does_not_hit_legacy_endpoints():
+    provider, client = make_client(
+        [mock_response({"entries": [], "page": 1, "pages": 0, "total": 0})]
     )
 
-    assert provider.fetch_all_entries() == []
+    assert provider.list_entries() == []
     client.get.assert_called_once()
     assert "/ott/v1/entries" in client.get.call_args[0][0]
+    assert "registry_index" not in client.get.call_args[0][0]
 
 
-def test_fetch_all_entries_uses_static_profile_when_service_unavailable(tmp_path):
-    provider, client = make_provider_with_client(
-        tmp_path,
-        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+def test_list_entries_uses_static_profile_when_service_unavailable():
+    provider, client = make_client(
         [
             mock_response(None, 404),
             mock_response(
@@ -187,10 +210,10 @@ def test_fetch_all_entries_uses_static_profile_when_service_unavailable(tmp_path
                     "total": 1,
                 }
             ),
-        ],
+        ]
     )
 
-    result = provider.fetch_all_entries()
+    result = provider.list_entries()
 
     assert len(result) == 1
     assert result[0]["entry_id"] == "book_1"
@@ -201,10 +224,8 @@ def test_fetch_all_entries_uses_static_profile_when_service_unavailable(tmp_path
     ]
 
 
-def test_fetch_text_by_entry_id_uses_static_profile_when_service_unavailable(tmp_path):
-    provider, client = make_provider_with_client(
-        tmp_path,
-        RegistryConfig(primary_url="https://cdn.example.com", mirror_url=""),
+def test_get_entry_uses_static_profile_when_service_unavailable():
+    provider, client = make_client(
         [
             mock_response(None, 404),
             mock_response(
@@ -218,13 +239,13 @@ def test_fetch_text_by_entry_id_uses_static_profile_when_service_unavailable(tmp
                     "content": "静态正文",
                 }
             ),
-        ],
+        ]
     )
 
-    result = provider.fetch_text_by_entry_id("book_1")
+    result = provider.get_entry("book_1")
 
     assert result is not None
-    assert result.content == "静态正文"
+    assert result["content"] == "静态正文"
     assert [call.args[0] for call in client.get.call_args_list] == [
         "https://cdn.example.com/ott/v1/entries/book_1",
         "https://cdn.example.com/entries/book_1.json",

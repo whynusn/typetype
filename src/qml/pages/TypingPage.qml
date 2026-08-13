@@ -8,8 +8,6 @@ import "../components"
 Item {
     id: typingPage
     property bool active: false  // 由 NavigationView 注入
-    property bool loggedin: false  // Will be injected by NavigationView
-    property bool showLeaderboard: false
     property string sliceStatusText: ""
     property string sliceCriteriaText: ""
     property string currentZitiHint: ""
@@ -55,7 +53,20 @@ Item {
 
     function openSliceConfig() {
         if (Window.window && Window.window.navigationView) {
-            Window.window.navigationView.push(Qt.resolvedUrl("pages/TextLoadHubPage.qml"), { initialSource: "custom" });
+            var nav = Window.window.navigationView
+            // NavigationView 按 URL 缓存页面实例，重复 push 不重新应用 properties；
+            // 先直接写回 initialSource，让缓存的 hub 实例切到 custom 页签
+            var instances = nav.pageInstances
+            var keys = Object.keys(instances)
+            for (var i = 0; i < keys.length; i++) {
+                var instance = instances[keys[i]]
+                if (instance && instance.objectName === "TextLoadHubPage") {
+                    instance.initialSource = "custom"
+                    break
+                }
+            }
+            // 与 Main.qml navigationItems 解析到同一绝对 URL（src/qml/pages/TextLoadHubPage.qml），共用单实例缓存
+            nav.push(Qt.resolvedUrl("TextLoadHubPage.qml"), { initialSource: "custom" });
         }
     }
 
@@ -470,10 +481,6 @@ Item {
             handleRetypeRequest();
         }
 
-        function onRequestToggleLeaderboard() {
-            showLeaderboard = !showLeaderboard;
-        }
-
         function onRequestOpenSliceConfig() {
             typingPage.openSliceConfig();
         }
@@ -537,12 +544,6 @@ Item {
         function onSliceModeChanged() {
             typingPage.syncSliceStatus();
             typingPage.syncSliceCriteria();
-        }
-
-        function onUploadResult(success, message, textId) {
-            if (success && textId > 0) {
-                appBridge.setTextId(textId);
-            }
         }
     }
 
@@ -615,7 +616,6 @@ Item {
                 id: leftFlickable
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.preferredWidth: showLeaderboard ? parent.width - 300 - 8 : parent.width
                 contentHeight: Math.max(leftColumn.implicitHeight, leftFlickable.height)
                 clip: true
 
@@ -823,24 +823,6 @@ Item {
                         Layout.fillWidth: true
                         Layout.fillHeight: true  // 拿走所有剩余空间
                         Layout.minimumHeight: 72  // 最小高度保证至少能看到一条历史记录
-                    }
-                }
-            }
-
-            // 右侧排行榜面板
-            LeaderboardPanel {
-                id: leaderboardPanel
-                Layout.preferredWidth: showLeaderboard ? 300 : 0
-                Layout.fillHeight: true
-                Layout.minimumHeight: 200
-                visible: showLeaderboard
-                textId: appBridge ? appBridge.textId : 0
-                onCloseRequested: showLeaderboard = false
-
-                Behavior on Layout.preferredWidth {
-                    NumberAnimation {
-                        duration: 200
-                        easing.type: Easing.OutQuad
                     }
                 }
             }

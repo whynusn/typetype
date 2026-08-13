@@ -1,6 +1,8 @@
 # ADR-013: 收敛到三仓模型并移除 typetype-server 耦合
 
-<!-- 状态: proposed | 决策日期: 2026-08-13 -->
+<!-- 状态: accepted | 决策日期: 2026-08-13 | 最后验证: 2026-08-13 -->
+
+> 实施状态（2026-08-13，Wave 1+2）：**全部 9 项决策已落地**。typetype-server 耦合（排行榜/成绩/登录/远程文本/`text_id` 回查）与单实例 OTT 数据面（`OttTextProvider`/`ott_legacy`/`registry_text_provider`）已删除；配置系统版本化为 v2 幂等迁移；孤儿脚本删除；文档收口完成。全量 1057 passed、ruff clean。前置验证门结论：`_InstanceClient` 完整覆盖 `OttClient`+`OttCachedFetcher` 能力，单实例数据面整体删除，仅保留 `OttClient`/`OttCachedFetcher`。
 
 > 本 ADR 是对「typetype 定位与能力边界」的一次收口。核心结论：**typetype 收敛为只依赖三仓模型（typetype 客户端 / open-typing-texts 协议+参考实现 / ott-source-hub 内容分发）的空壳客户端**，删除 typetype-server 及其排行榜/成绩/登录/远程文本全部耦合，并把配置系统改为带 `schema_version` 的幂等迁移，一次性清除所有 legacy 兼容层。
 
@@ -111,10 +113,10 @@ Phase 0 与 Phase 1 可并行（都动 `container.py`/`bridge.py`，建议同批
 | 迁移丢用户数据 | 中 | 只删 server/legacy 字段，保 `source_repos`/`wenlai`/`ai`/`ui`/本地历史；幂等测试双跑 |
 | `text_sources` 误判为可删 | 低 | 已确认 `upload_text_adapter` 仍在写，收敛而非删除 |
 
-## 待确认
+## 待确认（实施后状态）
 
-1. Phase 3 前置验证门结论（federation 是否完整取代单实例数据面）。
-2. 迁移是否需要在 `ui` 段之外，为 `ott` 段引入新的 RuntimeConfig 子 dataclass（建议新增 `OttConfig`，遵循 `WenlaiConfig`/`AiConfig` 模式）。
-3. `docs/reference/api-endpoints.md` 直接删除 vs 归档到 `docs/history/`（server 文档，非三仓文档）。
+1. ~~Phase 3 前置验证门结论~~ ✅ 已确认（`_InstanceClient` 完整覆盖，见实施状态）。
+2. `ott` 段新增 `OttConfig` 子 dataclass —— ✅ 已落地（遵循 `WenlaiConfig`/`AiConfig` 模式）。
+3. `docs/reference/api-endpoints.md` —— ✅ 已归档到 `docs/history/api-endpoints.md`（顶部加「已归档」横幅）。
 
 > 更新检查与镜像下载机制（OTA）见独立 [ADR-014](./014-ota-update-check-and-mirror-download.md)。

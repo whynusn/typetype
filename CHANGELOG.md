@@ -62,6 +62,7 @@
 
 - **个人中心趋势图**：趋势图改用 PySide6 Qt Charts 成品 `ChartView`/`BarSeries` 组件渲染，并沿用 RinUI 主题色与时间范围切换
 - **统一载文中心**：极速杯、本地文库、开源文库、练单器、自定义 5 个载文入口合并为单一 `TextLoadHubPage.qml`，顶部 Segmented 切换来源，左侧列表/输入区与右侧切片设置/预览区统一；删除 `JisuBeiPage.qml`、`LocalArticlesPage.qml`、`TextLibraryPage.qml`、`CustomLoadTextPage.qml`、`TrainerPage.qml`
+- **载文中心重构**：载文中心扩展为 6 个来源 tab（本地文库/开源文库/练单器/晴发文/AI 推荐/自定义，RinUI Segmented 切换）；开源文库 tab 直接浏览联邦聚合条目（选中即载入，删除独立条目列表页 `RepoEntriesPage.qml`）；晴发文/AI 推荐入口纳入载文中心（即时拉取面板）；订阅管理独立为 `ReposManagementPage.qml`；修复 F2 载文设置入口、OTT 分段大小 hint（`segment_size_hint`）丢失与 bridge 源 authority 缺失
 - **顶部来源切换**：`SelectorBar` 替换为 RinUI `Segmented`/`SegmentedItem`，带背景容器与间距，视觉层次更清晰；无边框、紧贴下方组件的问题已解决
 - **个人中心重构**：登录后展示用户信息卡片、6 项统计卡片（今日字数/总字数/平均速度/最高速度/平均键准/总场次）、最近 30 天打字趋势迷你柱状图、最近 50 条成绩列表（右键复制成绩）
 - **全应用内部通知统一**：抽取 `AppNotification.qml` + `AppNotificationManager.qml`，替换 `HistoryArea`、`TextInfoCard`、`DailyLeaderboard`、`UploadTextPage` 中各页面硬编码的 `copyToast`/`InfoBar`

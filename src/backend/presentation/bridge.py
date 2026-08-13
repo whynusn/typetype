@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
 
-from ..config.app_paths import user_config_dir
 from ..ports.key_codes import KeyCodes
 from ..utils.logger import log_info
 
@@ -27,9 +26,7 @@ if TYPE_CHECKING:
     from ..application.gateways.typing_history_gateway import TypingHistoryGateway
     from ..integration.slice_metrics_prefs_store import SliceMetricsPrefsStore
     from ..integration.text_slice_progress_store import TextSliceProgressStore
-    from .adapters.auth_adapter import AuthAdapter
     from .adapters.char_stats_adapter import CharStatsAdapter
-    from .adapters.leaderboard_adapter import LeaderboardAdapter
     from .adapters.local_article_adapter import LocalArticleAdapter
     from .adapters.registry_adapter import RegistryAdapter
     from .adapters.text_adapter import TextAdapter
@@ -39,6 +36,7 @@ if TYPE_CHECKING:
     from .adapters.wenlai_adapter import WenlaiAdapter
     from .adapters.ai_text_adapter import AiTextAdapter
     from .adapters.font_adapter import FontAdapter
+    from .adapters.update_adapter import UpdateAdapter
     from .adapters.ziti_adapter import ZitiAdapter
 
 from .text_load_coordinator import TextLoadCoordinator
@@ -115,11 +113,6 @@ class Bridge(QObject):
     textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
-    loggedinChanged = Signal()
-    userInfoChanged = Signal()
-    loginResult = Signal(bool, str)
-    registerResult = Signal(bool, str)
-    loginStateInitialized = Signal(bool)
     cursorPosChanged = Signal(int)
     specialPlatformConfirmed = Signal(bool)
     backspaceChanged = Signal()
@@ -127,19 +120,9 @@ class Bridge(QObject):
     keyAccuracyChanged = Signal()
     typingPausedChanged = Signal()
     weakestCharsLoaded = Signal(list)
-    leaderboardLoaded = Signal(dict)
-    leaderboardLoadFailed = Signal(str)
-    leaderboardLoadingChanged = Signal()
-    catalogLoaded = Signal(list)
-    catalogLoadFailed = Signal(str)
-    catalogLoadingChanged = Signal()
-    textListLoaded = Signal(list)
-    textListLoadFailed = Signal(str)
-    textListLoadingChanged = Signal()
     uploadResult = Signal(bool, str, int)  # (success, message, server_text_id)
     textFileLoaded = Signal(str)  # 文件导入：预览内容
     textFilePathLoaded = Signal(str)  # 文件导入：文件路径（用于上传）
-    tokenExpired = Signal()
     textIdChanged = Signal()
     # 载文模式信号
     sliceModeChanged = Signal()
@@ -153,17 +136,12 @@ class Bridge(QObject):
     registryFederatedEntriesLoadFailed = Signal(str)
     registryFederatedEntriesLoadingChanged = Signal()
     # 会话状态机信号
-    uploadStatusChanged = Signal(int)
-    eligibilityReasonChanged = Signal(str)
-    baseUrlChanged = Signal()
-    registryUrlChanged = Signal()
     scriptsEnabledChanged = Signal()
     windowTitleChanged = Signal()
     textTitleChanged = Signal()
     textSourceOptionsChanged = Signal()
     defaultTextSourceKeyChanged = Signal()
     typingTotalsChanged = Signal()
-    textIdLookupFailed = Signal()  # 本地 text_id 回查失败
     # 打字历史记录信号
     typingHistoryChanged = Signal()
     typingHistorySummaryChanged = Signal()
@@ -211,15 +189,17 @@ class Bridge(QObject):
     fontRemoved = Signal(bool, str)
     readerFontPathChanged = Signal()
     readerFontUrlChanged = Signal(str)
+    # OTA 更新信号（ADR-014）
+    updateCheckFinished = Signal(bool, str, str)  # (available, version, error)
+    updateDownloadProgress = Signal(int)  # 0-100
+    updateStatusChanged = Signal(str)  # 状态文本
 
     def __init__(
         self,
         typing_adapter: TypingAdapter,
         text_adapter: TextAdapter,
-        auth_adapter: AuthAdapter,
         char_stats_adapter: CharStatsAdapter,
         upload_text_adapter: UploadTextAdapter | None = None,
-        leaderboard_adapter: LeaderboardAdapter | None = None,
         registry_adapter: "RegistryAdapter | None" = None,
         wenlai_adapter: WenlaiAdapter | None = None,
         ai_text_adapter: "AiTextAdapter | None" = None,
@@ -230,18 +210,16 @@ class Bridge(QObject):
         typing_totals_gateway: TypingTotalsGateway | None = None,
         typing_history_gateway: "TypingHistoryGateway | None" = None,
         key_listener: KeyListener | None = None,
-        base_url_update_callback: Callable[[str], None] | None = None,
         slice_metrics_prefs_store: "SliceMetricsPrefsStore | None" = None,
         text_slice_progress_store: "TextSliceProgressStore | None" = None,
         ott_segment_provider_cls: "type | None" = None,
+        update_adapter: "UpdateAdapter | None" = None,
     ):
         super().__init__()
         self._typing_adapter = typing_adapter
         self._text_adapter = text_adapter
-        self._auth_adapter = auth_adapter
         self._char_stats_adapter = char_stats_adapter
         self._upload_text_adapter = upload_text_adapter
-        self._leaderboard_adapter = leaderboard_adapter
         self._registry_adapter = registry_adapter
         self._wenlai_adapter = wenlai_adapter
         self._ai_text_adapter = ai_text_adapter
@@ -253,11 +231,13 @@ class Bridge(QObject):
         self._typing_history_gateway = typing_history_gateway
         self._trend_period = "day"
         self._key_listener = key_listener
-        self._base_url_update_callback = base_url_update_callback
         self._slice_metrics_prefs_store = slice_metrics_prefs_store
         self._text_slice_progress_store = text_slice_progress_store
         # OttSegmentProvider 类由 container.py 装配注入（复用同一实现，参数每次实例化）
         self._ott_segment_provider_cls = ott_segment_provider_cls
+        self._update_adapter = update_adapter
+        self._update_available = False
+        self._update_version = ""
         self._is_special_platform = key_listener is not None
         self._lower_pane_focused = False
         self._text_id = 0
@@ -282,10 +262,8 @@ class Bridge(QObject):
 
         self._connect_typing_signals()
         self._connect_text_load_signals()
-        self._connect_auth_signals()
         self._connect_char_stats_signals()
         self._connect_upload_signals()
-        self._connect_leaderboard_signals()
         self._connect_registry_signals()
         self._connect_wenlai_signals()
         self._connect_ai_text_signals()
@@ -294,6 +272,7 @@ class Bridge(QObject):
         self._connect_trainer_signals()
         self._connect_font_signals()
         self._connect_key_listener()
+        self._connect_update_signals()
 
         self.specialPlatformConfirmed.emit(self._is_special_platform)
         log_info(f"[Bridge] 检测到平台特殊性: {self._is_special_platform}")
@@ -334,11 +313,6 @@ class Bridge(QObject):
         self._typing_adapter.correctionChanged.connect(self.correctionChanged.emit)
         self._typing_adapter.keyAccuracyChanged.connect(self.keyAccuracyChanged.emit)
         self._typing_adapter.pauseChanged.connect(self._on_typing_pause_changed)
-        # 会话状态机信号
-        self._typing_adapter.uploadStatusChanged.connect(self.uploadStatusChanged.emit)
-        self._typing_adapter.eligibilityReasonChanged.connect(
-            self.eligibilityReasonChanged.emit
-        )
 
     def _on_char_num_changed(self) -> None:
         self.charNumChanged.emit()
@@ -428,8 +402,6 @@ class Bridge(QObject):
         self._text_adapter.textLoaded.connect(self._on_standard_text_loaded)
         self._text_adapter.textLoadFailed.connect(self._on_standard_text_load_failed)
         self._text_adapter.textLoadingChanged.connect(self.textLoadingChanged.emit)
-        self._text_adapter.localTextIdResolved.connect(self._on_local_text_id_resolved)
-        self._text_adapter.localTextIdLookupFailed.connect(self.textIdLookupFailed.emit)
 
     def _on_standard_text_loaded(
         self, text: str, text_id: int, source_label: str
@@ -438,26 +410,6 @@ class Bridge(QObject):
 
     def _on_standard_text_load_failed(self, message: str) -> None:
         self.textLoadFailed.emit(message)
-
-    def _on_local_text_id_resolved(self, text_id: int, lookup_generation: int) -> None:
-        """本地文本异步回查到 text_id 后自动设置。"""
-        if (
-            text_id
-            and text_id > 0
-            and lookup_generation == self._text_adapter.current_lookup_generation
-            and self._typing_adapter.can_accept_resolved_text_id()
-        ):
-            self.setTextId(text_id)
-
-    def _connect_auth_signals(self) -> None:
-        self._auth_adapter.loggedinChanged.connect(self.loggedinChanged.emit)
-        self._auth_adapter.userInfoChanged.connect(self.userInfoChanged.emit)
-        self._auth_adapter.loginResult.connect(self.loginResult.emit)
-        self._auth_adapter.registerResult.connect(self.registerResult.emit)
-        self._auth_adapter.tokenExpired.connect(self.tokenExpired.emit)
-        self._auth_adapter.loginStateInitialized.connect(
-            self.loginStateInitialized.emit
-        )
 
     def _connect_char_stats_signals(self) -> None:
         self._char_stats_adapter.weakestCharsLoaded.connect(
@@ -473,32 +425,6 @@ class Bridge(QObject):
         self._text_adapter.refresh_runtime_config()
         self.textSourceOptionsChanged.emit()
         self.defaultTextSourceKeyChanged.emit()
-
-    def _connect_leaderboard_signals(self) -> None:
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.leaderboardLoaded.connect(
-                self.leaderboardLoaded.emit
-            )
-            self._leaderboard_adapter.leaderboardLoadFailed.connect(
-                self.leaderboardLoadFailed.emit
-            )
-            self._leaderboard_adapter.leaderboardLoadingChanged.connect(
-                self.leaderboardLoadingChanged.emit
-            )
-            self._leaderboard_adapter.textListLoaded.connect(self.textListLoaded.emit)
-            self._leaderboard_adapter.textListLoadFailed.connect(
-                self.textListLoadFailed.emit
-            )
-            self._leaderboard_adapter.textListLoadingChanged.connect(
-                self.textListLoadingChanged.emit
-            )
-            self._leaderboard_adapter.catalogLoaded.connect(self.catalogLoaded.emit)
-            self._leaderboard_adapter.catalogLoadFailed.connect(
-                self.catalogLoadFailed.emit
-            )
-            self._leaderboard_adapter.catalogLoadingChanged.connect(
-                self.catalogLoadingChanged.emit
-            )
 
     def _connect_registry_signals(self) -> None:
         if self._registry_adapter:
@@ -668,6 +594,66 @@ class Bridge(QObject):
         if self._key_listener:
             self._key_listener.keyPressed.connect(self.on_key_received)
 
+    def _connect_update_signals(self) -> None:
+        """连接 OTA 更新适配层信号（ADR-014）。"""
+        if not self._update_adapter:
+            return
+        self._update_adapter.checkFinished.connect(self._on_update_check_finished)
+        self._update_adapter.downloadProgress.connect(self.updateDownloadProgress.emit)
+        self._update_adapter.statusChanged.connect(self.updateStatusChanged.emit)
+
+    def _on_update_check_finished(
+        self, available: bool, version: str, error: str
+    ) -> None:
+        self._update_available = bool(available)
+        self._update_version = version if available else ""
+        self.updateCheckFinished.emit(available, version, error)
+
+    @Slot()
+    def checkForUpdate(self) -> None:
+        """手动检查更新（强制）。"""
+        if self._update_adapter:
+            self._update_adapter.check_now()
+
+    @Slot(str)
+    def downloadAndInstallUpdate(self, version: str) -> None:
+        """下载并安装指定版本。"""
+        if self._update_adapter:
+            self._update_adapter.download_and_install(version)
+
+    @Slot()
+    def dismissUpdate(self) -> None:
+        """关闭更新提示。"""
+        self._update_available = False
+        self._update_version = ""
+        if self._update_adapter:
+            self._update_adapter.dismiss()
+        self.updateStatusChanged.emit("")
+
+    @Property(str, constant=True)
+    def currentVersion(self) -> str:
+        if self._update_adapter:
+            return self._update_adapter.current_version
+        try:
+            from src.backend.version import APP_VERSION
+
+            return str(APP_VERSION)
+        except ImportError:
+            return "0.1.0"
+
+    @Property(bool, notify=updateStatusChanged)
+    def updateAvailable(self) -> bool:
+        return self._update_available
+
+    @Property(str, notify=updateStatusChanged)
+    def updateVersion(self) -> str:
+        return self._update_version
+
+    def trigger_auto_update_check(self) -> None:
+        """启动时自动检查（失败静默；QApplication 就绪后由 main.py 调用）。"""
+        if self._update_adapter:
+            self._update_adapter.start_auto_check()
+
     def on_key_received(self, keyCode: int, deviceName: str) -> None:
         if not self._lower_pane_focused or KeyCodes.is_modifier(keyCode):
             return
@@ -765,39 +751,9 @@ class Bridge(QObject):
     def typingPaused(self) -> bool:
         return self._typing_adapter.is_paused
 
-    @Property(bool, notify=loggedinChanged)
-    def loggedin(self) -> bool:
-        return self._auth_adapter.loggedin
-
-    @Property(str, notify=userInfoChanged)
-    def userNickname(self) -> str:
-        return self._auth_adapter.user_nickname
-
-    @Property(str, notify=userInfoChanged)
-    def currentUser(self) -> str:
-        return self._auth_adapter.current_user
-
     @Property(bool, notify=specialPlatformConfirmed)
     def isSpecialPlatform(self) -> bool:
         return self._is_special_platform
-
-    @Property(bool, notify=leaderboardLoadingChanged)
-    def leaderboardLoading(self) -> bool:
-        if self._leaderboard_adapter:
-            return self._leaderboard_adapter.loading
-        return False
-
-    @Property(bool, notify=textListLoadingChanged)
-    def textListLoading(self) -> bool:
-        if self._leaderboard_adapter:
-            return self._leaderboard_adapter.text_list_loading
-        return False
-
-    @Property(bool, notify=catalogLoadingChanged)
-    def catalogLoading(self) -> bool:
-        if self._leaderboard_adapter:
-            return self._leaderboard_adapter.catalog_loading
-        return False
 
     @Property(bool, notify=reposLoadingChanged)
     def reposLoading(self) -> bool:
@@ -815,47 +771,10 @@ class Bridge(QObject):
     def textId(self) -> int:
         return self._text_id
 
-    @Property(int, notify=uploadStatusChanged)
-    def uploadStatus(self) -> int:
-        """当前上传资格状态（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA）。"""
-        return self._typing_adapter.upload_status
-
-    @Property(str, notify=eligibilityReasonChanged)
-    def eligibilityReason(self) -> str:
-        """当前资格原因消息。"""
-        return self._typing_adapter.eligibility_reason
-
-    @Property(str, notify=baseUrlChanged)
-    def baseUrl(self) -> str:
-        """当前 API 服务地址。"""
-        return self._text_adapter.get_base_url()
-
-    @Property(str, notify=registryUrlChanged)
-    def registryPrimaryUrl(self) -> str:
-        """注册表主地址。
-
-        _from_dict 加载时仅清空不匹配任何订阅的陈旧 primary_url（避免旧
-        OttTextProvider 向旧地址发起 discovery）。设置页字段绑定本属性，
-        因此 primary_url 为空时从第一个 enabled 订阅反推显示，保证用户
-        设置的主地址在重启后仍可见。
-        """
-        cfg = self._text_adapter.runtime_config
-        if cfg.registry.primary_url:
-            return cfg.registry.primary_url
-        for repo in cfg.source_repos.repos:
-            if repo.enabled:
-                return repo.url
-        return ""
-
-    @Property(str, notify=registryUrlChanged)
-    def registryMirrorUrl(self) -> str:
-        """注册表镜像地址。"""
-        return self._text_adapter.runtime_config.registry.mirror_url
-
     @Property(bool, notify=scriptsEnabledChanged)
     def scriptsEnabled(self) -> bool:
         """ott-script（L3）脚本是否启用。"""
-        return self._text_adapter.runtime_config.registry.scripts_enabled
+        return self._text_adapter.runtime_config.ott.scripts_enabled
 
     @Property(str, notify=windowTitleChanged)
     def windowTitle(self) -> str:
@@ -1037,9 +956,8 @@ class Bridge(QObject):
     ) -> None:
         """全文载入（不分片），走正常文本加载路径。
 
-        与 setupSliceMode 的区别：不进入 slice_mode，排行榜/成绩正常工作。
+        与 setupSliceMode 的区别：不进入 slice_mode。
         复用 textLoaded 信号链：QML applyLoadedText → handleLoadedText。
-        异步回查服务端 text_id 使排行榜可用。
         """
         if not text:
             return
@@ -1067,9 +985,6 @@ class Bridge(QObject):
         if sender:
             self._copy_text_to_clipboard(sender)
         self.textLoaded.emit(text, text_id if text_id > 0 else -1, display_title)
-        # 异步回查服务端 text_id（复用 TextAdapter 的 localTextIdResolved 信号链）
-        lookup_key = source_key if source_key else "custom"
-        self._text_adapter.lookup_text_id(lookup_key, text)
 
     @Slot(str)
     def requestLoadText(self, source_key: str) -> None:
@@ -1101,7 +1016,7 @@ class Bridge(QObject):
     def uploadText(
         self, title: str, content: str, sourceKey: str, toLocal: bool, toCloud: bool
     ) -> None:
-        """上传文本，支持同时上传到本地和云端。"""
+        """保存文本到本地并更新配置（云端上传已移除，toCloud 参数保留兼容）。"""
         if not self._upload_text_adapter:
             self.uploadResult.emit(False, "上传功能未初始化", 0)
             return
@@ -1111,11 +1026,7 @@ class Bridge(QObject):
     def uploadTextFromFile(
         self, title: str, filePath: str, sourceKey: str, toLocal: bool, toCloud: bool
     ) -> None:
-        """从文件路径上传文本。
-
-        本地上传：直接复制文件（不经过内存）
-        云端上传：multipart/form-data 分块传输
-        """
+        """从文件路径保存文本到本地（云端上传已移除，toCloud 参数保留兼容）。"""
         if not self._upload_text_adapter:
             self.uploadResult.emit(False, "上传功能未初始化", 0)
             return
@@ -1156,26 +1067,6 @@ class Bridge(QObject):
     def copyScoreMessage(self) -> None:
         self._copy_text_to_clipboard(self._build_current_score_plain_text())
 
-    @Slot(str, str)
-    def login(self, username: str, password: str) -> None:
-        self._auth_adapter.login(username, password)
-
-    @Slot(str, str, str)
-    def register(self, username: str, password: str, nickname: str = "") -> None:
-        self._auth_adapter.register(username, password, nickname)
-
-    @Slot()
-    def logout(self) -> None:
-        self._auth_adapter.logout()
-
-    def initializeLoginState(self) -> None:
-        self._auth_adapter.initialize_login_state()
-
-    @Slot()
-    def checkTokenStatus(self) -> None:
-        """应用从后台恢复时检查 token 状态。"""
-        self._auth_adapter.check_token_status()
-
     @Slot()
     @Slot(int)
     @Slot(int, str)
@@ -1187,57 +1078,10 @@ class Bridge(QObject):
             weights=weights if weights else None,
         )
 
-    @Slot(str)
-    def loadLeaderboard(self, source_key: str) -> None:
-        """加载指定来源的排行榜。"""
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.loadLeaderboard(source_key)
-
-    @Slot(int)
-    def loadLeaderboardByTextId(self, text_id: int) -> None:
-        """按 text_id 直接加载排行榜。"""
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.loadLeaderboardByTextId(text_id)
-
-    @Slot(str)
-    def loadTextList(self, source_key: str) -> None:
-        """加载来源下的文本列表。"""
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.loadTextList(source_key)
-
-    @Slot(int)
-    def getTextContentById(self, text_id: int) -> None:
-        """按文本 ID 异步获取完整内容。结果通过 textContentLoaded 信号返回。"""
-        if not self._leaderboard_adapter:
-            return
-        self._leaderboard_adapter.get_text_content_by_id(
-            text_id,
-            lambda data, requested_id=text_id: self._on_text_content_loaded(
-                requested_id, data
-            ),
-        )
-
-    def _on_text_content_loaded(self, text_id: int, data: dict) -> None:
-        content = data.get("content", "")
-        title = data.get("title", "")
-        self.textContentLoaded.emit(text_id, content or "", title or "")
-
     @Slot(str, result=str)
     def getLocalTextContent(self, source_key: str) -> str:
         """同步读取本地文本内容，供载文 Dialog 离线预览。"""
         return self._text_adapter.get_local_text_content(source_key)
-
-    @Slot()
-    def loadCatalog(self) -> None:
-        """加载文本来源目录（优先开源文库，fallback 服务端 API）。"""
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.loadCatalog()
-
-    @Slot()
-    def refreshCatalog(self) -> None:
-        """清除缓存并重新加载文本来源目录。"""
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.refreshCatalog()
 
     @Slot(str, str, str, int, int, int, int, str)
     def loadFederatedEntrySegment(
@@ -1261,7 +1105,7 @@ class Bridge(QObject):
             return
 
         adapter = _FederationSegmentAdapter(federation, authority)
-        self._leaderboard_adapter.submit_to_thread_pool(
+        self._submit_to_thread_pool(
             fn=lambda: self._build_federated_segment_session(
                 adapter=adapter,
                 entry_id=entryId,
@@ -1309,11 +1153,25 @@ class Bridge(QObject):
             text_id = 0
             self.textContentLoaded.emit(text_id, content, title)
 
-        self._leaderboard_adapter.submit_to_thread_pool(
+        self._submit_to_thread_pool(
             fn=_load,
             on_result=_on_result,
             on_error=lambda msg: self.textLoadFailed.emit(msg),
         )
+
+    def _submit_to_thread_pool(self, fn, on_result, on_error) -> None:
+        """将 callable 提交到后台线程池执行，结果回调到主线程。
+
+        Bridge 自持的线程池助手（原 LeaderboardAdapter.submit_to_thread_pool
+        已随 typetype-server 耦合移除，ADR-013）。
+        """
+        from ..workers.base_worker import BaseWorker
+        from PySide6.QtCore import QThreadPool
+
+        worker = BaseWorker(task=fn, error_prefix="操作失败")
+        worker.signals.succeeded.connect(on_result)
+        worker.signals.failed.connect(on_error)
+        QThreadPool.globalInstance().start(worker)
 
     def _make_ott_segment_provider(
         self,
@@ -1434,9 +1292,7 @@ class Bridge(QObject):
 
     def loadOttCurrentSessionSegment(self, index: int) -> None:
         """异步加载当前 OTT session 的指定 segment。"""
-        if not self._leaderboard_adapter:
-            return
-        self._leaderboard_adapter.submit_to_thread_pool(
+        self._submit_to_thread_pool(
             fn=lambda: self._text_adapter.get_text_session_segment(index),
             on_result=self._on_ott_current_session_segment_loaded,
             on_error=lambda msg: self.textLoadFailed.emit(msg),
@@ -2479,39 +2335,26 @@ class Bridge(QObject):
         return self._typing_adapter.get_last_slice_stats()
 
     @Slot(str)
-    def setBaseUrl(self, new_base_url: str) -> None:
-        """更新 API 服务地址，持久化到配置文件，并同步更新所有依赖对象。"""
-        if self._base_url_update_callback:
-            self._base_url_update_callback(new_base_url)
-        self.baseUrlChanged.emit()
-
-    @Slot(str)
     def setRegistryPrimaryUrl(self, new_url: str) -> None:
-        """更新注册表主地址并持久化。"""
+        """更新注册表主地址并持久化。
+
+        兼容占位：primary_url/mirror_url 已随 ADR-013 从配置 schema 移除，
+        本槽保留为空操作（Lane C 清理 QML 引用后删除）。
+        """
         self._text_adapter.runtime_config.update_registry_url(primary_url=new_url)
-        # 清除 catalog 缓存使新 URL 生效
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.refreshCatalog()
-        self.registryUrlChanged.emit()
 
     @Slot(str)
     def setRegistryMirrorUrl(self, new_url: str) -> None:
-        """更新注册表镜像地址并持久化。"""
+        """更新注册表镜像地址并持久化（兼容占位）。"""
         self._text_adapter.runtime_config.update_registry_url(mirror_url=new_url)
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.refreshCatalog()
-        self.registryUrlChanged.emit()
 
     @Slot(str, str)
     def setRegistryUrls(self, primary_url: str, mirror_url: str) -> None:
-        """更新注册表地址并持久化。"""
+        """更新注册表地址并持久化（兼容占位）。"""
         self._text_adapter.runtime_config.update_registry_url(
             primary_url=primary_url,
             mirror_url=mirror_url,
         )
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.refreshCatalog()
-        self.registryUrlChanged.emit()
 
     @Slot(bool)
     def setScriptsEnabled(self, enabled: bool) -> None:
@@ -2535,37 +2378,30 @@ class Bridge(QObject):
         """添加一条源仓库订阅。"""
         if self._registry_adapter:
             self._registry_adapter.addRepo(url)
-            # 订阅变化改变 registryPrimaryUrl 反推结果，须 emit 刷新设置页缓存
-            # 字段，否则 NavigationView 缓存页面残留旧值，点"应用"会用旧值复活订阅
-            self.registryUrlChanged.emit()
 
     @Slot(str)
     def removeRepo(self, url: str) -> None:
         """移除一条源仓库订阅。"""
         if self._registry_adapter:
             self._registry_adapter.removeRepo(url)
-            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
 
     @Slot(str, bool)
     def setRepoEnabled(self, url: str, enabled: bool) -> None:
         """启用/禁用一条源仓库订阅。"""
         if self._registry_adapter:
             self._registry_adapter.setRepoEnabled(url, enabled)
-            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
 
     @Slot(str)
     def confirmRepoTrust(self, url: str) -> None:
         """用户确认信任一条源仓库订阅（TOFU pending → verified）。"""
         if self._registry_adapter:
             self._registry_adapter.confirmRepoTrust(url)
-            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
 
     @Slot(str)
     def rejectRepoTrust(self, url: str) -> None:
         """用户拒绝信任一条源仓库订阅（TOFU pending → unverified）。"""
         if self._registry_adapter:
             self._registry_adapter.rejectRepoTrust(url)
-            self.registryUrlChanged.emit()  # 同 addRepo：刷新设置页缓存字段
 
     @Slot()
     def refreshRepos(self) -> None:
@@ -2978,42 +2814,16 @@ class Bridge(QObject):
                 self._typing_history_gateway._store.save(data)
         self.typingHistoryChanged.emit()
 
-    @staticmethod
-    def _font_config_path() -> str:
-        """旧 font_config.json 路径（用于迁移）。"""
-        import os
-
-        return os.path.join(str(user_config_dir()), "font_config.json")
-
     def _load_reader_font_path(self) -> str:
         """从 config.json 的 ui.reader_font_path 读取。
 
-        首次读取时检测 font_config.json 历史文件并自动迁移。
+        font_config.json legacy 迁移已随 ADR-013 移入配置 v1→v2 迁移（Lane A），
+        这里只读当前配置，不再执行文件迁移。
         """
         result = self._text_adapter.runtime_config._ui_get(
             "reader_font_path", default=""
         )
-        if result:
-            return result
-
-        # 迁移：检查旧 font_config.json
-        import json
-        import os
-
-        path = self._font_config_path()
-        if os.path.exists(path):
-            try:
-                with open(path, encoding="utf-8") as f:
-                    data = json.load(f)
-                old_value = data.get("reader_font_path", "")
-                if old_value:
-                    self._text_adapter.runtime_config.update_ui_config(
-                        reader_font_path=old_value
-                    )
-                    return old_value
-            except (json.JSONDecodeError, OSError):
-                pass
-        return ""
+        return result if result else ""
 
     def _save_reader_font_path(self, file_path: str) -> None:
         """通过 RuntimeConfig 持久化 reader_font_path 到 config.json。"""

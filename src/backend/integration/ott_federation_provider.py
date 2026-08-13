@@ -93,7 +93,7 @@ def _repo_incompatibility(manifest: dict) -> str | None:
 
 
 class _EntryCache:
-    """rule/script 条目结果 TTL 缓存（复用 registry.cache_ttl_seconds）。"""
+    """rule/script 条目结果 TTL 缓存（复用 ott.cache_ttl_seconds）。"""
 
     def __init__(self, ttl_seconds: int) -> None:
         self._ttl_seconds = max(1, ttl_seconds)
@@ -612,7 +612,7 @@ class OttFederationProvider:
             log_warning(
                 "[Federation] 未注入 async_executor，instance 缓存 stale 刷新禁用"
             )
-        self._entry_cache = _EntryCache(runtime_config.registry.cache_ttl_seconds)
+        self._entry_cache = _EntryCache(runtime_config.ott.cache_ttl_seconds)
         self._clients_cache: (
             dict[str, _InstanceClient | _RuleClient | _ScriptClient] | None
         ) = None
@@ -645,11 +645,11 @@ class OttFederationProvider:
         script_cache = ScriptCache(
             cache_dir=self._script_cache_dir(),
             http_client=self._shared_http_client(),
-            enabled=self._runtime_config.registry.scripts_enabled,
-            ttl_seconds=self._runtime_config.registry.cache_ttl_seconds,
+            enabled=self._runtime_config.ott.scripts_enabled,
+            ttl_seconds=self._runtime_config.ott.cache_ttl_seconds,
         )
         sandbox = ScriptSandbox(
-            enabled=self._runtime_config.registry.scripts_enabled,
+            enabled=self._runtime_config.ott.scripts_enabled,
             token_store=self._token_store,
         )
 
@@ -728,7 +728,7 @@ class OttFederationProvider:
             # revocations）时，即使 url/enabled/mtime 不变也要触发 clients 重建，
             # 否则旧 _ScriptClient（含 L3 脚本执行能力）会被继续复用。
             signature.append((repo.url, repo.enabled, repo.trust_state, mtime))
-        signature.append(self._runtime_config.registry.scripts_enabled)
+        signature.append(self._runtime_config.ott.scripts_enabled)
         return tuple(signature)
 
     def _blocked_content_hashes(self) -> set[str]:
@@ -770,7 +770,7 @@ class OttFederationProvider:
         cache_dir = self._instance_cache_dir(authority)
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache = OttCachedFetcher(
-            config=self._runtime_config.registry,
+            config=self._runtime_config.ott,
             cache_dir=cache_dir,
             http_client=self._shared_http_client(),
             async_executor=self._async_executor,
@@ -991,6 +991,7 @@ class OttFederationProvider:
                 str(source.get("label") or source.get("bridge_kind") or "")
                 for source in (manifest or {}).get("sources", [])
                 if source.get("type") == "ott-bridge"
+                and source.get("bridge_kind") != "generic-http"
             ]
             # 收集 manifest 中所有源的 authority
             authorities: list[str] = []
@@ -1012,6 +1013,11 @@ class OttFederationProvider:
                     elif source.get("type") == "ott-script":
                         url = source.get("url", "")
                         authorities.append(_script_authority(url) if url else "script")
+                    elif source.get("type") == "ott-bridge":
+                        endpoint = source.get("endpoint", "")
+                        authorities.append(
+                            _bridge_authority(endpoint) if endpoint else "bridge"
+                        )
             summary = {
                 "url": repo.url,
                 "enabled": repo.enabled,

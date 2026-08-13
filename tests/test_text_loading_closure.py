@@ -8,7 +8,6 @@ from src.backend.application.usecases.load_text_usecase import (
     TextLoadPlan,
 )
 from src.backend.ports.local_text_loader import LocalTextLoader
-from src.backend.ports.text_provider import TextProvider
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.config.text_source_config import TextSourceEntry
 from src.backend.presentation.adapters.text_adapter import TextAdapter
@@ -63,7 +62,6 @@ def test_text_source_gateway_plan_load_returns_source_entry():
     runtime_config.get_text_source.side_effect = [local_entry, remote_entry]
     gateway = TextSourceGateway(
         runtime_config=runtime_config,
-        text_provider=MagicMock(spec=TextProvider),
         local_text_loader=MagicMock(spec=LocalTextLoader),
     )
 

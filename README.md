@@ -43,8 +43,8 @@
 
 - 📊 实时 **速度 / 击键 / 码长 / 键准 / 字准 / 打词率** 统计，配合 **错字 / 回改 / 退格 / 标顶** 分析
 - 📈 字符级统计（SQLite 持久化）与薄弱字分析  
-- 🏆 服务端排行榜与成绩提交（支持分片模式聚合成绩）  
-- 📝 三层文本源：本地文件、开源文库（脚本工具）、即时拉取（服务端/第三方 API）  
+- 🏆 本地打字统计（历史 + 字符级 SQLite，分片模式聚合成绩展示）
+- 📝 三层文本源：本地文件、开源文库（OTT Repo 订阅）、即时拉取（晴发文 / AI）
 - 🪟 跨平台支持（详见 [💻 支持平台](#支持平台)）
 
 ---
@@ -82,7 +82,7 @@ uv sync
 uv run python main.py
 ```
 
-> **联网功能说明：** 排行榜、载文等联网功能依赖 [typetype-server](https://github.com/whynusn/typetype-server) 服务端，默认配置指向 `127.0.0.1:8080`。服务端目前处于开发阶段，暂不开放公网访问。如需体验在线服务，可联系 `whynusn@qq.com`，或者参考服务端仓库自行本地部署后修改客户端设置中的 `base_url`。仅使用本地打字功能则无需服务端。
+> **联网功能说明：** 联网功能包括 **开源文库（OTT Repo 订阅）**、**晴发文** 与 **AI 智能推荐**。开源文库通过订阅源仓库（内置离线源 + 官方默认仓开箱即用）获取文本；晴发文与 AI 为第三方服务，需各自注册账号 / 配置 API Key。仅使用本地打字功能则无需任何联网配置。
 
 ### Linux Wayland 权限
 
@@ -163,10 +163,10 @@ ports/          # 抽象协议（KeyListener、TextProvider 等 Port 定义）
 integration/    # Port 实现（GlobalKeyListener 读 evdev、ApiClient 等）
 infrastructure/ # 通用基础设施（网络异常模型、加密等）
 models/         # Entity / DTO
-workers/        # 后台任务（异步加载文本/排行榜/薄弱字等）
+workers/        # 后台任务（异步加载文本/更新检查/薄弱字等）
 config/         # 运行时配置（RuntimeConfig、文本来源配置）
 security/       # 加密与安全存储（crypt、secure_storage）
-utils/          # 工具类（Logger、text_id）
+utils/          # 工具类（Logger 等）
 ```
 
 ### 击键统计链路
@@ -184,43 +184,39 @@ utils/          # 工具类（Logger、text_id）
 
 ## 文本来源
 
-TypeType 的文本来源按**路由方式**（Loader）和**排行榜行为**（LeaderboardMode）二维正交划分，详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md#文本源三层模型)。
+TypeType 的文本来源按**到达方式**（本地 / OTT 订阅 / 独立协议）划分，详见 [ARCHITECTURE.md](docs/ARCHITECTURE.md#文本源三层模型)。
 
 ### 加载方式分类
 
 | 路由 | 加载机制 | 适用来源 |
 |:--- |:--- |:--- |
 | **本地文件** | `QtLocalTextLoader` 直接读取本地文件 | 内置示例、前/中/后五百、打词必备单字、本地文库、练单器、剪贴板、自定义载文 |
-| **服务端 API** | `RemoteTextProvider` 调用 typetype-server REST API | 服务端提供的文本列表（通过 `config.json` 配置 `text_sources` 注册） |
-| **开源文库** | `OttTextProvider` + `OttFederationProvider` 读取 OTT Core v1 / OTT Repo v1（`/ott/v1` 或 Static Profile） | 订阅 OTT Repo 源仓库，内置离线默认源，规则/脚本源（沙箱执行） |
+| **开源文库（OTT）** | `OttFederationProvider` 读取 OTT Core v1 / OTT Repo v1（`/ott/v1` 或 Static Profile） | 订阅 OTT Repo 源仓库，内置离线默认源，规则/脚本源（沙箱执行） |
 | **独立协议** | 各自独立的 Provider + UseCase + Adapter 栈 | 晴发文（第三方 API）、AI 智能推荐（LLM API） |
 
 ### 文本来源列表
 
-**本地来源**（离线可用，无需服务端）：
+**本地来源**（离线可用，无需联网）：
 - **剪贴板**（Ctrl+V / 工具栏按钮）— 从系统剪贴板读取文本，支持 QQ 跟打发信格式解析
 - **自定义载文** — 手动输入或从文本列表中选择
 - **内置示例** `builtin_demo` — 演示用短文
-- **前五百 / 中五百 / 后五百**（`fst_500` / `mid_500` / `lst_500`）— 高频汉字集，支持本地 hash 回查服务端 text_id（排行榜可提交）
+- **前五百 / 中五百 / 后五百**（`fst_500` / `mid_500` / `lst_500`）— 高频汉字集
 - **打词必备单字** `essential_single_char` — 单字练习
 - **本地文库** — 用户本地文本文件浏览与载文，支持分片模式
 - **练单器** — 词组分组练习，支持乱序与进度追踪
 
-**联网来源**（需配置服务端或第三方服务）：
-- **typetype-server 文本列表**（`text_sources` 中 `loader=REMOTE_API` 的条目）— 通过客户端设置页配置的 `base_url` 连接自部署的 [typetype-server](https://github.com/whynusn/typetype-server)，获取服务端提供的文本列表及排行榜
-- **开源文库**（OTT Repo 订阅）— 首启自动注入 `file://` 内置离线源；可手动订阅远程 OTT Repo（任意第三方仓库，支持磁盘缓存与后台刷新）。旧 `registry.primary_url` 配置自动迁移为订阅
-- **晴发文** — 调用 [qingfawen.fcxxz.com](https://qingfawen.fcxxz.com) 第三方 API 获取随机/相邻文本，需注册账号。独立协议栈，不支持排行榜提交
+**联网来源**（需订阅或第三方服务）：
+- **开源文库**（OTT Repo 订阅）— 首启自动注入 `file://` 内置离线源 + 官方默认仓（ott-source-hub）；可手动订阅任意第三方 OTT Repo，支持磁盘缓存与后台刷新、签名与 TOFU 信任、规则/脚本源（沙箱执行）
+- **晴发文** — 调用 [qingfawen.fcxxz.com](https://qingfawen.fcxxz.com) 第三方 API 获取随机/相邻文本，需注册账号。独立协议栈
 - **AI 智能推荐** — 通过 OpenAI / DeepSeek / Anthropic 等兼容 API 生成针对性练习文本，根据薄弱字自动出题。独立协议栈
 
 ### 分片机制
 
-所有本地来源 + typetype-server 文本共享分片/乱序组件（`TextSessionUseCase` + `FileSegmentProvider` / `InMemorySegmentProvider`）。晴发文在服务端分段，不走客户端分片机制。
+所有本地来源 + OTT 订阅共享分片/乱序组件（`TextSessionUseCase` + `FileSegmentProvider` / `InMemorySegmentProvider`）。晴发文在服务端分段，不走客户端分片机制。
 
 ### 默认配置
 
-首次启动自动生成 `~/.config/typetype/config.json`，默认 `text_sources` 包含：
-- `builtin_demo` / `fst_500` / `mid_500` / `lst_500` / `essential_single_char`（五组本地文件）
-- 联网来源需在设置页配置 `base_url`（指向 typetype-server）或订阅 `source_repos`（官方默认仓）后生效
+首次启动自动生成 `~/.config/typetype/config.json`（`schema_version=2`），默认 `text_sources` 包含五组本地文件（`builtin_demo` / `fst_500` / `mid_500` / `lst_500` / `essential_single_char`）；`source_repos` 默认订阅内置离线源与官方默认仓（OTT 开箱即用）。
 
 ---
 
@@ -297,6 +293,20 @@ Windows 建议追加：
 ## 💬 快捷操作（对 AI 说）
 
 在对话中输入「项目概览」「同步文档」「检查文档」「记录决策」「更新 CHANGELOG」等关键词，AI 会自动执行对应操作。完整指令表见 [AGENTS.md](./AGENTS.md) 的「用户快捷操作指令」。
+
+---
+
+## 相关仓库
+
+TypeType 采用三仓模型（ADR-013）：
+
+| 仓库 | 定位 |
+|:--- |:--- |
+| [whynusn/typetype](https://github.com/whynusn/typetype) | 空壳客户端：读协议、沙箱执行 L3 脚本、本地缓存 |
+| [open-typing-texts](https://github.com/whynusn/open-typing-texts) | OTT Core v1 协议规范 + 参考适配器 + schema/fixtures |
+| [ott-source-hub](https://github.com/whynusn/ott-source-hub) | 规则/脚本仓库 manifest（内容分发） |
+
+内容三方都不托管：规则/脚本只描述「怎么抓」，正文由客户端解释器/沙箱运行时从第三方 API 拉取。
 
 ---
 

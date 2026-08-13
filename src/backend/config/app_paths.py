@@ -188,9 +188,12 @@ def builtin_ott_repo_url() -> str:
 def default_ott_hub_url() -> str:
     """默认 OTT 源仓库（hub）manifest URL。
 
+    使用 jsDelivr CDN 而非 raw.githubusercontent.com——raw 直连在国内网络
+    常超时（2026-08-13 实测 HTTP 000）。旧 raw URL 订阅由
+    ``RepoManifestCache`` 的 jsDelivr 降级兜底（_fetch_manifest_with_mirrors）。
     全新安装首次启动自动订阅；已存在用户配置不自动添加（尊重既有选择）。
     """
-    return "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json"
+    return "https://cdn.jsdelivr.net/gh/whynusn/ott-source-hub@main/ott-repo.json"
 
 
 def load_common_chars() -> list[str]:

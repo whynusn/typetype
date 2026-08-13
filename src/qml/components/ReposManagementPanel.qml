@@ -145,6 +145,9 @@ Frame {
                     border.width: 1
 
                     property var repo: modelData
+                    /* 统一字段入口：调用方可能传 {title,subtitle,raw} 同步项或原始摘要 dict，
+                       一律经 repoData 读取，避免 raw 缺失时开关/徽章/按钮静默失效 */
+                    property var repoData: repo.raw || repo
                     /* 高度由 ColumnLayout 的 implicitHeight 驱动，底部留 16px 边距 */
                     height: col.implicitHeight + 16
 
@@ -188,14 +191,14 @@ Frame {
                                 Layout.preferredWidth: badgeText.implicitWidth + 12
                                 Layout.preferredHeight: 20
                                 radius: 10
-                                color: root._trustColor(delegateRoot.repo.raw ? (delegateRoot.repo.raw.trust_state || delegateRoot.repo.raw.trustState) : "")
+                                color: root._trustColor(delegateRoot.repoData.trust_state || delegateRoot.repoData.trustState || "")
                                 opacity: 0.18
                                 Text {
                                     id: badgeText
                                     anchors.centerIn: parent
-                                    text: root._trustBadge(delegateRoot.repo.raw ? (delegateRoot.repo.raw.trust_state || delegateRoot.repo.raw.trustState) : "")
+                                    text: root._trustBadge(delegateRoot.repoData.trust_state || delegateRoot.repoData.trustState || "")
                                     typography: Typography.Caption
-                                    color: root._trustColor(delegateRoot.repo.raw ? (delegateRoot.repo.raw.trust_state || delegateRoot.repo.raw.trustState) : "")
+                                    color: root._trustColor(delegateRoot.repoData.trust_state || delegateRoot.repoData.trustState || "")
                                 }
                             }
                         }
@@ -240,7 +243,7 @@ Frame {
 
                             // TOFU 待确认：信任/拒绝（pending 专属操作行）
                             RowLayout {
-                                visible: (delegateRoot.repo.raw ? (delegateRoot.repo.raw.trust_state || delegateRoot.repo.raw.trustState) : "") === "pending"
+                                visible: (delegateRoot.repoData.trust_state || delegateRoot.repoData.trustState || "") === "pending"
                                 spacing: 6
                                 Button {
                                     text: qsTr("信任")
@@ -266,9 +269,9 @@ Frame {
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                 }
                                 Switch {
-                                    checked: delegateRoot.repo.raw ? delegateRoot.repo.raw.enabled : false
+                                    checked: delegateRoot.repoData.enabled === true
                                     enabled: !root.loading
-                                    onCheckedChanged: root.toggleRepoRequested(delegateRoot.repo.raw ? delegateRoot.repo.raw.url : "", checked)
+                                    onCheckedChanged: root.toggleRepoRequested(delegateRoot.repoData.url || "", checked)
                                 }
                             }
 
