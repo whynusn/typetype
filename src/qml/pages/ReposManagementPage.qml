@@ -47,7 +47,7 @@ FluentPage {
 
     // ---- 内容 ----
     ColumnLayout {
-        anchors.fill: parent
+        width: parent.width
         spacing: 8
 
         ReposManagementPanel {

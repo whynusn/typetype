@@ -136,6 +136,15 @@ class _InstanceClient:
         self._max_content_bytes = max_content_bytes
         self._failure_counts: dict[str, int] = {}
         self._lock = threading.Lock()
+        # endpoint 声明 profile（service/static）：OttClient 只探测声明 profile，
+        # 不再对 static 端点先打 service 路径（ADR-009 边界语义）
+        self._profiles: dict[str, str | None] = {}
+        for ep in self._endpoints:
+            url = ep.get("url", "")
+            if not url or url in self._profiles:
+                continue
+            profile = ep.get("profile")
+            self._profiles[url] = profile if profile in ("service", "static") else None
 
     def _ordered_urls(self) -> list[str]:
         """按健康度排序的端点 URL：健康端点优先，同健康度按 priority。"""
@@ -186,6 +195,7 @@ class _InstanceClient:
             fetch_json=self._make_fetch_json(),
             fetch_text=self._make_fetch_text(),
             max_content_bytes=self._max_content_bytes,
+            endpoint_profile=self._profiles.get(url),
         )
 
     def list_entries(self) -> list[dict] | None:
@@ -763,8 +773,13 @@ class OttFederationProvider:
                 return  # authority 类型冲突，跳过
             seen = {e.get("url") for e in existing._endpoints}
             for ep in endpoints:
-                if ep.get("url") not in seen:
+                url = ep.get("url")
+                if url not in seen:
                     existing._endpoints.append(ep)
+                    profile = ep.get("profile")
+                    existing._profiles[url] = (
+                        profile if profile in ("service", "static") else None
+                    )
             existing._endpoints.sort(key=lambda e: e.get("priority", 1))
             return
         cache_dir = self._instance_cache_dir(authority)

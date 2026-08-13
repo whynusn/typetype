@@ -367,7 +367,7 @@ onActiveChanged: {
 - 旧 `OttTextProvider` / `RegistryTextProvider` / `registry_index.json` 单实例数据面与 legacy fallback 已整体删除（ADR-013）
 - inline OTT 条目通过联邦路径 `loadFederatedInlineEntry(authority, entry_id, revision_id)` 显式加载，不靠 `entry_id` 前缀猜测
 - segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
-- `OttClient` 负责 Service Profile / Static Profile 读取顺序；缓存复用 `OttCachedFetcher`
+- `OttClient` 负责 Service Profile / Static Profile 读取顺序（manifest `endpoints[].profile` 显式声明时尊重声明、只探测对应 profile）；缓存复用 `OttCachedFetcher`
 
 **正确做法**：
 - 新增 OTT 客户端能力 → 先扩展 `/ott/v1` 或 Static Profile，再改 typetype

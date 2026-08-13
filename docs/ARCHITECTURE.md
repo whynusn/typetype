@@ -339,7 +339,7 @@ onActivated → Qt.callLater() 延迟触发信号
 
 ### 开源文库缓存层
 
-内部实现为 `OttFederationProvider`（多 repo 联邦）+ `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/sources.json`、`/entries.json` 等) 的顺序读取；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
+内部实现为 `OttFederationProvider`（多 repo 联邦）+ `OttClient`。标准路径按 `/ott/v1` Service Profile → Static Profile (`/ott.json`、`/sources.json`、`/entries.json` 等) 的顺序读取；manifest `endpoints[].profile` 显式声明 `service`/`static` 时，客户端尊重声明、只探测对应 profile（如内置 `file://` 静态源不再无谓打 service 路径）；adapter-private `/api/entries` 不作为 typetype 客户端依赖面。
 
 缓存层决策树（`RepoManifestCache` / 条目缓存）：
 
