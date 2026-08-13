@@ -145,9 +145,6 @@ class Bridge(QObject):
     sliceModeChanged = Signal()
     sliceStatusChanged = Signal(str)
     textContentLoaded = Signal(int, str, str)  # (text_id, content, title)
-    registryEntriesLoaded = Signal(
-        str, list
-    )  # (source_key, entries[{title, content, fetched_at}])
     # OTT Repo 联邦目录信号
     reposChanged = Signal(list)  # list of repo summary dicts
     reposLoadFailed = Signal(str)
@@ -1237,117 +1234,10 @@ class Bridge(QObject):
             self._leaderboard_adapter.loadCatalog()
 
     @Slot()
-    def loadRegistryEntries(self) -> None:
-        """加载开源文库（OTT）聚合的全部条目（扁平列表）。"""
-        if self._leaderboard_adapter:
-            self._leaderboard_adapter.loadRegistryEntries()
-
-    @Slot()
     def refreshCatalog(self) -> None:
         """清除缓存并重新加载文本来源目录。"""
         if self._leaderboard_adapter:
             self._leaderboard_adapter.refreshCatalog()
-
-    @Slot(str)
-    def loadLibraryText(self, source_key: str) -> None:
-        """从开源文库加载文本（完全独立于服务端 API）。
-
-        开源文库（第 2 层，内部实现为 OttTextProvider）文本由用户本地运行脚本生成，
-        通过 HTTP 服务暴露，客户端拉取，与服务端数据库无关。
-
-        结果通过 textContentLoaded 信号返回，失败通过 textLoadFailed。
-        走后台线程避免阻塞 UI。
-        """
-        if not self._leaderboard_adapter:
-            return
-        provider = self._leaderboard_adapter._registry_provider
-        if provider is None:
-            self.textLoadFailed.emit("注册表文本源未配置：请在设置中填写开源文库地址")
-            return
-        self._leaderboard_adapter.submit_to_thread_pool(
-            fn=lambda: self._leaderboard_adapter.fetch_registry_text(source_key),
-            on_result=lambda result: self._on_registry_text_loaded(source_key, result),
-            on_error=lambda msg: self.textLoadFailed.emit(msg),
-        )
-
-    def _on_registry_text_loaded(self, source_key: str, result: tuple) -> None:
-        """处理 registry 文本加载完成，拆分 entries 和主内容。"""
-        text_id, content, title, entries = (
-            result[0],
-            result[1],
-            result[2],
-            result[3] if len(result) > 3 else [],
-        )
-        # 先发射主内容（向后兼容即时跟打）
-        self.textContentLoaded.emit(text_id, content, title)
-        # 如果有 entries，发射 entries 信号让 QML 展示条目列表
-        if entries:
-            self.registryEntriesLoaded.emit(source_key, entries)
-
-    @Slot(str)
-    def loadOttEntry(self, entryId: str) -> None:
-        """从 OTT Core v1 按 entry_id 加载 inline 文本。"""
-        if not self._leaderboard_adapter:
-            return
-        provider = self._leaderboard_adapter._registry_provider
-        if provider is None:
-            self.textLoadFailed.emit("OTT 文本源未配置")
-            return
-        self._leaderboard_adapter.submit_to_thread_pool(
-            fn=lambda: self._leaderboard_adapter.fetch_ott_entry_text(entryId),
-            on_result=lambda result: self._on_registry_text_loaded(entryId, result),
-            on_error=lambda msg: self.textLoadFailed.emit(msg),
-        )
-
-    @Slot(str, str, int, int, int, int, str)
-    def loadOttEntrySegment(
-        self,
-        entryId: str,
-        revisionId: str,
-        segmentIndex: int,
-        segmentSize: int,
-        totalChars: int,
-        sourceSegmentSize: int,
-        title: str,
-    ) -> None:
-        """Load an OTT segmented entry through the generic text session pipeline."""
-        if not self._leaderboard_adapter or not self._text_adapter:
-            return
-        provider_adapter = self._leaderboard_adapter._registry_provider
-        if provider_adapter is None:
-            self.textLoadFailed.emit("OTT 文本源未配置")
-            return
-
-        if self._pending_restored_progress:
-            saved_slice = self._pending_restored_progress.get("current_slice", 1)
-            saved_total = self._pending_restored_progress.get("total_slices", 0)
-            if 1 <= saved_slice <= saved_total:
-                segmentIndex = saved_slice
-
-        if self._typing_adapter.is_slice_mode():
-            self.exitSliceMode()
-        self._clear_wenlai_active()
-        self._clear_trainer_active()
-        self._clear_local_article_active()
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
-        self._coordinator.pending_slice_params["full_shuffle"] = False
-        self._current_shuffle_seed = None
-
-        self._leaderboard_adapter.submit_to_thread_pool(
-            fn=lambda: self._build_ott_segment_session(
-                provider_adapter,
-                entryId,
-                revisionId,
-                segmentIndex,
-                segmentSize,
-                totalChars,
-                sourceSegmentSize or segmentSize or 1000,
-                title,
-            ),
-            on_result=self._on_ott_segment_session_started,
-            on_error=lambda msg: self.textLoadFailed.emit(msg),
-        )
 
     @Slot(str, str, str, int, int, int, int, str)
     def loadFederatedEntrySegment(
@@ -1494,50 +1384,6 @@ class Bridge(QObject):
             "source_segment_size": source_segment_size,
             "title": title,
             "authority": authority,
-        }
-
-    def _build_ott_segment_session(
-        self,
-        provider_adapter,
-        entry_id: str,
-        revision_id: str,
-        segment_index: int,
-        segment_size: int,
-        total_chars: int,
-        source_segment_size: int,
-        title: str,
-    ) -> dict:
-        from src.backend.models.dto.text_session import TextKind
-
-        provider = self._make_ott_segment_provider(
-            provider_adapter,
-            entry_id,
-            revision_id,
-            total_chars,
-            source_segment_size,
-        )
-        built = self._text_adapter.buildProviderTextSession(
-            provider=provider,
-            kind=TextKind.OTT,
-            identifier=f"{entry_id}@{revision_id}",
-            title=title,
-            version=revision_id,
-            slice_size=segment_size,
-            start_slice=segment_index,
-            source_key="ott",
-        )
-        if built is None:
-            raise RuntimeError("无法加载 OTT 文本分段")
-        usecase, result = built
-        return {
-            "usecase": usecase,
-            "result": result,
-            "entry_id": entry_id,
-            "revision_id": revision_id,
-            "segment_size": segment_size,
-            "source_segment_size": source_segment_size,
-            "title": title,
-            "authority": getattr(provider_adapter, "authority", "local"),
         }
 
     def _on_ott_segment_session_started(self, payload: dict) -> None:

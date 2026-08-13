@@ -379,7 +379,7 @@ onActiveChanged: {
 - `OttTextProvider.get_catalog()` 优先读 `/ott/v1/sources`，再 fallback 到 Static `/sources.json`，最后 fallback 到旧 `registry_index.json`
 - `OttTextProvider.fetch_all_entries()` 优先读 `/ott/v1/entries`
 - `/ott/v1` 不可用时按 Static Profile → 旧静态 `registry_index.json` + `content/{source_key}.json` fallback，不 fallback `/api/entries`
-- inline OTT 条目通过 `loadOttEntry(entry_id)` 显式加载，不靠 `entry_id` 前缀猜测
+- inline OTT 条目通过联邦路径 `loadFederatedInlineEntry(authority, entry_id, revision_id)` 显式加载，不靠 `entry_id` 前缀猜测（旧单实例 `loadOttEntry` 已删除）
 - segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
 - `OttClient` 负责 Service Profile / Static Profile 读取顺序；`OttTextProvider` 负责缓存与 legacy fallback
 - `registry_text_provider.RegistryTextProvider` 只保留兼容导出，新代码禁止继续依赖旧模块名

@@ -76,7 +76,6 @@ def test_text_load_hub_uses_expected_bridge_contract():
         "loadLocalArticleSegment" in refs and "loadLocalArticleSegment" in BRIDGE_SLOTS
     )
     assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
-    assert "loadOttEntrySegment" in refs and "loadOttEntrySegment" in BRIDGE_SLOTS
     # OTT 源仓库联邦聚合 Slot
     assert "addRepo" in refs and "addRepo" in BRIDGE_SLOTS
     assert "removeRepo" in refs and "removeRepo" in BRIDGE_SLOTS

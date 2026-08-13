@@ -432,17 +432,10 @@ FluentPage {
     }
 
     function startSegmentedSource(request, rp) {
-        var isOttSegmented = request.loadSegmentMethod === "loadOttEntrySegment"
-        var fullText = isOttSegmented ? false : !root.sliceModeChecked
+        var fullText = !root.sliceModeChecked
         var size = sliceSettingsPanel.sliceSize
         var index = sliceSettingsPanel.startSlice
-        if (isOttSegmented) {
-            size = request.sourceSegmentSize || size
-            var ottTotal = Math.max(1, Math.ceil((request.fullSize || size) / size))
-            index = Math.max(1, Math.min(index, ottTotal))
-        } else {
-            index = Math.max(1, Math.min(index, sliceSettingsPanel.totalSlices))
-        }
+        index = Math.max(1, Math.min(index, sliceSettingsPanel.totalSlices))
         if (fullText) { size = request.fullSize; index = 1 }
 
         setupSliceCriteria(rp)
@@ -452,9 +445,6 @@ FluentPage {
                 appBridge.loadLocalArticleSegment(request.identifier, index, size)
             else if (request.loadSegmentMethod === "loadTrainerSegment")
                 appBridge.loadTrainerSegment(request.identifier, index, size)
-            else if (request.loadSegmentMethod === "loadOttEntrySegment")
-                appBridge.loadOttEntrySegment(request.identifier, request.revisionId, index, size,
-                                            request.fullSize, request.sourceSegmentSize, request.title)
         })
     }
 
