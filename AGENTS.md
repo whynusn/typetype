@@ -493,6 +493,8 @@ onActiveChanged: {
 
 **正确做法**：联邦列表物化结果写 `EntrySnapshotStore`（磁盘快照），`load_entry` 快照命中直接返回；刷新只是换新（保留最近 N 条）。on_demand 源（每次随机）不得进入自动调度（防无限刷新循环），仅手动「抽新」。新增刷新策略 → 扩展 `RefreshPolicy` 模式；用户 per-source 覆盖走 `RuntimeConfig.set_source_refresh_override`。
 
+**已知边界**：快照条目级有界（`prune_stale` 每 authority 保留 N=5），但 authority 级无界——删除订阅后快照目录残留磁盘（GC/清理页为 spec 后续项，思路见 `docs/designs/dynamic-source-snapshot-freshness.md` §8）。
+
 **历史**：2026-08-13 设计（docs/designs/dynamic-source-snapshot-freshness.md）与实现。
 
 ---

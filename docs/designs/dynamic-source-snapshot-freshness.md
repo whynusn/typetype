@@ -243,8 +243,16 @@ class SnapshotCatalogService:
 
 **后续（不在本次）**：
 - 协议 `source.refresh` 声明（`{"mode": "interval", "interval_seconds": 86400}` / `"on_demand"` / `"static"`）——open-typing-texts 仓同步项，客户端读取声明，位于优先级链中段（用户覆盖之下）
-- 快照 GC / 清理设置页 UI
-- 旧 `update_freq` 字段的迁移/删除决策
+- 快照 GC / 清理设置页 UI（详见下文）
+- 旧 `update_freq` 字段的迁移/删除决策 —— **已裁决（2026-08-13）：无需迁移**。`update_freq` 从未落盘持久化（仅内存 DTO 承载，`catalog_items` 注释 `never persisted`），旧 `registry_index.json` 数据面已随 ADR-013 删除；该字段与 `TextCatalogItem`/`ott_catalog.py`/`RuntimeConfig.catalog_items`/`get_text_source_options` 一并作为死代码移除（提交 `25c3739`）
+
+### 快照 GC / 清理设置页（后续项，思路）
+
+现状：条目级有界（`prune_stale` 每 authority 保留最近 N=5），但 **authority 级无界**——删除订阅后，该 authority 的整个快照目录（≤N 条）留在磁盘无人清理；损坏文件也无集中回收。
+
+- **GC（后台）**：启动时 + 周期扫描，删除「已不存在于任何订阅」的 authority 快照目录 + 损坏/空文件；可选加总占用上限（如 200MB）。复用 `EntrySnapshotStore` 的目录布局，新增 `gc(active_authorities: set[str])` 方法。
+- **清理设置页**（`SettingsPage.qml`「存储与缓存」区）：展示快照总占用 / 各源快照数；按钮一键清空快照缓存（`EntrySnapshotStore.clear_cache()` 已实现，只缺 UI 入口）；可选调整保留 N。
+- 类比：RSS 阅读器清除已退订源缓存、浏览器「清除浏览数据」。
 
 **不动**：6 tab 载文中心结构、进度键格式、`OttClient`/`OttCachedFetcher`/`OttFederationProvider` 现有接口。
 
@@ -254,4 +262,4 @@ class SnapshotCatalogService:
 
 - Miniflux scheduler：`internal/cli/scheduler.go`（`WithNextCheckExpired` 批处理）— Apache-2.0
 - NetNewsWire `RefreshInterval.swift` / `AccountRefreshTimer.swift`（全局间隔 + 手动 + 休眠补偿）— BSD
-- 本仓：`OttCachedFetcher`（TTL/SWRA/原子写）、`_EntryCache`（内存 TTL）、`update_freq`（废弃字段）、`TextSliceProgressStore`（文本 hash 进度）
+- 本仓：`OttCachedFetcher`（TTL/SWRA/原子写）、`_EntryCache`（内存 TTL）、`TextSliceProgressStore`（文本 hash 进度）
