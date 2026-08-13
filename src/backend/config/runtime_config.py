@@ -228,6 +228,28 @@ class SourceReposConfig:
 
 
 @dataclass
+class SourceRefreshOverridesConfig:
+    """用户 per-source 刷新间隔覆盖（authority → {mode, interval_seconds}）。
+
+    优先级链：用户覆盖 > manifest 声明（未来） > 客户端推断。
+    """
+
+    overrides: dict[str, dict] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.overrides, dict):
+            self.overrides = {}
+
+    def __eq__(self, other: object) -> bool:
+        """与空 dict 可比（`cfg.source_refresh_overrides == {}` 在空覆盖时成立）。"""
+        if isinstance(other, dict):
+            return self.overrides == other
+        if isinstance(other, SourceRefreshOverridesConfig):
+            return self.overrides == other.overrides
+        return NotImplemented
+
+
+@dataclass
 class TextSessionConfig:
     """载文会话配置。"""
 
@@ -260,6 +282,9 @@ class RuntimeConfig:
     ott: OttConfig = field(default_factory=OttConfig)
     update: UpdateConfig = field(default_factory=UpdateConfig)
     source_repos: SourceReposConfig = field(default_factory=SourceReposConfig)
+    source_refresh_overrides: SourceRefreshOverridesConfig = field(
+        default_factory=SourceRefreshOverridesConfig
+    )
     ai: AiConfig = field(default_factory=AiConfig)
     text_session: TextSessionConfig = field(default_factory=TextSessionConfig)
     catalog_items: list[TextCatalogItem] = field(
@@ -658,6 +683,25 @@ class RuntimeConfig:
         # 解析 source_repos（v2：纯订阅列表，无 primary_url 迁移）
         source_repos = cls._parse_source_repos(data.get("source_repos"))
 
+        # 解析用户 per-source 刷新间隔覆盖（容错：非 dict / 非法 mode / 非 int 秒数 → 丢弃该条目）
+        overrides: dict[str, dict] = {}
+        raw_overrides = data.get("source_refresh_overrides")
+        if isinstance(raw_overrides, dict):
+            for authority, ov in raw_overrides.items():
+                if not isinstance(authority, str) or not isinstance(ov, dict):
+                    continue
+                mode = ov.get("mode")
+                if mode not in ("static", "interval", "on_demand"):
+                    continue
+                interval = ov.get("interval_seconds")
+                if not isinstance(interval, int):
+                    continue  # 非 int 秒数 → 丢弃该条目（不静默强制转换）
+                overrides[authority] = {
+                    "mode": mode,
+                    **({"interval_seconds": interval} if interval > 0 else {}),
+                }
+        source_refresh_overrides = SourceRefreshOverridesConfig(overrides=overrides)
+
         ts_data = data.get("text_session", {})
         if not isinstance(ts_data, dict):
             ts_data = {}
@@ -702,6 +746,7 @@ class RuntimeConfig:
             ott=ott,
             update=update,
             source_repos=source_repos,
+            source_refresh_overrides=source_refresh_overrides,
             ai=ai,
             text_session=text_session,
             ui=ui_data,
@@ -932,6 +977,35 @@ class RuntimeConfig:
                 self._save_to_file()
                 return
 
+    def set_source_refresh_override(
+        self, authority: str, mode: str, interval_seconds: int = 0
+    ) -> None:
+        """设置某 authority 的刷新间隔覆盖（用户 per-source 覆盖）。
+
+        无效 mode / 空 authority 忽略；interval_seconds ≤ 0 时不写秒数字段。
+        """
+        if not isinstance(authority, str) or not authority.strip():
+            return
+        if mode not in ("static", "interval", "on_demand"):
+            return
+        entry: dict = {"mode": mode}
+        if (
+            mode == "interval"
+            and isinstance(interval_seconds, int)
+            and interval_seconds > 0
+        ):
+            entry["interval_seconds"] = interval_seconds
+        self.source_refresh_overrides.overrides[authority] = entry
+        self._save_to_file()
+
+    def clear_source_refresh_override(self, authority: str) -> None:
+        self.source_refresh_overrides.overrides.pop(authority, None)
+        self._save_to_file()
+
+    def get_source_refresh_override(self, authority: str) -> dict | None:
+        ov = self.source_refresh_overrides.overrides.get(authority)
+        return dict(ov) if isinstance(ov, dict) else None
+
     def set_source_repo_trust(
         self, url: str, trust_state: str, pinned_pubkey: str = ""
     ) -> None:
@@ -1082,6 +1156,7 @@ class RuntimeConfig:
             self.ott = updated.ott
             self.update = updated.update
             self.source_repos = updated.source_repos
+            self.source_refresh_overrides = updated.source_refresh_overrides
             self.ai = updated.ai
             self.text_session = updated.text_session
             self.ui = updated.ui
@@ -1141,6 +1216,7 @@ class RuntimeConfig:
                 }
                 for repo in self.source_repos.repos
             ],
+            "source_refresh_overrides": dict(self.source_refresh_overrides.overrides),
             "wenlai": {
                 "base_url": self.wenlai.base_url,
                 "length": self.wenlai.length,

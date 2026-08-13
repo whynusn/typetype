@@ -1453,3 +1453,63 @@ def test_ai_timeout_float_precision_roundtrip():
     assert RuntimeConfig._safe_float("3.25", 1.0) == 3.25
     assert RuntimeConfig._safe_float(None, 1.0) == 1.0
     assert RuntimeConfig._safe_float("oops", 1.0) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# 用户 per-source 刷新间隔覆盖（source_refresh_overrides）
+# ---------------------------------------------------------------------------
+
+
+class TestSourceRefreshOverrides:
+    def test_default_empty(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        assert cfg.source_refresh_overrides == {}
+
+    def test_set_and_get(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:1", "interval", 3600)
+        assert cfg.get_source_refresh_override("auth:1") == {
+            "mode": "interval",
+            "interval_seconds": 3600,
+        }
+
+    def test_invalid_mode_ignored(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:1", "bogus", 10)
+        assert cfg.get_source_refresh_override("auth:1") is None
+
+    def test_clear_removes(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:1", "interval", 60)
+        cfg.clear_source_refresh_override("auth:1")
+        assert cfg.get_source_refresh_override("auth:1") is None
+
+    def test_roundtrip_to_dict(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:1", "interval", 3600)
+        d = cfg._to_dict()
+        assert d["source_refresh_overrides"] == {
+            "auth:1": {"mode": "interval", "interval_seconds": 3600}
+        }
+
+    def test_load_from_file_roundtrip(self, tmp_path):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        cfg.set_source_refresh_override("auth:1", "interval", 3600)
+        p = tmp_path / "config.json"
+        p.write_text(json.dumps(cfg._to_dict()), encoding="utf-8")
+        loaded = RuntimeConfig.load_from_file(str(p))
+        assert loaded.get_source_refresh_override("auth:1") == {
+            "mode": "interval",
+            "interval_seconds": 3600,
+        }
+
+    def test_from_dict_tolerates_bad_values(self):
+        cfg = RuntimeConfig._fresh_with_builtin()
+        d = cfg._to_dict()
+        d["source_refresh_overrides"] = {
+            "auth:1": {"mode": "interval", "interval_seconds": "not-a-number"},
+            "auth:2": "garbage",
+        }
+        parsed = RuntimeConfig._from_dict(d)
+        assert parsed.get_source_refresh_override("auth:1") is None
+        assert parsed.get_source_refresh_override("auth:2") is None
