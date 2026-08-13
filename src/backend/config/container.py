@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from ..integration.ott_repo_manifest import RepoManifestCache
     from ..integration.ott_federation_provider import OttFederationProvider
     from ..integration.secure_token_store import SecureTokenStore
+    from ..integration.refresh_scheduler import RefreshScheduler
     from ..integration.wenlai_provider import WenlaiProvider
     from ..integration.llm_text_provider import LlmTextProvider
     from ..ports.key_listener import KeyListener
@@ -144,6 +145,8 @@ class Adapters:
     ott_segment_provider_cls: type | None = None
     # OTA 更新适配层（ADR-014）；并行 lane 未提供 update_checker 时为空
     update: "UpdateAdapter | None" = None
+    # 常驻到期调度器（生命周期跟随 container，防 GC 后自动刷新失效）
+    scheduler: "RefreshScheduler | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +513,7 @@ def create_adapters(
         key_listener=key_listener,
         ott_segment_provider_cls=OttSegmentProvider,
         update=update_adapter,
+        scheduler=refresh_scheduler,
     )
 
 
