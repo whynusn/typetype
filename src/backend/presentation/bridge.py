@@ -2432,6 +2432,30 @@ class Bridge(QObject):
         if self._registry_adapter:
             self._registry_adapter.refreshSource(authority)
 
+    @Slot(str, str, int)
+    def setSourceRefreshOverride(self, authority: str, mode: str, interval_seconds: int) -> None:
+        """用户 per-source 刷新间隔覆盖。"""
+        if self._registry_adapter is None or self._registry_adapter.catalog is None:
+            return
+        rc = getattr(self._registry_adapter, "_runtime_config", None)
+        if rc is not None:
+            rc.set_source_refresh_override(authority, mode, interval_seconds)
+
+    @Slot(str)
+    def clearSourceRefreshOverride(self, authority: str) -> None:
+        if self._registry_adapter is None or self._registry_adapter.catalog is None:
+            return
+        rc = getattr(self._registry_adapter, "_runtime_config", None)
+        if rc is not None:
+            rc.clear_source_refresh_override(authority)
+
+    @Slot(result="QVariantMap")
+    def getSourceRefreshOverrides(self) -> dict:
+        if self._registry_adapter is None or self._registry_adapter.catalog is None:
+            return {}
+        rc = getattr(self._registry_adapter, "_runtime_config", None)
+        return dict(rc.source_refresh_overrides.overrides) if rc is not None else {}
+
     @Slot(str, str)
     def loginWenlai(self, username: str, password: str) -> None:
         if self._wenlai_adapter:

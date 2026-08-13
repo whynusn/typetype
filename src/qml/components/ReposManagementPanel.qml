@@ -65,6 +65,22 @@ Frame {
         return parts.join(" · ") || qsTr("暂无来源")
     }
 
+    function overrideIndexFor(authority) {
+        if (!appBridge) return 0
+        var ov = appBridge.getSourceRefreshOverrides() || {}
+        var e = ov[authority]
+        if (!e) return 0
+        if (e.mode === "on_demand") return 1
+        if (e.mode === "interval") {
+            var s = e.interval_seconds || 0
+            if (s === 3600) return 2
+            if (s === 86400) return 3
+            if (s === 604800) return 4
+            if (s === 2592000) return 5
+        }
+        return 0
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: 8
@@ -223,6 +239,42 @@ Frame {
                             maximumLineCount: 2
                             elide: Text.ElideRight
                             visible: text !== ""
+                        }
+
+                        // 刷新间隔（per-source 用户覆盖；authority 为空则不渲染）
+                        Repeater {
+                            id: intervalRepeater
+                            model: (delegateRoot.repoData.authorities || [])
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+                                visible: modelData.length > 0
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: qsTr("刷新间隔") + " · " + modelData
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                    elide: Text.ElideRight
+                                }
+
+                                QQC.ComboBox {
+                                    Layout.preferredWidth: 130
+                                    model: [qsTr("默认"), qsTr("随机/手动"), qsTr("每小时"), qsTr("每天"), qsTr("每周"), qsTr("每月")]
+                                    currentIndex: root.overrideIndexFor(modelData)
+                                    onActivated: function(index) {
+                                        var authority = modelData
+                                        switch (index) {
+                                        case 0: if (appBridge) appBridge.clearSourceRefreshOverride(authority); break
+                                        case 1: if (appBridge) appBridge.setSourceRefreshOverride(authority, "on_demand", 0); break
+                                        case 2: if (appBridge) appBridge.setSourceRefreshOverride(authority, "interval", 3600); break
+                                        case 3: if (appBridge) appBridge.setSourceRefreshOverride(authority, "interval", 86400); break
+                                        case 4: if (appBridge) appBridge.setSourceRefreshOverride(authority, "interval", 604800); break
+                                        case 5: if (appBridge) appBridge.setSourceRefreshOverride(authority, "interval", 2592000); break
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // 第四行：操作行（浏览 + 开关 + 刷新/删除）
