@@ -1,0 +1,154 @@
+"""动态源条目快照磁盘存储（纯存储，无网络）。
+
+布局：registry_cache_dir()/snapshots/{authority_hash}/{entry_id}.json
+- 列表展示的物化内容落盘，选中载入直接从快照取（不重新执行规则/脚本）
+- 保留最近 N 条（prune），旧快照可回看/可继续打
+- on_demand 快照虽立即过期，但不入自动调度（防无限刷新循环）
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import Any
+
+from .refresh_policy import MODE_INTERVAL, RefreshPolicy
+
+
+def _authority_hash(authority: str) -> str:
+    return hashlib.sha256(authority.encode("utf-8")).hexdigest()[:12]
+
+
+class EntrySnapshotStore:
+    def __init__(self, cache_dir: Path, max_per_source: int = 5) -> None:
+        self._root = Path(cache_dir) / "snapshots"
+        self._max_per_source = max(1, max_per_source)
+
+    # ------------------------------------------------------------------
+    # 内部：路径
+    # ------------------------------------------------------------------
+
+    def _dir(self, authority: str) -> Path:
+        return self._root / _authority_hash(authority)
+
+    def _path(self, authority: str, entry_id: str) -> Path:
+        return self._dir(authority) / f"{entry_id}.json"
+
+    # ------------------------------------------------------------------
+    # 写
+    # ------------------------------------------------------------------
+
+    def save(self, entry: dict, captured_at: float, policy: RefreshPolicy) -> None:
+        if not isinstance(entry, dict):
+            return
+        entry_id = entry.get("entry_id")
+        authority = entry.get("_authority", "")
+        if not entry_id or not authority:
+            return
+        payload: dict[str, Any] = {
+            **entry,
+            "captured_at": captured_at,
+            "refresh_policy": policy.to_dict(),
+            "next_refresh_at": policy.next_refresh_at(captured_at),
+        }
+        path = self._path(authority, str(entry_id))
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(f"{path.suffix}.tmp")
+            with tmp.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            tmp.replace(path)
+        except OSError:
+            pass
+
+    # ------------------------------------------------------------------
+    # 读
+    # ------------------------------------------------------------------
+
+    def get(self, authority: str, entry_id: str) -> dict | None:
+        try:
+            path = self._path(authority, entry_id)
+            if not path.exists():
+                return None
+            with path.open(encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError, ValueError, TypeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        data.setdefault("_authority", authority)
+        return data
+
+    def list(self, authority: str) -> list[dict]:
+        directory = self._dir(authority)
+        try:
+            if not directory.exists():
+                return []
+            items = []
+            for path in directory.iterdir():
+                if not path.is_file() or not path.suffix == ".json":
+                    continue
+                data = self.get(authority, path.stem)
+                if data is not None:
+                    items.append(data)
+        except OSError:
+            return []
+        items.sort(key=lambda e: e.get("captured_at", 0.0), reverse=True)
+        return items
+
+    # ------------------------------------------------------------------
+    # prune / 调度
+    # ------------------------------------------------------------------
+
+    def prune(self, authority: str, max_per_source: int | None = None) -> None:
+        limit = max(1, max_per_source or self._max_per_source)
+        items = self.list(authority)
+        for stale in items[limit:]:
+            try:
+                self._path(authority, stale.get("entry_id", "")).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def due_for_refresh(self, now: float) -> list[tuple[str, str]]:
+        """返回 (authority, entry_id) 中 interval 模式已到期的快照（on_demand 不返回）。"""
+        due: list[tuple[str, str]] = []
+        try:
+            if not self._root.exists():
+                return []
+            for authority_dir in self._root.iterdir():
+                if not authority_dir.is_dir():
+                    continue
+                # authority 从哈希目录反查：快照内冗余 _authority 字段
+                for path in authority_dir.glob("*.json"):
+                    try:
+                        with path.open(encoding="utf-8") as f:
+                            data = json.load(f)
+                    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+                        continue
+                    if not isinstance(data, dict):
+                        continue
+                    policy = RefreshPolicy.from_dict(data.get("refresh_policy"))
+                    if policy.mode != MODE_INTERVAL:
+                        continue
+                    nra = data.get("next_refresh_at")
+                    if isinstance(nra, (int, float)) and nra <= now:
+                        due.append(
+                            (
+                                str(data.get("_authority", "")),
+                                str(data.get("entry_id", "")),
+                            )
+                        )
+        except OSError:
+            return []
+        return due
+
+    def clear_cache(self) -> None:
+        import shutil
+
+        try:
+            if self._root.exists():
+                shutil.rmtree(self._root)
+                self._root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
