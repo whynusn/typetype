@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ...config.runtime_config import RuntimeConfig
     from ...integration.ott_federation_provider import OttFederationProvider
     from ...integration.ott_repo_manifest import RepoManifestCache
+    from ...application.services.snapshot_catalog_service import SnapshotCatalogService
 
 
 class RegistryAdapter(QObject):
@@ -41,6 +42,7 @@ class RegistryAdapter(QObject):
         federation: "OttFederationProvider",
         manifest_cache: "RepoManifestCache",
         runtime_config: "RuntimeConfig | None" = None,
+        catalog: "SnapshotCatalogService | None" = None,
     ) -> None:
         super().__init__()
         self._federation = federation
@@ -48,6 +50,8 @@ class RegistryAdapter(QObject):
         # 订阅配置由 container.py 直接注入本适配器持有，
         # 不穿透 federation 的私有字段（ott_federation_provider 禁改）。
         self._runtime_config = runtime_config
+        # 动态源快照目录（SnapshotCatalogService）：快照优先载入 + 单源刷新
+        self._catalog = catalog
         self._thread_pool = QThreadPool.globalInstance()
         self._repos_loading = False
         self._entries_loading = False
@@ -217,6 +221,8 @@ class RegistryAdapter(QObject):
         self._set_entries_loading(True)
 
         def _load() -> list[dict]:
+            if self._catalog is not None:
+                return self._catalog.refresh_and_list_all()
             return self._federation.list_all_entries()
 
         from ...workers.base_worker import BaseWorker
@@ -251,3 +257,43 @@ class RegistryAdapter(QObject):
     @property
     def entries_loading(self) -> bool:
         return self._entries_loading
+
+    # ------------------------------------------------------------------
+    # 单源刷新（动态源 random 换新）
+    # ------------------------------------------------------------------
+
+    @Slot(str)
+    def refreshSource(self, authority: str) -> None:
+        """单源强制刷新（random 换新）并重发条目列表。"""
+        if not authority:
+            return
+        if self._catalog is None:
+            # 无 catalog（未装配）：退化为普通全量加载
+            self._set_entries_loading(True)
+
+            def _plain() -> list[dict]:
+                return self._federation.list_all_entries()
+
+            from ...workers.base_worker import BaseWorker
+
+            worker = BaseWorker(task=_plain, error_prefix="刷新文本源失败")
+            worker.signals.succeeded.connect(self._on_entries_loaded)
+            worker.signals.failed.connect(self._on_entries_load_failed)
+            self._thread_pool.start(worker)
+            return
+        self._set_entries_loading(True)
+
+        def _refresh() -> list[dict]:
+            self._catalog.refresh_source(authority)
+            return self._catalog.refresh_and_list_all()
+
+        from ...workers.base_worker import BaseWorker
+
+        worker = BaseWorker(task=_refresh, error_prefix="刷新文本源失败")
+        worker.signals.succeeded.connect(self._on_entries_loaded)
+        worker.signals.failed.connect(self._on_entries_load_failed)
+        self._thread_pool.start(worker)
+
+    @property
+    def catalog(self) -> "SnapshotCatalogService | None":
+        return self._catalog

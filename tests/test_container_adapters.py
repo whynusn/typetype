@@ -97,3 +97,14 @@ def test_create_adapters_wires_cross_layer_injections(monkeypatch):
     # 联邦目录适配层持有注入的 federation / manifest_cache
     assert adapters.registry._federation is providers.federation
     assert adapters.registry._manifest_cache is providers.manifest_cache
+
+
+def test_registry_adapter_wired_with_catalog(monkeypatch):
+    monkeypatch.setattr(
+        "src.backend.integration.key_listener_factory.create_key_listener",
+        lambda *a, **k: None,
+    )
+    runtime_config = RuntimeConfig()
+    adapters = _build_adapters(runtime_config)
+    assert adapters.registry.catalog is not None
+    assert hasattr(adapters.registry, "refreshSource")

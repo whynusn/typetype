@@ -380,6 +380,11 @@ def create_adapters(
     from ..presentation.adapters.upload_text_adapter import UploadTextAdapter
     from ..presentation.adapters.update_adapter import UpdateAdapter
     from ..application.gateways.font_gateway import FontGateway
+    from ..integration.qt_async_executor import QtAsyncExecutor
+    from ..integration.entry_snapshot_store import EntrySnapshotStore
+    from ..integration.refresh_scheduler import RefreshScheduler
+    from ..application.services.snapshot_catalog_service import SnapshotCatalogService
+    from .app_paths import registry_cache_dir
 
     # Session context
     session_context = TypingSessionContext()
@@ -430,10 +435,29 @@ def create_adapters(
     font_adapter = FontAdapter(gateway=font_gateway)
 
     # OTT Repo 联邦目录适配层（订阅配置直接注入，不穿透 federation 私有字段）
+    # 动态源快照目录：物化落盘 + 快照优先载入 + 用户 per-source 覆盖 + 常驻调度
+    snapshot_store = EntrySnapshotStore(
+        cache_dir=registry_cache_dir(), max_per_source=5
+    )
+    snapshot_async_executor = QtAsyncExecutor()
+    snapshot_service = SnapshotCatalogService(
+        federation=providers.federation,
+        store=snapshot_store,
+        runtime_config=runtime_config,
+        async_executor=snapshot_async_executor,
+    )
+    refresh_scheduler = RefreshScheduler(snapshot_service)
+    # 无 Qt 事件循环的 CLI/测试环境自动降级为无操作（RefreshScheduler 已容错）
+    from PySide6.QtCore import QCoreApplication
+
+    if QCoreApplication.instance() is not None:
+        refresh_scheduler.start()
+
     registry_adapter = RegistryAdapter(
         federation=providers.federation,
         manifest_cache=providers.manifest_cache,
         runtime_config=runtime_config,
+        catalog=snapshot_service,
     )
 
     # Upload text

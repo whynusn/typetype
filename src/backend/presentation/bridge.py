@@ -1138,6 +1138,11 @@ class Bridge(QObject):
             return
 
         def _load() -> dict | None:
+            if (
+                self._registry_adapter is not None
+                and self._registry_adapter.catalog is not None
+            ):
+                return self._registry_adapter.catalog.load_entry(authority, entryId)
             return federation.get_entry(authority, entryId)
 
         def _on_result(detail: dict | None) -> None:
@@ -2420,6 +2425,12 @@ class Bridge(QObject):
         """加载联邦聚合的全部条目。"""
         if self._registry_adapter:
             self._registry_adapter.loadAllEntries()
+
+    @Slot(str)
+    def refreshFederatedSource(self, authority: str) -> None:
+        """单源强制刷新（random 换新）：物化该源并重发条目列表。"""
+        if self._registry_adapter:
+            self._registry_adapter.refreshSource(authority)
 
     @Slot(str, str)
     def loginWenlai(self, username: str, password: str) -> None:
