@@ -2,7 +2,7 @@
 
 - **日期**: 2026-08-13
 - **状态**: 设计定稿，待实施
-- **范围**: 客户端机制优先（EntrySnapshotStore / RefreshPolicy / SnapshotCatalogService / RefreshScheduler / QML 新鲜度表现）；协议 `refresh` 字段为后续上游同步项
+- **范围**: 客户端机制优先（EntrySnapshotStore / RefreshPolicy / SnapshotCatalogService / RefreshScheduler / QML 新鲜度表现 + 用户 per-source 刷新间隔覆盖）；协议 `refresh` 字段为后续上游同步项
 - **关联**: ADR-013（三仓收敛）、ADR-009（OTT 只读协议边界）、ADR-010（联邦订阅）、AGENTS.md §8（OTT 只读协议/缓存层陷阱）
 
 ---
@@ -87,8 +87,17 @@ class RefreshPolicy:
         on_demand → captured_at（立即过期）。"""
 ```
 
-- manifest 推断（缺省，本次实现内置）：`ott-instance → static`；`ott-rule / ott-script / ott-bridge → on_demand`。
-- 未来协议扩展：manifest `source.refresh` 声明覆盖推断（见 §8，本次不实施）。
+- **优先级链（三层逐级覆盖）**：用户覆盖（`source_refresh_overrides`，config.json） > manifest `source.refresh` 声明（未来协议，见 §8） > 客户端推断。
+- 客户端推断（缺省）：`ott-instance → static`；`ott-rule / ott-script / ott-bridge → on_demand`。
+- 解析入口 `RefreshPolicy.resolve(authority, source_dict)`：先查用户覆盖 → 再查 manifest 声明 → 最后推断。
+
+### 4.1.1 用户覆盖：`RuntimeConfig.source_refresh_overrides`
+
+用户可在订阅管理页手动调整某个源/规则（authority 级）的刷新间隔（per-source 覆盖，2026-08-13 决策）。
+
+- 存储：`RuntimeConfig` 新增段 `source_refresh_overrides`：`dict[str, dict]`，key 为 `authority`，value 为 `{"mode": "interval"|"on_demand"|"static", "interval_seconds": int}`；遵循 AGENTS.md 约束（`@dataclass` 子配置 + `_from_dict`/`_to_dict`，RuntimeConfig 为唯一序列化者）。
+- 操作入口：`runtime_config.set_source_refresh_override(authority, mode, interval_seconds)` / `clear_source_refresh_override(authority)`，**不直接操作字段**。
+- 语义：`on_demand`（每次随机，立即过期仅手动）→ 用户可改成 `interval`（如每小时）使调度器自动换新；`static`（永不过期）→ 用户可改成 `interval` 定期刷新。删除覆盖 → 回退 manifest/推断。
 
 ### 4.2 `EntrySnapshotStore`（integration 层，新文件 `src/backend/integration/entry_snapshot_store.py`）
 
@@ -176,6 +185,12 @@ class SnapshotCatalogService:
 - `TextSourceBehaviors.js`：新增相对时间格式化 helper；`progressKeyAndId` 不变（快照下 `ott:{authority}:{entry_id}@{revision_id}` 天然稳定）。
 - 单卡片刷新 loading 态去重（防连点）。
 
+**`ReposManagementPage` 每源「刷新间隔」设置**（per-source 覆盖入口）：
+
+- 每条订阅摘要的源列表旁提供刷新间隔入口：下拉（手动/随机 / 每小时 / 每天 / 每周 / 每月 / 不刷新）+ 自定义秒数输入。
+- 写入 `runtime_config.set_source_refresh_override(authority, mode, interval_seconds)`；覆盖生效后该源 `RefreshPolicy` 立即按新策略计算（下次 `next_refresh_at` 以当前时间重新锚定）。
+- 「重置为默认」清除覆盖，回退 manifest/推断。
+
 ---
 
 ## 5. 数据流
@@ -211,22 +226,23 @@ class SnapshotCatalogService:
 ## 7. 测试策略
 
 - `EntrySnapshotStore`：save/get/list/prune/原子写/损坏文件兜底/authority_hash 布局
-- `RefreshPolicy`：各模式 `next_refresh_at` 计算、manifest 推断（instance→static、rule/script/bridge→on_demand）
-- `SnapshotCatalogService`：**mock federation 断言 `load_entry` 零 fetch**（失配修复回归）；`refresh_and_list_all` 写快照+prune 保留 N；`refresh_source` 换新
+- `RefreshPolicy`：各模式 `next_refresh_at` 计算、优先级链（用户覆盖 > manifest 声明 > 推断）、`resolve` 无覆盖回退推断
+- `RuntimeConfig.source_refresh_overrides`：`set/clear` 写读、v1→v2 迁移缺省空段、`_from_dict` 类型容错
+- `SnapshotCatalogService`：**mock federation 断言 `load_entry` 零 fetch**（失配修复回归）；`refresh_and_list_all` 写快照+prune 保留 N；`refresh_source` 换新；覆盖生效后 `next_refresh_at` 重新锚定
 - `RefreshScheduler`：到期扫描、去重、后台执行
-- QML：新鲜度徽章渲染（复用 `test_qml_pages.py` 框架）
+- QML：新鲜度徽章渲染 + 刷新间隔下拉（复用 `test_qml_pages.py` 框架）
 
 ---
 
 ## 8. 实施边界与后续
 
 **本次实施（客户端机制优先）**：
-- §4 全部组件 + §5 数据流 + §6 错误处理 + §7 测试
-- 策略推断内置（instance→static、rule/script/bridge→on_demand）
+- §4 全部组件（含 §4.1.1 用户 per-source 覆盖）+ §5 数据流 + §6 错误处理 + §7 测试
+- 策略推断内置（instance→static、rule/script/bridge→on_demand），用户覆盖（`source_refresh_overrides`）优先
 - 快照保留 N 默认 5（可配置）
 
 **后续（不在本次）**：
-- 协议 `source.refresh` 声明（`{"mode": "interval", "interval_seconds": 86400}` / `"on_demand"` / `"static"`）——open-typing-texts 仓同步项，客户端读取声明覆盖推断
+- 协议 `source.refresh` 声明（`{"mode": "interval", "interval_seconds": 86400}` / `"on_demand"` / `"static"`）——open-typing-texts 仓同步项，客户端读取声明，位于优先级链中段（用户覆盖之下）
 - 快照 GC / 清理设置页 UI
 - 旧 `update_freq` 字段的迁移/删除决策
 
