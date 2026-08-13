@@ -88,7 +88,6 @@ def normalize_source(source: dict) -> dict:
         "char_count": char_count,
         "charCount": char_count,
         "category": str(source.get("category", "") or ""),
-        "update_freq": str(source.get("update_freq", "") or ""),
         "entry_count": safe_int(source.get("entry_count")),
         "tags": source.get("tags", [])
         if isinstance(source.get("tags", []), list)

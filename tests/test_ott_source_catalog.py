@@ -1,4 +1,4 @@
-"""OTT source catalog 测试：OttClient 协议路由 + catalog_items_from_sources。
+"""OTT source catalog 测试：OttClient 协议路由（list_sources）。
 
 单实例 OttTextProvider 已删除（ADR-013 决策 5），目录获取统一走
 OttClient（federation 路径）。legacy registry_index.json fallback 已移除。
@@ -9,7 +9,6 @@ from unittest.mock import MagicMock
 
 import httpx
 
-from src.backend.integration.ott_catalog import catalog_items_from_sources
 from src.backend.integration.ott_client import OttClient
 
 
@@ -128,50 +127,3 @@ def test_list_sources_tolerates_malformed_numeric_fields():
     assert sources[0]["source_key"] == "bad_count"
     assert sources[0]["id"] == 0
     assert sources[0]["char_count"] == 0
-
-
-def test_catalog_items_from_sources_maps_normalized_fields():
-    items = catalog_items_from_sources(
-        [
-            {
-                "id": 7,
-                "source_key": "poem",
-                "label": "诗句",
-                "description": "每日诗句",
-                "char_count": 12,
-                "category": "poem",
-            }
-        ]
-    )
-
-    assert items[0].source_key == "poem"
-    assert items[0].id == 7
-    assert items[0].label == "诗句"
-    assert items[0].description == "每日诗句"
-    assert items[0].charCount == 12
-
-
-def test_catalog_items_from_sources_tolerates_malformed_numeric_fields():
-    items = catalog_items_from_sources(
-        [
-            {
-                "id": "oops",
-                "source_key": "bad_count",
-                "label": "Bad Count",
-                "char_count": "oops",
-            }
-        ]
-    )
-
-    assert items[0].source_key == "bad_count"
-    assert items[0].id == 1
-    assert items[0].charCount == 0
-
-
-def test_catalog_items_from_sources_drops_items_without_source_key():
-    items = catalog_items_from_sources(
-        [{"id": 1, "label": "no key"}, {"source_key": "ok", "label": "有效"}]
-    )
-
-    assert len(items) == 1
-    assert items[0].source_key == "ok"

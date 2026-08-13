@@ -10,7 +10,6 @@ try:
 except ImportError:
     fcntl = None  # Windows 无 fcntl，lockf 在 _save_to_file 中静默降级
 
-from ..models.dto.text_catalog_item import TextCatalogItem
 from .app_paths import (
     builtin_ott_repo_url,
     default_ott_hub_url,
@@ -287,9 +286,6 @@ class RuntimeConfig:
     )
     ai: AiConfig = field(default_factory=AiConfig)
     text_session: TextSessionConfig = field(default_factory=TextSessionConfig)
-    catalog_items: list[TextCatalogItem] = field(
-        default_factory=list
-    )  # ponytail: dynamic server data, never persisted
     ui: dict[str, Any] = field(
         default_factory=dict
     )  # UI 配置（主题/外观等），RinUI 通过桥写入
@@ -844,16 +840,6 @@ class RuntimeConfig:
     def get_text_source(self, key: str | None = None) -> TextSourceEntry | None:
         k = key or self.default_text_source_key
         return self.text_source_config.get_source(k)
-
-    def get_text_source_options(self) -> list[dict[str, str | bool]]:
-        options = self.text_source_config.get_source_options()
-        options.extend(
-            {"key": item.source_key, "label": item.label} for item in self.catalog_items
-        )
-        return options
-
-    def update_catalog(self, items: list[TextCatalogItem]) -> None:
-        self.catalog_items = items
 
     def update_text_source(self, key: str, label: str, local_path: str) -> None:
         """添加或更新一个本地文本源并持久化到 config.json（v2：{label, local_path}）。"""

@@ -6,7 +6,6 @@ from pathlib import Path
 
 from RinUI.core.config import AppUIConfigManager, DEFAULT_CONFIG
 
-from src.backend.models.dto.text_catalog_item import TextCatalogItem
 from src.backend.config.runtime_config import RuntimeConfig
 
 
@@ -36,36 +35,6 @@ def test_runtime_config_from_dict_builds_sources_and_default_key():
     assert local_source.is_local is True
 
 
-def test_runtime_config_source_options_include_catalog_items():
-    runtime_config = RuntimeConfig._from_dict(
-        {
-            "default_text_source_key": "builtin_demo",
-            "text_sources": {
-                "builtin_demo": {
-                    "label": "内置示例",
-                    "local_path": "resources/texts/builtin_demo.txt",
-                }
-            },
-        }
-    )
-
-    runtime_config.update_catalog(
-        [
-            TextCatalogItem(
-                id=1,
-                source_key="cloud_001",
-                label="云端文章",
-                description="每日推荐",
-            )
-        ]
-    )
-
-    assert runtime_config.get_text_source_options() == [
-        {"key": "builtin_demo", "label": "内置示例", "isLocal": True},
-        {"key": "cloud_001", "label": "云端文章"},
-    ]
-
-
 def test_backend_config_modules_import_with_src_only_pythonpath(tmp_path):
     repo_root = Path(__file__).resolve().parents[1]
     isolated_home = tmp_path / "home"
@@ -77,8 +46,7 @@ def test_backend_config_modules_import_with_src_only_pythonpath(tmp_path):
             "-c",
             (
                 "from backend.config.runtime_config import RuntimeConfig; "
-                "from backend.config.text_source_config import TextSourceEntry; "
-                "from backend.models.dto.text_catalog_item import TextCatalogItem"
+                "from backend.config.text_source_config import TextSourceEntry"
             ),
         ],
         capture_output=True,

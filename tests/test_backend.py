@@ -290,7 +290,6 @@ class TestBridgeSpecialPlatform:
         # Gateways
         score_gateway = MagicMock(spec=ScoreGateway)
         runtime_config = MagicMock(spec=RuntimeConfig)
-        runtime_config.get_text_source_options.return_value = []
         runtime_config.default_text_source_key = "builtin_demo"
 
         text_gateway = MagicMock()
