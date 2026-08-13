@@ -110,6 +110,18 @@ class EntrySnapshotStore:
             except OSError:
                 pass
 
+    def prune_stale(
+        self, authority: str, live_ids: set[str], max_per_source: int | None = None
+    ) -> None:
+        """只清理不再活跃的旧快照（保留最近 N 条；live_ids 中的条目永不删除）。"""
+        limit = max(1, max_per_source or self._max_per_source)
+        stale = [e for e in self.list(authority) if e.get("entry_id") not in live_ids]
+        for item in stale[limit:]:
+            try:
+                self._path(authority, item.get("entry_id", "")).unlink(missing_ok=True)
+            except OSError:
+                pass
+
     def due_for_refresh(self, now: float) -> list[tuple[str, str]]:
         """返回 (authority, entry_id) 中 interval 模式已到期的快照（on_demand 不返回）。"""
         due: list[tuple[str, str]] = []

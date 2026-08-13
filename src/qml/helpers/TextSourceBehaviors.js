@@ -308,20 +308,3 @@ function isLoading(sourceKey, bridge, hub) {
 function itemsListPropertyName(sourceKey) {
     return sourceKey + "Items"
 }
-
-
-/* =========================================================================
- * 相对时间格式化
- * ========================================================================= */
-
-// 相对时间（秒）→ 展示文案（与后端 _relative_time 对应）
-function relativeAge(sec) {
-    if (typeof sec !== "number" || isNaN(sec)) return ""
-    var s = Math.max(0, Math.floor(sec))
-    if (s < 60) return qsTr("刚刚")
-    var m = Math.floor(s / 60)
-    if (m < 60) return qsTr("%1 分钟前").arg(m)
-    var h = Math.floor(m / 60)
-    if (h < 24) return qsTr("%1 小时前").arg(h)
-    return qsTr("%1 天前").arg(Math.floor(h / 24))
-}

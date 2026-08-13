@@ -57,20 +57,27 @@ class SnapshotCatalogService:
     # ------------------------------------------------------------------
 
     def refresh_and_list_all(self) -> list[dict]:
-        """物化 → 逐条写快照 → prune → 返回快照（含 freshness 元数据）列表。
+        """物化 → 逐条写快照 → prune 过期 → 返回快照（含 freshness 元数据）列表。
 
         返回**落盘后的快照**（而非原始 federation 条目）——freshness 字段
         （captured_at/refresh_policy/next_refresh_at）只存在于快照内。
+        prune 只清理不再活跃（不在当前 live 集）的旧快照，活跃条目永不删除，
+        因此本源全部条目都出现在返回目录中（回归修复：旧 prune 会截断最旧 N 条）。
         """
         entries = self._federation.list_all_entries() or []
         now = time.time()
+        live_ids: dict[str, set[str]] = {}
         for e in entries:
             if not isinstance(e, dict):
                 continue
             e.setdefault("_authority", e.get("authority", ""))
+            authority = e.get("_authority", "")
+            if authority:
+                live_ids.setdefault(authority, set()).add(e.get("entry_id"))
             policy = self._policy_for(e)
             self._store.save(e, captured_at=now, policy=policy)
-            self._store.prune(e.get("_authority", ""), self._max_per_source)
+        for authority, ids in live_ids.items():
+            self._store.prune_stale(authority, ids, self._max_per_source)
         result: list[dict] = []
         for e in entries:
             if not isinstance(e, dict):
@@ -90,24 +97,30 @@ class SnapshotCatalogService:
     def refresh_source(self, authority: str, now: float | None = None) -> None:
         """单源强制刷新（random 换新）：重新物化该 authority 全部条目并落盘。"""
         now = now if now is not None else time.time()
+        live_ids: set[str] = set()
         for e in self._federation.list_all_entries() or []:
             if not isinstance(e, dict):
                 continue
             if e.get("_authority") != authority:
                 continue
+            live_ids.add(e.get("entry_id"))
             policy = self._policy_for(e)
             self._store.save(e, captured_at=now, policy=policy)
-            self._store.prune(authority, self._max_per_source)
+        self._store.prune_stale(authority, live_ids, self._max_per_source)
 
     # ------------------------------------------------------------------
     # 调度
     # ------------------------------------------------------------------
 
     def scheduled_tick(self, now: float | None = None) -> None:
-        """扫描 interval 到期源，后台刷新（async_executor 不可用时同步）。"""
+        """扫描 interval 到期源，后台刷新（async_executor 不可用时同步）。
+
+        按 authority 去重：同源多条到期快照只刷新一次（refresh_source 是
+        全源物化，重复调用会对同一源做 N 次全量刷新）。
+        """
         now = now if now is not None else time.time()
         due = self._store.due_for_refresh(now)
-        for authority, _entry_id in due:
+        for authority in {a for a, _entry_id in due}:
             if self._async_executor is not None:
                 self._async_executor.submit(
                     lambda a=authority: self.refresh_source(a, now=now)

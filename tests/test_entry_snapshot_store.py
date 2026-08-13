@@ -50,6 +50,23 @@ def test_prune_keeps_latest_n(tmp_path) -> None:
     assert ids == ["e3", "e2"]
 
 
+def test_prune_stale_never_deletes_live_ids(tmp_path) -> None:
+    s = EntrySnapshotStore(tmp_path, max_per_source=2)
+    for i in range(6):
+        s.save(
+            _entry("auth", f"e{i}"),
+            captured_at=float(i),
+            policy=RefreshPolicy(MODE_STATIC),
+        )
+    # live 集含全部 6 条：即使超 max_per_source 也一律不删
+    s.prune_stale("auth", {f"e{i}" for i in range(6)})
+    assert len(s.list("auth")) == 6
+    # live 集之外且超限的旧快照被清理（保留最近 2 条 stale：e5/e4）
+    s.prune_stale("auth", {"e6"})
+    ids = [e["entry_id"] for e in s.list("auth")]
+    assert ids == ["e5", "e4"]
+
+
 def test_due_for_refresh_only_interval(tmp_path) -> None:
     s = EntrySnapshotStore(tmp_path)
     s.save(

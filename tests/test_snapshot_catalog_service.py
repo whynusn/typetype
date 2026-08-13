@@ -80,10 +80,39 @@ def test_refresh_source_materializes_new_snapshot(tmp_path) -> None:
 
 def test_prune_applies_on_refresh(tmp_path) -> None:
     svc, federation = _svc(tmp_path, [], max_per_source=2)
-    for i in range(3):
+    for i in range(5):
         federation._entries = [_entry(entry_id=f"e{i}", content=f"c{i}")]
         svc.refresh_source("auth")
+    assert svc.load_entry("auth", "e4") is not None
+    assert svc.load_entry("auth", "e0") is None
+    assert svc.load_entry("auth", "e1") is None
+
+
+def test_refresh_and_list_keeps_all_live_entries(tmp_path) -> None:
+    """本源 >5 条活跃条目必须全部列出（回归：旧 prune 截断最旧 N 条）。"""
+    svc, federation = _svc(tmp_path, [], max_per_source=5)
+    federation._entries = [_entry(entry_id=f"e{i}", content=f"c{i}") for i in range(6)]
+    result = svc.refresh_and_list_all()
+    assert len(result) == 6
+    assert sorted(e["entry_id"] for e in result) == [f"e{i}" for i in range(6)]
+    for i in range(6):
+        assert svc.load_entry("auth", f"e{i}") is not None
+
+
+def test_prune_stale_removes_no_longer_live_snapshots(tmp_path) -> None:
+    """不再活跃的旧快照仍会被 prune（live 集之外，超限部分删除）。"""
+    svc, federation = _svc(tmp_path, [], max_per_source=5)
+    for i in range(8):
+        federation._entries = [_entry(entry_id=f"e{i}", content=f"c{i}")]
+        svc.refresh_source("auth")
+    # 当前 live 只有 e7；旧快照 e0-e6 均为 stale，超限（保留最近 5 条）的被删除
+    assert svc.load_entry("auth", "e7") is not None
+    assert svc.load_entry("auth", "e6") is not None
+    assert svc.load_entry("auth", "e5") is not None
+    assert svc.load_entry("auth", "e4") is not None
+    assert svc.load_entry("auth", "e3") is not None
     assert svc.load_entry("auth", "e2") is not None
+    assert svc.load_entry("auth", "e1") is None
     assert svc.load_entry("auth", "e0") is None
 
 

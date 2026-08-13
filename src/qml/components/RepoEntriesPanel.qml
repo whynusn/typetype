@@ -304,6 +304,8 @@ Frame {
                                     color: model.entry.freshness === "on_demand" ? Theme.currentTheme.colors.systemCriticalColor
                                          : model.entry.freshness === "stale" ? Theme.currentTheme.colors.systemCautionColor
                                          : Theme.currentTheme.colors.primaryColor
+                                    // Rectangle 无 hovered 属性，需 HoverHandler 提供
+                                    HoverHandler { }
                                     ToolTip.visible: hovered
                                     ToolTip.text: model.entry.freshness === "on_demand" ? qsTr("每次随机，可抽新")
                                                 : model.entry.freshness === "stale" ? qsTr("已过期，可刷新")
