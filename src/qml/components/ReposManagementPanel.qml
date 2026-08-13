@@ -78,6 +78,7 @@ Frame {
             if (s === 604800) return 4
             if (s === 2592000) return 5
         }
+        if (e.mode === "static") return 6
         return 0
     }
 
@@ -260,7 +261,7 @@ Frame {
 
                                 QQC.ComboBox {
                                     Layout.preferredWidth: 130
-                                    model: [qsTr("默认"), qsTr("随机/手动"), qsTr("每小时"), qsTr("每天"), qsTr("每周"), qsTr("每月")]
+                                    model: [qsTr("默认"), qsTr("随机/手动"), qsTr("每小时"), qsTr("每天"), qsTr("每周"), qsTr("每月"), qsTr("不刷新")]
                                     currentIndex: root.overrideIndexFor(modelData)
                                     onActivated: function(index) {
                                         var authority = modelData
@@ -271,6 +272,7 @@ Frame {
                                         case 3: if (appBridge) appBridge.setSourceRefreshOverride(authority, "interval", 86400); break
                                         case 4: if (appBridge) appBridge.setSourceRefreshOverride(authority, "interval", 604800); break
                                         case 5: if (appBridge) appBridge.setSourceRefreshOverride(authority, "interval", 2592000); break
+                                        case 6: if (appBridge) appBridge.setSourceRefreshOverride(authority, "static", 0); break
                                         }
                                     }
                                 }
