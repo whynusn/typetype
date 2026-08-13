@@ -2433,7 +2433,9 @@ class Bridge(QObject):
             self._registry_adapter.refreshSource(authority)
 
     @Slot(str, str, int)
-    def setSourceRefreshOverride(self, authority: str, mode: str, interval_seconds: int) -> None:
+    def setSourceRefreshOverride(
+        self, authority: str, mode: str, interval_seconds: int
+    ) -> None:
         """用户 per-source 刷新间隔覆盖。"""
         if self._registry_adapter is None or self._registry_adapter.catalog is None:
             return

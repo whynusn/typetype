@@ -351,6 +351,13 @@ fetch_text_by_key(key)
   └─ cache miss + 离线 → 返回 stale（无视 TTL 兜底）
 ```
 
+### 动态源快照目录（Content Snapshot + Freshness）
+
+- `EntrySnapshotStore`（integration）：`registry_cache_dir()/snapshots/{authority_hash}/{entry_id}.json`，列表物化内容落盘，原子写，保留最近 N 条
+- `RefreshPolicy`：static / interval / on_demand 三模式；用户覆盖（`config.source_refresh_overrides`）> manifest 声明（未来）> 推断（instance→static、rule/script/bridge→on_demand）
+- `SnapshotCatalogService`（application）：物化→写快照→prune；`load_entry` 快照优先（不重抽）；`scheduled_tick` 仅刷新 interval 到期源
+- `RefreshScheduler`：QTimer 60s tick，Qt 环境可用，非 Qt 降级手动
+
 ## OTT Repo 控制面（Phase 1-3，多 authority 联邦聚合 + 规则/脚本源）
 
 > 决策依据：ADR-010（`docs/decisions/010-decentralized-source-ecosystem.md`），设计文档 `docs/designs/decentralized-source-ecosystem.md`。

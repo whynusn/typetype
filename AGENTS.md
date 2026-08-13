@@ -487,6 +487,14 @@ onActiveChanged: {
 
 **历史**：2026-08-13 ADR-014 落地。
 
+### ⚠️ 动态源条目必须物化落盘，选中载入不得重新执行规则/脚本
+
+**问题**：rule/script 源每次执行返回随机内容，`get_entry(authority, entry_id)` 重抽会与列表 entry_id 失配（实测 `get_entry('2b96d8...') → None`）。
+
+**正确做法**：联邦列表物化结果写 `EntrySnapshotStore`（磁盘快照），`load_entry` 快照命中直接返回；刷新只是换新（保留最近 N 条）。on_demand 源（每次随机）不得进入自动调度（防无限刷新循环），仅手动「抽新」。新增刷新策略 → 扩展 `RefreshPolicy` 模式；用户 per-source 覆盖走 `RuntimeConfig.set_source_refresh_override`。
+
+**历史**：2026-08-13 设计（docs/designs/dynamic-source-snapshot-freshness.md）与实现。
+
 ---
 
 ## 文档编写规范
