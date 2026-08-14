@@ -85,16 +85,22 @@ def test_text_load_hub_uses_expected_bridge_contract():
         "loadFederatedInlineEntry" in refs
         and "loadFederatedInlineEntry" in BRIDGE_SLOTS
     )
+    # 总刷新（全部源强制换新）与订阅源级刷新（该 repo 全部源换新）都接在 hub
+    assert "refreshFederatedAll" in refs and "refreshFederatedAll" in BRIDGE_SLOTS
+    assert "refreshFederatedRepo" in refs and "refreshFederatedRepo" in BRIDGE_SLOTS
     # 晴发文 / AI 即时拉取入口纳入载文中心
     assert "loadRandomWenlaiText" in refs and "loadRandomWenlaiText" in BRIDGE_SLOTS
     assert "requestAiText" in refs and "requestAiText" in BRIDGE_SLOTS
-    # 订阅管理 bridge Slot 由独立 ReposManagementPage 引用（hub 不再直连）
-    management_qml = QML_DIR / "pages/ReposManagementPage.qml"
-    mgmt_refs = _get_qml_refs(management_qml.read_text(encoding="utf-8"))
-    assert "addRepo" in mgmt_refs and "addRepo" in BRIDGE_SLOTS
-    assert "removeRepo" in mgmt_refs and "removeRepo" in BRIDGE_SLOTS
-    assert "setRepoEnabled" in mgmt_refs and "setRepoEnabled" in BRIDGE_SLOTS
-    assert "refreshRepos" in mgmt_refs and "refreshRepos" in BRIDGE_SLOTS
+    # 订阅管理收敛到源组头弹窗（RepoConfigDialog，独立管理页已取消）：
+    # 添加订阅入口在 hub，启用/信任/删除在弹窗
+    assert "addRepo" in refs and "addRepo" in BRIDGE_SLOTS
+    config_qml = QML_DIR / "components/RepoConfigDialog.qml"
+    config_refs = _get_qml_refs(config_qml.read_text(encoding="utf-8"))
+    assert "removeRepo" in config_refs and "removeRepo" in BRIDGE_SLOTS
+    assert "setRepoEnabled" in config_refs and "setRepoEnabled" in BRIDGE_SLOTS
+    assert "confirmRepoTrust" in config_refs and "confirmRepoTrust" in BRIDGE_SLOTS
+    assert "rejectRepoTrust" in config_refs and "rejectRepoTrust" in BRIDGE_SLOTS
+    assert "getRepos" in config_refs and "getRepos" in BRIDGE_SLOTS
     assert "SliceCriteriaPanel" in qml_source
     assert "TextInfoCard" in qml_source
     assert (
@@ -149,31 +155,30 @@ def test_typing_page_renders_ziti_hint_from_bridge():
     assert "zitiHintText" in source
 
 
-def test_text_load_hub_clears_pending_federated_flag_on_failure():
-    """联邦 inline 加载失败或中途返回时，_pendingFederatedContent 必须清零。
+def test_text_load_hub_clears_federated_busy_on_load_failure():
+    """联邦载文失败时 federatedContentLoading（载入跟打 Busy）必须清零。
 
-    残留 flag 会把后续任意 textContentLoaded（如正常载文）误判成联邦内容
-    启动打字。修复要求：独立联邦 Connections 里处理 textLoadFailed 清除
-    flag，且 onActiveChanged 激活时（中途返回场景）也清除。
+    2026-08-14 链路改造：联邦条目载文改为后端同步直发 textLoaded
+    （镜像本地文库链路），不再经 textContentLoaded/_pendingFederatedContent
+    间接回传；失败/成功统一在常驻联邦 Connections 里清 busy，避免
+    规则源「一直显示加载动画」。
     """
     page_qml = QML_DIR / "pages/TextLoadHubPage.qml"
     source = page_qml.read_text(encoding="utf-8")
     assert "textLoadFailed" in BRIDGE_SIGNALS
     assert "function onTextLoadFailed" in source
-    # onActiveChanged 在 root 作用域内直接写 flag（无前缀）；联邦 Connections
-    # 成功/失败 handler 在组件外部需 root. 前缀，失败分支同样清除 flag
-    assert "_pendingFederatedContent = false" in source
-    assert "root._pendingFederatedContent = null" in source
-    # 失败 handler 必须在 flag 置位之后且与成功 handler 同处联邦 Connections，
-    # 且失败分支内要有 flag 清除（onTextLoadFailed 函数体含 = null）
+    assert "textLoaded" in BRIDGE_SIGNALS
+    assert "function onTextLoaded" in source
+    # 失败 handler 清除 busy（组件外需 root. 前缀）
     failed_at = source.index("function onTextLoadFailed")
     failed_body = source[failed_at : source.index("\n        }", failed_at)]
-    assert "root._pendingFederatedContent = null" in failed_body
-    # 失败分支必须在联邦 Connections（不依赖 root.active）内，与成功分支同处
-    failed_at = source.index("function onTextLoadFailed")
-    success_at = source.index("function onTextContentLoaded")
-    flag_set_at = source.index("root._pendingFederatedContent = true")
-    assert failed_at > flag_set_at and success_at > flag_set_at
+    assert "root.federatedContentLoading = false" in failed_body
+    # 成功 handler（textLoaded 落地）同样清除 busy
+    loaded_at = source.index("function onTextLoaded")
+    loaded_body = source[loaded_at : source.index("\n        }", loaded_at)]
+    assert "root.federatedContentLoading = false" in loaded_body
+    # 常驻联邦 Connections 不依赖 root.active（页面已被 push 到 TypingPage）
+    assert "// ---- 联邦跨页面信号（不依赖 root.active）----" in source
 
 
 def test_settings_page_exposes_ziti_controls():

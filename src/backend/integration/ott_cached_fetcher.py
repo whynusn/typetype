@@ -11,7 +11,7 @@ import httpx
 
 from ..config.runtime_config import OttConfig
 from ..utils.logger import log_info, log_warning
-from .ott_normalization import local_path_from_file_uri, redact_url
+from .ott_normalization import local_path_from_file_uri, redact_url, to_jsdelivr_url
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
@@ -38,7 +38,16 @@ class OttCachedFetcher:
         url: str,
         mirror_url: str | None = None,
         max_bytes: int = 0,
+        force: bool = False,
     ) -> dict | None:
+        if force:
+            # 手动刷新：绕过缓存读，直接拉取并写回（失败不读旧缓存）
+            data = self._fetch_json(url, max_bytes=max_bytes)
+            if data is None and mirror_url:
+                data = self._fetch_json(mirror_url, max_bytes=max_bytes)
+            if data is not None:
+                self.write_cache(cache_key, data)
+            return data
         cached = self.read_cache(cache_key)
         if cached is not None:
             if not self.is_cache_expired(cache_key):
@@ -60,7 +69,16 @@ class OttCachedFetcher:
         url: str,
         mirror_url: str | None = None,
         max_bytes: int = 0,
+        force: bool = False,
     ) -> str | None:
+        if force:
+            # 手动刷新：绕过缓存读，直接拉取并写回（失败不读旧缓存）
+            content = self._fetch_text(url, max_bytes=max_bytes)
+            if content is None and mirror_url:
+                content = self._fetch_text(mirror_url, max_bytes=max_bytes)
+            if content is not None:
+                self.write_cache(cache_key, {"content": content})
+            return content
         cached = self.read_cache(cache_key)
         if cached is not None and isinstance(cached.get("content"), str):
             if not self.is_cache_expired(cache_key):
@@ -151,9 +169,21 @@ class OttCachedFetcher:
             self._refresh_locks.pop(cache_key, None)
 
     def _fetch_json(self, url: str, max_bytes: int = 0) -> dict | None:
-        # 支持 file:// 协议读取本地文件
+        """拉取 JSON，主地址失败时 jsDelivr CDN 降级（GitHub raw 超时兜底）。"""
         if url.startswith("file://"):
             return self._read_local_json(url, max_bytes=max_bytes)
+        data = self._fetch_json_once(url, max_bytes=max_bytes)
+        if data is None:
+            fallback = to_jsdelivr_url(url)
+            if fallback:
+                log_warning(
+                    f"[OttCachedFetcher] 主地址失败，jsDelivr CDN 降级: "
+                    f"{redact_url(url)} → {redact_url(fallback)}"
+                )
+                data = self._fetch_json_once(fallback, max_bytes=max_bytes)
+        return data
+
+    def _fetch_json_once(self, url: str, max_bytes: int = 0) -> dict | None:
         try:
             response = self._client.get(url)
             response.raise_for_status()
@@ -183,8 +213,21 @@ class OttCachedFetcher:
         return data if isinstance(data, dict) else None
 
     def _fetch_text(self, url: str, max_bytes: int = 0) -> str | None:
+        """拉取文本，主地址失败时 jsDelivr CDN 降级（GitHub raw 超时兜底）。"""
         if url.startswith("file://"):
             return self._read_local_text(url, max_bytes=max_bytes)
+        content = self._fetch_text_once(url, max_bytes=max_bytes)
+        if content is None:
+            fallback = to_jsdelivr_url(url)
+            if fallback:
+                log_warning(
+                    f"[OttCachedFetcher] 主地址失败，jsDelivr CDN 降级: "
+                    f"{redact_url(url)} → {redact_url(fallback)}"
+                )
+                content = self._fetch_text_once(fallback, max_bytes=max_bytes)
+        return content
+
+    def _fetch_text_once(self, url: str, max_bytes: int = 0) -> str | None:
         try:
             response = self._client.get(url)
             response.raise_for_status()

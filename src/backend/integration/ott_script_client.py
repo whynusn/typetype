@@ -26,7 +26,12 @@ from urllib.parse import urlparse
 import httpx
 
 from ..utils.logger import log_warning
-from .ott_normalization import _script_authority, normalize_summary, redact_url
+from .ott_normalization import (
+    _script_authority,
+    normalize_summary,
+    redact_url,
+    to_jsdelivr_url,
+)
 from .ott_rule_interpreter import CLIENT_API_LEVEL
 from .ott_script_safety import validate_script_source
 
@@ -223,9 +228,26 @@ class ScriptCache:
     def _download_limited(self, url: str, max_bytes: int) -> str:
         """流式下载脚本，累计超过 max_bytes 立即中止（防主进程 OOM）。
 
-        iter_text() 返回 str，len() 是字符数而非 UTF-8 字节数；非 ASCII 内容
-        可能绕过上限，必须按编码后的字节数累计。
+        主地址失败（超时等）时 jsDelivr CDN 降级（GitHub raw 直连在国内网络
+        常超时，2026-08-13 实测）；脚本超限/非 raw URL 不触发兜底。
         """
+        try:
+            return self._download_once(url, max_bytes)
+        except _ScriptTooLargeError:
+            raise
+        except (httpx.HTTPError, httpx.InvalidURL, OSError):
+            fallback = to_jsdelivr_url(url)
+            if fallback:
+                log_warning(
+                    f"[ScriptCache] 主地址失败，jsDelivr CDN 降级: "
+                    f"{redact_url(url)} → {redact_url(fallback)}"
+                )
+                return self._download_once(fallback, max_bytes)
+            raise
+
+    def _download_once(self, url: str, max_bytes: int) -> str:
+        """单地址流式下载；iter_text() 返回 str，len() 是字符数而非 UTF-8 字节数，
+        非 ASCII 内容可能绕过上限，必须按编码后的字节数累计。"""
         chunks: list[str] = []
         total = 0
         with self._client.stream("GET", url, timeout=10.0) as response:

@@ -251,6 +251,29 @@ class TestFederationWithRules:
         assert len(rule_entries) >= 1
         assert rule_entries[0]["title"] == "RuleTitle"
 
+    def test_list_all_entries_sets_rule_source_type(self, tmp_path) -> None:
+        """联邦聚合必须为 rule 源条目注入 _source_type=ott-rule（refresh 策略读它）。"""
+        provider = _federation_with_rule(tmp_path)
+        with patch.object(OttRuleInterpreter, "__init__", lambda self, **kw: None):
+            with patch.object(
+                OttRuleInterpreter,
+                "list_entries",
+                return_value=[
+                    {
+                        "entry_id": "rule-entry-1",
+                        "title": "RuleTitle",
+                        "content": "RuleContent",
+                    }
+                ],
+            ):
+                entries = provider.list_all_entries()
+
+        rule_entries = [
+            e for e in entries if e.get("authority", "").startswith("rule:")
+        ]
+        assert len(rule_entries) >= 1
+        assert rule_entries[0]["_source_type"] == "ott-rule"
+
     def test_build_clients_creates_rule_client(self, tmp_path) -> None:
         provider = _federation_with_rule(tmp_path)
         clients = provider._build_clients()
@@ -322,6 +345,99 @@ def test_entry_cache_expires_after_ttl():
     assert cache.get("k") is not None
     cache._items["k"] = (time.time() - 2, [{"entry_id": "e1"}])
     assert cache.get("k") is None
+
+
+def test_entry_cache_force_skips_ttl():
+    """force=True 无视 TTL 直接视为 miss（手动刷新语义）。"""
+    cache = _EntryCache(ttl_seconds=3600)
+    cache.set("k", [{"entry_id": "e1"}])
+    assert cache.get("k") is not None
+    assert cache.get("k", force=True) is None
+    # force 后条目被移除，后续普通 get 也是 miss
+    assert cache.get("k") is None
+
+
+def test_list_all_entries_force_skips_entry_cache(tmp_path):
+    """总刷新 force=True 必须绕过 rule 条目内存缓存，重新执行规则。"""
+    provider = _federation_with_rule(tmp_path)
+    entry = {"entry_id": "e1", "title": "T", "content": "C"}
+    with patch.object(
+        OttRuleInterpreter,
+        "list_entries",
+        return_value=[entry],
+    ) as mock_list:
+        provider.list_all_entries()  # 首次：物化 + 写缓存
+        provider.list_all_entries()  # TTL 内命中缓存
+        assert mock_list.call_count == 1
+        provider.list_all_entries(force=True)  # force：绕过缓存重执行
+        assert mock_list.call_count == 2
+
+
+def test_rule_client_list_entries_force_bypasses_cache():
+    """_RuleClient.list_entries(force=True) 缓存命中仍重执行（单源刷新路径）。"""
+    interp = MagicMock(spec=OttRuleInterpreter)
+    interp.list_entries.return_value = [{"entry_id": "e1"}]
+    cache = _EntryCache(ttl_seconds=3600)
+    client = _RuleClient(rule_id="r1", rule={}, interpreter=interp, entry_cache=cache)
+    client.list_entries()
+    client.list_entries()  # TTL 内命中缓存
+    assert interp.list_entries.call_count == 1
+    client.list_entries(force=True)
+    assert interp.list_entries.call_count == 2
+
+
+def test_entries_carry_repo_meta_for_dynamic_grouping(tmp_path):
+    """条目携带所属订阅源元信息（_repo_*）：开源文库按订阅源动态分组（不硬编码）。
+
+    条目物化时注入 _repo_id/_repo_name/_repo_url/_repo_max_entries——
+    QML 按条目「属于哪个订阅源」归组；authorities_of_repo / repo_id_of_url
+    供 repo 级刷新与删除订阅清快照使用。
+    """
+    provider = _federation_with_rule(tmp_path)
+    entry = {"entry_id": "e1", "title": "T", "content": "C"}
+    with patch.object(
+        OttRuleInterpreter, "list_entries", return_value=[entry]
+    ):
+        entries = provider.list_all_entries()
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["_repo_id"] == "rule-test.example.org"
+    assert e["_repo_name"] == "Rule Test Repo"
+    assert e["_repo_url"] == "https://rule-test.example.org/ott-repo.json"
+    assert e["_repo_max_entries"] == 0  # manifest 未声明 → 0（无上限）
+
+    # authority ↔ repo 反查（repo 级刷新 / 删除订阅清理快照）
+    auth = "rule:rule-test.example.org:sample-rule"
+    assert provider.authorities_of_repo("rule-test.example.org") == [auth]
+    assert provider.repo_id_of_url(
+        "https://rule-test.example.org/ott-repo.json"
+    ) == "rule-test.example.org"
+
+
+def test_refresh_source_only_materializes_target_authority(tmp_path):
+    """refresh_source(authority) 只重新物化该源，其他 authority 零调用。"""
+    provider = _federation_with_rule(tmp_path)
+    authority = "rule:rule-test.example.org:sample-rule"
+    entry = {"entry_id": "e1", "title": "T", "content": "C"}
+    with patch.object(
+        OttRuleInterpreter,
+        "list_entries",
+        return_value=[entry],
+    ) as mock_list:
+        provider.list_all_entries()
+        mock_list.call_count = 0  # 缓存已命中（provider 级 _EntryCache）
+        refreshed = provider.refresh_source(authority)
+    assert mock_list.call_count == 1
+    assert len(refreshed) == 1
+    assert refreshed[0]["_authority"] == authority
+    assert refreshed[0]["_source_type"] == "ott-rule"
+
+    # 不存在的 authority：零网络、空结果
+    with patch.object(
+        OttRuleInterpreter, "list_entries", return_value=[entry]
+    ) as mock_list:
+        assert provider.refresh_source("rule:unknown:source") == []
+        mock_list.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

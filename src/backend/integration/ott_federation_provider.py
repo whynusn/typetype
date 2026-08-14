@@ -100,8 +100,12 @@ class _EntryCache:
         self._items: dict[str, tuple[float, list[dict]]] = {}
         self._lock = threading.Lock()
 
-    def get(self, key: str) -> list[dict] | None:
+    def get(self, key: str, force: bool = False) -> list[dict] | None:
         with self._lock:
+            if force:
+                # 手动刷新：无视 TTL 直接视为 miss（强制重物化）
+                self._items.pop(key, None)
+                return None
             item = self._items.get(key)
             if item is None:
                 return None
@@ -167,40 +171,40 @@ class _InstanceClient:
         with self._lock:
             self._failure_counts[url] = self._failure_counts.get(url, 0) + 1
 
-    def _make_fetch_json(self) -> FetchJson:
+    def _make_fetch_json(self, force: bool = False) -> FetchJson:
         def fetch(
             cache_key: str, fetch_url: str, mirror_url: str | None, max_bytes: int
         ) -> dict | None:
             return self._cache.fetch_json_with_cache(
-                cache_key, fetch_url, mirror_url, max_bytes
+                cache_key, fetch_url, mirror_url, max_bytes, force=force
             )
 
         return fetch
 
-    def _make_fetch_text(self) -> FetchText:
+    def _make_fetch_text(self, force: bool = False) -> FetchText:
         def fetch(
             cache_key: str, fetch_url: str, mirror_url: str | None, max_bytes: int
         ) -> str | None:
             return self._cache.fetch_text_with_cache(
-                cache_key, fetch_url, mirror_url, max_bytes
+                cache_key, fetch_url, mirror_url, max_bytes, force=force
             )
 
         return fetch
 
-    def _client_for(self, url: str) -> OttClient:
+    def _client_for(self, url: str, force: bool = False) -> OttClient:
         return OttClient(
             primary_url=url,
             mirror_url="",
             authority=self.authority,
-            fetch_json=self._make_fetch_json(),
-            fetch_text=self._make_fetch_text(),
+            fetch_json=self._make_fetch_json(force=force),
+            fetch_text=self._make_fetch_text(force=force),
             max_content_bytes=self._max_content_bytes,
             endpoint_profile=self._profiles.get(url),
         )
 
-    def list_entries(self) -> list[dict] | None:
+    def list_entries(self, force: bool = False) -> list[dict] | None:
         for url in self._ordered_urls():
-            client = self._client_for(url)
+            client = self._client_for(url, force=force)
             try:
                 entries = client.list_entries()
             except Exception as e:
@@ -351,9 +355,11 @@ class _RuleClient(_SourceClientBase):
         # authority 格式：rule:{repo_id}:{rule_id}（上游规范）
         self.authority = authority or f"rule:{rule_id}"
 
-    def list_entries(self) -> list[dict] | None:
+    def list_entries(self, force: bool = False) -> list[dict] | None:
         cache_key = f"rule:{self.authority}"
-        cached = self._entry_cache.get(cache_key) if self._entry_cache else None
+        cached = (
+            self._entry_cache.get(cache_key, force=force) if self._entry_cache else None
+        )
         if cached is not None:
             return cached
         try:
@@ -406,9 +412,11 @@ class _ScriptClient(_SourceClientBase):
         self._min_api_level = min_api_level
         self._checksum = checksum
 
-    def list_entries(self) -> list[dict] | None:
+    def list_entries(self, force: bool = False) -> list[dict] | None:
         cache_key = f"script:{self.url}"
-        cached = self._entry_cache.get(cache_key) if self._entry_cache else None
+        cached = (
+            self._entry_cache.get(cache_key, force=force) if self._entry_cache else None
+        )
         if cached is not None:
             return cached
         # 契约 C1：checksum 非空时交给 ScriptCache 校验脚本字节 sha256
@@ -467,7 +475,7 @@ class _BridgeClient(_SourceClientBase):
         self._entry_cache = entry_cache
         self._max_content_bytes = max_content_bytes
 
-    def list_entries(self) -> list[dict] | None:
+    def list_entries(self, force: bool = False) -> list[dict] | None:
         if self.bridge_kind != "generic-http":
             log_warning(
                 f"[Federation] bridge_kind {self.bridge_kind!r} 未实现，跳过: "
@@ -475,7 +483,9 @@ class _BridgeClient(_SourceClientBase):
             )
             return None
         cache_key = f"bridge:{self.authority}"
-        cached = self._entry_cache.get(cache_key) if self._entry_cache else None
+        cached = (
+            self._entry_cache.get(cache_key, force=force) if self._entry_cache else None
+        )
         if cached is not None:
             return cached
         try:
@@ -598,6 +608,17 @@ def _declared_script_api_level(source: dict) -> int | None:
     return None
 
 
+# 联邦客户端类型 → 条目私有 _source_type（refresh_policy.source_type_of 消费，
+# ott-instance → static，rule/script/bridge → on_demand）。客户端/上游可在条目中
+# 自行注入 _source_type（尊重其值），此表仅作聚合时的兜底补全。
+_SOURCE_TYPE_OF_CLIENT: dict[type, str] = {
+    _InstanceClient: "ott-instance",
+    _RuleClient: "ott-rule",
+    _ScriptClient: "ott-script",
+    _BridgeClient: "ott-bridge",
+}
+
+
 class OttFederationProvider:
     """OTT 联邦目录聚合层。
 
@@ -627,6 +648,9 @@ class OttFederationProvider:
             dict[str, _InstanceClient | _RuleClient | _ScriptClient] | None
         ) = None
         self._clients_cache_signature: tuple[object, ...] | None = None
+        # authority → 所属订阅源元信息（随 clients 缓存一起重建/失效）：
+        # 动态分组键 —— 条目属于哪个订阅源就归入哪个源组（不硬编码）
+        self._authority_meta: dict[str, dict] = {}
         self._shared_client: httpx.Client | None = None
 
     # ------------------------------------------------------------------
@@ -646,6 +670,7 @@ class OttFederationProvider:
         clients: dict[
             str, _InstanceClient | _RuleClient | _ScriptClient | _BridgeClient
         ] = {}
+        self._authority_meta = {}
         # 复用同一个解释器/沙箱实例（内部无状态）
         interpreter = OttRuleInterpreter(
             http_client=self._shared_http_client(),
@@ -674,14 +699,21 @@ class OttFederationProvider:
                 )
                 continue
             repo_id = manifest.get("repo_id", "")
+            repo_meta = {
+                "repo_id": repo_id,
+                "repo_name": manifest.get("name", ""),
+                "repo_url": repo.url,
+                "repo_max_entries": manifest.get("max_entries", 0),
+            }
             for source in manifest.get("sources", []):
                 if not source.get("default_enabled", True):
                     continue
                 source_type = source.get("type")
+                authority: str | None = None
                 if source_type == "ott-instance":
-                    self._build_instance_client(clients, source)
+                    authority = self._build_instance_client(clients, source)
                 elif source_type == "ott-rule":
-                    self._build_rule_client(
+                    authority = self._build_rule_client(
                         clients, source, interpreter, repo_id, self._entry_cache
                     )
                 elif source_type == "ott-script":
@@ -691,7 +723,7 @@ class OttFederationProvider:
                             f"{redact_url(repo.url)}"
                         )
                         continue
-                    self._build_script_client(
+                    authority = self._build_script_client(
                         clients,
                         source,
                         script_cache,
@@ -699,12 +731,14 @@ class OttFederationProvider:
                         self._entry_cache,
                     )
                 elif source_type == "ott-bridge":
-                    self._build_bridge_client(
+                    authority = self._build_bridge_client(
                         clients,
                         source,
                         self._shared_http_client(),
                         self._entry_cache,
                     )
+                if authority:
+                    self._authority_meta[authority] = repo_meta
         self._clients_cache = clients
         self._clients_cache_signature = self._clients_signature()
         return clients
@@ -762,15 +796,15 @@ class OttFederationProvider:
         self,
         clients: dict[str, _InstanceClient | _RuleClient | _ScriptClient],
         source: dict,
-    ) -> None:
+    ) -> str | None:
         authority = source.get("authority", "")
         endpoints = source.get("endpoints", [])
         if not authority or not endpoints:
-            return
+            return None
         existing = clients.get(authority)
         if existing:
             if not isinstance(existing, _InstanceClient):
-                return  # authority 类型冲突，跳过
+                return None  # authority 类型冲突，跳过
             seen = {e.get("url") for e in existing._endpoints}
             for ep in endpoints:
                 url = ep.get("url")
@@ -781,7 +815,7 @@ class OttFederationProvider:
                         profile if profile in ("service", "static") else None
                     )
             existing._endpoints.sort(key=lambda e: e.get("priority", 1))
-            return
+            return authority
         cache_dir = self._instance_cache_dir(authority)
         cache_dir.mkdir(parents=True, exist_ok=True)
         cache = OttCachedFetcher(
@@ -796,6 +830,7 @@ class OttFederationProvider:
             cache=cache,
             max_content_bytes=self._max_content_bytes,
         )
+        return authority
 
     @staticmethod
     def _build_rule_client(
@@ -804,15 +839,15 @@ class OttFederationProvider:
         interpreter: OttRuleInterpreter,
         repo_id: str = "",
         entry_cache: _EntryCache | None = None,
-    ) -> None:
+    ) -> str | None:
         rule_id = source.get("rule_id", "")
         rule = source.get("rule")
         if not rule_id or not isinstance(rule, dict):
-            return
+            return None
         # 上游规范：rule:{repo_id}:{rule_id}（含 repo_id 命名空间，防跨 repo 冲突）
         authority = f"rule:{repo_id}:{rule_id}" if repo_id else f"rule:{rule_id}"
         if authority in clients:
-            return  # 同名 rule 已存在
+            return None  # 同名 rule 已存在
         clients[authority] = _RuleClient(
             rule_id=rule_id,
             rule=rule,
@@ -820,6 +855,7 @@ class OttFederationProvider:
             authority=authority,
             entry_cache=entry_cache,
         )
+        return authority
 
     @staticmethod
     def _build_script_client(
@@ -828,15 +864,15 @@ class OttFederationProvider:
         script_cache: ScriptCache,
         sandbox: ScriptSandbox,
         entry_cache: _EntryCache | None = None,
-    ) -> None:
+    ) -> str | None:
         url = source.get("url", "")
         if not url:
-            return
+            return None
         label = source.get("label", "")
         # 用 URL 指纹作 authority key（避免重复下载同脚本，防跨脚本 entry_id 冲突）
         key = _script_authority(url)
         if key in clients:
-            return
+            return None
         clients[key] = _ScriptClient(
             url=url,
             label=label,
@@ -848,6 +884,7 @@ class OttFederationProvider:
             min_api_level=_declared_script_api_level(source),
             checksum=source.get("checksum", ""),
         )
+        return key
 
     @staticmethod
     def _build_bridge_client(
@@ -857,16 +894,16 @@ class OttFederationProvider:
         source: dict,
         http_client: httpx.Client,
         entry_cache: _EntryCache | None = None,
-    ) -> None:
+    ) -> str | None:
         bridge_kind = source.get("bridge_kind", "")
         endpoint = source.get("endpoint", "")
         if not bridge_kind or not endpoint:
-            return
+            return None
         label = source.get("label", "")
         # 用 endpoint 指纹作 authority key（防跨 bridge 源 entry_id 冲突）
         key = _bridge_authority(endpoint)
         if key in clients:
-            return
+            return None
         clients[key] = _BridgeClient(
             bridge_kind=bridge_kind,
             endpoint=endpoint,
@@ -874,6 +911,7 @@ class OttFederationProvider:
             http_client=http_client,
             entry_cache=entry_cache,
         )
+        return key
 
     def _instance_cache_dir(self, authority: str) -> Path:
         from ..config.app_paths import registry_cache_dir
@@ -885,8 +923,12 @@ class OttFederationProvider:
     # 公共查询接口
     # ------------------------------------------------------------------
 
-    def list_all_entries(self) -> list[dict]:
-        """聚合所有 instance 的条目列表，按 authority 命名空间隔离。"""
+    def list_all_entries(self, force: bool = False) -> list[dict]:
+        """聚合所有 instance 的条目列表，按 authority 命名空间隔离。
+
+        force=True（手动总刷新）时绕过 rule/script/bridge 的条目内存缓存与
+        instance 的文件缓存，全部重新物化。
+        """
         clients = self._build_clients()
         if not clients:
             return []
@@ -896,7 +938,7 @@ class OttFederationProvider:
                 f"[Federation] listing entries for {authority} ({type(client).__name__})"
             )
             try:
-                entries = client.list_entries()
+                entries = client.list_entries(force=force)
             except Exception as e:
                 log_warning(f"[Federation] list_entries 异常 {authority}: {e}")
                 continue
@@ -904,15 +946,83 @@ class OttFederationProvider:
                 f"[Federation] {authority}: {len(entries) if entries else 0} entries"
             )
             if entries:
-                for e in entries:
-                    if isinstance(e, dict):
-                        e["_authority"] = authority
-                        if not e.get("authority"):
-                            e["authority"] = authority
+                self._decorate_with_repo_meta(client, authority, entries)
                 all_entries.extend(entries)
+        return self._finalize(all_entries)
+
+    def refresh_source(self, authority: str, force: bool = True) -> list[dict]:
+        """单源强制换新：只重新物化该 authority 一个源，返回其新条目。
+
+        force=True（默认）绕过该源的条目/文件缓存；其他源零调用（区别于
+        refresh_and_list_all 的全量路径）。
+        """
+        clients = self._build_clients()
+        client = clients.get(authority)
+        if client is None:
+            return []
+        try:
+            entries = client.list_entries(force=force)
+        except Exception as e:
+            log_warning(f"[Federation] refresh_source 异常 {authority}: {e}")
+            return []
+        if not entries:
+            return []
+        self._decorate_with_repo_meta(client, authority, entries)
+        return self._finalize(entries)
+
+    @staticmethod
+    def _decorate_entries(client: object, authority: str, entries: list[dict]) -> None:
+        """为单个 client 产出的条目补 authority / _source_type（原地修改）。
+
+        注意：_repo_* 归属字段由 _decorate_entries 的实例包装
+        （_decorate_with_repo_meta）注入，本方法保持纯静态。
+        """
+        source_type = _SOURCE_TYPE_OF_CLIENT.get(type(client))
+        for e in entries:
+            if isinstance(e, dict):
+                e["_authority"] = authority
+                if source_type and not e.get("_source_type"):
+                    e["_source_type"] = source_type
+                if not e.get("authority"):
+                    e["authority"] = authority
+
+    def _decorate_with_repo_meta(
+        self, client: object, authority: str, entries: list[dict]
+    ) -> None:
+        """_decorate_entries + 注入所属订阅源元信息（动态分组键，不硬编码）。"""
+        self._decorate_entries(client, authority, entries)
+        meta = self._authority_meta.get(authority, {})
+        if not meta:
+            return
+        for e in entries:
+            if isinstance(e, dict):
+                e["_repo_id"] = meta.get("repo_id", "")
+                e["_repo_name"] = meta.get("repo_name", "")
+                e["_repo_url"] = meta.get("repo_url", "")
+                e["_repo_max_entries"] = meta.get("repo_max_entries", 0)
+
+    def authorities_of_repo(self, repo_id: str) -> list[str]:
+        """该订阅源（repo_id）下的全部 authority（供 repo 级刷新/清理快照）。"""
+        self._build_clients()
+        return [
+            a
+            for a, m in self._authority_meta.items()
+            if m.get("repo_id") == repo_id
+        ]
+
+    def repo_id_of_url(self, url: str) -> str:
+        """订阅 url → repo_id（删除订阅时定位其快照归属）。"""
+        self._build_clients()
+        for m in self._authority_meta.values():
+            if m.get("repo_url") == url:
+                return m.get("repo_id", "")
+        return ""
+
+    def _finalize(self, entries: list[dict]) -> list[dict]:
+        """去重 + 屏蔽 content_hash 过滤（list_all_entries / refresh_source 共用）。"""
         seen: dict[str, dict] = {}
         blocked = self._blocked_content_hashes()
-        for e in all_entries:
+        for e in entries:
             if e.get("content_hash") in blocked:
                 continue
             key = f"{e.get('_authority', '')}:{e.get('entry_id', '')}"

@@ -12,7 +12,8 @@ import "../helpers/TextSourceBehaviors.js" as SrcBehav
  *
  * 将本地文库、开源文库、练单器、晴发文、AI 推荐、自定义 6 种来源收敛到单一页面。
  * 顶部为 RinUI Segmented 来源切换，左侧为对应列表/输入，右侧为统一的预览 + 切片设置 + 操作按钮。
- * 开源文库直接展示联邦聚合条目（RepoEntriesPanel），订阅管理独立子页面（ReposManagementPage）。
+ * 开源文库按订阅源分组展示联邦聚合条目（RepoEntriesPanel，组头可管理该源），
+ * 不再有独立订阅管理子页面（源配置经组头弹窗 RepoConfigDialog 完成）。
  */
 FluentPage {
     id: root
@@ -48,7 +49,7 @@ FluentPage {
     readonly property bool isListSource: ["local", "repos", "trainer", "custom"].indexOf(currentSource) >= 0
 
     // ---- 响应式断点 ----
-    readonly property bool wideMode: width >= 840
+    readonly property bool wideMode: width >= 760
 
     // ---- 列表数据 ----
     property var localItems: []
@@ -64,16 +65,11 @@ FluentPage {
     property bool catalogLoading: false  // 目录加载状态
     property var federatedEntries: []    // 联邦聚合的条目（所有 repo 的条目）
     property string reposEntriesError: ""  // 开源文库条目加载错误（喂给 RepoEntriesPanel.errorText）
-    property bool _pendingFederatedContent: false
     property bool federatedContentLoading: false  // 联邦条目载文请求进行中（载入跟打按钮 Busy）
 
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
         if (active) {
-            // 中途返回场景：联邦 inline 加载未完成就回到 hub，残留的
-            // _pendingFederatedContent 会把后续任意 textContentLoaded 误判成
-            // 联邦内容启动打字。激活时清 flag，废弃未完成的联邦载文流程。
-            _pendingFederatedContent = false
             var sourceChanged = false
             if (initialSource && initialSource !== currentSource) {
                 currentSource = initialSource
@@ -399,8 +395,8 @@ FluentPage {
 
     function startFederatedEntry(request, rp) {
         if (!appBridge || !request) return
-        /* segmented：先进入打字页再异步加载分段（与 startSegmentedSource 一致），
-           否则 _on_ott_segment_session_started 完成后无人导航到 TypingPage */
+        /* segmented：先进入打字页再加载分段（与 startSegmentedSource 一致），
+           后端同步直发 textLoaded 后由 TypingPage applyLoadedText 落地 */
         if (request.contentMode === "segmented") {
             setupSliceCriteria(rp)
             navigateToTyping()
@@ -415,10 +411,16 @@ FluentPage {
             })
             return
         }
-        /* inline（规则/脚本源）直接加载内容，完成经 textContentLoaded → startMaterializedText */
+        /* inline（规则/脚本/桥接源）同步读取快照/拉取内容，后端直发
+           textLoaded（镜像 loadFullText 链路）：先进入打字页再载文，
+           busy 由 onTextLoaded 清除 */
         root.federatedContentLoading = true
-        root._pendingFederatedContent = true
-        appBridge.loadFederatedInlineEntry(request.authority, request.entryId, request.revisionId, request.title)
+        navigateToTyping()
+        Qt.callLater(function() {
+            appBridge.loadFederatedInlineEntry(
+                request.authority, request.entryId, request.revisionId, request.title
+            )
+        })
     }
 
     function startMaterializedText(request, rp) {
@@ -491,7 +493,9 @@ FluentPage {
         // ---- 主体 ----
         GridLayout {
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            /* FluentPage 内容区高度由内容驱动（Flickable），fillHeight 无效；
+               用页面可视高度兜底让左右栏撑满首屏，大窗不再出现底部死空间 */
+            Layout.preferredHeight: Math.max(implicitHeight, root.height - 180)
             columnSpacing: 12
             rowSpacing: 12
             columns: root.wideMode ? 2 : 1
@@ -528,22 +532,27 @@ FluentPage {
                 }
             }
 
-            // index 1: repos — 开源文库（联邦条目直接浏览）
+            // index 1: repos — 开源文库（按订阅源分组浏览）
             RepoEntriesPanel {
                 entries: root.federatedEntries
                 loading: root.currentSource === "repos" && (appBridge ? appBridge.federatedEntriesLoading : false)
                 errorText: root.reposEntriesError
                 selectedEntry: root.selectedItem
+                // 源组头刷新动画：repo 刷新不置列表级 loading，只驱动对应源组
+                refreshingRepo: appBridge ? appBridge.refreshingFederatedRepo : ""
                 onEntryClicked: function(entry) {
                     root.selectedItem = entry
                     root.previewContent = entry.content || entry.preview || ""
                     root.checkProgress()
                 }
-                onRefreshRequested: { if (appBridge) appBridge.loadFederatedEntries() }
-                onRefreshSourceRequested: function(authority) { if (appBridge) appBridge.refreshFederatedSource(authority) }
-                onManageRequested: {
-                    if (Window.window && Window.window.navigationView)
-                        Window.window.navigationView.push(Qt.resolvedUrl("ReposManagementPage.qml"))
+                // 总刷新 = 全部源强制换新；源组头刷新 = 该订阅源全部源换新
+                onRefreshRequested: { if (appBridge) appBridge.refreshFederatedAll() }
+                onRefreshRepoRequested: function(repoId) { if (appBridge) appBridge.refreshFederatedRepo(repoId) }
+                onAddRepoRequested: addRepoDialog.open()
+                onManageRepoRequested: function(repoId, url) {
+                    repoConfigDialog.repoId = repoId
+                    repoConfigDialog.repoUrl = url
+                    repoConfigDialog.open()
                 }
             }
 
@@ -720,7 +729,14 @@ FluentPage {
                             text: qsTr("刷新")
                             visible: SrcBehav.capabilities[root.currentSource].supportsRefresh
                             enabled: !root.currentSourceLoading()
-                            onClicked: root.loadCurrentSource()
+                            onClicked: {
+                                if (!appBridge) return
+                                // 在哪个层级刷新哪个层级的源：
+                                // repos 当前显示的列表即联邦聚合 → 全部源强制换新；
+                                // 其余来源沿用各自列表加载
+                                if (root.currentSource === "repos") appBridge.refreshFederatedAll()
+                                else root.loadCurrentSource()
+                            }
                         }
 
                         Button {
@@ -752,6 +768,66 @@ FluentPage {
     }
 
     // ---- 对话框 ----
+    // 订阅源配置弹窗（开源文库源组头「管理该源」入口）
+    RepoConfigDialog {
+        id: repoConfigDialog
+    }
+
+    // 添加订阅（开源文库「添加订阅」入口）
+    Dialog {
+        id: addRepoDialog
+        title: qsTr("添加订阅")
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        property string _error: ""
+
+        onOpened: {
+            addRepoUrlField.text = ""
+            addRepoDialog._error = ""
+            addRepoUrlField.forceActiveFocus()
+        }
+        onAccepted: {
+            var u = addRepoUrlField.text.trim()
+            if (u.length > 0 && appBridge) appBridge.addRepo(u)
+        }
+
+        // 添加失败（网络/校验）→ 弹窗内提示，不关闭
+        Connections {
+            target: appBridge
+            enabled: addRepoDialog.visible && appBridge !== null
+            function onReposLoadFailed(message) {
+                addRepoDialog._error = message
+            }
+        }
+
+        ColumnLayout {
+            width: 420
+            spacing: 8
+
+            Text {
+                Layout.fillWidth: true
+                typography: Typography.Body
+                color: Theme.currentTheme.colors.textColor
+                text: qsTr("粘贴源仓库订阅 URL（ott-repo.json）：")
+            }
+
+            TextField {
+                id: addRepoUrlField
+                Layout.fillWidth: true
+                placeholderText: "https://example.com/ott-repo.json"
+            }
+
+            Text {
+                Layout.fillWidth: true
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.systemCriticalColor
+                text: addRepoDialog._error
+                wrapMode: Text.Wrap
+                visible: text.length > 0
+            }
+        }
+    }
+
     Dialog {
         id: deleteConfirmDialog
         title: qsTr("确认删除")
@@ -897,35 +973,18 @@ FluentPage {
 
     // ---- 联邦跨页面信号（不依赖 root.active）----
     // 联邦条目载文后 hub 可能已被 push 到 TypingPage，root.active 为 false，
-    // 若留在上方 enabled: root.active 的 Connections 中，textContentLoaded/textLoaded 落地信号会被
-    // 双重守卫丢弃（enabled 门控 + onTextContentLoaded 内 if (!root.active) return），
-    // 联邦条目永远无法开始打字。此处独立 Connections 常驻处理。
+    // 若留在上方 enabled: root.active 的 Connections 中，textLoaded 落地信号会被
+    // 守卫丢弃，载入跟打按钮的 busy 状态无法清除。此处独立 Connections 常驻处理。
     Connections {
         target: appBridge
 
-        function onTextContentLoaded(textId, content, title) {
-            if (!root._pendingFederatedContent) return
-            /* 联邦 inline 条目内容加载完成，开始打字 */
-            root._pendingFederatedContent = null
-            root.federatedContentLoading = false
-            root.startMaterializedText({
-                source: "custom",
-                launchKind: "materialized_text",
-                text: content,
-                sourceKey: "federated",
-                title: title || qsTr("联邦文本"),
-                textId: 0
-            }, {})
-        }
         function onTextLoaded(text, textId, sourceLabel) {
-            /* 联邦 segmented 会话建立（textLoaded 落地），清除载文 busy 状态 */
+            /* 联邦条目载文完成（segmented/inline 均直发 textLoaded），清除载文 busy 状态 */
             root.federatedContentLoading = false
         }
         function onTextLoadFailed(message) {
-            /* 联邦载文失败：清除 flag 与 busy 状态，防止残留的 _pendingFederatedContent
-               把后续任意 textContentLoaded（如正常载文）误判成联邦内容 */
-            if (root.federatedContentLoading || root._pendingFederatedContent) {
-                root._pendingFederatedContent = null
+            /* 联邦载文失败：清除 busy 状态 */
+            if (root.federatedContentLoading) {
                 root.federatedContentLoading = false
                 root.errorMessage = message
                 root.statusMessage = ""
@@ -942,10 +1001,15 @@ FluentPage {
             root.federatedContentLoading = false
         }
         function onRegistryFederatedEntriesLoaded(entries) {
+            /* 同步快照显示 + 后台 revalidate 完成都走这里。数据总是更新
+               （保持最新存储），状态消息仅在当前处于开源文库时写入，
+               避免后台刷新结果覆盖其他 tab 的状态消息 */
             root.federatedEntries = entries || []
             root.reposEntriesError = ""
-            var result = SrcBehav.syncItems("repos", root.federatedEntries)
-            root.statusMessage = result.statusMessage
+            if (root.currentSource === "repos") {
+                var result = SrcBehav.syncItems("repos", root.federatedEntries)
+                root.statusMessage = result.statusMessage
+            }
         }
     }
 }

@@ -86,3 +86,18 @@ def test_corrupt_file_returns_none(tmp_path) -> None:
     p = tmp_path / "snapshots" / _authority_hash("auth") / "e1.json"
     p.write_text("{broken", encoding="utf-8")
     assert s.get("auth", "e1") is None
+
+
+def test_clear_authority_removes_only_that_authority(tmp_path) -> None:
+    """clear_authority 只删目标 authority 的快照目录（删除订阅清理残留）。"""
+    s = EntrySnapshotStore(tmp_path)
+    s.save(_entry("auth-a", "a1"), captured_at=100.0, policy=RefreshPolicy(MODE_STATIC))
+    s.save(_entry("auth-b", "b1"), captured_at=100.0, policy=RefreshPolicy(MODE_STATIC))
+    assert s.get("auth-a", "a1") is not None
+    assert s.get("auth-b", "b1") is not None
+
+    s.clear_authority("auth-a")
+
+    assert s.get("auth-a", "a1") is None
+    assert s.get("auth-b", "b1") is not None  # 其他 authority 不受影响
+    assert len(s.list_all()) == 1

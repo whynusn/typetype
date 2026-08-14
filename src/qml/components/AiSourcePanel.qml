@@ -134,6 +134,7 @@ Frame {
                         Button {
                             text: qsTr("修改配置")
                             flat: true
+                            icon.name: "ic_fluent_settings_20_regular"
                             onClicked: root.openSettings()
                         }
                     }

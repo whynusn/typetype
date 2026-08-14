@@ -39,7 +39,19 @@ class EntrySnapshotStore:
     # 写
     # ------------------------------------------------------------------
 
-    def save(self, entry: dict, captured_at: float, policy: RefreshPolicy) -> None:
+    def save(
+        self,
+        entry: dict,
+        captured_at: float,
+        policy: RefreshPolicy,
+        fingerprint: str | None = None,
+    ) -> None:
+        """写快照；fingerprint 为内容指纹（非 None 时写入 snap_fingerprint）。
+
+        snap_fingerprint 供后台 revalidate 做「内容未变」判定：指纹相同
+        则跳过 save 保留原 captured_at（freshness 不被虚刷）。旧快照无该
+        字段 → 首次 revalidate 会视为已变并补写指纹（一次性）。
+        """
         if not isinstance(entry, dict):
             return
         entry_id = entry.get("entry_id")
@@ -52,6 +64,8 @@ class EntrySnapshotStore:
             "refresh_policy": policy.to_dict(),
             "next_refresh_at": policy.next_refresh_at(captured_at),
         }
+        if fingerprint is not None:
+            payload["snap_fingerprint"] = fingerprint
         path = self._path(authority, str(entry_id))
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +106,40 @@ class EntrySnapshotStore:
                 data = self.get(authority, path.stem)
                 if data is not None:
                     items.append(data)
+        except OSError:
+            return []
+        items.sort(key=lambda e: e.get("captured_at", 0.0), reverse=True)
+        return items
+
+    def list_all(self) -> list[dict]:
+        """遍历所有 authority 目录返回全部快照（按 captured_at 倒序）。
+
+        供「进入开源文库先渲染已存快照」使用：零网络，纯磁盘读。
+        """
+        items: list[dict] = []
+        try:
+            if not self._root.exists():
+                return []
+            for authority_dir in self._root.iterdir():
+                if not authority_dir.is_dir():
+                    continue
+                for path in authority_dir.glob("*.json"):
+                    if not path.is_file():
+                        continue
+                    # authority 从快照内冗余字段反查（哈希目录不可逆推原值）
+                    try:
+                        with path.open(encoding="utf-8") as f:
+                            raw = json.load(f)
+                    except (OSError, json.JSONDecodeError, ValueError, TypeError):
+                        continue
+                    if not isinstance(raw, dict):
+                        continue
+                    authority = str(raw.get("_authority", ""))
+                    if not authority:
+                        continue
+                    data = self.get(authority, str(raw.get("entry_id", "")))
+                    if data is not None:
+                        items.append(data)
         except OSError:
             return []
         items.sort(key=lambda e: e.get("captured_at", 0.0), reverse=True)
@@ -162,5 +210,16 @@ class EntrySnapshotStore:
             if self._root.exists():
                 shutil.rmtree(self._root)
                 self._root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+
+    def clear_authority(self, authority: str) -> None:
+        """删除某 authority 的全部快照目录（删除订阅时清理残留）。"""
+        import shutil
+
+        try:
+            directory = self._dir(authority)
+            if directory.exists():
+                shutil.rmtree(directory)
         except OSError:
             pass

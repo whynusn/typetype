@@ -243,6 +243,39 @@ class TestBridgeFederation:
             "https://bridge.example.com/api"
         )
 
+    def test_list_all_entries_sets_bridge_source_type(self, tmp_path) -> None:
+        """联邦聚合必须为 bridge 源条目注入 _source_type=ott-bridge（refresh 策略读它）。"""
+        provider, _ = _federation_with_bridge(
+            tmp_path,
+            bridge_data={"title": "T", "content": "来自桥的内容"},
+        )
+        entries = provider.list_all_entries()
+        assert len(entries) == 1
+        assert entries[0]["_source_type"] == "ott-bridge"
+
+    def test_refresh_source_force_refetches_bridge(self, tmp_path) -> None:
+        """单源刷新：bridge 源 force 换新（绕过 _EntryCache 缓存）。"""
+        provider, bridge_http = _federation_with_bridge(
+            tmp_path,
+            bridge_data={"title": "T1", "content": "旧内容"},
+        )
+        authority = _bridge_authority("https://bridge.example.com/api")
+        first = provider.list_all_entries()
+        assert first[0]["content"] == "旧内容"
+        # 服务端内容已更新
+        bridge_http.get.return_value.json.return_value = {
+            "title": "T2",
+            "content": "新内容",
+        }
+        refreshed = provider.refresh_source(authority)
+        assert len(refreshed) == 1
+        assert refreshed[0]["content"] == "新内容"
+        assert refreshed[0]["_authority"] == authority
+        # 未知 authority：零请求、空结果
+        get_before = bridge_http.get.call_count
+        assert provider.refresh_source("bridge:unknown") == []
+        assert bridge_http.get.call_count == get_before
+
     def test_list_repos_reports_supported_bridge_authority(self, tmp_path) -> None:
         """支持的 ott-bridge（generic-http）必须在 list_repos authorities 中上报。"""
         provider, _ = _federation_with_bridge(

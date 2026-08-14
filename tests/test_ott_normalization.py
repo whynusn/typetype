@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from src.backend.integration.ott_normalization import redact_url, safe_int
+from src.backend.integration.ott_normalization import (
+    redact_url,
+    safe_int,
+    to_jsdelivr_url,
+)
 
 
 class TestSafeInt:
@@ -34,3 +38,36 @@ class TestRedactUrl:
 
     def test_empty(self) -> None:
         assert redact_url("") == "<invalid-url>"
+
+
+class TestToJsdelivrUrl:
+    def test_maps_github_raw_to_cdn(self) -> None:
+        assert (
+            to_jsdelivr_url(
+                "https://raw.githubusercontent.com/owner/repo/main/scripts/a.py"
+            )
+            == "https://cdn.jsdelivr.net/gh/owner/repo@main/scripts/a.py"
+        )
+
+    def test_maps_nested_path(self) -> None:
+        assert (
+            to_jsdelivr_url(
+                "https://raw.githubusercontent.com/o/r/v1.0/dir/ott-repo.json"
+            )
+            == "https://cdn.jsdelivr.net/gh/o/r@v1.0/dir/ott-repo.json"
+        )
+
+    def test_non_raw_url_returns_none(self) -> None:
+        for url in (
+            "https://example.com/raw/owner/repo/main/a.py",
+            "https://cdn.jsdelivr.net/gh/owner/repo@main/a.py",
+            "http://raw.githubusercontent.com/owner/repo/main/a.py",
+            "file:///tmp/a.py",
+            "",
+        ):
+            assert to_jsdelivr_url(url) is None, url
+
+    def test_too_few_path_parts_returns_none(self) -> None:
+        assert (
+            to_jsdelivr_url("https://raw.githubusercontent.com/owner/repo/main") is None
+        )

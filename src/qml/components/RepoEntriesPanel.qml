@@ -6,9 +6,14 @@ import RinUI
 /**
  * 开源文库条目列表面板（联邦聚合条目的统一展示）。
  *
- * - 富卡片：来源中文标签 + 「分段」徽章 + 字数 + 标题 + 2 行预览
- * - 来源筛选（RinUI ComboBox）+ 标题/预览搜索
- * - 状态叠加：加载中 / 错误(重试) / 空（引导管理订阅）/ 无匹配
+ * - 按订阅源（repo）动态分组：条目物化时注入 _repo_id（federation
+ *   `_decorate_with_repo_meta`），条目属于哪个订阅源就归入哪个源组——
+ *   纯动态归属，不硬编码。组头 = 展开/收起 + 源名 + 条目数（x / 上限）+ 
+ *   源级刷新（动画只在组头播放一份）+ 管理按钮
+ * - 组头可展开/收起（_expanded 状态；折叠时组内条目不渲染）
+ * - 组内条目卡片：「分段」徽章 + 字数 + 新鲜度 + 标题 + 2 行预览
+ * - 来源筛选（RinUI ComboBox）+ 标题/预览搜索（作用于条目，空组不渲染）
+ * - 状态叠加：加载中 / 错误(重试) / 空（引导添加订阅）/ 无匹配
  * - 选中高亮由父级通过 selectedEntry 驱动（entry_id + authority 相等判定）
  */
 Frame {
@@ -19,16 +24,23 @@ Frame {
     property bool loading: false
     property string errorText: ""
     property var selectedEntry: null    // 由父级设置，用于卡片高亮
+    // 正在刷新的订阅源 repo_id（'' = 无）：驱动「源组头」刷新动画（一份）。
+    // 与 loading 分层：列表级刷新（顶部/右侧）盖整列表动画，repo 刷新
+    // 只在对应源组头转圈，列表保持可交互。
+    property string refreshingRepo: ""
 
     // ---- 输出 ----
     signal entryClicked(var entry)      // 点击条目，透传原始条目对象
     signal refreshRequested()           // 顶部刷新 / 错误态重试
-    signal manageRequested()            // 「管理订阅」按钮
-    signal refreshSourceRequested(string authority)  // 单源刷新请求
+    signal addRepoRequested()           // 「添加订阅」按钮
+    signal refreshRepoRequested(string repoId)  // 订阅源（repo）级刷新请求
+    signal manageRepoRequested(string repoId, string url)  // 进入该源管理
 
     // ---- 内部 ----
     property string selectedSourceLabel: ""
     property bool _filterSyncing: false  // ComboBox 模型重建去重守卫
+    // 组展开状态（key = repo_id/authority；缺省展开）
+    property var _expanded: ({})
 
     Layout.fillHeight: true
     Layout.fillWidth: true
@@ -65,6 +77,12 @@ Frame {
             && (root.selectedEntry.authority || "") === (entry.authority || "")
     }
 
+    // 组刷新动画判定：该组（repo_id）正在被刷新 → 组头播放一份动画
+    function _isRefreshingGroup(group) {
+        if (!group || root.refreshingRepo.length === 0) return false
+        return root.refreshingRepo === (group.key || "")
+    }
+
     function _matches(entry, text) {
         var haystack = (entry.title || "") + " " +
                        (entry.source_label || "") + " " +
@@ -72,15 +90,45 @@ Frame {
         return haystack.toLowerCase().indexOf(text) !== -1
     }
 
+    // 组头展开/收起切换（折叠时组内条目不渲染）
+    function toggleGroup(key) {
+        root._expanded[key] = !(root._expanded[key] === false)
+        root.rebuild()
+    }
+
+    // 按订阅源（_repo_id）动态分组重建模型：每组先插「组头」行（源名/计数/
+    // 折叠状态/上限），再插组内条目行。筛选/搜索作用于条目，空组不渲染。
     function rebuild() {
         listModel.clear()
         var t = searchField.text.trim().toLowerCase()
         var filterLabel = root.selectedSourceLabel
+        var headerRows = {}  // group key -> 组头行 index（组内计数累加用）
         for (var i = 0; i < root.entries.length; i++) {
             var e = root.entries[i]
             if (filterLabel.length > 0 && (e.source_label || "") !== filterLabel) continue
             if (t.length > 0 && !root._matches(e, t)) continue
-            listModel.append({ entry: e })
+            // 动态分组键：条目属于哪个订阅源就归入哪个源组（federation 注入）
+            var key = e._repo_id || e.authority || e._authority || ""
+            if (headerRows[key] === undefined) {
+                headerRows[key] = listModel.count
+                listModel.append({
+                    kind: "header",
+                    group: {
+                        key: key,
+                        name: e._repo_name || root.sourceDisplayName(e),
+                        subtitle: key,
+                        url: e._repo_url || "",
+                        count: 0,
+                        maxEntries: e._repo_max_entries || 0,
+                        collapsed: root._expanded[key] === false
+                    }
+                })
+            }
+            var g = listModel.get(headerRows[key]).group
+            g.count++
+            listModel.set(headerRows[key], { kind: "header", group: g })
+            if (root._expanded[key] === false) continue  // 折叠：不渲染条目行
+            listModel.append({ kind: "entry", entry: e })
         }
     }
 
@@ -118,7 +166,7 @@ Frame {
         anchors.fill: parent
         spacing: 8
 
-        // ---- 头部：标题 + 管理订阅 + 刷新 ----
+        // ---- 头部：标题 + 添加订阅 + 刷新 ----
         RowLayout {
             Layout.fillWidth: true
             Layout.preferredHeight: 28
@@ -148,10 +196,10 @@ Frame {
             Item { Layout.fillWidth: true }
 
             Button {
-                text: qsTr("管理订阅")
-                icon.name: "ic_fluent_settings_20_regular"
+                text: qsTr("添加订阅")
+                icon.name: "ic_fluent_add_20_regular"
                 flat: true
-                onClicked: root.manageRequested()
+                onClicked: root.addRepoRequested()
             }
 
             ToolButton {
@@ -161,7 +209,7 @@ Frame {
                 flat: true
                 enabled: !root.loading
                 onClicked: root.refreshRequested()
-                ToolTip { text: qsTr("刷新"); visible: parent.hovered }
+                ToolTip { text: qsTr("刷新全部"); visible: parent.hovered }
             }
         }
 
@@ -228,136 +276,249 @@ Frame {
                     boundsBehavior: Flickable.StopAtBounds
                     model: ListModel { id: listModel }
 
-                    delegate: Rectangle {
+                    // 双组件 delegate：header/entry 各自只引用自己的 role，
+                    // 避免不可见分支的绑定对 undefined role 求值报 TypeError
+                    delegate: Loader {
+                        id: loader
                         width: listView.width
-                        height: cardCol.height + 16
-                        radius: 6
-                        color: root._isSelected(model.entry)
-                               ? Qt.lighter(Theme.currentTheme.colors.cardColor, 1.05)
-                               : Theme.currentTheme.colors.cardColor
-                        border.color: root._isSelected(model.entry)
-                                      ? Theme.currentTheme.colors.primaryColor
-                                      : Theme.currentTheme.colors.cardBorderColor
-                        border.width: root._isSelected(model.entry) ? 1.5 : 1
+                        height: item ? item.height : 0
+                        property var groupData: model.kind === "header" ? model.group : null
+                        property var entryData: model.kind === "entry" ? model.entry : null
+                        sourceComponent: model.kind === "header" ? headerComponent : entryComponent
+                    }
 
-                        Column {
-                            id: cardCol
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.margins: 12
-                            spacing: 6
+                    // ================= 组头：订阅源 =================
+                    Component {
+                        id: headerComponent
 
-                            // 第一行：来源中文标签 + 内容模式徽章 + 字数
+                        Rectangle {
+                            width: listView.width
+                            height: 46
+                            radius: 6
+                            color: Theme.currentTheme.colors.controlColor
+                            border.color: Theme.currentTheme.colors.cardBorderColor
+                            border.width: 1
+
+                            // 整行点击 = 展开/收起（按钮子项位于其上方优先响应）
+                            MouseArea {
+                                id: headerMouse
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: root.toggleGroup(loader.groupData.key)
+                            }
+
                             RowLayout {
-                                width: parent.width
-                                spacing: 6
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.leftMargin: 10
+                                anchors.rightMargin: 8
+                                spacing: 8
 
-                                Rectangle {
-                                    Layout.preferredWidth: labelText.implicitWidth + 12
-                                    Layout.preferredHeight: 18
-                                    radius: 9
-                                    color: Theme.currentTheme.colors.primaryColor
-                                    opacity: 0.16
+                                IconWidget {
+                                    Layout.preferredWidth: 16
+                                    Layout.preferredHeight: 16
+                                    icon: loader.groupData.collapsed
+                                           ? "ic_fluent_chevron_right_20_regular"
+                                           : "ic_fluent_chevron_down_20_regular"
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 0
+
                                     Text {
-                                        id: labelText
-                                        anchors.centerIn: parent
-                                        text: root.sourceDisplayName(model.entry)
+                                        Layout.fillWidth: true
+                                        text: loader.groupData.name
+                                        typography: Typography.BodyStrong
+                                        color: Theme.currentTheme.colors.textColor
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: loader.groupData.subtitle
                                         typography: Typography.Caption
-                                        color: Theme.currentTheme.colors.primaryColor
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        elide: Text.ElideRight
                                     }
                                 }
 
-                                Rectangle {
-                                    visible: model.entry.content_mode === "segmented"
-                                    Layout.preferredWidth: segText.implicitWidth + 10
-                                    Layout.preferredHeight: 18
-                                    radius: 9
-                                    color: Theme.currentTheme.colors.systemCautionColor
-                                    opacity: 0.16
-                                    Text {
-                                        id: segText
-                                        anchors.centerIn: parent
-                                        text: qsTr("分段")
-                                        typography: Typography.Caption
-                                        color: Theme.currentTheme.colors.systemCautionColor
-                                    }
-                                }
-
-                                Item { Layout.fillWidth: true }
-
+                                // 文本计数：当前已有 / 订阅源规定的上限（无上限只显示当前数）
                                 Text {
-                                    visible: text.length > 0
-                                    text: root._charCount(model.entry) > 0
-                                          ? (root._charCount(model.entry) + " 字" + (model.entry.last_fetched_relative ? " · " + model.entry.last_fetched_relative : ""))
-                                          : (model.entry.last_fetched_relative || "")
+                                    text: {
+                                        var s = qsTr("%1 条").arg(loader.groupData.count)
+                                        if (loader.groupData.maxEntries > 0)
+                                            s = qsTr("%1 / %2 条").arg(loader.groupData.count).arg(loader.groupData.maxEntries)
+                                        return s
+                                    }
                                     typography: Typography.Caption
                                     color: Theme.currentTheme.colors.textSecondaryColor
                                 }
 
-                                // 新鲜度徽章（后端 _decorate 输出 freshness）
-                                Rectangle {
-                                    visible: model.entry.freshness !== undefined && model.entry.freshness !== ""
-                                    Layout.preferredWidth: 8
-                                    Layout.preferredHeight: 8
-                                    radius: 4
-                                    color: model.entry.freshness === "on_demand" ? Theme.currentTheme.colors.systemCriticalColor
-                                         : model.entry.freshness === "stale" ? Theme.currentTheme.colors.systemCautionColor
-                                         : Theme.currentTheme.colors.primaryColor
-                                    // Rectangle 无 hovered 属性，需 HoverHandler 提供
-                                    HoverHandler { }
-                                    ToolTip.visible: hovered
-                                    ToolTip.text: model.entry.freshness === "on_demand" ? qsTr("每次随机，可抽新")
-                                                : model.entry.freshness === "stale" ? qsTr("已过期，可刷新")
-                                                : qsTr("最新")
-                                }
-
+                                // 源级刷新：一个源无论多少文本，动画只在组头播放一份
                                 ToolButton {
-                                    Layout.preferredWidth: 24
-                                    Layout.preferredHeight: 24
+                                    Layout.preferredWidth: 28
+                                    Layout.preferredHeight: 28
                                     icon.name: "ic_fluent_arrow_sync_20_regular"
                                     flat: true
-                                    visible: model.entry.freshness === "stale" || model.entry.freshness === "on_demand"
+                                    visible: !root._isRefreshingGroup(loader.groupData)
                                     enabled: !root.loading
-                                    onClicked: root.refreshSourceRequested(model.entry.authority || model.entry._authority || "")
+                                    onClicked: root.refreshRepoRequested(loader.groupData.key)
                                     ToolTip { text: qsTr("刷新该源"); visible: parent.hovered }
+                                }
+                                BusyIndicator {
+                                    Layout.preferredWidth: 16
+                                    Layout.preferredHeight: 16
+                                    running: root._isRefreshingGroup(loader.groupData)
+                                    visible: running
+                                }
+
+                                // 管理该订阅源（进入配置弹窗）
+                                ToolButton {
+                                    Layout.preferredWidth: 28
+                                    Layout.preferredHeight: 28
+                                    icon.name: "ic_fluent_settings_20_regular"
+                                    flat: true
+                                    onClicked: root.manageRepoRequested(loader.groupData.key, loader.groupData.url)
+                                    ToolTip { text: qsTr("管理该源"); visible: parent.hovered }
+                                }
+                            }
+                        }
+                    }
+
+                    // ================= 条目卡片 =================
+                    Component {
+                        id: entryComponent
+
+                        Rectangle {
+                            id: entryRoot
+                            width: listView.width
+                            height: cardCol.height + 16
+                            radius: 6
+
+                            readonly property var entry: loader.entryData
+                            readonly property bool isSelected: root._isSelected(loader.entryData)
+
+                            color: cardMouse.containsMouse && !isSelected
+                                   ? Theme.currentTheme.colors.controlColor
+                                   : (isSelected
+                                      ? Qt.lighter(Theme.currentTheme.colors.cardColor, 1.05)
+                                      : Theme.currentTheme.colors.cardColor)
+                            border.color: cardMouse.containsMouse && !isSelected
+                                          ? Theme.currentTheme.colors.textAccentColor
+                                          : (isSelected
+                                             ? Theme.currentTheme.colors.primaryColor
+                                             : Theme.currentTheme.colors.cardBorderColor)
+                            border.width: isSelected ? 1.5 : 1
+
+                            // 整卡点击区（内容子项位于其上方、优先接收点击）
+                            MouseArea {
+                                id: cardMouse
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: {
+                                    listView.currentIndex = index
+                                    root.entryClicked(loader.entryData)
                                 }
                             }
 
-                            // 标题
-                            Text {
-                                width: parent.width
-                                text: model.entry.title || model.entry.entry_id || ""
-                                typography: Typography.Body
-                                color: Theme.currentTheme.colors.textColor
-                                elide: Text.ElideRight
-                            }
+                            Column {
+                                id: cardCol
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.margins: 12
+                                spacing: 6
 
-                            // 正文预览（2 行）
-                            Text {
-                                width: parent.width
-                                text: root.entryPreview(model.entry)
-                                typography: Typography.Caption
-                                color: Theme.currentTheme.colors.textSecondaryColor
-                                wrapMode: Text.Wrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                                visible: text.length > 0
-                            }
-                        }
+                                // 第一行：内容模式徽章 + 字数 + 新鲜度状态（源名已在组头）
+                                RowLayout {
+                                    width: parent.width
+                                    spacing: 6
 
-                        MouseArea {
-                            anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            hoverEnabled: true
-                            onClicked: {
-                                listView.currentIndex = index
-                                root.entryClicked(model.entry)
+                                    Rectangle {
+                                        visible: loader.entryData.content_mode === "segmented"
+                                        Layout.preferredWidth: segText.implicitWidth + 10
+                                        Layout.preferredHeight: 18
+                                        radius: 9
+                                        color: Qt.rgba(Theme.currentTheme.colors.systemCautionColor.r,
+                                                       Theme.currentTheme.colors.systemCautionColor.g,
+                                                       Theme.currentTheme.colors.systemCautionColor.b, 0.16)
+                                        Text {
+                                            id: segText
+                                            anchors.centerIn: parent
+                                            text: qsTr("分段")
+                                            typography: Typography.Caption
+                                            color: Theme.currentTheme.colors.systemCautionColor
+                                        }
+                                    }
+
+                                    Item { Layout.fillWidth: true }
+
+                                    Text {
+                                        visible: text.length > 0
+                                        text: root._charCount(loader.entryData) > 0
+                                              ? (root._charCount(loader.entryData) + " 字" + (loader.entryData.last_fetched_relative ? " · " + loader.entryData.last_fetched_relative : ""))
+                                              : (loader.entryData.last_fetched_relative || "")
+                                        typography: Typography.Caption
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                    }
+
+                                    // 新鲜度状态标签（后端 _decorate 输出 freshness：on_demand 随机 / stale 可刷新 / fresh 最新）
+                                    Rectangle {
+                                        visible: model.entry.freshness !== undefined && model.entry.freshness !== ""
+                                        Layout.preferredWidth: freshText.implicitWidth + 12
+                                        Layout.preferredHeight: 18
+                                        radius: 9
+                                        readonly property color freshColor:
+                                            model.entry.freshness === "on_demand" ? Theme.currentTheme.colors.primaryColor
+                                            : model.entry.freshness === "stale" ? Theme.currentTheme.colors.systemCautionColor
+                                            : Theme.currentTheme.colors.systemSuccessColor
+                                        // 只给背景降透明度，文本保持全不透明（否则标签字看不清）
+                                        color: Qt.rgba(freshColor.r, freshColor.g, freshColor.b, 0.16)
+                                        Text {
+                                            id: freshText
+                                            anchors.centerIn: parent
+                                            text: model.entry.freshness === "on_demand" ? qsTr("随机")
+                                                  : model.entry.freshness === "stale" ? qsTr("可刷新")
+                                                  : qsTr("最新")
+                                            typography: Typography.Caption
+                                            color: parent.freshColor
+                                        }
+                                        HoverHandler { id: freshHover }
+                                        ToolTip {
+                                            text: model.entry.freshness === "on_demand" ? qsTr("每次返回随机内容，可在源组头点刷新抽新")
+                                                  : model.entry.freshness === "stale" ? qsTr("内容已过期，可在源组头点刷新获取最新")
+                                                  : qsTr("内容为最新")
+                                            visible: freshHover.hovered
+                                        }
+                                    }
+                                }
+
+                                // 标题
+                                Text {
+                                    width: parent.width
+                                    text: model.entry.title || model.entry.entry_id || ""
+                                    typography: Typography.Body
+                                    color: Theme.currentTheme.colors.textColor
+                                    elide: Text.ElideRight
+                                }
+
+                                // 正文预览（2 行）
+                                Text {
+                                    width: parent.width
+                                    text: root.entryPreview(model.entry)
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.textSecondaryColor
+                                    wrapMode: Text.Wrap
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                    visible: text.length > 0
+                                }
                             }
-                            // 内部标识（authority）作为 ToolTip 展示，不占卡片主体
-                            ToolTip.visible: hovered
-                            ToolTip.text: model.entry.authority || ""
-                            ToolTip.delay: 800
                         }
                     }
                 }
@@ -429,15 +590,15 @@ Frame {
                     Layout.alignment: Qt.AlignHCenter
                     typography: Typography.Caption
                     color: Theme.currentTheme.colors.textSecondaryColor
-                    text: qsTr("可在「管理订阅」中添加或启用源仓库")
+                    text: qsTr("可在「添加订阅」中加入源仓库")
                     wrapMode: Text.Wrap
                     horizontalAlignment: Text.AlignHCenter
                 }
 
                 Button {
                     Layout.alignment: Qt.AlignHCenter
-                    text: qsTr("管理订阅")
-                    onClicked: root.manageRequested()
+                    text: qsTr("添加订阅")
+                    onClicked: root.addRepoRequested()
                 }
             }
 

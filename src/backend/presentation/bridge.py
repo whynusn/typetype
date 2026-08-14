@@ -127,7 +127,6 @@ class Bridge(QObject):
     # 载文模式信号
     sliceModeChanged = Signal()
     sliceStatusChanged = Signal(str)
-    textContentLoaded = Signal(int, str, str)  # (text_id, content, title)
     # OTT Repo 联邦目录信号
     reposChanged = Signal(list)  # list of repo summary dicts
     reposLoadFailed = Signal(str)
@@ -135,6 +134,7 @@ class Bridge(QObject):
     registryFederatedEntriesLoaded = Signal(list)  # list of entry dicts
     registryFederatedEntriesLoadFailed = Signal(str)
     registryFederatedEntriesLoadingChanged = Signal()
+    refreshingFederatedRepoChanged = Signal()  # 订阅源（repo）级刷新组头动画
     # 会话状态机信号
     scriptsEnabledChanged = Signal()
     windowTitleChanged = Signal()
@@ -441,6 +441,9 @@ class Bridge(QObject):
             )
             self._registry_adapter.entriesLoadingChanged.connect(
                 self.registryFederatedEntriesLoadingChanged.emit
+            )
+            self._registry_adapter.refreshingRepoChanged.connect(
+                self.refreshingFederatedRepoChanged.emit
             )
 
     def _connect_wenlai_signals(self) -> None:
@@ -766,6 +769,13 @@ class Bridge(QObject):
         if self._registry_adapter:
             return self._registry_adapter.entries_loading
         return False
+
+    @Property(str, notify=refreshingFederatedRepoChanged)
+    def refreshingFederatedRepo(self) -> str:
+        """当前正在刷新的订阅源 repo_id（'' = 无；源组头刷新动画）。"""
+        if self._registry_adapter:
+            return self._registry_adapter.refreshing_repo
+        return ""
 
     @Property(int, notify=textIdChanged)
     def textId(self) -> int:
@@ -1095,7 +1105,12 @@ class Bridge(QObject):
         sourceSegmentSize: int,
         title: str,
     ) -> None:
-        """从联邦聚合的指定 authority 加载 OTT 文本分段。"""
+        """从联邦聚合的指定 authority 加载 OTT 文本分段。
+
+        同步主线程构建会话 + 直发 textLoaded，镜像本地文库链路
+        （loadLocalArticleSegment）：不再跨线程创建/传递会话对象，
+        规避共享 httpx client 并发使用导致的 double free（2026-08-14 实测闪退）。
+        """
         if not self._registry_adapter or not self._text_adapter:
             return
 
@@ -1104,22 +1119,78 @@ class Bridge(QObject):
             self.textLoadFailed.emit("联邦文本源未配置")
             return
 
+        # 与 loadLocalArticleSegment 一致：先退出旧分片、清理来源、准备会话
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._clear_wenlai_active()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+
+        from src.backend.models.dto.text_session import TextKind
+
         adapter = _FederationSegmentAdapter(federation, authority)
-        self._submit_to_thread_pool(
-            fn=lambda: self._build_federated_segment_session(
-                adapter=adapter,
-                entry_id=entryId,
-                revision_id=revisionId,
-                segment_index=segmentIndex,
-                segment_size=segmentSize,
-                total_chars=totalChars,
-                source_segment_size=sourceSegmentSize or segmentSize or 1000,
-                title=title,
-                authority=authority,
-            ),
-            on_result=self._on_ott_segment_session_started,
-            on_error=lambda msg: self.textLoadFailed.emit(msg),
+        provider = self._make_ott_segment_provider(
+            adapter,
+            entryId,
+            revisionId,
+            totalChars,
+            sourceSegmentSize or segmentSize or 1000,
         )
+        built = self._text_adapter.buildProviderTextSession(
+            provider=provider,
+            kind=TextKind.OTT,
+            identifier=f"{entryId}@{revisionId}",
+            title=title,
+            version=revisionId,
+            slice_size=segmentSize,
+            start_slice=segmentIndex,
+            source_key="ott",
+        )
+        if built is None:
+            self.textLoadFailed.emit("无法加载联邦文本分段")
+            return
+        usecase, result = built
+        self._text_adapter.attachTextSession(usecase, int(segmentSize))
+
+        # —— 会话状态（原 _on_ott_segment_session_started 主体，同步执行）——
+        title_label = (
+            f"{title} {result.index}/{result.total}"
+            if title and result.total > 1
+            else f"{result.index}/{result.total}"
+            if result.total > 1
+            else title
+        )
+        p = self._coordinator.pending_slice_params
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        self._coordinator._cache_current_content(result.content)
+        self._coordinator.source_slice_backend = "ott"
+        self._coordinator.source_slice_segment_size = int(segmentSize)
+        self._coordinator._source_slice_title = title
+        self._coordinator._visited_slices.clear()
+        progress_id = f"{authority}:{entryId}@{revisionId}"
+        self._progress_key_override = _compute_progress_key("ott", progress_id)
+        self._typing_adapter.setup_sourced_slice_mode(
+            result.index,
+            result.total,
+            slice_size=int(segmentSize),
+            on_fail_action=p["on_fail_action"],
+            key_stroke_min=p["key_stroke_min"],
+            speed_min=p["speed_min"],
+            accuracy_min=p["accuracy_min"],
+            pass_count_min=p["pass_count_min"],
+            reset_counts=True,
+            auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+            key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+            speed_decrease=p.get("speed_decrease", 0),
+            accuracy_decrease=p.get("accuracy_decrease", 0),
+        )
+        self._restore_pending_progress()
+        self._update_progress_current_slice()
+        self.sliceModeChanged.emit()
+        self.textLoaded.emit(result.content, -1, title_label)
 
     @Slot(str, str, str, str)
     def loadFederatedInlineEntry(
@@ -1129,7 +1200,12 @@ class Bridge(QObject):
         revisionId: str,
         title: str,
     ) -> None:
-        """从联邦聚合加载 inline 内容（规则/脚本源）。"""
+        """从联邦聚合加载 inline 内容（规则/脚本/桥接源，快照优先）。
+
+        同步主线程读取快照/拉取内容 + 直发 textLoaded，镜像 loadFullText
+        链路：不再经 worker 线程 + textContentLoaded 间接回传（规避信号丢失
+        导致的"一直加载动画"与跨线程对象生命周期问题）。
+        """
         if not self._registry_adapter:
             return
         federation = getattr(self._registry_adapter, "_federation", None)
@@ -1137,32 +1213,34 @@ class Bridge(QObject):
             self.textLoadFailed.emit("联邦文本源未配置")
             return
 
-        def _load() -> dict | None:
-            if (
-                self._registry_adapter is not None
-                and self._registry_adapter.catalog is not None
-            ):
-                return self._registry_adapter.catalog.load_entry(authority, entryId)
-            return federation.get_entry(authority, entryId)
+        try:
+            if self._registry_adapter.catalog is not None:
+                detail = self._registry_adapter.catalog.load_entry(authority, entryId)
+            else:
+                detail = federation.get_entry(authority, entryId)
+        except Exception as e:
+            self.textLoadFailed.emit(f"加载联邦条目失败: {e}")
+            return
+        if detail is None:
+            self.textLoadFailed.emit("无法加载条目")
+            return
+        content = detail.get("content", "")
+        if not content:
+            self.textLoadFailed.emit("条目无内容")
+            return
 
-        def _on_result(detail: dict | None) -> None:
-            if detail is None:
-                self.textLoadFailed.emit("无法加载条目")
-                return
-            content = detail.get("content", "")
-            if not content:
-                self.textLoadFailed.emit("条目无内容")
-                return
-            # textContentLoaded 信号第一个参数是 int 类型的 text_id
-            # 联邦条目没有服务端 text_id，使用 hash 或 0
-            text_id = 0
-            self.textContentLoaded.emit(text_id, content, title)
-
-        self._submit_to_thread_pool(
-            fn=_load,
-            on_result=_on_result,
-            on_error=lambda msg: self.textLoadFailed.emit(msg),
-        )
+        # 与 loadFullText 一致：主线程同步建立会话 + 直发 textLoaded
+        if self._typing_adapter.is_slice_mode():
+            self.exitSliceMode()
+        self._clear_local_article_active()
+        self._clear_trainer_active()
+        self._typing_adapter.prepare_for_text_load()
+        self._clear_text_id()
+        self._typing_adapter.setup_custom_session("federated")
+        display_title = title or detail.get("title", "") or "联邦文本"
+        self._typing_adapter.setTextTitle(display_title)
+        self.windowTitleChanged.emit()
+        self.textLoaded.emit(content, -1, display_title)
 
     def _submit_to_thread_pool(self, fn, on_result, on_error) -> None:
         """将 callable 提交到后台线程池执行，结果回调到主线程。
@@ -1203,97 +1281,6 @@ class Bridge(QObject):
             total_chars,
             source_segment_size,
         )
-
-    def _build_federated_segment_session(
-        self,
-        adapter: "_FederationSegmentAdapter",
-        entry_id: str,
-        revision_id: str,
-        segment_index: int,
-        segment_size: int,
-        total_chars: int,
-        source_segment_size: int,
-        title: str,
-        authority: str,
-    ) -> dict:
-        from src.backend.models.dto.text_session import TextKind
-
-        provider = self._make_ott_segment_provider(
-            adapter,
-            entry_id,
-            revision_id,
-            total_chars,
-            source_segment_size,
-        )
-        built = self._text_adapter.buildProviderTextSession(
-            provider=provider,
-            kind=TextKind.OTT,
-            identifier=f"{entry_id}@{revision_id}",
-            title=title,
-            version=revision_id,
-            slice_size=segment_size,
-            start_slice=segment_index,
-            source_key="ott",
-        )
-        if built is None:
-            raise RuntimeError("无法加载联邦文本分段")
-        usecase, result = built
-        return {
-            "usecase": usecase,
-            "result": result,
-            "entry_id": entry_id,
-            "revision_id": revision_id,
-            "segment_size": segment_size,
-            "source_segment_size": source_segment_size,
-            "title": title,
-            "authority": authority,
-        }
-
-    def _on_ott_segment_session_started(self, payload: dict) -> None:
-        self._text_adapter.attachTextSession(
-            payload["usecase"], int(payload["segment_size"])
-        )
-        result = payload["result"]
-        title = str(payload.get("title", "") or "")
-        title_label = (
-            f"{title} {result.index}/{result.total}"
-            if title and result.total > 1
-            else f"{result.index}/{result.total}"
-            if result.total > 1
-            else title
-        )
-        p = self._coordinator.pending_slice_params
-        self._typing_adapter.setTextTitle(title_label)
-        self.windowTitleChanged.emit()
-        self._coordinator._cache_current_content(result.content)
-        self._coordinator.source_slice_backend = "ott"
-        self._coordinator.source_slice_segment_size = int(payload["segment_size"])
-        self._coordinator._source_slice_title = title
-        self._coordinator._visited_slices.clear()
-        progress_id = (
-            f"{payload.get('authority', 'local')}:"
-            f"{payload['entry_id']}@{payload['revision_id']}"
-        )
-        self._progress_key_override = _compute_progress_key("ott", progress_id)
-        self._typing_adapter.setup_sourced_slice_mode(
-            result.index,
-            result.total,
-            slice_size=int(payload["segment_size"]),
-            on_fail_action=p["on_fail_action"],
-            key_stroke_min=p["key_stroke_min"],
-            speed_min=p["speed_min"],
-            accuracy_min=p["accuracy_min"],
-            pass_count_min=p["pass_count_min"],
-            reset_counts=True,
-            auto_decrease_enabled=p.get("auto_decrease_enabled", False),
-            key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
-            speed_decrease=p.get("speed_decrease", 0),
-            accuracy_decrease=p.get("accuracy_decrease", 0),
-        )
-        self._restore_pending_progress()
-        self._update_progress_current_slice()
-        self.sliceModeChanged.emit()
-        self.textLoaded.emit(result.content, -1, title_label)
 
     def loadOttCurrentSessionSegment(self, index: int) -> None:
         """异步加载当前 OTT session 的指定 segment。"""
@@ -2422,15 +2409,21 @@ class Bridge(QObject):
 
     @Slot()
     def loadFederatedEntries(self) -> None:
-        """加载联邦聚合的全部条目。"""
+        """加载联邦聚合条目（同步读已存快照，零网络）。"""
         if self._registry_adapter:
-            self._registry_adapter.loadAllEntries()
+            self._registry_adapter.loadFederatedEntries()
 
     @Slot(str)
-    def refreshFederatedSource(self, authority: str) -> None:
-        """单源强制刷新（random 换新）：物化该源并重发条目列表。"""
+    def refreshFederatedRepo(self, repo_id: str) -> None:
+        """订阅源（repo）级强制刷新：只物化该 repo 下的全部源并重发条目列表。"""
         if self._registry_adapter:
-            self._registry_adapter.refreshSource(authority)
+            self._registry_adapter.refreshRepoEntries(repo_id)
+
+    @Slot()
+    def refreshFederatedAll(self) -> None:
+        """全部源强制刷新（随机源抽新 + 静态源换新）：重新物化并重发条目列表。"""
+        if self._registry_adapter:
+            self._registry_adapter.refreshAllSources()
 
     @Slot(str, str, int)
     def setSourceRefreshOverride(

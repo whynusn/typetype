@@ -107,6 +107,6 @@ def test_registry_adapter_wired_with_catalog(monkeypatch):
     runtime_config = RuntimeConfig()
     adapters = _build_adapters(runtime_config)
     assert adapters.registry.catalog is not None
-    assert hasattr(adapters.registry, "refreshSource")
+    assert hasattr(adapters.registry, "refreshRepoEntries")
     # 常驻调度器保留于 Adapters 束（防 GC 后自动刷新失效）
     assert adapters.scheduler is not None

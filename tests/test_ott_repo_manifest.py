@@ -79,6 +79,21 @@ def test_validate_valid_manifest():
     assert v["sources"][0]["endpoints"][0]["profile"] == "static"
 
 
+def test_validate_optional_max_entries():
+    """可选 max_entries（订阅源声明文本上限）：正数保留，缺失/非正 = 0 = 无上限。"""
+    m = _valid_manifest()
+    assert validate_repo_manifest(m)["max_entries"] == 0  # 缺失 → 0
+
+    m["max_entries"] = 1000
+    assert validate_repo_manifest(m)["max_entries"] == 1000
+
+    m["max_entries"] = -5
+    assert validate_repo_manifest(m)["max_entries"] == 0
+
+    m["max_entries"] = "lots"
+    assert validate_repo_manifest(m)["max_entries"] == 0
+
+
 def test_validate_rejects_bad_protocol():
     m = _valid_manifest()
     m["protocol"] = "nope"
@@ -392,26 +407,30 @@ def test_mirror_failover_without_cache_returns_none(tmp_path):
 
 
 def test_to_jsdelivr_url():
-    """raw.githubusercontent.com → cdn.jsdelivr.net 转换；非 raw URL 不降级。"""
-    from src.backend.integration.ott_repo_manifest import _to_jsdelivr_url
+    """raw.githubusercontent.com → cdn.jsdelivr.net 转换；非 raw URL 不降级。
+
+    （2026-08-14 该函数迁移至 ott_normalization，供 ScriptCache /
+    OttCachedFetcher 复用；此处改从新位置导入。）
+    """
+    from src.backend.integration.ott_normalization import to_jsdelivr_url
 
     assert (
-        _to_jsdelivr_url(
+        to_jsdelivr_url(
             "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json"
         )
         == "https://cdn.jsdelivr.net/gh/whynusn/ott-source-hub@main/ott-repo.json"
     )
     assert (
-        _to_jsdelivr_url(
+        to_jsdelivr_url(
             "https://raw.githubusercontent.com/a/b/main/adapters/x/code/script.py"
         )
         == "https://cdn.jsdelivr.net/gh/a/b@main/adapters/x/code/script.py"
     )
     # 非 GitHub raw URL → 不降级（None）
-    assert _to_jsdelivr_url("https://texts.example.org/ott-repo.json") is None
-    assert _to_jsdelivr_url("file:///tmp/ott-repo.json") is None
+    assert to_jsdelivr_url("https://texts.example.org/ott-repo.json") is None
+    assert to_jsdelivr_url("file:///tmp/ott-repo.json") is None
     # 路径段不足 → 不降级
-    assert _to_jsdelivr_url("https://raw.githubusercontent.com/a/b") is None
+    assert to_jsdelivr_url("https://raw.githubusercontent.com/a/b") is None
 
 
 def test_first_fetch_failure_falls_back_to_jsdelivr(tmp_path):

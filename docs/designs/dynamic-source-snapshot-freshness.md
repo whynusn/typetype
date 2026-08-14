@@ -229,6 +229,7 @@ class SnapshotCatalogService:
 - `RefreshPolicy`：各模式 `next_refresh_at` 计算、优先级链（用户覆盖 > manifest 声明 > 推断）、`resolve` 无覆盖回退推断
 - `RuntimeConfig.source_refresh_overrides`：`set/clear` 写读、v1→v2 迁移缺省空段、`_from_dict` 类型容错
 - `SnapshotCatalogService`：**mock federation 断言 `load_entry` 零 fetch**（失配修复回归）；`refresh_and_list_all` 写快照+prune 保留 N；`refresh_source` 换新；覆盖生效后 `next_refresh_at` 重新锚定
+- `SnapshotCatalogService.load_entry`：快照无 `content` 时必须兜底 `federation.get_entry`（instance 源列表物化是摘要，快照只有 preview）——回归：内置 static 源载入跟打一直失败（提交 `8e242c9`）
 - `RefreshScheduler`：到期扫描、去重、后台执行
 - QML：新鲜度徽章渲染 + 刷新间隔下拉（复用 `test_qml_pages.py` 框架）
 

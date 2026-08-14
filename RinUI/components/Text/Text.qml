@@ -6,6 +6,7 @@ import "../../utils"
 Text {
     id: label
     property int typography: -1
+    property bool selectByMouse: false
 
     color: targetColor
     linkColor: Theme.currentTheme.colors.primaryColor

@@ -31,6 +31,23 @@ def local_path_from_file_uri(url: str) -> Path:
     return Path(path)
 
 
+def to_jsdelivr_url(url: str) -> str | None:
+    """raw.githubusercontent.com/{owner}/{repo}/{ref}/{path} → cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}。
+
+    用于主地址请求失败时的 CDN 降级：GitHub raw 直连在国内网络常超时
+    （2026-08-13 实测 HTTP 000），jsDelivr 实测稳定可达。非 GitHub raw URL
+    返回 None（不降级）。
+    """
+    prefix = "https://raw.githubusercontent.com/"
+    if not url.startswith(prefix):
+        return None
+    parts = url[len(prefix) :].split("/", 3)
+    if len(parts) < 4:
+        return None
+    owner, repo, ref, path = parts
+    return f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}"
+
+
 def redact_url(url: str) -> str:
     """日志脱敏：仅保留 scheme://host，丢弃路径与查询参数。"""
     try:

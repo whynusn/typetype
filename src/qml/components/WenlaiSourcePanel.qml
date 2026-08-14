@@ -77,6 +77,7 @@ Frame {
             Button {
                 text: (appBridge && appBridge.wenlaiLoggedIn) ? qsTr("账号设置") : qsTr("去登录")
                 flat: true
+                icon.name: "ic_fluent_settings_20_regular"
                 onClicked: root.openSettings()
             }
         }
@@ -159,6 +160,7 @@ Frame {
                     Button {
                         text: qsTr("修改配置")
                         flat: true
+                        icon.name: "ic_fluent_settings_20_regular"
                         onClicked: root.openSettings()
                     }
                 }

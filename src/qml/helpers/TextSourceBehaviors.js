@@ -62,6 +62,22 @@ var capabilities = {
         icon: "ic_fluent_edit_20_regular"
     },
 
+    wenlai: {
+        supportsRefresh: false, supportsSearch: false, supportsProgress: false,
+        supportsPreview: false, supportsShuffle: false, supportsEdit: false,
+        supportsCountValidation: false, needsContentPrefetch: false,
+        launchKind: "instant_source", tier: "instant",
+        label: qsTr("晴发文"), icon: "ic_fluent_book_20_regular"
+    },
+
+    ai: {
+        supportsRefresh: false, supportsSearch: false, supportsProgress: false,
+        supportsPreview: false, supportsShuffle: false, supportsEdit: false,
+        supportsCountValidation: false, needsContentPrefetch: false,
+        launchKind: "instant_source", tier: "instant",
+        label: qsTr("AI 推荐"), icon: "ic_fluent_sparkle_20_regular"
+    },
+
     repos: {
         supportsRefresh: true,
         supportsSearch: true,
@@ -278,8 +294,8 @@ function loadList(bridge, sourceKey) {
         bridge.loadTrainers()
         return qsTr("正在扫描练单器词库...")
     case "repos":
-        bridge.loadFederatedEntries()
-        return qsTr("正在聚合开源文本...")
+        bridge.loadFederatedEntries()  // 同步读取已存快照，零网络
+        return qsTr("正在读取开源文库...")
     }
     return null  // custom 无列表加载
 }

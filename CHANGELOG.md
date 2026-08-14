@@ -28,6 +28,16 @@
 
 ### Fixed
 
+- **开源文库视图 = 当前快照存储（永久语义）**：每次进入开源文库都同步显示当前全部已存快照（零网络、即时渲染、不白屏），随后后台重新物化过期源并原地更新列表——不再每次进入都全量重新物化（旧实现 15s 超时空白等待），也不停留在「仅首屏」的陈旧视图；存储新鲜度由后台 revalidate + RefreshScheduler + 过期/prune 机制维护，手动刷新才强制换新
+- **刷新不再让条目变少**：`refresh_and_list_all` 返回值改为当前全部已存快照（物化只更新存储）——曾因部分源网络失败/超时整源从视图消失（「点刷新后变少很多」），其快照明明还在存储里；失败源保留旧快照（可刷新/可载入），视图只随存储变化、不随单次物化成败波动
+- **开源文库「载入跟打」闪退/无限加载修复**：联邦条目载文（segmented instance / inline 规则源）改为同步镜像本地文库链路——旧实现经 worker 子线程构建会话 + `textContentLoaded` 间接回传，instance 源实测 **double free or corruption**（共享 httpx client 跨线程并发）、规则源信号丢失导致「一直加载动画」（快照明明在却不载文）。现主线程同步建会话 + 直发 `textLoaded`，与「本地文库」同一条落地链路
+- **开源文库刷新按钮真正生效且按层级作用域**：rule/script/bridge 条目内存缓存（TTL 默认 3600s）与 instance 文件缓存曾拦截手动刷新——TTL 内点刷新返回旧条目。现手动刷新一律 force 绕过缓存：右栏「刷新」/列表顶部总刷新（`refreshFederatedAll`）全部源强制换新，源组头刷新（`refreshFederatedRepo`）只物化该订阅源下的全部源（不再全量列所有源再过滤），on_demand 源点一次换新一篇；刷新完成后视图走 `list_cached()` 纯读已落盘快照（不重物化其他源、不重置其他源 freshness 徽章/相对时间）；刷新动画同层级：列表级刷新盖整列表 loading，repo 刷新仅对应源组头转圈（`refreshingFederatedRepo`），列表保持可交互
+- **后台 revalidate 不再虚刷 freshness**：`refresh_and_list_all` 非 force 路径按内容指纹（`snap_fingerprint`）比对——内容未变的快照跳过落盘、保留原 `captured_at`（曾无条件 `save(captured_at=now)`，每次进入开源文库后台刷新后所有源徽章被重置成「刚刚/最新」，即使根本没重新抓取）；内容真正变化（TTL 过期源重抓）或手动刷新（force）才更新时间戳。指纹由 catalog 层按内容相关字段自算（instance 摘要与 rule/script/bridge 条目无统一 `content_hash`）；旧快照无指纹首次 revalidate 补写（一次性）
+- **刷新动画不再卡死/永转**：`RegistryAdapter` 恢复条目物化/刷新硬超时兜底（45s，`loadFederatedEntries` 重构时曾把旧 15s QTimer 兜底删掉）——网络 hang 时 worker 永不完成、loading/动画永转；现在到点只清理状态并提示「刷新超时，请检查网络」（后台 revalidate 超时静默保持快照视图），不等待 worker 线程
+- **开源文库按订阅源分组展示**：列表改为「源组头 + 组内条目」两级结构——条目物化时按**所属订阅源动态归组**（federation 注入 `_repo_id/_repo_name/_repo_url/_repo_max_entries`，不硬编码）；组头 = 展开/收起 + 源名 + 条目计数 + 源级刷新（动画只在组头播放一份，同源几千文本不会同时播几千份动画）+ 管理按钮；卡片只保留 freshness 徽章，刷新操作收敛到组头。修复 delegate 绑定 TypeError（不可见分支对 undefined role 求值报错，双组件 Loader 方案）
+- **订阅源配置弹窗取代独立管理页**：`ReposManagementPage`/`ReposManagementPanel` 删除——组头「管理该源」打开 `RepoConfigDialog`（启用/信任确认/删除订阅）；「添加订阅」在开源文库列表头部弹窗输入 URL；**删除订阅连带清理该源全部已缓存文本**（`catalog.remove_repo` → `store.clear_authority`，不再残留孤儿快照目录），列表即时移除该源
+- **文本计数 x / 上限**：manifest 新增可选字段 `max_entries`（订阅源声明文本上限，缺失/非正 = 无上限），组头显示「当前 N 条」或「N / M 条」；repo 级刷新（`refreshFederatedRepo`）只物化该订阅源下的全部源，其他订阅源零调用
+- **脚本下载 GitHub raw 超时兜底**：`ScriptCache` 与 `OttCachedFetcher` 主地址失败时自动走 jsDelivr CDN 降级（raw.githubusercontent.com → cdn.jsdelivr.net，与 manifest 拉取同款），修复脚本源/instance 源在国内网络下 `read operation timed out`
 - **占位订阅清理后补回内置源**：配置里只剩 `example.org` 测试占位时，清理后自动重新注入内置 OTT Repo，避免应用启动后源列表为空
 
 ### Removed

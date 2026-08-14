@@ -312,3 +312,56 @@ def test_fetch_json_content_length_guard_skips_parse(tmp_path):
     fetcher = make_fetcher(tmp_path, client=client)
     assert fetcher._fetch_json("https://example.com/api", max_bytes=100) is None
     resp.json.assert_not_called()
+
+
+def test_force_bypasses_fresh_cache(tmp_path):
+    """force=True 无视 fresh 缓存，直接网络拉取并写回（手动刷新语义）。"""
+    client = MagicMock(spec=httpx.Client)
+    client.get.return_value = mock_response({"content": "旧缓存"})
+    fetcher = make_fetcher(tmp_path, client=client)
+    assert (
+        fetcher.fetch_json_with_cache("k", "https://example.com/a.json")["content"]
+        == "旧缓存"
+    )
+
+    client.get.return_value = mock_response({"content": "新内容"})
+    result = fetcher.fetch_json_with_cache(
+        "k", "https://example.com/a.json", force=True
+    )
+    assert result["content"] == "新内容"
+    # 写回缓存（force 命中后，下次普通读取即新内容）
+    cached = fetcher.read_cache("k")
+    assert cached["content"] == "新内容"
+
+
+def test_jsdelivr_fallback_on_raw_github_failure(tmp_path):
+    """GitHub raw 超时 → jsDelivr CDN 降级（instance 数据面复用 manifest 兜底）。"""
+    client = MagicMock(spec=httpx.Client)
+
+    def _get(url):
+        if url.startswith("https://raw.githubusercontent.com/"):
+            raise httpx.ReadTimeout("read timed out", request=None)
+        return mock_response({"content": "cdn 内容"})
+
+    client.get.side_effect = _get
+    fetcher = make_fetcher(tmp_path, client=client)
+    result = fetcher.fetch_json_with_cache(
+        "k", "https://raw.githubusercontent.com/o/r/main/data.json"
+    )
+    assert result is not None
+    assert result["content"] == "cdn 内容"
+    assert client.get.call_count == 2
+
+    # 文本面同样降级
+    def _get_text(url):
+        if url.startswith("https://raw.githubusercontent.com/"):
+            raise httpx.ReadTimeout("read timed out", request=None)
+        return mock_text_response("cdn 文本内容")
+
+    client.get.side_effect = _get_text
+    text = fetcher.fetch_text_with_cache(
+        "tk", "https://raw.githubusercontent.com/o/r/main/text.txt"
+    )
+    assert text == "cdn 文本内容"
+    # JSON + 文本各 2 次（raw 失败 + jsDelivr 成功），合计 4
+    assert client.get.call_count == 4

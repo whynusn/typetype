@@ -442,8 +442,10 @@ FluentPage {
                                         fontDlgDelegate._deleting = true;
                                         appBridge.removeFont(fontDlgDelegate.fontName);
                                     }
-                                    ToolTip.text: qsTr("删除此字体")
-                                    ToolTip.visible: hovered
+                                    ToolTip {
+                                        text: qsTr("删除此字体")
+                                        visible: hovered
+                                    }
                                 }
                             }
                         }
@@ -1196,8 +1198,10 @@ FluentPage {
                 ToolButton {
                     flat: true
                     icon.name: "ic_fluent_delete_20_regular"
-                    ToolTip.text: qsTr("忽略此版本")
-                    ToolTip.visible: hovered
+                    ToolTip {
+                        text: qsTr("忽略此版本")
+                        visible: hovered
+                    }
                     onClicked: {
                         if (appBridge) appBridge.dismissUpdate()
                         updateAvailable = false

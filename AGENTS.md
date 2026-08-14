@@ -159,7 +159,7 @@
 - `FluentPage` 不使用 `layer.effect: OpacityMask`
 - **FluentPage 内容区子项必须用 `Layout.*` 而非 `anchors`**
 - **QQC 必须限定导入 `as QQC`**（避免与 RinUI 同名组件冲突）
-- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部 RinUI `Segmented` 切换 6 个来源 tab（本地文库/开源文库/练单器/晴发文/AI 推荐/自定义）；各来源共享同一组分片/达标组件，不再分散为多个独立入口页。开源文库 tab 直接展示联邦聚合条目（`RepoEntriesPanel`，选中即载入），订阅管理独立子页面 `ReposManagementPage.qml`（经 `navigationView.push(Qt.resolvedUrl("ReposManagementPage.qml"))` 进入）
+- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部 RinUI `Segmented` 切换 6 个来源 tab（本地文库/开源文库/练单器/晴发文/AI 推荐/自定义）；各来源共享同一组分片/达标组件，不再分散为多个独立入口页。开源文库 tab 按订阅源分组展示联邦聚合条目（`RepoEntriesPanel`，选中即载入；源组头可展开/收起/刷新/管理），订阅管理收敛到源组头弹窗 `RepoConfigDialog`（独立管理页 `ReposManagementPage` 已删除）
 
 ---
 
@@ -349,13 +349,16 @@ onActiveChanged: {
 - 原子写：tmp + `Path.replace`，全方法 `try/except OSError` 兜底
 - 后台刷新：`AsyncExecutor` + `threading.Lock` 去重防重复刷新
 - 旧 `OttTextProvider` 已删除，缓存实现在 `integration/ott_cached_fetcher.py`，由联邦/规则/脚本客户端复用
+- **jsDelivr CDN 降级（2026-08-14）**：`fetch_json_with_cache`/`fetch_text_with_cache` 主地址失败时按 `to_jsdelivr_url`（`ott_normalization.py`，raw.githubusercontent.com → cdn.jsdelivr.net）重试 CDN；`ScriptCache._download_limited` 同样兜底（脚本下载曾裸打 raw 超时）。manifest 拉取（`RepoManifestCache`）自 2026-08-13 已有同款降级，现统一到 `ott_normalization.to_jsdelivr_url`
+- **force 参数（2026-08-14）**：`fetch_json_with_cache(..., force=True)` / `fetch_text_with_cache(..., force=True)` 绕过缓存读、直接拉取并写回——手动刷新不得被 TTL 缓存拦截（失败时返回 None，不读旧缓存）
 
 **正确做法**：
 - 修改 Registry 相关逻辑 → 通过 `fetch_json_with_cache()` / `fetch_text_with_cache()` 走缓存层，不要绕过 `read_cache`/`write_cache`
 - 新增缓存路径 → 复用 `cache_path(cache_key)` 统一文件布局
 - 缓存写入失败/读取失败 → 静默返回 None，不要阻塞主流程
+- 主地址失败 → 让 `_fetch_json/_fetch_text` 走 jsDelivr 兜底，不要在调用方重复造降级；非 raw.githubusercontent.com URL 不会触发
 
-**历史**：2026-07-05 Phase 1a/1b 实现，ADR-008 §决策；2026-08-13 随 `OttTextProvider` 删除迁移到 `OttCachedFetcher`（ADR-013）。
+**历史**：2026-07-05 Phase 1a/1b 实现，ADR-008 §决策；2026-08-13 随 `OttTextProvider` 删除迁移到 `OttCachedFetcher`（ADR-013）；2026-08-14 jsDelivr 降级统一 + force 参数。
 
 ### ⚠️ typetype 只能依赖 OTT 只读协议，不能把 `/api/entries` 当标准路径
 
@@ -493,9 +496,24 @@ onActiveChanged: {
 
 **正确做法**：联邦列表物化结果写 `EntrySnapshotStore`（磁盘快照），`load_entry` 快照命中直接返回；刷新只是换新（保留最近 N 条）。on_demand 源（每次随机）不得进入自动调度（防无限刷新循环），仅手动「抽新」。新增刷新策略 → 扩展 `RefreshPolicy` 模式；用户 per-source 覆盖走 `RuntimeConfig.set_source_refresh_override`。
 
-**已知边界**：快照条目级有界（`prune_stale` 每 authority 保留 N=5），但 authority 级无界——删除订阅后快照目录残留磁盘（GC/清理页为 spec 后续项，思路见 `docs/designs/dynamic-source-snapshot-freshness.md` §8）。
+**刷新语义（2026-08-14 修正）**：rule/script/bridge 条目内存缓存（`_EntryCache`，TTL=`ott.cache_ttl_seconds`）与 instance 文件缓存**曾拦截手动刷新**——TTL 内点刷新按钮返回旧条目，且 `refresh_source` 先全量列所有源再过滤（O(N) 浪费 + 全源随机源重抽）。现在：
+- 手动刷新一律 **force 绕过缓存**：总刷新 `refreshFederatedAll`（全部源强制换新）→ `registry_adapter.refreshAllSources` → `catalog.refresh_and_list_all(force=True)` → `federation.list_all_entries(force=True)`；repo 级刷新 `refreshFederatedRepo(repo_id)` → `catalog.refresh_repo` → 该 repo 下各 authority 逐个 `federation.refresh_source(authority)`（**只物化该 repo**，其他 repo 零调用）
+- force 穿透链路：`_EntryCache.get(key, force=True)` → 各 client `list_entries(force=True)` → `OttCachedFetcher.fetch_*(..., force=True)`（绕过缓存读，失败返回 None 不读旧缓存）
+- **自动调度不受影响**：`RefreshScheduler`/`scheduled_tick` 仍只刷 interval 到期源，`on_demand` 仅手动抽新（防无限刷新循环）
+- **刷新按组件层级作用域**：右侧面板「刷新」repos 时 = 全部源换新（该层级列表即联邦聚合）、左栏列表顶部刷新 = 全部源换新、**源组头刷新 = 订阅源（repo）级换新**（`refreshFederatedRepo(repo_id)` → `catalog.refresh_repo` → 该 repo 下全部 authority 逐个 `federation.refresh_source`（force），其他 repo 零调用）。**视图必须走 `catalog.list_cached()` 纯读**（不能走 `refresh_and_list_all`——那会重新物化其他源（缓存冷时打网络）并把所有源快照 `captured_at` 重置，freshness 徽章被污染）。**刷新动画同样按层级作用域**：列表级刷新置 `entries_loading` 盖整列表动画；repo 刷新**不置列表级 loading**，只标记 `refreshingFederatedRepo`（Bridge 代理 `RegistryAdapter.refreshing_repo`）。**`RepoEntriesPanel` 按订阅源（repo）动态分组**：条目物化时 federation `_decorate_with_repo_meta` 注入 `_repo_id/_repo_name/_repo_url/_repo_max_entries`（authority→repo 映射随 `_build_clients` 缓存构建，**纯动态归属不硬编码**）——条目属于哪个订阅源就归入哪个源组。组头 = 展开/收起 + 源名 + **条目计数（x / 上限，上限来自 manifest 可选字段 `max_entries`，缺失=无上限）+ 源级刷新按钮/动画（一份）+ 管理按钮**；卡片只保留 freshness 徽章，刷新操作收敛到组头。组头点击 = 展开/收起（`_expanded` 状态，折叠时组内条目不渲染）。**管理弹窗 `RepoConfigDialog` 取代独立管理页**（`ReposManagementPage`/`ReposManagementPanel` 已删除）：组头「管理该源」打开弹窗（启用/信任确认/删除订阅）；「添加订阅」在列表头部弹窗输入 URL。**删除订阅连带清理快照**：`removeRepo` → `federation.repo_id_of_url` + `catalog.remove_repo` → `store.clear_authority`（逐 authority 删快照目录），随后重发条目列表；列表级刷新开始时清除 repo 标记。**delegate 双组件（Loader）**：header/entry 各自只引用自己的 role——不可见分支的绑定也会求值，混用 `model.group`/`model.entry` 会对 undefined role 抛 TypeError（2026-08-14 实测修复）
+- **条目刷新硬超时兜底（2026-08-14 恢复）**：旧 `loadAllEntries` 曾有 15s QTimer 兜底，`loadFederatedEntries` 重构时丢失——网络请求各有 timeout，但一个 worker 任务串行多请求/多页/脚本+条目总时长可能很长，某环节 hang（DNS 挂起等）时 worker 永不完成、loading/动画永转。现 `RegistryAdapter` 统一 `_ENTRIES_REFRESH_TIMEOUT_S=45` 单发 QTimer：`refreshRepoEntries`/`refreshAllSources`/`_revalidate_entries`（quiet）启动，到点只清理状态（`refreshing_repo`/`entries_loading`/`_entries_revalidating`）+ 手动刷新发「刷新超时，请检查网络」（revalidate 静默保持快照视图），**不等待 worker 线程**（worker 之后完成仍正常重发列表，无害）；操作已提前完成 → 陈旧超时经状态检查直接忽略
 
-**历史**：2026-08-13 设计（docs/designs/dynamic-source-snapshot-freshness.md）与实现。
+**进入开源文库视图 = 当前快照存储（永久语义，2026-08-14）**：`loadFederatedEntries` → `RegistryAdapter.loadFederatedEntries` 先**同步**读 `catalog.list_cached()`（`EntrySnapshotStore.list_all` 只读已落盘快照，零网络、不白屏），随后**后台非强制** `refresh_and_list_all()`（仅 TTL 过期源重抓）完成后**原地更新**列表（不置 loading、不触发错误态）。每次查看都成立（非仅首屏）——快照存储本就是列表唯一事实源，过期/prune/手动刷新（force）只换新存储，视图永远等于存储。后台 revalidate 失败静默（保持已显示的快照视图）；进行中重复进入不叠加（`_entries_revalidating` 去重）。
+
+**revalidate 不虚刷 freshness（2026-08-14）**：`refresh_and_list_all` 非 force 路径对**内容未变**的快照跳过 save（快照 `snap_fingerprint` 指纹比对），保留原 `captured_at`——缓存命中的源不再被重置成「刚刚/最新」（曾无条件 `save(captured_at=now)`，每次进入 tab 所有源徽章被虚刷）。内容真正变化（TTL 过期源重抓返回新内容）或手动 force（`refreshAllSources`/`refresh_source`，确实重新抓了）才更新 `captured_at`。指纹由 catalog 层 `_content_fingerprint` 按内容相关字段（title/preview/content/char_count/content_mode/revision/segment/tags 等）规范化哈希自算——instance 摘要（`normalize_summary`）与 rule/script/bridge 条目没有统一 `content_hash`；旧快照无指纹 → 首次 revalidate 视为已变并补写（一次性），之后稳定。
+
+**⚠️ 刷新视图不得收缩（2026-08-14 回归修复）**：`refresh_and_list_all` 的返回值**必须等于当前全部已存快照**（物化只更新存储，返回 `list_cached()`），不能只返回本次物化成功的源——曾因网络失败/超时的源整个从视图消失（「点击刷新后条目变少很多」），其快照明明仍在存储里。物化失败源保留旧快照（on_demand 恒「随机」徽章 / interval 标 stale），仍可载入；视图只随存储变化（过期/prune/force 换新），不随单次物化成败波动。
+
+**已知边界**：快照条目级有界（`prune_stale` 每 authority 保留 N=5）；**删除订阅会连带清理该 repo 下全部 authority 的快照**（`catalog.remove_repo` → `store.clear_authority`），孤儿残留仅在非正常退出/手动删配置等路径下存在（GC/清理页为 spec 后续项，思路见 `docs/designs/dynamic-source-snapshot-freshness.md` §8）。**instance 源的列表物化是摘要（`normalize_summary`，无 `content` 字段）**，快照只有 preview——`load_entry` 必须对「快照命中但无正文」兜底 `federation.get_entry` 拉全文（静态端点按条目文件缓存，重复点击不重复打网络），否则内置 static 源载入跟打恒失败（回归：2026-08-13 实测修复）。rule/script/bridge 快照含 content，快照命中零重抽。
+
+**联邦载文同步镜像本地链路（2026-08-14 修复闪退/无限加载）**：`loadFederatedEntrySegment` / `loadFederatedInlineEntry` **不再跨 worker 线程**构建/回传会话——旧实现 `_submit_to_thread_pool` 在子线程构造 `OttSegmentProvider`/`TextSessionUseCase` 并经 `textContentLoaded` 间接回传，实测 instance 源触发 **double free or corruption**（共享 httpx client 跨线程并发使用）、规则源 `textContentLoaded` 信号丢失导致「一直加载动画」（快照明明在却不载文）。现在与 `loadLocalArticleSegment` / `loadFullText` 一致：主线程同步建会话 + 直发 `textLoaded`（QML `applyLoadedText → handleLoadedText` 落地）。删除了 `_on_ott_segment_session_started`/`_build_federated_segment_session` 与 `textContentLoaded` 信号（零发射者）；QML 侧 `_pendingFederatedContent` 标志移除，busy 由常驻联邦 Connections 的 `onTextLoaded`/`onTextLoadFailed` 清除。
+
+**历史**：2026-08-13 设计（docs/designs/dynamic-source-snapshot-freshness.md）与实现；2026-08-14 手动刷新 force 语义 + 单源刷新不再全量列源 + 进入 tab 读快照（首屏→永久：同步显示 + 后台 revalidate）+ 联邦载文同步化。
 
 ---
 
