@@ -71,7 +71,6 @@ Dialog {
                 typography: Typography.Caption
                 color: Theme.currentTheme.colors.textSecondaryColor
                 elide: Text.ElideMiddle
-                selectByMouse: true
             }
         }
 

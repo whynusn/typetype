@@ -285,7 +285,15 @@ Frame {
                         property var groupData: model.kind === "header" ? model.group : null
                         property var entryData: model.kind === "entry" ? model.entry : null
                         sourceComponent: model.kind === "header" ? headerComponent : entryComponent
-                    }
+                        /* ⚠️ 两个组件必须声明为 delegate Loader 的直接子项：
+                           Loader 实例化「外部声明的 Component」时，加载项的 QML
+                           上下文是组件声明处（ListView 作用域），看不到 delegate
+                           的 loader id 与 model/index 上下文属性——此前声明在
+                           ListView 下，全部 header/entry 绑定抛 ReferenceError
+                           "loader is not defined" / "model is not defined"
+                           （2026-08-14 全应用实测）。声明为 Loader 子项后加载项
+                           继承 delegate 上下文，loader.groupData /
+                           loader.entryData / model.* 均可解析。 */
 
                     // ================= 组头：订阅源 =================
                     Component {
@@ -520,6 +528,7 @@ Frame {
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
