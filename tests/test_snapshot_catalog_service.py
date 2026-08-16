@@ -287,22 +287,71 @@ def test_revalidate_updates_captured_at_when_content_changed(
     assert snap["captured_at"] == 2000.0  # 内容变 → 更新
 
 
-def test_force_refresh_always_updates_captured_at(tmp_path, monkeypatch) -> None:
-    """手动总刷新（force）无条件更新 captured_at——即使内容相同（确实重新抓了）。"""
+def test_force_refresh_keeps_captured_at_when_content_unchanged(
+    tmp_path, monkeypatch
+) -> None:
+    """手动总刷新（force）内容未变时保留 captured_at，只推进 last_checked_at。
+
+    回归：force 曾无条件 save(captured_at=now)，静态源点「检查更新」后
+    内容没变却显示「刚刚」；现在 captured_at 只在内容实际变化时推进。
+    """
     import src.backend.application.services.snapshot_catalog_service as scs
 
     monkeypatch.setattr(scs.time, "time", lambda: 1000.0)
     svc, federation = _svc(tmp_path, [_entry()])
     svc.refresh_and_list_all()
-    assert svc._store.get("auth", "e1")["captured_at"] == 1000.0
+    snap = svc._store.get("auth", "e1")
+    assert snap["captured_at"] == 1000.0
+    assert snap["last_checked_at"] == 1000.0
 
     monkeypatch.setattr(scs.time, "time", lambda: 2000.0)
-    svc.refresh_and_list_all(force=True)  # 同内容 force → 无条件更新
-    assert svc._store.get("auth", "e1")["captured_at"] == 2000.0
+    svc.refresh_and_list_all(force=True)  # 同内容 force → 不虚刷内容时间
+    snap = svc._store.get("auth", "e1")
+    assert snap["captured_at"] == 1000.0
+    assert snap["last_checked_at"] == 2000.0  # 检查时间推进
 
-    monkeypatch.setattr(scs.time, "time", lambda: 3000.0)
-    svc.refresh_and_list_all()  # 非 force 同内容 → 保留
-    assert svc._store.get("auth", "e1")["captured_at"] == 2000.0
+    result = svc.refresh_and_list_all(force=True)
+    assert result[0]["captured_at"] == 1000.0
+    assert result[0]["last_checked_at"] == 2000.0
+    assert result[0]["checked_without_change"] is True
+
+
+def test_refresh_source_keeps_captured_at_for_unchanged_static(
+    tmp_path, monkeypatch
+) -> None:
+    """源级刷新内容未变：保留 captured_at，仅写 last_checked_at（用户报告修复）。"""
+    import src.backend.application.services.snapshot_catalog_service as scs
+
+    monkeypatch.setattr(scs.time, "time", lambda: 1000.0)
+    svc, federation = _svc(tmp_path, [_entry()])
+    svc.refresh_source("auth")
+    snap = svc._store.get("auth", "e1")
+    assert snap["captured_at"] == 1000.0
+    assert snap["last_checked_at"] == 1000.0
+
+    monkeypatch.setattr(scs.time, "time", lambda: 2000.0)
+    svc.refresh_source("auth")
+    snap = svc._store.get("auth", "e1")
+    assert snap["captured_at"] == 1000.0  # 内容未变 → 时间不虚刷
+    assert snap["last_checked_at"] == 2000.0  # 检查时间推进
+
+
+def test_refresh_source_updates_captured_at_when_content_changed(
+    tmp_path, monkeypatch
+) -> None:
+    """源级刷新内容真正变化：captured_at 与 last_checked_at 同步推进。"""
+    import src.backend.application.services.snapshot_catalog_service as scs
+
+    monkeypatch.setattr(scs.time, "time", lambda: 1000.0)
+    svc, federation = _svc(tmp_path, [_entry(content="hello")])
+    svc.refresh_source("auth")
+
+    monkeypatch.setattr(scs.time, "time", lambda: 2000.0)
+    federation._entries = [_entry(content="world")]
+    svc.refresh_source("auth")
+    snap = svc._store.get("auth", "e1")
+    assert snap["captured_at"] == 2000.0
+    assert snap["last_checked_at"] == 2000.0
 
 
 def test_revalidate_legacy_snapshot_without_fingerprint_updates_once(
@@ -311,9 +360,7 @@ def test_revalidate_legacy_snapshot_without_fingerprint_updates_once(
     """旧版本快照无 snap_fingerprint：首次 revalidate 补写指纹（更新一次），
     之后内容未变不再更新。"""
     store = EntrySnapshotStore(tmp_path)
-    store.save(
-        _entry(), captured_at=111.0, policy=RefreshPolicy(MODE_ON_DEMAND)
-    )
+    store.save(_entry(), captured_at=111.0, policy=RefreshPolicy(MODE_ON_DEMAND))
     svc = SnapshotCatalogService(_FakeFederation([_entry()]), store, None)
 
     # 非 force revalidate：旧快照无指纹 → 视为已变，补写指纹 + 更新 captured_at
@@ -326,6 +373,48 @@ def test_revalidate_legacy_snapshot_without_fingerprint_updates_once(
     # 之后内容未变 → 不再更新
     svc.refresh_and_list_all()
     assert store.get("auth", "e1")["captured_at"] == snap["captured_at"]
+
+
+def test_revalidate_backfills_missing_repo_id_without_touching_captured_at(
+    tmp_path, monkeypatch
+) -> None:
+    """旧构建快照缺 _repo_id：revalidate 必须补写归属字段（分组键自愈），
+    但内容未变时保留原 captured_at（freshness 不虚刷）。
+
+    回归：旧快照带 snap_fingerprint 且内容未变时曾被永久跳过 save——
+    前端只能按 authority 回退分组，同一订阅源的条目被拆成多个假源组。
+    """
+    import src.backend.application.services.snapshot_catalog_service as scs
+
+    monkeypatch.setattr(scs.time, "time", lambda: 1000.0)
+    # 旧构建物化：条目无 _repo_id（存量快照）
+    legacy = _entry(authority="auth", entry_id="e1", content="hello")
+    svc, federation = _svc(tmp_path, [legacy])
+    svc.refresh_and_list_all()
+    assert svc._store.get("auth", "e1").get("_repo_id") is None
+
+    # 新构建 revalidate：federation 注入 _repo_id（内容不变）
+    monkeypatch.setattr(scs.time, "time", lambda: 2000.0)
+    decorated = dict(legacy, _repo_id="repo-1", _repo_name="Repo One")
+    federation._entries = [decorated]
+    svc.refresh_and_list_all()
+
+    snap = svc._store.get("auth", "e1")
+    assert snap["_repo_id"] == "repo-1"  # 归属字段已补写
+    assert snap["captured_at"] == 1000.0  # 内容未变 → freshness 不虚刷
+
+    # 再次 revalidate：内容与归属均一致 → 不再写
+    monkeypatch.setattr(scs.time, "time", lambda: 3000.0)
+    svc.refresh_and_list_all()
+    assert svc._store.get("auth", "e1")["captured_at"] == 1000.0
+
+    # manifest 调整 max_entries（归属元数据变化）→ 仍需补写（卡片上限展示更新）
+    monkeypatch.setattr(scs.time, "time", lambda: 4000.0)
+    federation._entries = [dict(decorated, _repo_max_entries=5)]
+    svc.refresh_and_list_all()
+    snap = svc._store.get("auth", "e1")
+    assert snap["_repo_max_entries"] == 5
+    assert snap["captured_at"] == 1000.0  # 仅元数据变化 → 仍不虚刷 freshness
 
 
 # ----------------------------------------------------------------------
@@ -357,9 +446,9 @@ def test_refresh_repo_only_materializes_its_authorities(tmp_path) -> None:
 
     result = svc.refresh_repo("repo-1")
 
-    assert svc.load_entry("auth-a", "a1") is not None   # 该 repo 已物化
-    assert svc.load_entry("auth-b", "b1") is None       # 其他 repo 零调用
-    assert {e["entry_id"] for e in result} == {"a1"}    # 视图 = 存储
+    assert svc.load_entry("auth-a", "a1") is not None  # 该 repo 已物化
+    assert svc.load_entry("auth-b", "b1") is None  # 其他 repo 零调用
+    assert {e["entry_id"] for e in result} == {"a1"}  # 视图 = 存储
 
 
 def test_remove_repo_clears_snapshots_of_its_authorities(tmp_path) -> None:
@@ -376,3 +465,52 @@ def test_remove_repo_clears_snapshots_of_its_authorities(tmp_path) -> None:
     svc.remove_repo("repo-1")
 
     assert svc.load_entry("auth-a", "a1") is None
+
+
+def test_catalog_syncs_refresh_stats_from_federation(tmp_path):
+    """catalog 透传 federation 的物化统计（last_refresh_ok/failed），
+    供 adapter 区分「刷新成功」与「失败回退缓存快照」。"""
+    fed = _FakeFederation([_entry()])
+    fed._last_list_ok = ["auth-a"]
+    fed._last_list_failed = ["auth-b"]
+    store = EntrySnapshotStore(tmp_path)
+    svc = SnapshotCatalogService(fed, store, None)
+
+    svc.refresh_and_list_all()
+    assert svc.last_refresh_ok == ["auth-a"]
+    assert svc.last_refresh_failed == ["auth-b"]
+
+    fed._last_list_ok = ["auth-b"]
+    fed._last_list_failed = ["auth-a"]
+    svc.refresh_source("auth-b")
+    assert svc.last_refresh_ok == ["auth-b"]
+    assert svc.last_refresh_failed == ["auth-a"]
+
+
+def test_refresh_source_persists_source_status(tmp_path) -> None:
+    """源级刷新成功/失败会写 SourceStatusStore（重启后组头仍有健康状态）。"""
+    from src.backend.integration.source_status_store import SourceStatusStore
+
+    fed = _FakeFederation([_entry(source_type="ott-rule")])
+    store = EntrySnapshotStore(tmp_path)
+    status_store = SourceStatusStore(tmp_path / "status")
+    svc = SnapshotCatalogService(fed, store, None, status_store=status_store)
+
+    fed._last_list_ok = ["auth"]
+    fed._last_list_failed = []
+    svc.refresh_source("auth")
+    status = status_store.get("auth")
+    assert status["state"] == "ok"
+    assert status["source_type"] == "ott-rule"
+    assert status["last_success_at"] is not None
+
+    fed._last_list_ok = []
+    fed._last_list_failed = ["auth"]
+    svc.refresh_source("auth")
+    assert status_store.get("auth")["state"] == "failed"
+    assert status_store.get("auth")["consecutive_failures"] == 1
+
+
+def test_list_source_statuses_empty_without_store(tmp_path) -> None:
+    svc, _ = _svc(tmp_path, [_entry()])
+    assert svc.list_source_statuses() == {}

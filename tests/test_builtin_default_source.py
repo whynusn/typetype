@@ -134,7 +134,9 @@ def test_builtin_federation_loads_entries_and_detail(tmp_path, monkeypatch):
     assert detail["content"]
 
 
-def test_builtin_federation_entries_carry_ott_instance_source_type(tmp_path, monkeypatch):
+def test_builtin_federation_entries_carry_ott_instance_source_type(
+    tmp_path, monkeypatch
+):
     """联邦聚合必须为 instance 源条目注入 _source_type=ott-instance（refresh 策略读它）。"""
     _isolate_instance_cache(tmp_path, monkeypatch)
     config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))

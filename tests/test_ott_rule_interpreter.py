@@ -476,12 +476,12 @@ class TestOttRuleInterpreter:
         entries = interp.list_entries(rule, "r1")
         assert entries == []
 
-    def test_list_entries_network_failure_returns_empty(self) -> None:
+    def test_list_entries_network_failure_returns_none(self) -> None:
         client = MagicMock(spec=httpx.Client)
         client.get.side_effect = httpx.ConnectError("offline")
         interp = OttRuleInterpreter(client)
         entries = interp.list_entries(self._rule(), "r1")
-        assert entries == []
+        assert entries is None  # 源不可用（区别于成功但空 []）
 
     def test_list_entries_invalid_json_returns_empty(self) -> None:
         client = _mock_client(text="not json at all <html>")

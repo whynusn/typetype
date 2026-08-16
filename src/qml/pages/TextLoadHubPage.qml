@@ -65,6 +65,7 @@ FluentPage {
     property bool catalogLoading: false  // 目录加载状态
     property var federatedEntries: []    // 联邦聚合的条目（所有 repo 的条目）
     property string reposEntriesError: ""  // 开源文库条目加载错误（喂给 RepoEntriesPanel.errorText）
+    property var federatedSourceStatuses: ({})  // authority -> {state,message,checked_at}
     property bool federatedContentLoading: false  // 联邦条目载文请求进行中（载入跟打按钮 Busy）
 
     // ---- 初始化 / 激活 ----
@@ -95,6 +96,10 @@ FluentPage {
 
     function loadCurrentSource() {
         if (!appBridge) return
+        // 开源文库先同步加载 per-source 健康状态（零网络），再分派列表
+        if (currentSource === "repos") {
+            root.federatedSourceStatuses = appBridge.getFederatedSourceStatuses() || {}
+        }
         // 注册表分派当前来源的列表加载（bridge 调用 + 状态消息）
         var msg = SrcBehav.loadList(appBridge, currentSource)
         if (msg) statusMessage = msg
@@ -532,23 +537,40 @@ FluentPage {
                 }
             }
 
-            // index 1: repos — 开源文库（按订阅源分组浏览）
+            // index 1: repos — 开源文库（按源/规则细分分组浏览）
             RepoEntriesPanel {
                 entries: root.federatedEntries
                 loading: root.currentSource === "repos" && (appBridge ? appBridge.federatedEntriesLoading : false)
                 errorText: root.reposEntriesError
                 selectedEntry: root.selectedItem
-                // 源组头刷新动画：repo 刷新不置列表级 loading，只驱动对应源组
-                refreshingRepo: appBridge ? appBridge.refreshingFederatedRepo : ""
+                // 源组头刷新动画：源级刷新不置列表级 loading，只驱动对应源组；
+                // refreshingSources 为并发集合（多源同时刷新各播各的动画）
+                refreshingSource: appBridge ? appBridge.refreshingFederatedSource : ""
+                refreshingSources: appBridge ? appBridge.refreshingFederatedSources : []
+                sourceStatuses: root.federatedSourceStatuses
                 onEntryClicked: function(entry) {
                     root.selectedItem = entry
                     root.previewContent = entry.content || entry.preview || ""
                     root.checkProgress()
                 }
-                // 总刷新 = 全部源强制换新；源组头刷新 = 该订阅源全部源换新
+                // 总刷新 = 全部源强制换新；源组头刷新 = 该源（authority）换新
                 onRefreshRequested: { if (appBridge) appBridge.refreshFederatedAll() }
-                onRefreshRepoRequested: function(repoId) { if (appBridge) appBridge.refreshFederatedRepo(repoId) }
+                onRefreshSourceRequested: function(authority) { if (appBridge) appBridge.refreshFederatedSource(authority) }
                 onAddRepoRequested: addRepoDialog.open()
+                onSourceInfoRequested: function(authority) {
+                    var entry = null
+                    for (var i = 0; i < root.federatedEntries.length; i++) {
+                        if ((root.federatedEntries[i]._authority || root.federatedEntries[i].authority || "") === authority) {
+                            entry = root.federatedEntries[i]; break
+                        }
+                    }
+                    sourceInfoDialog.authority = authority
+                    sourceInfoDialog.sourceLabel = entry ? (entry._source_label || entry.source_label || authority) : authority
+                    sourceInfoDialog.sourceType = entry ? (entry._source_type || "") : ""
+                    sourceInfoDialog.repoId = entry ? (entry._repo_id || "") : ""
+                    sourceInfoDialog.repoUrl = entry ? (entry._repo_url || "") : ""
+                    sourceInfoDialog.open()
+                }
                 onManageRepoRequested: function(repoId, url) {
                     repoConfigDialog.repoId = repoId
                     repoConfigDialog.repoUrl = url
@@ -773,6 +795,11 @@ FluentPage {
         id: repoConfigDialog
     }
 
+    // 源详情弹窗（类型/健康状态/刷新频率覆盖）
+    SourceInfoDialog {
+        id: sourceInfoDialog
+    }
+
     // 添加订阅（开源文库「添加订阅」入口）
     Dialog {
         id: addRepoDialog
@@ -780,10 +807,14 @@ FluentPage {
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
         property string _error: ""
+        property var _preview: null
+        property var _directoryRepos: []
 
         onOpened: {
             addRepoUrlField.text = ""
             addRepoDialog._error = ""
+            addRepoDialog._preview = null
+            addRepoDialog._directoryRepos = []
             addRepoUrlField.forceActiveFocus()
         }
         onAccepted: {
@@ -815,6 +846,67 @@ FluentPage {
                 id: addRepoUrlField
                 Layout.fillWidth: true
                 placeholderText: "https://example.com/ott-repo.json"
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+
+                Button {
+                    text: qsTr("预览")
+                    flat: true
+                    enabled: addRepoUrlField.text.trim().length > 0 && appBridge !== null
+                    onClicked: {
+                        addRepoDialog._error = ""
+                        addRepoDialog._preview = null
+                        addRepoDialog._directoryRepos = []
+                        var result = appBridge.previewRepoManifest(addRepoUrlField.text.trim())
+                        if (result && result.error) {
+                            addRepoDialog._error = result.error
+                        } else {
+                            addRepoDialog._preview = result
+                            if (result && result.type === "directory" && result.repositories)
+                                addRepoDialog._directoryRepos = result.repositories
+                        }
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: addRepoDialog._preview !== null
+                    text: addRepoDialog._preview
+                          ? (addRepoDialog._preview.name + (addRepoDialog._preview.description ? " — " + addRepoDialog._preview.description : ""))
+                          : ""
+                    typography: Typography.Caption
+                    color: Theme.currentTheme.colors.textSecondaryColor
+                    elide: Text.ElideRight
+                }
+            }
+
+            // 目录 manifest：列出可添加的仓库引用（不自动订阅）
+            ColumnLayout {
+                visible: addRepoDialog._directoryRepos.length > 0
+                Layout.fillWidth: true
+                spacing: 4
+
+                Text {
+                    typography: Typography.Caption
+                    color: Theme.currentTheme.colors.textSecondaryColor
+                    text: qsTr("该地址是一个目录，选择要添加的仓库：")
+                }
+
+                Repeater {
+                    model: addRepoDialog._directoryRepos
+                    delegate: Button {
+                        Layout.fillWidth: true
+                        text: modelData.label || modelData.url
+                        flat: true
+                        onClicked: {
+                            if (appBridge) appBridge.addRepo(modelData.url)
+                            addRepoDialog.close()
+                        }
+                    }
+                }
             }
 
             Text {
@@ -999,6 +1091,17 @@ FluentPage {
             root.reposEntriesError = message
             root.statusMessage = ""
             root.federatedContentLoading = false
+        }
+        function onFederatedSourceStatusChanged(authority, status) {
+            /* 源级刷新结果：只更新该源组健康状态，绝不写 reposEntriesError
+               （否则单源失败会用错误页盖掉整个开源文库列表） */
+            var next = {}
+            for (var k in root.federatedSourceStatuses) next[k] = root.federatedSourceStatuses[k]
+            next[authority] = status
+            root.federatedSourceStatuses = next
+            if (root.currentSource === "repos" && status && status.state === "failed") {
+                root.statusMessage = qsTr("源刷新失败，正在显示缓存快照：%1").arg(authority)
+            }
         }
         function onRegistryFederatedEntriesLoaded(entries) {
             /* 同步快照显示 + 后台 revalidate 完成都走这里。数据总是更新

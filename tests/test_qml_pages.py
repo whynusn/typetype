@@ -85,15 +85,30 @@ def test_text_load_hub_uses_expected_bridge_contract():
         "loadFederatedInlineEntry" in refs
         and "loadFederatedInlineEntry" in BRIDGE_SLOTS
     )
-    # 总刷新（全部源强制换新）与订阅源级刷新（该 repo 全部源换新）都接在 hub
+    # 总刷新（全部源强制换新）与源级刷新（该 authority 换新）都接在 hub；
+    # 订阅源（repo）级刷新已随分组语义收敛到源级（refreshFederatedSource）
     assert "refreshFederatedAll" in refs and "refreshFederatedAll" in BRIDGE_SLOTS
-    assert "refreshFederatedRepo" in refs and "refreshFederatedRepo" in BRIDGE_SLOTS
+    assert "refreshFederatedSource" in refs and "refreshFederatedSource" in BRIDGE_SLOTS
+    assert "refreshingFederatedSource" in refs
+    assert "refreshingFederatedSource" in BRIDGE_PROPERTIES
+    assert "refreshingFederatedSources" in refs
+    assert "refreshingFederatedSources" in BRIDGE_PROPERTIES
+    assert "getFederatedSourceStatuses" in refs
+    assert "getFederatedSourceStatuses" in BRIDGE_SLOTS
+    assert "onFederatedSourceStatusChanged" in qml_source
+    info_qml = QML_DIR / "components/SourceInfoDialog.qml"
+    assert info_qml.exists()
+    info_refs = _get_qml_refs(info_qml.read_text(encoding="utf-8"))
+    assert "getFederatedSourceStatuses" in info_refs
+    assert "getSourceRefreshOverrides" in info_refs
+    assert "setSourceRefreshOverride" in info_refs
     # 晴发文 / AI 即时拉取入口纳入载文中心
     assert "loadRandomWenlaiText" in refs and "loadRandomWenlaiText" in BRIDGE_SLOTS
     assert "requestAiText" in refs and "requestAiText" in BRIDGE_SLOTS
     # 订阅管理收敛到源组头弹窗（RepoConfigDialog，独立管理页已取消）：
     # 添加订阅入口在 hub，启用/信任/删除在弹窗
     assert "addRepo" in refs and "addRepo" in BRIDGE_SLOTS
+    assert "previewRepoManifest" in refs and "previewRepoManifest" in BRIDGE_SLOTS
     config_qml = QML_DIR / "components/RepoConfigDialog.qml"
     config_refs = _get_qml_refs(config_qml.read_text(encoding="utf-8"))
     assert "removeRepo" in config_refs and "removeRepo" in BRIDGE_SLOTS

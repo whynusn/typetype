@@ -45,12 +45,18 @@ class EntrySnapshotStore:
         captured_at: float,
         policy: RefreshPolicy,
         fingerprint: str | None = None,
+        last_checked_at: float | None = None,
     ) -> None:
         """写快照；fingerprint 为内容指纹（非 None 时写入 snap_fingerprint）。
 
-        snap_fingerprint 供后台 revalidate 做「内容未变」判定：指纹相同
-        则跳过 save 保留原 captured_at（freshness 不被虚刷）。旧快照无该
-        字段 → 首次 revalidate 会视为已变并补写指纹（一次性）。
+        snap_fingerprint 供 revalidate / 手动刷新做「内容未变」判定：指纹
+        相同且归属元数据未变时保留原 captured_at（freshness 不被虚刷）。
+        旧快照无该字段 → 首次刷新视为已变并补写指纹（一次性）。
+
+        last_checked_at 表示「最近一次网络检查成功时间」，与 captured_at
+        （内容实际变化时间）分离。调用方显式传入时写入；未传入时保留
+        已有快照的值（旧快照无该字段则回退其 captured_at），避免普通
+        save 调用把检查时间一并虚刷。
         """
         if not isinstance(entry, dict):
             return
@@ -66,6 +72,18 @@ class EntrySnapshotStore:
         }
         if fingerprint is not None:
             payload["snap_fingerprint"] = fingerprint
+        checked_at = last_checked_at
+        if checked_at is None:
+            checked_at = payload.get("last_checked_at")
+        if checked_at is None:
+            previous = self.get(authority, str(entry_id))
+            checked_at = (
+                previous.get("last_checked_at", previous.get("captured_at"))
+                if previous is not None
+                else captured_at
+            )
+        if isinstance(checked_at, (int, float)):
+            payload["last_checked_at"] = float(checked_at)
         path = self._path(authority, str(entry_id))
         try:
             path.parent.mkdir(parents=True, exist_ok=True)

@@ -122,11 +122,18 @@ class OttConfig:
     - cache_ttl_seconds：rule/script 缓存 TTL
     - max_content_bytes：单条目内容上限（federation 传入沙箱）
     - scripts_enabled：L3 ott-script 沙箱开关
+    - route_mirrors：智能路由的通用镜像/代理前缀列表（前缀 + 完整 URL，
+      如 ``https://gh-proxy.com/`` + ``https://raw.githubusercontent.com/...``；
+      与 manifest mirrors 不同——这是客户端侧全局候选，不随仓库声明）
+    - route_probe_ttl_seconds：智能路由探测结果缓存 TTL（秒；TTL 内直接
+      复用上次排序，不重复探测；默认 300s）
     """
 
     cache_ttl_seconds: int = 3600
     max_content_bytes: int = 1_048_576
     scripts_enabled: bool = field(default_factory=_default_scripts_enabled)
+    route_mirrors: list[str] = field(default_factory=list)
+    route_probe_ttl_seconds: int = 300
 
     def __post_init__(self) -> None:
         if self.cache_ttl_seconds < 0:
@@ -135,6 +142,16 @@ class OttConfig:
             self.max_content_bytes = 1_048_576
         if not isinstance(self.scripts_enabled, bool):
             self.scripts_enabled = _default_scripts_enabled()
+        self.route_mirrors = [
+            str(m)
+            for m in self.route_mirrors
+            if isinstance(m, str) and m and m.startswith(("http://", "https://"))
+        ]
+        if (
+            not isinstance(self.route_probe_ttl_seconds, int)
+            or self.route_probe_ttl_seconds < 1
+        ):
+            self.route_probe_ttl_seconds = 300
 
 
 @dataclass
@@ -658,6 +675,14 @@ class RuntimeConfig:
             scripts_enabled=cls._safe_bool(
                 ott_data.get("scripts_enabled"), _default_scripts_enabled()
             ),
+            route_mirrors=[
+                m for m in ott_data.get("route_mirrors", []) if isinstance(m, str) and m
+            ]
+            if isinstance(ott_data.get("route_mirrors"), list)
+            else [],
+            route_probe_ttl_seconds=cls._safe_int(
+                ott_data.get("route_probe_ttl_seconds"), 300
+            ),
         )
 
         update_data = data.get("update", {})
@@ -1173,6 +1198,8 @@ class RuntimeConfig:
                 "cache_ttl_seconds": self.ott.cache_ttl_seconds,
                 "max_content_bytes": self.ott.max_content_bytes,
                 "scripts_enabled": self.ott.scripts_enabled,
+                "route_mirrors": list(self.ott.route_mirrors),
+                "route_probe_ttl_seconds": self.ott.route_probe_ttl_seconds,
             },
             "update": {
                 "enabled": self.update.enabled,

@@ -34,6 +34,7 @@ from .ott_normalization import local_path_from_file_uri, redact_url, to_jsdelivr
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
+    from .smart_router import SmartRouteSelector
 
 
 def repo_cache_key(url: str) -> str:
@@ -253,6 +254,7 @@ def _normalize_source(source: dict) -> dict | None:
             "label": str(source.get("label") or ""),
             "checksum": str(checksum) if isinstance(checksum, str) else "",
             "tags": _normalize_tags(source.get("tags")),
+            "default_enabled": bool(source.get("default_enabled", True)),
             # ADR-011 Phase 2.2/2.6：脚本源权限与 API level（运行时强制）
             "permissions": _normalize_script_permissions(source.get("permissions")),
             "rights": _normalize_script_rights(source.get("rights")),
@@ -286,6 +288,7 @@ def _normalize_source(source: dict) -> dict | None:
             "label": str(source.get("label") or rule_id),
             "rule": source.get("rule") if isinstance(source.get("rule"), dict) else {},
             "tags": _normalize_tags(source.get("tags")),
+            "default_enabled": bool(source.get("default_enabled", True)),
         }
 
     if kind == "ott-bridge":
@@ -302,6 +305,7 @@ def _normalize_source(source: dict) -> dict | None:
             "label": str(source.get("label") or bridge_kind),
             "requires_credentials": bool(source.get("requires_credentials", False)),
             "tags": _normalize_tags(source.get("tags")),
+            "default_enabled": bool(source.get("default_enabled", True)),
         }
 
     return None
@@ -353,12 +357,15 @@ class RepoManifestCache:
         http_client: httpx.Client,
         async_executor: "AsyncExecutor | None",
         runtime_config: "RuntimeConfig | None" = None,
+        router: "SmartRouteSelector | None" = None,
     ) -> None:
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = http_client
         self._async_executor = async_executor
         self._runtime_config = runtime_config
+        # 智能路由：None = 保持固定 failover（主 → jsDelivr/mirrors），兼容旧调用
+        self._router = router
         self._refresh_locks: dict[str, threading.Lock] = {}
         self._refresh_locks_lock = threading.Lock()
 
@@ -467,6 +474,8 @@ class RepoManifestCache:
     def _fetch_manifest_with_mirrors(
         self, repo: SourceRepoEntry, cache_key: str
     ) -> tuple[dict | None, str]:
+        if self._router is not None:
+            return self._fetch_manifest_routed(repo, cache_key)
         data, etag = self._fetch_manifest(repo.url, cache_key, repo.etag)
         if data is not None:
             return data, etag
@@ -493,6 +502,35 @@ class RepoManifestCache:
             data, etag = self._fetch_manifest(url, cache_key, repo.etag)
             if data is not None:
                 log_info(f"[RepoManifest] 主地址失败，镜像命中: {redact_url(url)}")
+                return data, etag
+        return None, ""
+
+    def _fetch_manifest_routed(
+        self, repo: SourceRepoEntry, cache_key: str
+    ) -> tuple[dict | None, str]:
+        """智能路由版 manifest 拉取：候选 = 原始 + jsDelivr + 已缓存镜像，
+        按实时延迟/连通性排序逐个尝试（记录回写统计）。file:// 直读本地。"""
+        if repo.url.startswith("file://"):
+            return self._fetch_manifest(repo.url, cache_key, repo.etag), ""
+        cached = self._read_validated_cache(cache_key)
+        mirrors: list[str] = []
+        if cached:
+            for mirror in cached.get("mirrors", []):
+                if not isinstance(mirror, dict):
+                    continue
+                url = str(mirror.get("url") or "")
+                if url.startswith(("http://", "https://")) and url != repo.url:
+                    mirrors.append(url)
+        candidates = self._router.ordered_candidates(repo.url, mirrors=mirrors or None)
+        for url in candidates:
+            t0 = time.monotonic()
+            data, etag = self._fetch_manifest(url, cache_key, repo.etag)
+            self._router.record(url, ok=data is not None, latency=time.monotonic() - t0)
+            if data is not None:
+                log_info(
+                    f"[RepoManifest] 智能路由命中: {redact_url(url)}"
+                    + (f"（主地址 {redact_url(repo.url)}）" if url != repo.url else "")
+                )
                 return data, etag
         return None, ""
 

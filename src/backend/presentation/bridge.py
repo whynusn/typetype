@@ -135,6 +135,9 @@ class Bridge(QObject):
     registryFederatedEntriesLoadFailed = Signal(str)
     registryFederatedEntriesLoadingChanged = Signal()
     refreshingFederatedRepoChanged = Signal()  # 订阅源（repo）级刷新组头动画
+    refreshingFederatedSourceChanged = Signal()  # 源（authority）级刷新组头动画
+    refreshingFederatedSourcesChanged = Signal()  # 并发源级刷新集合变化
+    federatedSourceStatusChanged = Signal(str, object)  # (authority, status dict)
     # 会话状态机信号
     scriptsEnabledChanged = Signal()
     windowTitleChanged = Signal()
@@ -445,6 +448,17 @@ class Bridge(QObject):
             self._registry_adapter.refreshingRepoChanged.connect(
                 self.refreshingFederatedRepoChanged.emit
             )
+            self._registry_adapter.refreshingAuthorityChanged.connect(
+                self.refreshingFederatedSourceChanged.emit
+            )
+            if hasattr(self._registry_adapter, "refreshingAuthoritiesChanged"):
+                self._registry_adapter.refreshingAuthoritiesChanged.connect(
+                    self.refreshingFederatedSourcesChanged.emit
+                )
+            if hasattr(self._registry_adapter, "sourceStatusChanged"):
+                self._registry_adapter.sourceStatusChanged.connect(
+                    self.federatedSourceStatusChanged.emit
+                )
 
     def _connect_wenlai_signals(self) -> None:
         if not self._wenlai_adapter:
@@ -776,6 +790,20 @@ class Bridge(QObject):
         if self._registry_adapter:
             return self._registry_adapter.refreshing_repo
         return ""
+
+    @Property(str, notify=refreshingFederatedSourceChanged)
+    def refreshingFederatedSource(self) -> str:
+        """当前正在刷新的源 authority（'' = 无；源组头刷新动画）。"""
+        if self._registry_adapter:
+            return self._registry_adapter.refreshing_authority
+        return ""
+
+    @Property(list, notify=refreshingFederatedSourcesChanged)
+    def refreshingFederatedSources(self) -> list[str]:
+        """所有正在刷新的源 authority（并发时每个源组头各播一份动画）。"""
+        if self._registry_adapter:
+            return self._registry_adapter.refreshing_authorities
+        return []
 
     @Property(int, notify=textIdChanged)
     def textId(self) -> int:
@@ -2365,6 +2393,13 @@ class Bridge(QObject):
             return self._registry_adapter.getRepos()
         return []
 
+    @Slot(str, result="QVariantMap")
+    def previewRepoManifest(self, url: str) -> dict:
+        """预览 manifest（不订阅）：添加订阅弹窗识别仓库/目录。"""
+        if self._registry_adapter:
+            return self._registry_adapter.previewRepoManifest(url)
+        return {"url": url, "error": "注册表未就绪"}
+
     @Slot(str)
     def addRepo(self, url: str) -> None:
         """添加一条源仓库订阅。"""
@@ -2419,6 +2454,12 @@ class Bridge(QObject):
         if self._registry_adapter:
             self._registry_adapter.refreshRepoEntries(repo_id)
 
+    @Slot(str)
+    def refreshFederatedSource(self, authority: str) -> None:
+        """源（authority）级强制刷新：只物化该源并重发条目列表（组头刷新）。"""
+        if self._registry_adapter:
+            self._registry_adapter.refreshSourceEntries(authority)
+
     @Slot()
     def refreshFederatedAll(self) -> None:
         """全部源强制刷新（随机源抽新 + 静态源换新）：重新物化并重发条目列表。"""
@@ -2443,6 +2484,13 @@ class Bridge(QObject):
         rc = getattr(self._registry_adapter, "_runtime_config", None)
         if rc is not None:
             rc.clear_source_refresh_override(authority)
+
+    @Slot(result="QVariantMap")
+    def getFederatedSourceStatuses(self) -> dict:
+        """返回 per-authority 源健康状态（进入开源文库时同步初始化芯片）。"""
+        if self._registry_adapter:
+            return self._registry_adapter.source_statuses
+        return {}
 
     @Slot(result="QVariantMap")
     def getSourceRefreshOverrides(self) -> dict:

@@ -385,9 +385,14 @@ Directory（可选，发现层）                ← 未来 Phase 2+
 | `ScriptCache` | `integration/ott_script_client.py` | 脚本下载缓存（TTL + AST 校验 + 原子写 + 离线回退） |
 | `ott_script_runner.py` | `integration/ott_script_runner.py` | 子进程沙箱入口（资源限制 + 受限 builtins + 白名单模块 + stdout JSON） |
 | `validate_script_source()` | `integration/ott_script_safety.py` | 脚本 AST 安全检查（黑名单 import/call + 动态导入检测） |
-| `RegistryAdapter` | `presentation/adapters/registry_adapter.py` | 订阅管理 + 条目聚合的 Qt 适配层（Worker 异步） |
-| `ReposManagementPanel` | `components/ReposManagementPanel.qml` | 源仓库订阅管理面板（承载于独立页面 `ReposManagementPage.qml`） |
-| `RepoEntriesPanel` | `components/RepoEntriesPanel.qml` | 载文中心「开源文库」标签的联邦条目列表面板（选中即载入） |
+| `SmartRouteSelector` | `integration/smart_router.py` | 网络选路：按实时延迟/连通性在原始地址、jsDelivr、`ott.route_mirrors` 前缀镜像、manifest mirrors 间选路（短超时并发探测 + TTL 缓存 + 失败冷却 + 真实请求回写；供 `RepoManifestCache`/`OttCachedFetcher`/`ScriptCache` 复用） |
+| `EntrySnapshotStore` | `integration/entry_snapshot_store.py` | 条目内容快照落盘（`captured_at`=内容变化时间 + `last_checked_at`=检查时间，原子写） |
+| `SourceStatusStore` | `integration/source_status_store.py` | per-authority 源健康状态持久化（last check/success/error + 连续失败计数） |
+| `SnapshotCatalogService` | `application/services/snapshot_catalog_service.py` | 物化 → 快照/prune → 刷新策略/源状态 → 列表装饰 |
+| `RegistryAdapter` | `presentation/adapters/registry_adapter.py` | 订阅管理 + 条目聚合 + 源级刷新/健康状态的 Qt 适配层（Worker 异步） |
+| `RepoEntriesPanel` | `components/RepoEntriesPanel.qml` | 载文中心「开源文库」标签的联邦条目列表面板（源组卡片 + 选中即载入） |
+| `RepoConfigDialog` | `components/RepoConfigDialog.qml` | 订阅源管理弹窗（启用/信任/删除 + 元数据/不兼容原因） |
+| `SourceInfoDialog` | `components/SourceInfoDialog.qml` | 源详情弹窗（tier/健康/刷新频率覆盖） |
 
 ### 订阅数据流
 
@@ -427,7 +432,8 @@ src/backend/integration/
   ├─ ott_rule_interpreter.py                # OttRuleInterpreter（L1 声明式规则解释器）
   ├─ ott_script_client.py                   # ScriptSandbox + ScriptCache（L3 脚本源调度）
   ├─ ott_script_safety.py                   # validate_script_source（AST 安全检查）
-  └─ ott_script_runner.py                   # 子进程沙箱入口（资源限制 + 执行 + stdout JSON）
+  ├─ ott_script_runner.py                   # 子进程沙箱入口（资源限制 + 执行 + stdout JSON）
+  └─ smart_router.py                        # SmartRouteSelector（按实时延迟/连通性在 CDN/镜像/代理前缀间选路）
 src/backend/presentation/adapters/
   └─ registry_adapter.py                    # RegistryAdapter（Qt 适配层）
 src/backend/config/container.py             # + manifest_cache, federation, registry_adapter

@@ -83,6 +83,18 @@ class TestScriptSandbox:
         entries = sandbox.execute(source, "test://script")
         assert entries == []
 
+    def test_strict_returns_none_on_execution_failure(self) -> None:
+        """strict 区分执行失败（None）与成功但空（[]），联邦层据此计失败。"""
+        source = "def fetch_entries():\n    raise RuntimeError('boom')\n"
+        sandbox = ScriptSandbox()
+        assert sandbox.execute_strict(source, "test://script") is None
+        assert sandbox.execute(source, "test://script") == []
+
+    def test_strict_returns_empty_on_successful_empty_script(self) -> None:
+        source = "def fetch_entries():\n    return []\n"
+        sandbox = ScriptSandbox()
+        assert sandbox.execute_strict(source, "test://script") == []
+
     def test_returns_empty_on_non_list_result(self) -> None:
         source = 'def fetch_entries():\n    return "not a list"\n'
         sandbox = ScriptSandbox()

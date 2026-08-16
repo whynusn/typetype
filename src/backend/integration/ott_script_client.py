@@ -37,6 +37,7 @@ from .ott_script_safety import validate_script_source
 
 if TYPE_CHECKING:
     from ..ports.token_store import TokenStore
+    from .smart_router import SmartRouteSelector
 
 # ── 常量 ────────────────────────────────────────────────────────────────
 
@@ -160,12 +161,15 @@ class ScriptCache:
         http_client: httpx.Client,
         enabled: bool = True,
         ttl_seconds: int = 3600,
+        router: "SmartRouteSelector | None" = None,
     ) -> None:
         self._cache_dir = cache_dir
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._client = http_client
         self._enabled = enabled
         self._ttl_seconds = ttl_seconds
+        # 智能路由：None = 保持固定降级（主 → jsDelivr），兼容旧调用
+        self._router = router
 
     def get_script(
         self,
@@ -228,9 +232,28 @@ class ScriptCache:
     def _download_limited(self, url: str, max_bytes: int) -> str:
         """流式下载脚本，累计超过 max_bytes 立即中止（防主进程 OOM）。
 
-        主地址失败（超时等）时 jsDelivr CDN 降级（GitHub raw 直连在国内网络
+        配置了智能路由时按实时延迟/连通性选路（原始 + jsDelivr + 前缀镜像）；
+        否则保持固定降级（主地址 → jsDelivr CDN，GitHub raw 直连在国内网络
         常超时，2026-08-13 实测）；脚本超限/非 raw URL 不触发兜底。
         """
+        if self._router is not None:
+            last_error: BaseException | None = None
+            for candidate in self._router.ordered_candidates(url):
+                t0 = time.monotonic()
+                try:
+                    source = self._download_once(candidate, max_bytes)
+                    self._router.record(
+                        candidate, ok=True, latency=time.monotonic() - t0
+                    )
+                    return source
+                except _ScriptTooLargeError:
+                    raise
+                except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
+                    last_error = e
+                    self._router.record(
+                        candidate, ok=False, latency=time.monotonic() - t0
+                    )
+            raise last_error or httpx.ConnectError("所有候选路径均失败")
         try:
             return self._download_once(url, max_bytes)
         except _ScriptTooLargeError:
@@ -334,17 +357,35 @@ class ScriptSandbox:
         network_allowlist: list[str] | None = None,
         min_api_level: int | None = None,
     ) -> list[dict]:
-        """执行脚本并返回 fetch_entries() 的结果。
+        """执行脚本并返回 fetch_entries() 的结果（兼容便捷入口）。
 
-        secret_names: manifest 声明的凭据名（permissions.secrets）。
-        仅声明的名字会被解析注入；脚本无法自行请求任意凭据。
-        任一凭据缺失/非法 → 整体失败（返回 []，不静默继续）。
+        执行层失败（网络不可达、超时、非零退出、非法输出）折叠为空列表，
+        保持既有调用方契约；需要区分「失败」与「成功但空」时用
+        ``execute_strict``。
+        """
+        result = self.execute_strict(
+            source,
+            script_url,
+            secret_names=secret_names,
+            network_allowlist=network_allowlist,
+            min_api_level=min_api_level,
+        )
+        return result if result is not None else []
 
-        network_allowlist: manifest 声明的 permissions.network 域名白名单。
-        空/None → 沙箱内一切 http(s) 请求被拒（deny-by-default）。
+    def execute_strict(
+        self,
+        source: str,
+        script_url: str,
+        secret_names: list[str] | None = None,
+        network_allowlist: list[str] | None = None,
+        min_api_level: int | None = None,
+    ) -> list[dict] | None:
+        """执行脚本并区分「失败（None）」与「成功但空（[]）」。
 
-        min_api_level: manifest 声明的 rights.min_api_level。高于客户端
-        CLIENT_API_LEVEL → 跳过执行返回 []。
+        None 仅表示执行层失败——联邦层据此把该 script 源计入刷新失败，
+        断网时用户才能看到「刷新失败，当前显示缓存快照」，而不是把脚本
+        静默当作空结果算成功。跳过型结果（脚本功能关闭 / API level 门槛
+        不兼容）仍返回 []，因为那是主动跳过、不是网络失败。
         """
         if not self._enabled:
             return []
@@ -363,13 +404,13 @@ class ScriptSandbox:
                 return []
         secrets = self._resolve_secrets(secret_names)
         if secrets is None:
-            return []
+            return None
         # 私有临时目录（mkdtemp 默认 0700）+ 脚本文件 0600，防其他用户窥探或替换
         try:
             tmp_dir = Path(tempfile.mkdtemp(prefix="ott-sandbox-"))
         except OSError as e:
             log_warning(f"[ScriptSandbox] 创建临时目录失败: {e}")
-            return []
+            return None
         tmp_path = tmp_dir / (
             f"script-{hashlib.sha256(script_url.encode()).hexdigest()[:16]}.py"
         )
@@ -378,10 +419,10 @@ class ScriptSandbox:
             os.chmod(tmp_path, 0o600)
             if not _is_owner(tmp_path):
                 log_warning("[ScriptSandbox] 临时脚本属主校验失败，拒绝执行")
-                return []
+                return None
         except OSError as e:
             log_warning(f"[ScriptSandbox] 写临时脚本失败: {e}")
-            return []
+            return None
 
         try:
             return self._execute_in_subprocess(
@@ -426,7 +467,7 @@ class ScriptSandbox:
         authority: str,
         secrets: dict[str, str] | None = None,
         network_allowlist: list[str] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict] | None:
         """在子进程中执行脚本。
 
         凭据注入：secrets 非空时，每个凭据创建一次性 pipe（os.pipe()），
@@ -470,7 +511,7 @@ class ScriptSandbox:
                     except OSError:
                         pass
                 log_warning(f"[ScriptSandbox] 创建凭据管道失败: {e}")
-                return []
+                return None
         config_json = json.dumps(config)
 
         try:
@@ -490,7 +531,7 @@ class ScriptSandbox:
                 except OSError:
                     pass
             log_warning(f"[ScriptSandbox] 子进程启动失败: {e}")
-            return []
+            return None
         # 子进程已继承读端；父进程读端立即关闭，防止 fd 泄漏
         for fd in created_fds:
             try:
@@ -506,32 +547,39 @@ class ScriptSandbox:
             proc.kill()
             proc.communicate()
             log_warning(f"[ScriptSandbox] 脚本执行超时 ({SCRIPT_EXEC_TIMEOUT_S}s)")
-            return []
+            return None
         except OSError as e:
             log_warning(f"[ScriptSandbox] 子进程通信失败: {e}")
-            return []
+            return None
 
         if proc.returncode != 0:
-            # 截取最后几行 stderr 用于日志
-            err_tail = "\n".join(stderr.strip().splitlines()[-5:]) if stderr else ""
-            log_warning(f"[ScriptSandbox] 脚本退出码 {proc.returncode}: {err_tail}")
-            return []
+            # 只取 stderr 最后一行（异常摘要）打一条单行日志：完整 traceback
+            # 属于远端脚本内部错误，整段落盘会放大到 WARNING 里像客户端
+            # 崩溃，且 DNS 失败这类高频场景日志滚得极快。截断到 400 字符。
+            lines = [
+                line.strip() for line in (stderr or "").splitlines() if line.strip()
+            ]
+            summary = lines[-1] if lines else f"stderr 空（{len(stderr or '')} 字节）"
+            if len(summary) > 400:
+                summary = summary[:400] + "…"
+            log_warning(f"[ScriptSandbox] 脚本退出码 {proc.returncode}: {summary}")
+            return None
 
         # stdout 上限（防子进程输出撑爆主进程内存）；text=True 下 len() 是
         # 字符数，必须按 UTF-8 字节数对比，避免多字节文本绕过上限
         if len(stdout.encode("utf-8")) > STDOUT_MAX_BYTES:
             log_warning(f"[ScriptSandbox] 脚本 stdout 超过 {STDOUT_MAX_BYTES} 上限")
-            return []
+            return None
 
         # 解析 stdout JSON
         try:
             raw_entries = json.loads(stdout)
         except (json.JSONDecodeError, ValueError):
             log_warning("[ScriptSandbox] 脚本 stdout 不是合法 JSON")
-            return []
+            return None
 
         if not isinstance(raw_entries, list):
-            return []
+            return None
 
         return self._normalize_entries(raw_entries, authority)
 

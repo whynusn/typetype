@@ -1648,6 +1648,7 @@ class _FakeRegistryAdapter(QObject):
     entriesLoadFailed = Signal(str)
     entriesLoadingChanged = Signal()
     refreshingRepoChanged = Signal()
+    refreshingAuthorityChanged = Signal()
 
     def __init__(self, runtime_config: RuntimeConfig):
         super().__init__()

@@ -546,6 +546,37 @@ def _json_depth_exceeds(text: str, limit: int) -> bool:
     return False
 
 
+def _url_dns_failed(url: str) -> bool:
+    """http(s) 域名 URL 是否因 DNS 解析失败被 validate_url 拒绝。
+
+    用于区分「规则配置非法（安全拒绝 → 空结果）」与「域名暂时无法解析
+    （源不可用 → None，刷新统计计失败）」。只对域名形态再做一次解析；
+    字面 IP 被拒与 DNS 无关。
+    """
+    if not isinstance(url, str) or not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except (ValueError, OSError):
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    # 与 validate_url 的拒绝理由对齐：这些是配置非法，不是 DNS 失败，
+    # 不要为了判定再对非法 host 发一次解析请求。
+    if "%" in hostname or any(ord(ch) > 127 for ch in hostname):
+        return False
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        return False  # IP 字面量：validate_url 拒绝是安全策略，不是 DNS 失败
+    return not _resolve_host(hostname)
+
+
 class OttRuleInterpreter:
     """OTT Repo L1 声明式规则解释器。"""
 
@@ -569,8 +600,11 @@ class OttRuleInterpreter:
         *,
         authority: str = "",
     ) -> list[dict] | None:
-        """执行规则，返回标准化 entry 列表；规则非法返回 []。
+        """执行规则，返回标准化 entry 列表；规则非法返回 []，源不可用返回 None。
 
+        None 仅表示「网络不可达/抓取失败」（域名解析失败或请求失败且未抓到
+        任何条目）——federation 据此把该 rule 源计入刷新失败；规则配置非法、
+        主动跳过、成功但 0 条仍返回 []。
         ``authority`` 非空时，产出 entry 的 authority/source_key 均使用该值
         （federation 侧多 authority 命名空间隔离）；为空回退 ``rule:{rule_id}``。
         """
@@ -600,6 +634,10 @@ class OttRuleInterpreter:
 
         url_template = request_spec.get("url", "")
         if not url_template or not validate_url(url_template):
+            # 域名暂时解析失败 → 源不可用（None），与「规则配置非法（[]）」
+            # 区分开，federation 才能把断网源计入刷新失败。
+            if url_template and _url_dns_failed(url_template):
+                return None
             return []
         # permissions.network 白名单（声明时生效）：URL 必须落在白名单内
         if not _url_allowed_by_permissions(url_template, permissions):
@@ -667,11 +705,15 @@ class OttRuleInterpreter:
             url = url_template.replace("{" + page_param + "}", str(page))
             # 二次校验（分页后 URL 可能变化）
             if not validate_url(url):
+                if _url_dns_failed(url):
+                    return all_entries or None
                 break
 
             text = self._fetch(url, method, headers, body)
             if text is None:
-                break
+                # 已抓到部分条目 → 返回部分结果（源可用，只是后续页失败）；
+                # 一条都没抓到 → None（源不可用，刷新统计计失败）。
+                return all_entries or None
 
             # 尝试 JSON 解析；失败则当 HTML/text 处理
             items = self._parse_response(text)

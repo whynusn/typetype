@@ -216,17 +216,24 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
 
     # OTT Repo 控制面：manifest 缓存 + 联邦聚合层
     manifest_async_executor = QtAsyncExecutor()
+    # 智能路由：按实时延迟/连通性在原始地址 / jsDelivr CDN / 配置的镜像前缀
+    # / manifest mirrors 间选路（刷新系统防超时核心）
+    from ..integration.smart_router import SmartRouteSelector
+
+    smart_router = SmartRouteSelector(runtime_config.ott)
     manifest_cache = RepoManifestCache(
         cache_dir=registry_cache_dir() / "repos",
         http_client=httpx.Client(timeout=10.0, trust_env=False, follow_redirects=False),
         async_executor=manifest_async_executor,
         runtime_config=runtime_config,
+        router=smart_router,
     )
     federation = OttFederationProvider(
         runtime_config=runtime_config,
         manifest_cache=manifest_cache,
         max_content_bytes=runtime_config.ott.max_content_bytes,
         async_executor=manifest_async_executor,
+        router=smart_router,
     )
 
     return Providers(
@@ -386,6 +393,7 @@ def create_adapters(
     from ..integration.qt_async_executor import QtAsyncExecutor
     from ..integration.entry_snapshot_store import EntrySnapshotStore
     from ..integration.refresh_scheduler import RefreshScheduler
+    from ..integration.source_status_store import SourceStatusStore
     from ..application.services.snapshot_catalog_service import SnapshotCatalogService
     from .app_paths import registry_cache_dir
 
@@ -442,12 +450,14 @@ def create_adapters(
     snapshot_store = EntrySnapshotStore(
         cache_dir=registry_cache_dir(), max_per_source=5
     )
+    source_status_store = SourceStatusStore(cache_dir=registry_cache_dir())
     snapshot_async_executor = QtAsyncExecutor()
     snapshot_service = SnapshotCatalogService(
         federation=providers.federation,
         store=snapshot_store,
         runtime_config=runtime_config,
         async_executor=snapshot_async_executor,
+        status_store=source_status_store,
     )
     refresh_scheduler = RefreshScheduler(snapshot_service)
     # 无 Qt 事件循环的 CLI/测试环境自动降级为无操作（RefreshScheduler 已容错）

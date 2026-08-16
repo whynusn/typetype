@@ -23,6 +23,7 @@ from ...integration.refresh_policy import (
     infer_policy,
     source_type_of,
 )
+from ...integration.source_status_store import SourceStatusStore
 
 if TYPE_CHECKING:
     from ...config.runtime_config import RuntimeConfig
@@ -62,12 +63,33 @@ class SnapshotCatalogService:
         runtime_config: "RuntimeConfig | None",
         async_executor: "AsyncExecutor | None" = None,
         max_per_source: int = 5,
+        status_store: "SourceStatusStore | None" = None,
     ) -> None:
         self._federation = federation
         self._store = store
         self._runtime_config = runtime_config
         self._async_executor = async_executor
         self._max_per_source = max_per_source
+        self._status_store = status_store
+        # 最近一次物化的成功/失败 authority（federation 统计透传；供上层
+        # 区分「刷新真的成功」与「失败回退缓存快照」）
+        self._last_refresh_ok: list[str] = []
+        self._last_refresh_failed: list[str] = []
+
+    @property
+    def last_refresh_ok(self) -> list[str]:
+        return list(self._last_refresh_ok)
+
+    @property
+    def last_refresh_failed(self) -> list[str]:
+        return list(self._last_refresh_failed)
+
+    def _sync_refresh_stats(self) -> None:
+        """透传 federation 最近一次物化的成功/失败 authority 统计。"""
+        self._last_refresh_ok = list(getattr(self._federation, "_last_list_ok", ()))
+        self._last_refresh_failed = list(
+            getattr(self._federation, "_last_list_failed", ())
+        )
 
     # ------------------------------------------------------------------
     # 策略解析（用户覆盖 > 推断）
@@ -79,6 +101,9 @@ class SnapshotCatalogService:
             override = self._runtime_config.get_source_refresh_override(authority)
             if isinstance(override, dict):
                 return RefreshPolicy.from_dict(override)
+        declared = entry.get("_refresh_policy")
+        if isinstance(declared, dict) and declared.get("mode"):
+            return RefreshPolicy.from_dict(declared)
         return infer_policy(source_type_of(entry))
 
     # ------------------------------------------------------------------
@@ -94,6 +119,43 @@ class SnapshotCatalogService:
         now = time.time()
         return [self._decorate(snap, now) for snap in self._store.list_all()]
 
+    def list_source_statuses(self) -> dict[str, dict]:
+        """返回 per-authority 健康状态（零网络；未配置 store 时为空）。"""
+        if self._status_store is None:
+            return {}
+        return self._status_store.list_all()
+
+    def _record_source_ok(
+        self, authority: str, entries: list[dict], now: float
+    ) -> None:
+        if self._status_store is None:
+            return
+        first = next((e for e in entries if isinstance(e, dict)), {})
+        policy_entry = dict(first)
+        policy_entry["_authority"] = authority
+        policy = self._policy_for(policy_entry)
+        self._status_store.update(
+            authority,
+            state="ok",
+            checked_at=now,
+            source_label=str(first.get("_source_label", first.get("source_label", ""))),
+            source_type=str(first.get("_source_type", "")),
+            repo_id=str(first.get("_repo_id", "")),
+            repo_name=str(first.get("_repo_name", "")),
+            repo_url=str(first.get("_repo_url", "")),
+            refresh_policy=policy.to_dict(),
+        )
+
+    def _record_source_failed(self, authority: str, now: float) -> None:
+        if self._status_store is None:
+            return
+        self._status_store.update(
+            authority,
+            state="failed",
+            message="网络不可达或源不可用",
+            checked_at=now,
+        )
+
     def refresh_and_list_all(self, force: bool = False) -> list[dict]:
         """物化 → 逐条写快照 → prune → 返回**当前全部已存快照**（视图 = 存储）。
 
@@ -102,15 +164,17 @@ class SnapshotCatalogService:
         收缩**：失败源保留旧快照并标记 stale（可刷新），仍可载入。
         视图只随存储变化（过期/prune/手动 force 换新），不随单次物化成败波动。
 
-        force=True（手动总刷新）：绕过各源条目/文件缓存，全部重新物化，
-        无条件更新 captured_at（确实重新抓了）。
-        force=False（后台 revalidate）：仅 TTL 过期源重抓，**内容未变的
-        快照跳过 save 保留原 captured_at**——缓存命中条目不虚刷 freshness
+        force=True（手动总刷新）：绕过各源条目/文件缓存，全部重新物化；
+        **内容/归属未变的快照保留原 captured_at，仅写 last_checked_at=now**
+        （不再把「刚检查」伪装成「刚更新」）。
+        force=False（后台 revalidate）：仅 TTL 过期源重抓，内容未变的
+        快照跳过 save 保留原 captured_at——缓存命中条目不虚刷 freshness
         徽章/相对时间（回归：曾对所有返回条目无条件 save(captured_at=now)）。
         """
         entries = self._federation.list_all_entries(force=force) or []
         now = time.time()
         live_ids: dict[str, set[str]] = {}
+        entries_by_authority: dict[str, list[dict]] = {}
         for e in entries:
             if not isinstance(e, dict):
                 continue
@@ -118,28 +182,92 @@ class SnapshotCatalogService:
             authority = e.get("_authority", "")
             if authority:
                 live_ids.setdefault(authority, set()).add(e.get("entry_id"))
+                entries_by_authority.setdefault(authority, []).append(e)
             policy = self._policy_for(e)
-            if not force and self._snapshot_unchanged(e, authority):
-                # 后台 revalidate：内容未变 → 保留原 captured_at（freshness 不被虚刷）
+            fingerprint = _content_fingerprint(e)
+            existing = self._store.get(authority, str(e.get("entry_id", "")))
+            if not force and self._snapshot_unchanged(e, authority, existing):
+                # 后台 revalidate：内容与归属均未变 → 保留原 captured_at
+                # （freshness 不被虚刷）
                 continue
+            captured_at = self._next_captured_at(
+                e, authority, existing, fingerprint, now
+            )
             self._store.save(
-                e, captured_at=now, policy=policy, fingerprint=_content_fingerprint(e)
+                e,
+                captured_at=captured_at,
+                policy=policy,
+                fingerprint=fingerprint,
+                # force 是用户显式「检查」，检查成功时间可推进；
+                # 后台路径无法区分缓存命中，保留旧检查时间。
+                last_checked_at=now if force else None,
             )
         for authority, ids in live_ids.items():
             self._store.prune_stale(authority, ids, self._max_per_source)
+        self._sync_refresh_stats()
+        for authority in self._last_refresh_ok:
+            self._record_source_ok(
+                authority, entries_by_authority.get(authority, []), now
+            )
+        for authority in self._last_refresh_failed:
+            self._record_source_failed(authority, now)
         return self.list_cached()
 
-    def _snapshot_unchanged(self, entry: dict, authority: str) -> bool:
-        """非 force 物化时的「内容未变」判定（快照指纹比对）。
+    def _next_captured_at(
+        self,
+        entry: dict,
+        authority: str,
+        existing: dict | None,
+        fingerprint: str,
+        now: float,
+    ) -> float:
+        """计算本次物化的 captured_at：内容真正变化才推进时间。
+
+        内容与归属元数据都未变 → 保留旧 captured_at；仅归属元数据变化
+        （旧快照补 _repo_*/_source_* 字段）→ 同样保留；内容指纹变化或
+        全新条目 → now。
+        """
+        if existing is None:
+            return now
+        if self._snapshot_unchanged(entry, authority, existing):
+            return float(existing.get("captured_at", now))
+        if existing.get("snap_fingerprint") == fingerprint:
+            # 内容未变、仅归属元数据缺失/变化：本次只是补写字段
+            return float(existing.get("captured_at", now))
+        return now
+
+    def _snapshot_unchanged(
+        self, entry: dict, authority: str, existing: dict | None = None
+    ) -> bool:
+        """非 force 物化时的「内容未变」判定（快照指纹 + 归属元数据比对）。
 
         现有快照缺指纹（旧版本落盘）→ 视为已变（本次 save 补写指纹，一次性）；
-        指纹相同 → 内容未变，跳过 save。
+        指纹相同 → 内容未变。但归属元数据（_repo_id/_repo_name/_repo_url/
+        _repo_max_entries，federation 按 manifest 注入）缺失或变化时仍视为已变
+        （2026-08-15：旧构建物化的快照缺 _repo_id，若只比指纹会被永远跳过，
+        前端只能按 authority 回退分组，同一订阅源的条目被拆成多个假源组；
+        manifest 调整 max_entries 后同样需要补写，否则卡片上限展示不更新）。
         """
-        existing = self._store.get(authority, str(entry.get("entry_id", "")))
+        if existing is None:
+            existing = self._store.get(authority, str(entry.get("entry_id", "")))
         if existing is None:
             return False
         old = existing.get("snap_fingerprint")
-        return bool(old) and old == _content_fingerprint(entry)
+        if not old or old != _content_fingerprint(entry):
+            return False
+        for field in (
+            "_repo_id",
+            "_repo_name",
+            "_repo_url",
+            "_repo_max_entries",
+            "_repo_trust_state",
+            "_source_label",
+            "_source_type",
+            "_refresh_policy",
+        ):
+            if (existing.get(field) or "") != (entry.get(field) or ""):
+                return False
+        return True
 
     def load_entry(self, authority: str, entry_id: str) -> dict | None:
         """快照命中且含正文直接返回（不重抽）；否则 federation.get_entry 兜底。
@@ -158,8 +286,9 @@ class SnapshotCatalogService:
 
         经 federation.refresh_source 单源换新（绕过该源条目/文件缓存），
         不再先全量列所有源再过滤（旧实现会无谓重物化其他源）。
-        单源刷新是 force 语义（确实重新抓了），无条件更新 captured_at 并
-        补写内容指纹（供后续 revalidate 比对）。
+        单源刷新是 force 语义（确实重新检查了）：**内容/归属未变 → 保留
+        原 captured_at，仅写 last_checked_at=now**；内容变化才推进
+        captured_at。修复「静态源点刷新，内容没变却显示刚刚」。
         """
         now = now if now is not None else time.time()
         entries = self._federation.refresh_source(authority) or []
@@ -167,22 +296,43 @@ class SnapshotCatalogService:
         for e in entries:
             if not isinstance(e, dict):
                 continue
-            live_ids.add(e.get("entry_id"))
+            entry_id = str(e.get("entry_id", ""))
+            if entry_id:
+                live_ids.add(e.get("entry_id"))
             policy = self._policy_for(e)
+            fingerprint = _content_fingerprint(e)
+            existing = self._store.get(authority, entry_id)
+            captured_at = self._next_captured_at(
+                e, authority, existing, fingerprint, now
+            )
             self._store.save(
-                e, captured_at=now, policy=policy, fingerprint=_content_fingerprint(e)
+                e,
+                captured_at=captured_at,
+                policy=policy,
+                fingerprint=fingerprint,
+                last_checked_at=now,
             )
         self._store.prune_stale(authority, live_ids, self._max_per_source)
+        self._sync_refresh_stats()
+        if authority in self._last_refresh_ok:
+            self._record_source_ok(authority, entries, now)
+        if authority in self._last_refresh_failed:
+            self._record_source_failed(authority, now)
 
     def refresh_repo(self, repo_id: str, now: float | None = None) -> list[dict]:
         """订阅源（repo）级强制刷新：只重新物化该 repo 下的全部 authority。
 
-        组头刷新按订阅源粒度（条目按 _repo_id 动态归组）；其他 repo 零调用。
+        组头刷新按订阅源粒度；其他 repo 零调用。
         返回当前全部已存快照（视图 = 存储）。
         """
         now = now if now is not None else time.time()
+        ok: list[str] = []
+        failed: list[str] = []
         for authority in self._federation.authorities_of_repo(repo_id):
             self.refresh_source(authority, now=now)
+            ok += self._last_refresh_ok
+            failed += self._last_refresh_failed
+        self._last_refresh_ok, self._last_refresh_failed = ok, failed
         return self.list_cached()
 
     def remove_repo(self, repo_id: str) -> None:
@@ -219,6 +369,7 @@ class SnapshotCatalogService:
         decorated = dict(entry)
         policy = RefreshPolicy.from_dict(entry.get("refresh_policy"))
         captured = entry.get("captured_at")
+        checked = entry.get("last_checked_at")
         if isinstance(captured, (int, float)):
             decorated["captured_at"] = captured
             decorated["last_fetched_relative"] = _relative_time(now - captured)
@@ -232,6 +383,13 @@ class SnapshotCatalogService:
                 decorated["freshness"] = "on_demand"
             else:
                 decorated["freshness"] = "fresh"
+        if isinstance(checked, (int, float)):
+            decorated["last_checked_at"] = checked
+            decorated["last_checked_relative"] = _relative_time(now - checked)
+            # 检查时间明显晚于内容变化时间 → 最近一次刷新「内容无变化」
+            decorated["checked_without_change"] = bool(
+                isinstance(captured, (int, float)) and checked >= captured + 1.0
+            )
         return decorated
 
 

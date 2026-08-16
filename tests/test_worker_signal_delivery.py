@@ -112,3 +112,36 @@ def test_local_article_adapter_signals_arrive_via_real_threadpool() -> None:
 
     assert len(loaded) == 1
     assert loaded[0][0]["articleId"] == "a1"
+
+
+def test_registry_source_refresh_clears_spinner_via_real_threadpool() -> None:
+    """RegistryAdapter 源级刷新跨线程信号必须完整送达（动画标记必清）。
+
+    回归：worker 交给 QThreadPool 后 Python wrapper 被 GC，跨线程排队的
+    第二个 succeeded 连接（清 refreshing_authority 的 lambda）随机丢失，
+    表现为「文本已刷新但组头动画永转，直到 45s 超时」。
+    """
+    from unittest.mock import MagicMock
+
+    from src.backend.presentation.adapters.registry_adapter import RegistryAdapter
+
+    app = _ensure_app()
+    catalog = MagicMock()
+    catalog.list_cached.return_value = [{"entry_id": "e1", "_authority": "a1"}]
+    catalog.last_refresh_ok = ["a1"]
+    catalog.last_refresh_failed = []
+    adapter = RegistryAdapter(
+        federation=MagicMock(), manifest_cache=MagicMock(), catalog=catalog
+    )
+    adapter._thread_pool = QThreadPool.globalInstance()
+
+    loaded: list[list[dict]] = []
+    adapter.entriesLoaded.connect(loaded.append)
+
+    adapter.refreshSourceEntries("a1")
+    assert adapter.refreshing_authority == "a1"
+    _spin_event_loop(app)
+
+    assert loaded and loaded[-1][0]["entry_id"] == "e1"
+    assert adapter.refreshing_authority == ""  # 成功即清，动画必须有结束态
+    assert not adapter._active_workers  # finished 后释放 worker 引用

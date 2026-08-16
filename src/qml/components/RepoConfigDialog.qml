@@ -72,6 +72,55 @@ Dialog {
                 color: Theme.currentTheme.colors.textSecondaryColor
                 elide: Text.ElideMiddle
             }
+
+            Text {
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: root._repo && root._repo.description ? root._repo.description : ""
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.textSecondaryColor
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: root._repo && root._repo.maintainer && root._repo.maintainer.name
+                      ? qsTr("维护者：%1").arg(root._repo.maintainer.name) : ""
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.textSecondaryColor
+                elide: Text.ElideRight
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: root._repo && root._repo.license
+                      ? qsTr("License：%1").arg(root._repo.license) : ""
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.textSecondaryColor
+                elide: Text.ElideRight
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: root._repo && root._repo.unsupported_sources && root._repo.unsupported_sources.length > 0
+                      ? qsTr("不支持源：%1").arg(root._repo.unsupported_sources.join("、")) : ""
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.systemCautionColor
+                wrapMode: Text.Wrap
+            }
+
+            Text {
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: root._repo && root._repo.incompatible_reason
+                      ? qsTr("不兼容：%1").arg(root._repo.incompatible_reason) : ""
+                typography: Typography.Caption
+                color: Theme.currentTheme.colors.systemCriticalColor
+                wrapMode: Text.Wrap
+            }
         }
 
         Rectangle {

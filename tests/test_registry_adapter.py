@@ -221,7 +221,7 @@ def test_revalidate_timeout_quiet_keeps_view():
 
     adapter._revalidate_entries()
     assert adapter._entries_revalidating is True
-    adapter._on_refresh_timeout()
+    adapter._on_revalidate_timeout()
 
     assert adapter._entries_revalidating is False
     assert failed == []  # 后台超时静默
@@ -279,3 +279,127 @@ def test_remove_repo_clears_snapshots_of_its_authorities():
         "https://example.com/ott-repo.json"
     )
     catalog.remove_repo.assert_called_once_with("repo-1")
+
+
+# ----------------------------------------------------------------------
+# 源（authority）级刷新 + 刷新失败反馈（2026-08-15）
+# ----------------------------------------------------------------------
+
+
+def _run_first_worker(pool):
+    pool.started_workers[0].run()
+
+
+def test_refresh_source_entries_refreshes_authority_and_clears_marker():
+    """源级刷新：只走 catalog.refresh_source(该 authority)，动画标记完成即清。"""
+    catalog = MagicMock()
+    catalog.list_cached.return_value = [{"entry_id": "e1", "_authority": "a1"}]
+    catalog.last_refresh_ok = ["a1"]
+    catalog.last_refresh_failed = []
+    adapter, pool = _build_adapter(catalog=catalog)
+
+    loaded: list[list[dict]] = []
+    adapter.entriesLoaded.connect(loaded.append)
+    failed: list[str] = []
+    adapter.entriesLoadFailed.connect(failed.append)
+
+    adapter.refreshSourceEntries("a1")
+
+    assert adapter.refreshing_authority == "a1"
+    assert len(pool.started_workers) == 1
+    _run_first_worker(pool)
+
+    catalog.refresh_source.assert_called_once_with("a1")
+    assert loaded[-1][0]["entry_id"] == "e1"
+    assert adapter.refreshing_authority == ""  # 完成即清（动画结束）
+    assert failed == []  # 全成功不报错
+
+
+def test_refresh_source_entries_all_failed_reports_source_scoped_status():
+    """源级刷新全部失败：只发源状态，不盖整列表（全局错误保持为空）。"""
+    catalog = MagicMock()
+    catalog.list_cached.return_value = [{"entry_id": "old", "_authority": "a1"}]
+    catalog.last_refresh_ok = []
+    catalog.last_refresh_failed = ["a1"]
+    adapter, pool = _build_adapter(catalog=catalog)
+
+    loaded: list[list[dict]] = []
+    adapter.entriesLoaded.connect(loaded.append)
+    failed: list[str] = []
+    adapter.entriesLoadFailed.connect(failed.append)
+    statuses: list[tuple[str, dict]] = []
+    adapter.sourceStatusChanged.connect(
+        lambda authority, status: statuses.append((authority, status))
+    )
+
+    adapter.refreshSourceEntries("a1")
+    _run_first_worker(pool)
+
+    assert loaded[-1][0]["entry_id"] == "old"  # 视图 = 缓存快照
+    assert failed == []  # 源级失败不发射全局错误 → 列表不被错误页替换
+    assert len(statuses) == 1
+    assert statuses[0][0] == "a1"
+    assert statuses[0][1]["state"] == "failed"
+    assert "缓存快照" in statuses[0][1]["message"]  # 明确告知刷新未成功
+
+
+def test_refresh_source_entries_success_emits_ok_status():
+    """源级刷新成功也发 ok 状态（组头健康芯片的数据源）。"""
+    catalog = MagicMock()
+    catalog.list_cached.return_value = [{"entry_id": "e1", "_authority": "a1"}]
+    catalog.last_refresh_ok = ["a1"]
+    catalog.last_refresh_failed = []
+    adapter, pool = _build_adapter(catalog=catalog)
+
+    statuses: list[tuple[str, dict]] = []
+    adapter.sourceStatusChanged.connect(
+        lambda authority, status: statuses.append((authority, status))
+    )
+    adapter.refreshSourceEntries("a1")
+    _run_first_worker(pool)
+
+    assert statuses[0][0] == "a1"
+    assert statuses[0][1]["state"] == "ok"
+
+
+def test_refresh_all_sources_partial_failure_keeps_list_silent():
+    """总刷新部分失败：列表正常更新，不弹错误态（日志提示即可）。"""
+    catalog = MagicMock()
+    catalog.refresh_and_list_all.return_value = [
+        {"entry_id": "new", "_authority": "a1"}
+    ]
+    catalog.last_refresh_ok = ["a1"]
+    catalog.last_refresh_failed = ["a2"]
+    adapter, pool = _build_adapter(catalog=catalog)
+
+    loaded: list[list[dict]] = []
+    adapter.entriesLoaded.connect(loaded.append)
+    failed: list[str] = []
+    adapter.entriesLoadFailed.connect(failed.append)
+
+    adapter.refreshAllSources()
+    assert adapter.entries_loading is True
+    _run_first_worker(pool)
+
+    assert adapter.entries_loading is False
+    assert loaded[-1][0]["entry_id"] == "new"
+    assert failed == []  # 部分失败不盖错误态
+
+
+def test_refresh_all_sources_all_failed_reports_error():
+    """总刷新全部失败（断网）：报错并说明当前为缓存快照。"""
+    catalog = MagicMock()
+    catalog.refresh_and_list_all.return_value = [
+        {"entry_id": "old", "_authority": "a1"}
+    ]
+    catalog.last_refresh_ok = []
+    catalog.last_refresh_failed = ["a1", "a2"]
+    adapter, pool = _build_adapter(catalog=catalog)
+
+    failed: list[str] = []
+    adapter.entriesLoadFailed.connect(failed.append)
+
+    adapter.refreshAllSources()
+    _run_first_worker(pool)
+
+    assert failed and "缓存快照" in failed[0]

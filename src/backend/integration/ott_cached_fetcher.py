@@ -15,6 +15,7 @@ from .ott_normalization import local_path_from_file_uri, redact_url, to_jsdelivr
 
 if TYPE_CHECKING:
     from ..ports.async_executor import AsyncExecutor
+    from .smart_router import SmartRouteSelector
 
 
 class OttCachedFetcher:
@@ -24,11 +25,14 @@ class OttCachedFetcher:
         cache_dir: Path,
         http_client: httpx.Client,
         async_executor: AsyncExecutor | None,
+        router: "SmartRouteSelector | None" = None,
     ) -> None:
         self._config = config
         self._cache_dir = cache_dir
         self._client = http_client
         self._async_executor = async_executor
+        # 智能路由：None = 保持固定 failover（原始 → jsDelivr），兼容旧调用
+        self._router = router
         self._refresh_locks: dict[str, threading.Lock] = {}
         self._refresh_locks_lock = threading.Lock()
 
@@ -40,11 +44,10 @@ class OttCachedFetcher:
         max_bytes: int = 0,
         force: bool = False,
     ) -> dict | None:
+        mirrors = [mirror_url] if mirror_url else None
         if force:
             # 手动刷新：绕过缓存读，直接拉取并写回（失败不读旧缓存）
-            data = self._fetch_json(url, max_bytes=max_bytes)
-            if data is None and mirror_url:
-                data = self._fetch_json(mirror_url, max_bytes=max_bytes)
+            data = self._fetch_json(url, max_bytes=max_bytes, mirrors=mirrors)
             if data is not None:
                 self.write_cache(cache_key, data)
             return data
@@ -52,12 +55,10 @@ class OttCachedFetcher:
         if cached is not None:
             if not self.is_cache_expired(cache_key):
                 return cached
-            self._maybe_refresh_json(cache_key, url, mirror_url, max_bytes)
+            self._maybe_refresh_json(cache_key, url, mirrors, max_bytes)
             return cached
 
-        data = self._fetch_json(url, max_bytes=max_bytes)
-        if data is None and mirror_url:
-            data = self._fetch_json(mirror_url, max_bytes=max_bytes)
+        data = self._fetch_json(url, max_bytes=max_bytes, mirrors=mirrors)
         if data is not None:
             self.write_cache(cache_key, data)
             return data
@@ -71,11 +72,10 @@ class OttCachedFetcher:
         max_bytes: int = 0,
         force: bool = False,
     ) -> str | None:
+        mirrors = [mirror_url] if mirror_url else None
         if force:
             # 手动刷新：绕过缓存读，直接拉取并写回（失败不读旧缓存）
-            content = self._fetch_text(url, max_bytes=max_bytes)
-            if content is None and mirror_url:
-                content = self._fetch_text(mirror_url, max_bytes=max_bytes)
+            content = self._fetch_text(url, max_bytes=max_bytes, mirrors=mirrors)
             if content is not None:
                 self.write_cache(cache_key, {"content": content})
             return content
@@ -83,12 +83,10 @@ class OttCachedFetcher:
         if cached is not None and isinstance(cached.get("content"), str):
             if not self.is_cache_expired(cache_key):
                 return str(cached["content"])
-            self._maybe_refresh_text(cache_key, url, mirror_url, max_bytes)
+            self._maybe_refresh_text(cache_key, url, mirrors, max_bytes)
             return str(cached["content"])
 
-        content = self._fetch_text(url, max_bytes=max_bytes)
-        if content is None and mirror_url:
-            content = self._fetch_text(mirror_url, max_bytes=max_bytes)
+        content = self._fetch_text(url, max_bytes=max_bytes, mirrors=mirrors)
         if content is not None:
             self.write_cache(cache_key, {"content": content})
             return content
@@ -98,7 +96,7 @@ class OttCachedFetcher:
         self,
         cache_key: str,
         url: str,
-        mirror_url: str | None,
+        mirrors: list[str] | None,
         max_bytes: int,
     ) -> None:
         lock = self._acquire_refresh_lock(cache_key)
@@ -107,9 +105,7 @@ class OttCachedFetcher:
 
         def refresh() -> None:
             try:
-                data = self._fetch_json(url, max_bytes=max_bytes)
-                if data is None and mirror_url:
-                    data = self._fetch_json(mirror_url, max_bytes=max_bytes)
+                data = self._fetch_json(url, max_bytes=max_bytes, mirrors=mirrors)
                 if data is not None:
                     self.write_cache(cache_key, data)
                     log_info(f"[OttCachedFetcher] 后台刷新成功: {cache_key}")
@@ -124,7 +120,7 @@ class OttCachedFetcher:
         self,
         cache_key: str,
         url: str,
-        mirror_url: str | None,
+        mirrors: list[str] | None,
         max_bytes: int,
     ) -> None:
         lock = self._acquire_refresh_lock(cache_key)
@@ -133,9 +129,7 @@ class OttCachedFetcher:
 
         def refresh() -> None:
             try:
-                content = self._fetch_text(url, max_bytes=max_bytes)
-                if content is None and mirror_url:
-                    content = self._fetch_text(mirror_url, max_bytes=max_bytes)
+                content = self._fetch_text(url, max_bytes=max_bytes, mirrors=mirrors)
                 if content is not None:
                     self.write_cache(cache_key, {"content": content})
                     log_info(f"[OttCachedFetcher] 后台刷新成功: {cache_key}")
@@ -168,20 +162,40 @@ class OttCachedFetcher:
         with self._refresh_locks_lock:
             self._refresh_locks.pop(cache_key, None)
 
-    def _fetch_json(self, url: str, max_bytes: int = 0) -> dict | None:
-        """拉取 JSON，主地址失败时 jsDelivr CDN 降级（GitHub raw 超时兜底）。"""
+    def _fetch_json(
+        self, url: str, max_bytes: int = 0, mirrors: list[str] | None = None
+    ) -> dict | None:
+        """拉取 JSON。配置了智能路由时按实时延迟/连通性选路（原始/CDN/
+        前缀镜像/显式镜像），否则保持固定 failover（主地址 → jsDelivr）。"""
         if url.startswith("file://"):
             return self._read_local_json(url, max_bytes=max_bytes)
-        data = self._fetch_json_once(url, max_bytes=max_bytes)
-        if data is None:
-            fallback = to_jsdelivr_url(url)
-            if fallback:
-                log_warning(
-                    f"[OttCachedFetcher] 主地址失败，jsDelivr CDN 降级: "
-                    f"{redact_url(url)} → {redact_url(fallback)}"
-                )
-                data = self._fetch_json_once(fallback, max_bytes=max_bytes)
-        return data
+        if self._router is None:
+            # 兼容路径（无智能路由）：主 → jsDelivr(主) → 显式镜像 →
+            # jsDelivr(镜像)，保持固定 failover 原语义
+            for candidate in [url, *(mirrors or [])]:
+                data = self._fetch_json_once(candidate, max_bytes=max_bytes)
+                if data is not None:
+                    return data
+                fallback = to_jsdelivr_url(candidate)
+                if fallback:
+                    log_warning(
+                        f"[OttCachedFetcher] 主地址失败，jsDelivr CDN 降级: "
+                        f"{redact_url(candidate)} → {redact_url(fallback)}"
+                    )
+                    data = self._fetch_json_once(fallback, max_bytes=max_bytes)
+                    if data is not None:
+                        return data
+            return None
+        candidates = self._router.ordered_candidates(url, mirrors=mirrors)
+        for candidate in candidates:
+            t0 = time.monotonic()
+            data = self._fetch_json_once(candidate, max_bytes=max_bytes)
+            self._router.record(
+                candidate, ok=data is not None, latency=time.monotonic() - t0
+            )
+            if data is not None:
+                return data
+        return None
 
     def _fetch_json_once(self, url: str, max_bytes: int = 0) -> dict | None:
         try:
@@ -212,20 +226,39 @@ class OttCachedFetcher:
             return None
         return data if isinstance(data, dict) else None
 
-    def _fetch_text(self, url: str, max_bytes: int = 0) -> str | None:
-        """拉取文本，主地址失败时 jsDelivr CDN 降级（GitHub raw 超时兜底）。"""
+    def _fetch_text(
+        self, url: str, max_bytes: int = 0, mirrors: list[str] | None = None
+    ) -> str | None:
+        """拉取文本，路由策略同 _fetch_json（智能选路 / 固定 jsDelivr 降级）。"""
         if url.startswith("file://"):
             return self._read_local_text(url, max_bytes=max_bytes)
-        content = self._fetch_text_once(url, max_bytes=max_bytes)
-        if content is None:
-            fallback = to_jsdelivr_url(url)
-            if fallback:
-                log_warning(
-                    f"[OttCachedFetcher] 主地址失败，jsDelivr CDN 降级: "
-                    f"{redact_url(url)} → {redact_url(fallback)}"
-                )
-                content = self._fetch_text_once(fallback, max_bytes=max_bytes)
-        return content
+        if self._router is None:
+            # 兼容路径（无智能路由）：主 → jsDelivr(主) → 显式镜像 →
+            # jsDelivr(镜像)，保持固定 failover 原语义
+            for candidate in [url, *(mirrors or [])]:
+                content = self._fetch_text_once(candidate, max_bytes=max_bytes)
+                if content is not None:
+                    return content
+                fallback = to_jsdelivr_url(candidate)
+                if fallback:
+                    log_warning(
+                        f"[OttCachedFetcher] 主地址失败，jsDelivr CDN 降级: "
+                        f"{redact_url(candidate)} → {redact_url(fallback)}"
+                    )
+                    content = self._fetch_text_once(fallback, max_bytes=max_bytes)
+                    if content is not None:
+                        return content
+            return None
+        candidates = self._router.ordered_candidates(url, mirrors=mirrors)
+        for candidate in candidates:
+            t0 = time.monotonic()
+            content = self._fetch_text_once(candidate, max_bytes=max_bytes)
+            self._router.record(
+                candidate, ok=content is not None, latency=time.monotonic() - t0
+            )
+            if content is not None:
+                return content
+        return None
 
     def _fetch_text_once(self, url: str, max_bytes: int = 0) -> str | None:
         try:

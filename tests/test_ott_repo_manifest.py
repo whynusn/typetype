@@ -94,6 +94,57 @@ def test_validate_optional_max_entries():
     assert validate_repo_manifest(m)["max_entries"] == 0
 
 
+def test_validate_preserves_common_source_fields():
+    """rule/script/bridge 的 tags/default_enabled 必须被归一化保留。
+
+    回归：曾只在 ott-instance 上保留，导致 rule/script 的 default_enabled
+    恒为 true、tags 全部丢失（源卡片与筛选没有数据可用）。
+    """
+    m = _valid_manifest()
+    m["sources"] = [
+        {
+            "type": "ott-rule",
+            "rule_id": "r1",
+            "label": "规则源",
+            "rule": {
+                "request": {"url": "https://example.com/api"},
+                "extract": {"content": "$.content"},
+                "schedule": {"mode": "daily", "cache_ttl_seconds": 3600},
+            },
+            "tags": ["quote"],
+            "default_enabled": False,
+        },
+        {
+            "type": "ott-bridge",
+            "bridge_kind": "generic-http",
+            "endpoint": "https://example.com/bridge",
+            "label": "桥接源",
+            "tags": ["poetry"],
+            "default_enabled": False,
+        },
+        {
+            "type": "ott-script",
+            "url": "https://example.com/fetch.py",
+            "label": "脚本源",
+            "tags": ["english"],
+            "default_enabled": False,
+        },
+    ]
+    v = validate_repo_manifest(m)
+    assert [s["type"] for s in v["sources"]] == [
+        "ott-rule",
+        "ott-bridge",
+        "ott-script",
+    ]
+    for source in v["sources"]:
+        assert source["default_enabled"] is False
+        assert source["tags"]
+    assert v["sources"][0]["rule"]["schedule"] == {
+        "mode": "daily",
+        "cache_ttl_seconds": 3600,
+    }
+
+
 def test_validate_rejects_bad_protocol():
     m = _valid_manifest()
     m["protocol"] = "nope"
