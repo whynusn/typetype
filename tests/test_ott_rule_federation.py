@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from src.backend.config.runtime_config import (
-    RegistryConfig,
+    OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
@@ -21,6 +21,7 @@ from src.backend.integration.ott_federation_provider import (
     OttFederationProvider,
     _RuleClient,
     _ScriptClient,
+    _declared_refresh_policy,
 )
 from src.backend.integration.ott_repo_manifest import RepoManifestCache
 from src.backend.integration.ott_rule_interpreter import OttRuleInterpreter
@@ -86,9 +87,7 @@ def _rule_manifest():
 def _federation_with_rule(tmp_path):
     """创建一个带规则订阅的 OttFederationProvider。"""
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = RegistryConfig(
-        cache_ttl_seconds=3600, max_content_bytes=1_048_576
-    )
+    config.ott = OttConfig(cache_ttl_seconds=3600, max_content_bytes=1_048_576)
 
     repo_entry = SourceRepoEntry(
         url="https://rule-test.example.org/ott-repo.json",
@@ -187,7 +186,7 @@ class TestScriptClientChecksum:
         cache = MagicMock(spec=ScriptCache)
         cache.get_script.return_value = "def fetch_entries():\n    return []\n"
         sandbox = MagicMock(spec=ScriptSandbox)
-        sandbox.execute.return_value = []
+        sandbox.execute_strict.return_value = []
         client = _ScriptClient(
             url="https://example.com/scripts/a.py",
             label="A",
@@ -206,7 +205,7 @@ class TestScriptClientChecksum:
         cache = MagicMock(spec=ScriptCache)
         cache.get_script.return_value = "def fetch_entries():\n    return []\n"
         sandbox = MagicMock(spec=ScriptSandbox)
-        sandbox.execute.return_value = []
+        sandbox.execute_strict.return_value = []
         client = _ScriptClient(
             url="https://example.com/scripts/a.py",
             label="A",
@@ -215,6 +214,20 @@ class TestScriptClientChecksum:
         )
         assert client.list_entries() == []
         cache.get_script.assert_called_once_with("https://example.com/scripts/a.py")
+
+    def test_execution_failure_propagates_as_none(self) -> None:
+        """脚本执行层失败（strict 返回 None）→ 源不可用，刷新统计计失败。"""
+        cache = MagicMock(spec=ScriptCache)
+        cache.get_script.return_value = "def fetch_entries():\n    raise RuntimeError\n"
+        sandbox = MagicMock(spec=ScriptSandbox)
+        sandbox.execute_strict.return_value = None
+        client = _ScriptClient(
+            url="https://example.com/scripts/a.py",
+            label="A",
+            script_cache=cache,
+            sandbox=sandbox,
+        )
+        assert client.list_entries() is None
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +265,29 @@ class TestFederationWithRules:
         ]
         assert len(rule_entries) >= 1
         assert rule_entries[0]["title"] == "RuleTitle"
+
+    def test_list_all_entries_sets_rule_source_type(self, tmp_path) -> None:
+        """联邦聚合必须为 rule 源条目注入 _source_type=ott-rule（refresh 策略读它）。"""
+        provider = _federation_with_rule(tmp_path)
+        with patch.object(OttRuleInterpreter, "__init__", lambda self, **kw: None):
+            with patch.object(
+                OttRuleInterpreter,
+                "list_entries",
+                return_value=[
+                    {
+                        "entry_id": "rule-entry-1",
+                        "title": "RuleTitle",
+                        "content": "RuleContent",
+                    }
+                ],
+            ):
+                entries = provider.list_all_entries()
+
+        rule_entries = [
+            e for e in entries if e.get("authority", "").startswith("rule:")
+        ]
+        assert len(rule_entries) >= 1
+        assert rule_entries[0]["_source_type"] == "ott-rule"
 
     def test_build_clients_creates_rule_client(self, tmp_path) -> None:
         provider = _federation_with_rule(tmp_path)
@@ -326,6 +362,102 @@ def test_entry_cache_expires_after_ttl():
     assert cache.get("k") is None
 
 
+def test_entry_cache_force_skips_ttl():
+    """force=True 无视 TTL 直接视为 miss（手动刷新语义）。"""
+    cache = _EntryCache(ttl_seconds=3600)
+    cache.set("k", [{"entry_id": "e1"}])
+    assert cache.get("k") is not None
+    assert cache.get("k", force=True) is None
+    # force 后条目被移除，后续普通 get 也是 miss
+    assert cache.get("k") is None
+
+
+def test_list_all_entries_force_skips_entry_cache(tmp_path):
+    """总刷新 force=True 必须绕过 rule 条目内存缓存，重新执行规则。"""
+    provider = _federation_with_rule(tmp_path)
+    entry = {"entry_id": "e1", "title": "T", "content": "C"}
+    with patch.object(
+        OttRuleInterpreter,
+        "list_entries",
+        return_value=[entry],
+    ) as mock_list:
+        provider.list_all_entries()  # 首次：物化 + 写缓存
+        provider.list_all_entries()  # TTL 内命中缓存
+        assert mock_list.call_count == 1
+        provider.list_all_entries(force=True)  # force：绕过缓存重执行
+        assert mock_list.call_count == 2
+
+
+def test_rule_client_list_entries_force_bypasses_cache():
+    """_RuleClient.list_entries(force=True) 缓存命中仍重执行（单源刷新路径）。"""
+    interp = MagicMock(spec=OttRuleInterpreter)
+    interp.list_entries.return_value = [{"entry_id": "e1"}]
+    cache = _EntryCache(ttl_seconds=3600)
+    client = _RuleClient(rule_id="r1", rule={}, interpreter=interp, entry_cache=cache)
+    client.list_entries()
+    client.list_entries()  # TTL 内命中缓存
+    assert interp.list_entries.call_count == 1
+    client.list_entries(force=True)
+    assert interp.list_entries.call_count == 2
+
+
+def test_entries_carry_repo_meta_for_dynamic_grouping(tmp_path):
+    """条目携带所属订阅源元信息（_repo_*）：开源文库按订阅源动态分组（不硬编码）。
+
+    条目物化时注入 _repo_id/_repo_name/_repo_url/_repo_max_entries——
+    QML 按条目「属于哪个订阅源」归组；authorities_of_repo / repo_id_of_url
+    供 repo 级刷新与删除订阅清快照使用。
+    """
+    provider = _federation_with_rule(tmp_path)
+    entry = {"entry_id": "e1", "title": "T", "content": "C"}
+    with patch.object(OttRuleInterpreter, "list_entries", return_value=[entry]):
+        entries = provider.list_all_entries()
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["_repo_id"] == "rule-test.example.org"
+    assert e["_repo_name"] == "Rule Test Repo"
+    assert e["_repo_url"] == "https://rule-test.example.org/ott-repo.json"
+    assert e["_repo_max_entries"] == 0  # manifest 未声明 → 0（无上限）
+    # source 级元信息（2026-08-15）：列表精度到每条规则/源（authority 级分组）
+    assert e["_authority"] == "rule:rule-test.example.org:sample-rule"
+    assert e["_source_label"] == "Sample Rule"  # manifest source.label（不硬编码）
+    assert e["_source_type"] == "ott-rule"
+
+    # authority ↔ repo 反查（repo 级刷新 / 删除订阅清理快照）
+    auth = "rule:rule-test.example.org:sample-rule"
+    assert provider.authorities_of_repo("rule-test.example.org") == [auth]
+    assert (
+        provider.repo_id_of_url("https://rule-test.example.org/ott-repo.json")
+        == "rule-test.example.org"
+    )
+
+
+def test_refresh_source_only_materializes_target_authority(tmp_path):
+    """refresh_source(authority) 只重新物化该源，其他 authority 零调用。"""
+    provider = _federation_with_rule(tmp_path)
+    authority = "rule:rule-test.example.org:sample-rule"
+    entry = {"entry_id": "e1", "title": "T", "content": "C"}
+    with patch.object(
+        OttRuleInterpreter,
+        "list_entries",
+        return_value=[entry],
+    ) as mock_list:
+        provider.list_all_entries()
+        mock_list.call_count = 0  # 缓存已命中（provider 级 _EntryCache）
+        refreshed = provider.refresh_source(authority)
+    assert mock_list.call_count == 1
+    assert len(refreshed) == 1
+    assert refreshed[0]["_authority"] == authority
+    assert refreshed[0]["_source_type"] == "ott-rule"
+
+    # 不存在的 authority：零网络、空结果
+    with patch.object(
+        OttRuleInterpreter, "list_entries", return_value=[entry]
+    ) as mock_list:
+        assert provider.refresh_source("rule:unknown:source") == []
+        mock_list.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # 屏蔽过滤与 disabled 订阅
 # ---------------------------------------------------------------------------
@@ -376,3 +508,117 @@ class TestSegmentBlockingAndDisabledRepos:
         assert len(repos) == 1
         assert repos[0]["enabled"] is True
         assert repos[0]["loaded"] is True
+
+
+def test_list_all_entries_records_failed_authorities(tmp_path):
+    """物化失败（异常）的 authority 记录到 last_list_failed（刷新失败反馈用）。"""
+    provider = _federation_with_rule(tmp_path)
+    with patch.object(
+        OttRuleInterpreter, "list_entries", side_effect=RuntimeError("boom")
+    ):
+        entries = provider.list_all_entries()
+    assert entries == []
+    assert provider._last_list_ok == []
+    assert provider._last_list_failed == ["rule:rule-test.example.org:sample-rule"]
+
+
+def test_list_all_entries_records_none_as_failed_authority(tmp_path):
+    """解释器返回 None（网络不可达）→ 该 rule 源计失败，而不是当空成功。"""
+    provider = _federation_with_rule(tmp_path)
+    with patch.object(OttRuleInterpreter, "list_entries", return_value=None):
+        entries = provider.list_all_entries()
+    assert entries == []
+    assert provider._last_list_ok == []
+    assert provider._last_list_failed == ["rule:rule-test.example.org:sample-rule"]
+
+
+def test_list_all_entries_records_ok_authorities(tmp_path):
+    """物化成功的 authority 记录到 last_list_ok（区分刷新成功与回退快照）。"""
+    provider = _federation_with_rule(tmp_path)
+    with patch.object(
+        OttRuleInterpreter, "list_entries", return_value=[{"entry_id": "e1"}]
+    ):
+        entries = provider.list_all_entries()
+    assert [e["entry_id"] for e in entries] == ["e1"]
+    assert provider._last_list_ok == ["rule:rule-test.example.org:sample-rule"]
+    assert provider._last_list_failed == []
+
+
+def test_declared_refresh_policy_mapping():
+    assert _declared_refresh_policy(
+        {"rule": {"schedule": {"mode": "manual", "cache_ttl_seconds": 3600}}}
+    ) == {"mode": "on_demand", "interval_seconds": 0}
+    assert _declared_refresh_policy(
+        {"refresh": {"mode": "hourly", "cache_ttl_seconds": 120}}
+    ) == {"mode": "interval", "interval_seconds": 3600}
+    assert _declared_refresh_policy({"rule": {"schedule": {"mode": "daily"}}}) == {
+        "mode": "interval",
+        "interval_seconds": 86400,
+    }
+    assert _declared_refresh_policy({"rule": {"schedule": {"mode": "weekly"}}}) == {
+        "mode": "interval",
+        "interval_seconds": 604800,
+    }
+    assert _declared_refresh_policy({"rule": {"schedule": {"mode": "nope"}}}) is None
+    assert _declared_refresh_policy({}) is None
+
+
+def test_decorate_injects_declared_refresh_policy(tmp_path):
+    """manifest 声明的 refresh/schedule 注入条目，catalog 据此生成策略。"""
+    from src.backend.application.services.snapshot_catalog_service import (
+        SnapshotCatalogService,
+    )
+    from src.backend.integration.entry_snapshot_store import EntrySnapshotStore
+    from src.backend.integration.refresh_policy import MODE_INTERVAL, RefreshPolicy
+
+    provider = _federation_with_rule(tmp_path)
+    manifest = _rule_manifest()
+    manifest["sources"][0]["rule"]["schedule"] = {"mode": "daily"}
+    with patch.object(provider, "_manifest_for", return_value=manifest):
+        with patch.object(
+            OttRuleInterpreter, "list_entries", return_value=[{"entry_id": "e1"}]
+        ):
+            entries = provider.list_all_entries()
+    assert entries[0]["_refresh_policy"]["mode"] == "interval"
+    assert entries[0]["_refresh_policy"]["interval_seconds"] == 86400
+
+    store = EntrySnapshotStore(tmp_path / "snapshots")
+    service = SnapshotCatalogService(provider, store, None)
+    policy = service._policy_for(entries[0])
+    assert policy == RefreshPolicy(MODE_INTERVAL, 86400)
+
+
+def test_preview_manifest_returns_directory_references(tmp_path):
+    """添加订阅弹窗可预览 directory，列出 repository-ref 供显式添加。"""
+    provider = _federation_with_rule(tmp_path)
+    directory = {
+        "protocol": "ott-repo",
+        "version": "1.1",
+        "type": "directory",
+        "repo_id": "directory.example.org",
+        "name": "社区目录",
+        "mirrors": [{"url": "https://dir.example.org/ott-repo.json", "priority": 1}],
+        "sources": [
+            {
+                "type": "repository-ref",
+                "url": "https://texts.example.org/ott-repo.json",
+                "label": "示例文库",
+                "tags": ["chinese"],
+            }
+        ],
+    }
+    with patch.object(provider, "_manifest_for", return_value=directory):
+        preview = provider.preview_manifest("https://dir.example.org/ott-repo.json")
+    assert preview["type"] == "directory"
+    assert preview["error"] == ""
+    assert preview["repositories"][0]["label"] == "示例文库"
+    assert (
+        preview["repositories"][0]["url"] == "https://texts.example.org/ott-repo.json"
+    )
+
+
+def test_preview_manifest_failure_returns_error(tmp_path):
+    provider = _federation_with_rule(tmp_path)
+    with patch.object(provider, "_manifest_for", return_value=None):
+        preview = provider.preview_manifest("https://down.example.org/ott-repo.json")
+    assert preview["error"]

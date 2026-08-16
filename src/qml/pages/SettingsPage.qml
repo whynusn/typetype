@@ -14,6 +14,12 @@ FluentPage {
     property bool syncingAiControls: false
     property bool syncingZitiControls: false
     property bool _populatingDeviceList: false
+    property bool updateChecking: false
+    property bool updateDownloading: false
+    property bool updateAvailable: false
+    property string updateVersion: ""
+    property string updateErrorText: ""
+    property int updateProgress: 0
 
     ListModel {
         id: wenlaiDifficultyModel
@@ -436,8 +442,10 @@ FluentPage {
                                         fontDlgDelegate._deleting = true;
                                         appBridge.removeFont(fontDlgDelegate.fontName);
                                     }
-                                    ToolTip.text: qsTr("删除此字体")
-                                    ToolTip.visible: hovered
+                                    ToolTip {
+                                        text: qsTr("删除此字体")
+                                        visible: hovered
+                                    }
                                 }
                             }
                         }
@@ -509,103 +517,14 @@ FluentPage {
     }
 
     SettingCard {
-        id: baseUrlCard
-        Layout.fillWidth: true
-        title: qsTr("服务地址")
-        icon.name: "ic_fluent_server_20_regular"
-        description: qsTr("API 服务器地址，修改后立即生效并保存到配置文件")
-
-        RowLayout {
-            spacing: 8
-
-            TextField {
-                id: baseUrlField
-                implicitWidth: 260
-                text: appBridge ? appBridge.baseUrl : ""
-                placeholderText: "http://127.0.0.1:8080"
-                onAccepted: {
-                    if (text.trim().length > 0) {
-                        appBridge.setBaseUrl(text.trim())
-                    }
-                }
-            }
-
-            Button {
-                text: qsTr("应用")
-                highlighted: true
-                onClicked: {
-                    if (baseUrlField.text.trim().length > 0) {
-                        appBridge.setBaseUrl(baseUrlField.text.trim())
-                    }
-                }
-            }
-        }
-    }
-
-    function applyRegistryUrl() {
-        if (!appBridge) return
-        var primary = registryPrimaryField.text.trim()
-        var mirror = registryMirrorField.text.trim()
-        appBridge.setRegistryUrls(primary, mirror)
-    }
-
-    SettingCard {
         id: registryUrlCard
         Layout.fillWidth: true
         title: qsTr("开源文库")
         icon.name: "ic_fluent_text_bullet_list_20_regular"
-        description: qsTr("开源文库服务地址（本地运行脚本后暴露的 HTTP 服务，留空则禁用）")
+        description: qsTr("开源文库远程脚本开关")
 
         ColumnLayout {
             spacing: 6
-
-            RowLayout {
-                spacing: 8
-
-                Text {
-                    typography: Typography.Caption
-                    text: qsTr("主地址")
-                    Layout.preferredWidth: 48
-                }
-
-                TextField {
-                    id: registryPrimaryField
-                    Layout.fillWidth: true
-                    text: appBridge ? appBridge.registryPrimaryUrl : ""
-                    placeholderText: "http://127.0.0.1:18888 或留空"
-                    onAccepted: applyRegistryUrl()
-                }
-
-                Button {
-                    text: qsTr("应用")
-                    highlighted: true
-                    onClicked: applyRegistryUrl()
-                }
-            }
-
-            RowLayout {
-                spacing: 8
-
-                Text {
-                    typography: Typography.Caption
-                    text: qsTr("镜像")
-                    Layout.preferredWidth: 48
-                }
-
-                TextField {
-                    id: registryMirrorField
-                    Layout.fillWidth: true
-                    text: appBridge ? appBridge.registryMirrorUrl : ""
-                    placeholderText: "https://..."
-                    onAccepted: applyRegistryUrl()
-                }
-
-                Button {
-                    text: qsTr("应用")
-                    highlighted: true
-                    onClicked: applyRegistryUrl()
-                }
-            }
 
             RowLayout {
                 spacing: 8
@@ -1177,6 +1096,178 @@ FluentPage {
                         appBridge.loginWenlai(username, password)
                     }
                 }
+            }
+        }
+    }
+
+    // ===================== 关于与更新（ADR-014） =====================
+    Text {
+        typography: Typography.Subtitle
+        text: qsTr("关于与更新")
+        Layout.topMargin: 16
+        Layout.bottomMargin: 8
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        title: qsTr("当前版本")
+        icon.name: "ic_fluent_info_20_regular"
+        description: qsTr("检查并安装新版本（自动检查默认开启，可随时手动检查）")
+
+        RowLayout {
+            spacing: 8
+
+            Text {
+                typography: Typography.Body
+                text: "v" + (appBridge ? appBridge.currentVersion : "0.1.0")
+                color: Theme.currentTheme.colors.textColor
+                Layout.fillWidth: true
+            }
+
+            Button {
+                id: updateCheckButton
+                text: qsTr("检查更新")
+                icon.name: "ic_fluent_arrow_sync_20_regular"
+                enabled: !updateChecking && !updateDownloading
+                onClicked: {
+                    updateChecking = true
+                    updateResultText = ""
+                    updateErrorText = ""
+                    updateVersion = ""
+                    updateAvailable = false
+                    if (appBridge) appBridge.checkForUpdate()
+                }
+            }
+        }
+    }
+
+    SettingCard {
+        Layout.fillWidth: true
+        visible: updateChecking || updateAvailable || updateErrorText.length > 0 || updateDownloading
+        title: updateAvailable
+            ? qsTr("发现新版本")
+            : (updateErrorText.length > 0
+                ? qsTr("检查更新失败")
+                : qsTr("更新"))
+        icon.name: updateAvailable
+            ? "ic_fluent_cloud_arrow_down_20_regular"
+            : "ic_fluent_arrow_sync_20_regular"
+
+        ColumnLayout {
+            spacing: 8
+
+            // 检查中
+            Text {
+                visible: updateChecking
+                typography: Typography.Caption
+                text: qsTr("正在检查更新…")
+                color: Theme.currentTheme.colors.textSecondaryColor
+            }
+
+            // 无新版
+            Text {
+                visible: !updateChecking && !updateAvailable && updateErrorText.length === 0 && !updateDownloading
+                typography: Typography.Body
+                text: qsTr("已是最新版本")
+                color: Theme.currentTheme.colors.systemSuccessColor
+            }
+
+            // 有新版
+            RowLayout {
+                visible: updateAvailable && !updateDownloading
+                spacing: 8
+
+                Text {
+                    typography: Typography.Body
+                    text: qsTr("新版本：") + "v" + updateVersion
+                    color: Theme.currentTheme.colors.primaryColor
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                }
+
+                Button {
+                    text: qsTr("下载并安装")
+                    highlighted: true
+                    onClicked: {
+                        updateDownloading = true
+                        updateProgress = 0
+                        if (appBridge) appBridge.downloadAndInstallUpdate(updateVersion)
+                    }
+                }
+
+                ToolButton {
+                    flat: true
+                    icon.name: "ic_fluent_delete_20_regular"
+                    ToolTip {
+                        text: qsTr("忽略此版本")
+                        visible: hovered
+                    }
+                    onClicked: {
+                        if (appBridge) appBridge.dismissUpdate()
+                        updateAvailable = false
+                        updateVersion = ""
+                    }
+                }
+            }
+
+            // 下载进度
+            QQC.ProgressBar {
+                visible: updateDownloading
+                Layout.fillWidth: true
+                from: 0
+                to: 100
+                value: updateProgress
+                indeterminate: updateProgress <= 0
+            }
+
+            Text {
+                visible: updateDownloading
+                typography: Typography.Caption
+                text: updateProgress > 0 ? qsTr("下载中 %1%").arg(updateProgress) : qsTr("准备下载…")
+                color: Theme.currentTheme.colors.textSecondaryColor
+            }
+
+            // 错误
+            Text {
+                visible: updateErrorText.length > 0
+                typography: Typography.Caption
+                text: updateErrorText
+                color: Theme.currentTheme.colors.systemCriticalColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+    }
+
+    Connections {
+        target: appBridge
+        enabled: appBridge !== null
+
+        function onUpdateCheckFinished(available, version, error) {
+            updateChecking = false
+            if (error && error.length > 0) {
+                updateErrorText = error
+                updateAvailable = false
+                updateVersion = ""
+                return
+            }
+            updateErrorText = ""
+            updateAvailable = available
+            updateVersion = available ? version : ""
+        }
+
+        function onUpdateDownloadProgress(percent) {
+            updateProgress = percent
+        }
+
+        function onUpdateStatusChanged(status) {
+            if (status && status.indexOf("error:") === 0) {
+                updateDownloading = false
+                updateErrorText = status.substring(6)
+            } else if (status === "downloading") {
+                updateDownloading = true
+            } else if (status === "done") {
+                updateDownloading = false
             }
         }
     }

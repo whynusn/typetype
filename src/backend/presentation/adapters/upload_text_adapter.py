@@ -2,17 +2,12 @@
 
 import os
 import re
-from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QObject, QThreadPool, Signal
+from PySide6.QtCore import QObject, Signal
 
 from ...config.app_paths import user_texts_dir
 from ...config.runtime_config import RuntimeConfig
 from ...utils.logger import log_info
-from ...workers.base_worker import BaseWorker
-
-if TYPE_CHECKING:
-    from ...ports.text_uploader import TextUploader
 
 # 本地文本写入路径与配置文件路径
 LOCAL_TEXTS_DIR = str(user_texts_dir())
@@ -23,8 +18,9 @@ class UploadTextAdapter(QObject):
 
     职责：
     - 本地写入文本文件并通过 RuntimeConfig 更新 text_sources 配置
-    - 调用 TextUploader 上传到云端
     - 信号通知上传结果
+
+    云端上传（TextUploader）已随 typetype-server 耦合移除（ADR-013）。
     """
 
     uploadFinished = Signal(bool, str, int)  # (success, message, server_text_id)
@@ -32,43 +28,24 @@ class UploadTextAdapter(QObject):
 
     def __init__(
         self,
-        text_uploader: "TextUploader",
         runtime_config: RuntimeConfig,
         texts_dir: str | None = None,
     ):
         super().__init__()
-        self._text_uploader = text_uploader
         self._runtime_config = runtime_config
         self._texts_dir = os.path.abspath(texts_dir or LOCAL_TEXTS_DIR)
 
     def upload(
         self, title: str, content: str, source_key: str, to_local: bool, to_cloud: bool
     ) -> None:
-        """上传文本到指定目标，支持同时上传本地和云端。
-
-        本地写入走同步（快速文件 I/O），云端上传走后台线程避免 UI 阻塞。
-        """
+        """保存文本到本地并更新配置（兼容旧签名，to_cloud 不再使用）。"""
         if to_local:
             try:
                 self._do_upload_local(title, content, source_key)
             except Exception as e:
                 self.uploadFinished.emit(False, f"本地上传失败: {e}", 0)
                 return
-
-        if to_cloud:
-            worker = BaseWorker(
-                lambda: self._do_upload_cloud(title, content, source_key),
-                error_prefix="云端上传失败",
-            )
-            worker.signals.succeeded.connect(
-                lambda rid: self.uploadFinished.emit(True, "上传成功", rid or 0)
-            )
-            worker.signals.failed.connect(
-                lambda msg: self.uploadFinished.emit(False, msg, 0)
-            )
-            QThreadPool.globalInstance().start(worker)
-        else:
-            self.uploadFinished.emit(True, "上传成功", 0)
+        self.uploadFinished.emit(True, "上传成功", 0)
 
     def upload_from_file(
         self,
@@ -78,32 +55,14 @@ class UploadTextAdapter(QObject):
         to_local: bool,
         to_cloud: bool,
     ) -> None:
-        """从文件路径上传文本。
-
-        本地上传：直接复制文件（快速文件 I/O，同步）
-        云端上传：走后台线程避免 UI 阻塞
-        """
+        """从文件路径保存文本到本地（兼容旧签名，to_cloud 不再使用）。"""
         if to_local:
             try:
                 self._do_upload_local_from_file(title, file_path, source_key)
             except Exception as e:
                 self.uploadFinished.emit(False, f"本地上传失败: {e}", 0)
                 return
-
-        if to_cloud:
-            worker = BaseWorker(
-                lambda: self._do_upload_cloud_from_file(title, file_path, source_key),
-                error_prefix="云端上传失败",
-            )
-            worker.signals.succeeded.connect(
-                lambda rid: self.uploadFinished.emit(True, "上传成功", rid or 0)
-            )
-            worker.signals.failed.connect(
-                lambda msg: self.uploadFinished.emit(False, msg, 0)
-            )
-            QThreadPool.globalInstance().start(worker)
-        else:
-            self.uploadFinished.emit(True, "上传成功", 0)
+        self.uploadFinished.emit(True, "上传成功", 0)
 
     def _do_upload_local(self, title: str, content: str, source_key: str) -> None:
         """写文件到本地并更新 config.json 的 text_sources 配置。"""
@@ -129,14 +88,6 @@ class UploadTextAdapter(QObject):
         cleaned = re.sub(r"_+", "_", cleaned).strip("._-")
         return cleaned or fallback
 
-    def _do_upload_cloud(self, title: str, content: str, source_key: str) -> int | None:
-        """调用 TextUploader 上传到云端，返回服务端文本 ID。"""
-        result_id = self._text_uploader.upload(content, title, source_key)
-        if result_id is None:
-            raise RuntimeError("服务器未返回有效ID")
-        log_info(f"[UploadTextAdapter] 云端上传成功: id={result_id}")
-        return result_id
-
     def _do_upload_local_from_file(
         self, title: str, file_path: str, source_key: str
     ) -> None:
@@ -156,13 +107,3 @@ class UploadTextAdapter(QObject):
         self._runtime_config.update_text_source(config_key, title, dest_path)
         self.configUpdated.emit()
         log_info(f"[UploadTextAdapter] 本地保存成功（从文件复制）: {dest_path}")
-
-    def _do_upload_cloud_from_file(
-        self, title: str, file_path: str, source_key: str
-    ) -> int | None:
-        """上传文件到云端（multipart/form-data，不加载到内存）。"""
-        result_id = self._text_uploader.upload_file(file_path, title, source_key)
-        if result_id is None:
-            raise RuntimeError("服务器未返回有效ID")
-        log_info(f"[UploadTextAdapter] 云端上传成功: id={result_id}")
-        return result_id

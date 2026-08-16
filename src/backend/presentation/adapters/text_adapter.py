@@ -1,6 +1,4 @@
-import threading
 from typing import TYPE_CHECKING
-from concurrent.futures import ThreadPoolExecutor
 
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
@@ -36,8 +34,6 @@ class TextAdapter(QObject):
     textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
-    localTextIdResolved = Signal(int, int)  # (text_id, lookup_generation)
-    localTextIdLookupFailed = Signal()  # text_id 回查失败
 
     def __init__(
         self,
@@ -58,15 +54,6 @@ class TextAdapter(QObject):
         self._text_loading = False
         self._thread_pool = QThreadPool.globalInstance()
         self._load_generation = 0
-        self._lookup_generation = 0
-        # text_id 回查调度：latest-only + single-flight
-        self._lookup_lock = threading.Lock()
-        self._lookup_inflight = False
-        self._lookup_pending: tuple[str, str, int] | None = None
-        self._lookup_latest_requested: tuple[str, str, int] | None = None
-        self._lookup_executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="text-lookup"
-        )
 
     def _set_text_loading(self, loading: bool) -> None:
         if self._text_loading != loading:
@@ -74,22 +61,9 @@ class TextAdapter(QObject):
             self.textLoadingChanged.emit()
 
     def clear_active(self) -> None:
-        """失效当前普通载文 worker 和 text_id 回查。"""
+        """失效当前普通载文 worker。"""
         self._load_generation += 1
-        self.invalidate_pending_text_id_lookup()
         self._set_text_loading(False)
-
-    def invalidate_pending_text_id_lookup(self) -> None:
-        """失效仍在后台运行的 text_id 回查。"""
-        self._lookup_generation += 1
-
-    def _next_lookup_generation(self) -> int:
-        self.invalidate_pending_text_id_lookup()
-        return self._lookup_generation
-
-    @property
-    def current_lookup_generation(self) -> int:
-        return self._lookup_generation
 
     def _next_load_generation(self) -> int:
         self._load_generation += 1
@@ -105,76 +79,10 @@ class TextAdapter(QObject):
         text = result.text if hasattr(result, "text") else str(result)
         text_id = result.text_id if hasattr(result, "text_id") else None
         source_label = result.source_label if hasattr(result, "source_label") else ""
-        source_key = result.source_key if hasattr(result, "source_key") else ""
         if not isinstance(text, str):
             self.textLoadFailed.emit("加载文本失败：返回数据格式错误")
             return
         self.textLoaded.emit(text, text_id if text_id is not None else -1, source_label)
-
-        # 本地文本 text_id=None 时，后台线程异步回查服务端 text_id
-        if text_id is None and source_key:
-            self._lookup_text_id_async(source_key, text)
-
-    def _lookup_text_id_async(self, source_key: str, content: str) -> None:
-        """后台线程异步回查服务端 text_id。
-
-        调度策略：
-        - latest-only：高频触发时只保留最新请求
-        - single-flight：同一时刻仅 1 个回查线程在跑
-        """
-        lookup_generation = self._next_lookup_generation()
-        request = (source_key, content, lookup_generation)
-        should_start_worker = False
-        with self._lookup_lock:
-            self._lookup_latest_requested = request
-            self._lookup_pending = request
-            if not self._lookup_inflight:
-                self._lookup_inflight = True
-                should_start_worker = True
-
-        if should_start_worker:
-            self._lookup_executor.submit(self._lookup_worker_loop)
-
-    def _lookup_worker_loop(self) -> None:
-        """串行消费 text_id 回查请求。"""
-        usecase = self._load_text_usecase
-        while True:
-            with self._lookup_lock:
-                request = self._lookup_pending
-                self._lookup_pending = None
-
-            if request is None:
-                with self._lookup_lock:
-                    self._lookup_inflight = False
-                return
-
-            source_key, content, lookup_generation = request
-            try:
-                if lookup_generation != self._lookup_generation:
-                    continue
-                resolved_id = usecase.lookup_text_id(source_key, content)
-                should_emit = False
-                with self._lookup_lock:
-                    should_emit = request == self._lookup_latest_requested
-                if (
-                    resolved_id is not None
-                    and lookup_generation == self._lookup_generation
-                    and should_emit
-                ):
-                    # 从 daemon thread 直接发射信号，Qt 自动走 QueuedConnection 到主线程的 slot
-                    self.localTextIdResolved.emit(resolved_id, lookup_generation)
-            except Exception:
-                # 回查失败不影响主流程（文本已显示），通知用户排行榜功能暂不可用
-                if lookup_generation == self._lookup_generation:
-                    self.localTextIdLookupFailed.emit()
-
-    def lookup_text_id(self, source_key: str, content: str) -> None:
-        """公开方法：后台异步回查服务端 text_id。
-
-        用于 Bridge.loadFullText 等绕过 Worker 流程的直接载文路径，
-        复用已有的 localTextIdResolved 信号链完成 text_id 回填。
-        """
-        self._lookup_text_id_async(source_key, content)
 
     def _on_text_load_failed(self, message: str) -> None:
         self.textLoadFailed.emit(message)
@@ -187,12 +95,9 @@ class TextAdapter(QObject):
         """请求加载文本。
 
         所有加载均走后台 Worker，包括本地文件加载。
-        本地文件加载只读文件立即返回（text_id=None），服务端 text_id 通过
-        后台线程异步回查，回查完成后自动 setTextId 使排行榜/成绩提交可用。
         """
         if self._text_loading:
             return
-        self.invalidate_pending_text_id_lookup()
 
         try:
             plan = self._load_text_usecase.plan_load(source_key)
@@ -251,7 +156,6 @@ class TextAdapter(QObject):
         """从剪贴板加载文本。"""
         if self._text_loading:
             self.clear_active()
-        self.invalidate_pending_text_id_lookup()
 
         self._set_text_loading(True)
         try:
@@ -324,10 +228,6 @@ class TextAdapter(QObject):
     def runtime_config(self) -> RuntimeConfig:
         """公共只读访问器：Bridge 等外部层经此读取配置，禁止直接触碰私有字段。"""
         return self._runtime_config
-
-    def get_base_url(self) -> str:
-        """获取当前 API 服务地址。"""
-        return self._runtime_config.base_url
 
     def startFileTextSession(
         self,

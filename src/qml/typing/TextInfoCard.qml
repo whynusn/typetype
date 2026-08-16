@@ -4,7 +4,7 @@ import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
 import RinUI
 
-// 可折叠文本信息卡（footer 模式），参考 DailyLeaderboard.qml textInfoCard 实现
+// 可折叠文本信息卡（footer 模式），展示标题、ID、字数与内容预览
 Frame {
     id: root
 

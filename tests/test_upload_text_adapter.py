@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
 
 from src.backend.presentation.adapters.upload_text_adapter import UploadTextAdapter
 from src.backend.config.runtime_config import RuntimeConfig
@@ -22,7 +21,6 @@ def test_local_upload_writes_text_and_absolute_config_path(tmp_path: Path) -> No
     config_path = tmp_path / "config.json"
     config = _make_runtime_config(config_path)
     adapter = UploadTextAdapter(
-        text_uploader=MagicMock(),
         runtime_config=config,
         texts_dir=str(texts_dir),
     )
@@ -42,7 +40,6 @@ def test_local_upload_sanitizes_source_key_before_building_filename(
     config_path = tmp_path / "config.json"
     config = _make_runtime_config(config_path)
     adapter = UploadTextAdapter(
-        text_uploader=MagicMock(),
         runtime_config=config,
         texts_dir=str(texts_dir),
     )
@@ -71,7 +68,6 @@ def test_upload_emits_config_updated_signal(tmp_path: Path):
     config_path = tmp_path / "config.json"
     config = _make_runtime_config(config_path)
     adapter = UploadTextAdapter(
-        text_uploader=MagicMock(),
         runtime_config=config,
         texts_dir=str(texts_dir),
     )
@@ -89,7 +85,6 @@ def test_upload_triggers_runtime_config_reload(tmp_path: Path):
     config = _make_runtime_config(config_path, text_sources={"old": {"label": "Old"}})
 
     adapter = UploadTextAdapter(
-        text_uploader=MagicMock(),
         runtime_config=config,
         texts_dir=str(texts_dir),
     )

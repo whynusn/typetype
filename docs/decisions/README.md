@@ -27,6 +27,8 @@
 | 010 | [去中心化文本源生态（OTT Repo 控制面）](./010-decentralized-source-ecosystem.md) | 2026-07-26 | accepted |
 | 011 | [OTT 源生态加固与去中心化适配器执行方案](./011-ott-source-ecosystem-hardening-plan.md) | 2026-08-07 | proposed |
 | 012 | [去中心化排行榜（本地优先 + 可选联邦 board）](./012-decentralized-leaderboard.md) | 2026-08-07 | proposed |
+| 013 | [收敛到三仓模型并移除 typetype-server 耦合](./013-converge-to-three-repo-model.md) | 2026-08-13 | accepted |
+| 014 | [OTA 更新检查与镜像加速下载（GitHub Releases）](./014-ota-update-check-and-mirror-download.md) | 2026-08-13 | accepted |
 
 ---
 

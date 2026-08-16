@@ -65,22 +65,57 @@ def test_text_load_hub_uses_expected_bridge_contract():
     source = qml_source + js_source
     refs = _get_qml_refs(source)
     assert "property bool active: false" in qml_source
-    assert "textListLoading" in refs and "textListLoading" in BRIDGE_PROPERTIES
+    # textListLoading/loadTextList/loadCatalog 已随 typetype-server 耦合移除
+    # （ADR-013）；目录功能由联邦 loadFederatedEntries 承担
     assert "localArticleLoading" in refs and "localArticleLoading" in BRIDGE_PROPERTIES
     assert "trainerLoading" in refs and "trainerLoading" in BRIDGE_PROPERTIES
-    assert "loadTextList" in refs and "loadTextList" in BRIDGE_SLOTS
     assert "loadLocalArticles" in refs and "loadLocalArticles" in BRIDGE_SLOTS
-    assert "loadCatalog" in BRIDGE_SLOTS
     assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
     assert (
         "loadLocalArticleSegment" in refs and "loadLocalArticleSegment" in BRIDGE_SLOTS
     )
     assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
-    # OTT 源仓库联邦聚合 Slot
+    # OTT 源仓库联邦聚合 Slot（hub 直接浏览/载入联邦条目）
+    assert "loadFederatedEntries" in refs and "loadFederatedEntries" in BRIDGE_SLOTS
+    assert (
+        "loadFederatedEntrySegment" in refs
+        and "loadFederatedEntrySegment" in BRIDGE_SLOTS
+    )
+    assert (
+        "loadFederatedInlineEntry" in refs
+        and "loadFederatedInlineEntry" in BRIDGE_SLOTS
+    )
+    # 总刷新（全部源强制换新）与源级刷新（该 authority 换新）都接在 hub；
+    # 订阅源（repo）级刷新已随分组语义收敛到源级（refreshFederatedSource）
+    assert "refreshFederatedAll" in refs and "refreshFederatedAll" in BRIDGE_SLOTS
+    assert "refreshFederatedSource" in refs and "refreshFederatedSource" in BRIDGE_SLOTS
+    assert "refreshingFederatedSource" in refs
+    assert "refreshingFederatedSource" in BRIDGE_PROPERTIES
+    assert "refreshingFederatedSources" in refs
+    assert "refreshingFederatedSources" in BRIDGE_PROPERTIES
+    assert "getFederatedSourceStatuses" in refs
+    assert "getFederatedSourceStatuses" in BRIDGE_SLOTS
+    assert "onFederatedSourceStatusChanged" in qml_source
+    info_qml = QML_DIR / "components/SourceInfoDialog.qml"
+    assert info_qml.exists()
+    info_refs = _get_qml_refs(info_qml.read_text(encoding="utf-8"))
+    assert "getFederatedSourceStatuses" in info_refs
+    assert "getSourceRefreshOverrides" in info_refs
+    assert "setSourceRefreshOverride" in info_refs
+    # 晴发文 / AI 即时拉取入口纳入载文中心
+    assert "loadRandomWenlaiText" in refs and "loadRandomWenlaiText" in BRIDGE_SLOTS
+    assert "requestAiText" in refs and "requestAiText" in BRIDGE_SLOTS
+    # 订阅管理收敛到源组头弹窗（RepoConfigDialog，独立管理页已取消）：
+    # 添加订阅入口在 hub，启用/信任/删除在弹窗
     assert "addRepo" in refs and "addRepo" in BRIDGE_SLOTS
-    assert "removeRepo" in refs and "removeRepo" in BRIDGE_SLOTS
-    assert "setRepoEnabled" in refs and "setRepoEnabled" in BRIDGE_SLOTS
-    assert "refreshRepos" in refs and "refreshRepos" in BRIDGE_SLOTS
+    assert "previewRepoManifest" in refs and "previewRepoManifest" in BRIDGE_SLOTS
+    config_qml = QML_DIR / "components/RepoConfigDialog.qml"
+    config_refs = _get_qml_refs(config_qml.read_text(encoding="utf-8"))
+    assert "removeRepo" in config_refs and "removeRepo" in BRIDGE_SLOTS
+    assert "setRepoEnabled" in config_refs and "setRepoEnabled" in BRIDGE_SLOTS
+    assert "confirmRepoTrust" in config_refs and "confirmRepoTrust" in BRIDGE_SLOTS
+    assert "rejectRepoTrust" in config_refs and "rejectRepoTrust" in BRIDGE_SLOTS
+    assert "getRepos" in config_refs and "getRepos" in BRIDGE_SLOTS
     assert "SliceCriteriaPanel" in qml_source
     assert "TextInfoCard" in qml_source
     assert (
@@ -135,31 +170,30 @@ def test_typing_page_renders_ziti_hint_from_bridge():
     assert "zitiHintText" in source
 
 
-def test_text_load_hub_clears_pending_federated_flag_on_failure():
-    """联邦 inline 加载失败或中途返回时，_pendingFederatedContent 必须清零。
+def test_text_load_hub_clears_federated_busy_on_load_failure():
+    """联邦载文失败时 federatedContentLoading（载入跟打 Busy）必须清零。
 
-    残留 flag 会把后续任意 textContentLoaded（如正常载文）误判成联邦内容
-    启动打字。修复要求：独立联邦 Connections 里处理 textLoadFailed 清除
-    flag，且 onActiveChanged 激活时（中途返回场景）也清除。
+    2026-08-14 链路改造：联邦条目载文改为后端同步直发 textLoaded
+    （镜像本地文库链路），不再经 textContentLoaded/_pendingFederatedContent
+    间接回传；失败/成功统一在常驻联邦 Connections 里清 busy，避免
+    规则源「一直显示加载动画」。
     """
     page_qml = QML_DIR / "pages/TextLoadHubPage.qml"
     source = page_qml.read_text(encoding="utf-8")
     assert "textLoadFailed" in BRIDGE_SIGNALS
     assert "function onTextLoadFailed" in source
-    # onActiveChanged 在 root 作用域内直接写 flag（无前缀）；联邦 Connections
-    # 成功/失败 handler 在组件外部需 root. 前缀，失败分支同样清除 flag
-    assert "_pendingFederatedContent = false" in source
-    assert "root._pendingFederatedContent = null" in source
-    # 失败 handler 必须在 flag 置位之后且与成功 handler 同处联邦 Connections，
-    # 且失败分支内要有 flag 清除（onTextLoadFailed 函数体含 = null）
+    assert "textLoaded" in BRIDGE_SIGNALS
+    assert "function onTextLoaded" in source
+    # 失败 handler 清除 busy（组件外需 root. 前缀）
     failed_at = source.index("function onTextLoadFailed")
     failed_body = source[failed_at : source.index("\n        }", failed_at)]
-    assert "root._pendingFederatedContent = null" in failed_body
-    # 失败分支必须在联邦 Connections（不依赖 root.active）内，与成功分支同处
-    failed_at = source.index("function onTextLoadFailed")
-    success_at = source.index("function onTextContentLoaded")
-    flag_set_at = source.index("root._pendingFederatedContent = true")
-    assert failed_at > flag_set_at and success_at > flag_set_at
+    assert "root.federatedContentLoading = false" in failed_body
+    # 成功 handler（textLoaded 落地）同样清除 busy
+    loaded_at = source.index("function onTextLoaded")
+    loaded_body = source[loaded_at : source.index("\n        }", loaded_at)]
+    assert "root.federatedContentLoading = false" in loaded_body
+    # 常驻联邦 Connections 不依赖 root.active（页面已被 push 到 TypingPage）
+    assert "// ---- 联邦跨页面信号（不依赖 root.active）----" in source
 
 
 def test_settings_page_exposes_ziti_controls():

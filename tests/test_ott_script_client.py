@@ -83,6 +83,18 @@ class TestScriptSandbox:
         entries = sandbox.execute(source, "test://script")
         assert entries == []
 
+    def test_strict_returns_none_on_execution_failure(self) -> None:
+        """strict 区分执行失败（None）与成功但空（[]），联邦层据此计失败。"""
+        source = "def fetch_entries():\n    raise RuntimeError('boom')\n"
+        sandbox = ScriptSandbox()
+        assert sandbox.execute_strict(source, "test://script") is None
+        assert sandbox.execute(source, "test://script") == []
+
+    def test_strict_returns_empty_on_successful_empty_script(self) -> None:
+        source = "def fetch_entries():\n    return []\n"
+        sandbox = ScriptSandbox()
+        assert sandbox.execute_strict(source, "test://script") == []
+
     def test_returns_empty_on_non_list_result(self) -> None:
         source = 'def fetch_entries():\n    return "not a list"\n'
         sandbox = ScriptSandbox()
@@ -753,6 +765,48 @@ class TestScriptCache:
         result = cache.get_script("https://example.com/s.py", ttl_seconds=0)
         # 网络失败但缓存存在 → 返回缓存
         assert result == safe_source
+
+    def test_jsdelivr_fallback_on_raw_github_failure(self, tmp_path) -> None:
+        """GitHub raw 超时 → jsDelivr CDN 降级重试（2026-08-13 实测超时场景）。"""
+        source = "def fetch_entries():\n    return []\n"
+        raw_url = "https://raw.githubusercontent.com/owner/repo/main/scripts/s.py"
+        cdn_url = "https://cdn.jsdelivr.net/gh/owner/repo@main/scripts/s.py"
+
+        cdn_resp = MagicMock(spec=httpx.Response)
+        cdn_resp.status_code = 200
+        cdn_resp.text = source
+        cdn_resp.headers = {"content-length": str(len(source))}
+        cdn_resp.raise_for_status = MagicMock()
+        cdn_resp.iter_text.return_value = iter([source])
+        cdn_ctx = MagicMock()
+        cdn_ctx.__enter__.return_value = cdn_resp
+        cdn_ctx.__exit__.return_value = False
+
+        mock_http = MagicMock(spec=httpx.Client)
+
+        # 主地址超时，jsDelivr 成功
+        def _stream(method, url, **kwargs):
+            if url == raw_url:
+                raise httpx.ReadTimeout("read timed out", request=None)
+            assert url == cdn_url
+            return cdn_ctx
+
+        mock_http.stream.side_effect = _stream
+
+        cache = ScriptCache(tmp_path / "scripts", mock_http)
+        result = cache.get_script(raw_url)
+        assert result == source
+        # 两次请求：raw（失败）+ jsDelivr（成功）
+        assert mock_http.stream.call_count == 2
+
+    def test_no_jsdelivr_fallback_for_non_raw_url(self, tmp_path) -> None:
+        """非 raw.githubusercontent.com URL 失败时不做 CDN 降级（只请求一次）。"""
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.stream.side_effect = httpx.ConnectError("offline")
+
+        cache = ScriptCache(tmp_path / "scripts", mock_http)
+        assert cache.get_script("https://example.com/s.py") is None
+        assert mock_http.stream.call_count == 1
 
 
 class TestScriptDisabled:

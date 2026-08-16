@@ -7,7 +7,6 @@ from src.backend.ports.key_codes import KeyCodes
 from src.backend.presentation.bridge import Bridge
 from src.backend.domain.services.char_stats_service import CharStatsService
 from src.backend.domain.services.typing_service import TypingService
-from src.backend.domain.services.auth_service import AuthService
 from src.backend.integration.noop_char_stats_repository import NoopCharStatsRepository
 from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.application.gateways.score_gateway import ScoreGateway
@@ -16,7 +15,6 @@ from src.backend.models.dto.fetched_text import FetchedText
 from src.backend.models.dto.wenlai_dto import WenlaiText
 from src.backend.presentation.adapters.typing_adapter import TypingAdapter
 from src.backend.presentation.adapters.text_adapter import TextAdapter
-from src.backend.presentation.adapters.auth_adapter import AuthAdapter
 from src.backend.presentation.adapters.char_stats_adapter import CharStatsAdapter
 from src.backend.integration.global_key_listener import GlobalKeyListener
 from src.backend.application.session_context import TypingSessionContext
@@ -288,14 +286,10 @@ class TestBridgeSpecialPlatform:
         # Domain Services
         char_stats_service = CharStatsService(repository=NoopCharStatsRepository())
         typing_service = TypingService(char_stats_service=char_stats_service)
-        auth_service = MagicMock(spec=AuthService)
-        auth_service.initialize.return_value = None
-        auth_service.is_logged_in = False
 
         # Gateways
         score_gateway = MagicMock(spec=ScoreGateway)
         runtime_config = MagicMock(spec=RuntimeConfig)
-        runtime_config.get_text_source_options.return_value = []
         runtime_config.default_text_source_key = "builtin_demo"
 
         text_gateway = MagicMock()
@@ -325,20 +319,16 @@ class TestBridgeSpecialPlatform:
             local_text_loader=local_text_loader,
         )
 
-        auth_adapter = AuthAdapter(auth_service=auth_service)
         char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
 
-        return typing_adapter, text_adapter, auth_adapter, char_stats_adapter
+        return typing_adapter, text_adapter, char_stats_adapter
 
     def test_bridge_without_listener(self):
         """未传监听器时，应为普通平台"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -346,28 +336,22 @@ class TestBridgeSpecialPlatform:
 
     def test_bridge_with_listener(self):
         """传入监听器时，应标记为特殊平台"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
         assert bridge.isSpecialPlatform is True
 
     def test_key_received_calls_handle_pressed_when_focused(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
@@ -378,14 +362,11 @@ class TestBridgeSpecialPlatform:
 
     def test_first_global_key_starts_session_and_counts_key(self):
         """特殊平台应从第一个物理输入键启动会话，避免漏算首个拼音键。"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
@@ -398,14 +379,11 @@ class TestBridgeSpecialPlatform:
 
     def test_global_modifier_key_is_ignored(self):
         """Shift/Ctrl/Command 等修饰键不计入打字成绩。"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
@@ -417,14 +395,11 @@ class TestBridgeSpecialPlatform:
         assert typing_adapter.score_data.key_stroke_count == 0
 
     def test_key_received_ignored_when_not_focused(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
@@ -434,14 +409,11 @@ class TestBridgeSpecialPlatform:
 
     def test_evdev_backspace_key_accumulates_backspace_and_key_stroke(self):
         """Linux evdev 退格键应同时累积退格次数和击键数。"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
@@ -453,14 +425,11 @@ class TestBridgeSpecialPlatform:
 
     def test_evdev_comma_key_is_not_treated_as_macos_backspace(self):
         """Linux evdev 普通键码 51 不能被误判为 macOS Backspace。"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
@@ -474,14 +443,11 @@ class TestBridgeSpecialPlatform:
 
     def test_macos_backspace_key_accumulates_backspace_and_key_stroke(self):
         """macOS delete/backspace 键应同时累积退格次数和击键数。"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         listener = DummyListener()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=cast(GlobalKeyListener, listener),
         )
@@ -492,13 +458,10 @@ class TestBridgeSpecialPlatform:
         assert typing_adapter.score_data.key_stroke_count == 1
 
     def test_request_load_text_locks_typing_until_text_ready(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -511,13 +474,10 @@ class TestBridgeSpecialPlatform:
         assert typing_adapter.text_read_only is True
 
     def test_load_text_from_clipboard_locks_typing_until_text_ready(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -530,7 +490,7 @@ class TestBridgeSpecialPlatform:
         assert typing_adapter.text_read_only is True
 
     def test_pause_typing_preserves_score_and_allows_input(self):
-        typing_adapter, _, _, _ = self._create_mock_services()
+        typing_adapter, _, _ = self._create_mock_services()
         typing_adapter._typing_service.set_total_chars(4)
         typing_adapter.handleStartStatus(True)
         typing_adapter._typing_service.score_data.char_count = 2
@@ -552,7 +512,7 @@ class TestBridgeSpecialPlatform:
         assert events == [True]
 
     def test_resume_typing_continues_paused_score(self):
-        typing_adapter, _, _, _ = self._create_mock_services()
+        typing_adapter, _, _ = self._create_mock_services()
         typing_adapter._typing_service.set_total_chars(4)
         typing_adapter.handleStartStatus(True)
         typing_adapter._typing_service.score_data.char_count = 2
@@ -574,13 +534,10 @@ class TestBridgeSpecialPlatform:
         assert events == [False]
 
     def test_window_deactivate_pause_only_affects_running_session(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -594,13 +551,10 @@ class TestBridgeSpecialPlatform:
         assert bridge.typingPaused is True
 
     def test_setup_slice_mode_emits_slice_mode_changed(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -616,13 +570,10 @@ class TestBridgeSpecialPlatform:
 
     def test_request_shuffle_in_slice_mode_preserves_slice_state(self):
         """分片模式下点击乱序按钮应保持分片状态，不覆盖 source_mode。"""
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -641,13 +592,10 @@ class TestBridgeSpecialPlatform:
         assert bridge.sliceMode is True
 
     def test_load_next_slice_advances_by_one_slice(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -666,14 +614,11 @@ class TestBridgeSpecialPlatform:
         assert bridge._typing_adapter._session_context.slice_index == 3
 
     def test_wenlai_load_preserves_active_state_for_adjacent_segments(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -692,14 +637,11 @@ class TestBridgeSpecialPlatform:
         assert loaded == [("晴发文正文", -1, "晴发文标题")]
 
     def test_wenlai_load_copies_sender_content(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -714,15 +656,12 @@ class TestBridgeSpecialPlatform:
         ]
 
     def test_wenlai_auto_next_copies_score_and_next_sender_content(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         typing_adapter._score_gateway.build_score_plain_text.return_value = "成绩文本"
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -742,15 +681,12 @@ class TestBridgeSpecialPlatform:
         ]
 
     def test_wenlai_copy_score_message_includes_real_segment_mark(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         typing_adapter._score_gateway.build_score_plain_text.return_value = "成绩文本"
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -765,14 +701,11 @@ class TestBridgeSpecialPlatform:
         assert copied == ["段1-2 成绩文本"]
 
     def test_wenlai_window_title_includes_difficulty_and_title_without_segment(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -784,14 +717,11 @@ class TestBridgeSpecialPlatform:
         assert bridge.windowTitle == "TypeType 普(2.30) 0/5 晴发文标题"
 
     def test_wenlai_segment_label_exposes_current_text_progress(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -804,14 +734,11 @@ class TestBridgeSpecialPlatform:
         assert bridge.wenlaiSegmentLabel == "1/2"
 
     def test_wenlai_segment_label_falls_back_to_sort_num_without_mark(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -822,14 +749,11 @@ class TestBridgeSpecialPlatform:
         assert bridge.wenlaiSegmentLabel == "8"
 
     def test_wenlai_segment_label_change_signal_emits_when_text_loads(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -844,15 +768,12 @@ class TestBridgeSpecialPlatform:
         assert labels[-1] == "1/2"
 
     def test_history_record_includes_wenlai_segment_and_copyable_score_text(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         typing_adapter._score_gateway.build_score_plain_text.return_value = "成绩文本"
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -869,14 +790,11 @@ class TestBridgeSpecialPlatform:
         ]
 
     def test_history_record_updates_persistent_typing_totals(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         totals_gateway = DummyTypingTotalsGateway()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             typing_totals_gateway=totals_gateway,
             key_listener=None,
@@ -903,13 +821,10 @@ class TestBridgeSpecialPlatform:
         回归测试：防止 get_last_slice_stats 被错误代理到 session_context 导致
         在 collect_slice_result 调用前返回空字典，从而使惩罚条件永远失效。
         """
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
@@ -935,9 +850,7 @@ class TestBridgeSpecialPlatform:
         assert session.should_retype() is True  # keyAccuracy 95 < 98，应触发重打
 
     def test_local_article_segment_prepares_local_non_ranking_typing_session(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         local_article_adapter = DummyLocalArticleAdapter()
@@ -945,7 +858,6 @@ class TestBridgeSpecialPlatform:
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             local_article_adapter=local_article_adapter,
@@ -983,17 +895,15 @@ class TestBridgeSpecialPlatform:
         assert loaded_texts[-1] == ("片段内容", -1, "长文 2/5")
         assert typing_adapter.text_title == "长文 2/5"
 
-    def test_stale_local_text_id_resolution_is_ignored_for_local_article_session(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+    def test_local_article_session_resets_text_id(self):
+        """本地长文加载后 text_id 归零，成绩不提交（text_id 回查已移除）。"""
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         local_article_adapter = DummyLocalArticleAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             local_article_adapter=local_article_adapter,
             key_listener=None,
@@ -1008,72 +918,35 @@ class TestBridgeSpecialPlatform:
             }
         )
 
-        text_adapter.localTextIdResolved.emit(
-            999, text_adapter.current_lookup_generation
-        )
-
         assert bridge.textId == 0
         assert session.upload_status.name == "NA"
         assert session.can_submit_score() is False
 
-    def test_queued_stale_local_text_id_resolution_is_ignored_after_new_local_load(
-        self,
-    ):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+    def test_standard_local_load_resets_text_id(self):
+        """普通本地载文后 text_id 归零（text_id 回查已移除，状态恒 NA）。"""
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             key_listener=None,
         )
-        text_adapter.invalidate_pending_text_id_lookup()
-        stale_generation = text_adapter.current_lookup_generation
 
         bridge.requestLoadText("test")
         text_adapter.textLoaded.emit("新本地文本", -1, "新本地")
-        text_adapter.localTextIdResolved.emit(111, stale_generation)
 
         assert bridge.textId == 0
         assert session.source_mode.name == "LOCAL"
-        assert session.upload_status.name == "PENDING"
-
-    def test_current_local_text_id_resolution_confirms_standard_local_session(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
-        session = TypingSessionContext()
-        typing_adapter._session_context = session
-        bridge = Bridge(
-            typing_adapter=typing_adapter,
-            text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
-            char_stats_adapter=char_stats_adapter,
-            key_listener=None,
-        )
-
-        bridge.requestLoadText("test")
-        text_adapter.textLoaded.emit("新本地文本", -1, "新本地")
-        text_adapter.invalidate_pending_text_id_lookup()
-        current_generation = text_adapter.current_lookup_generation
-        text_adapter.localTextIdResolved.emit(222, current_generation)
-
-        assert bridge.textId == 222
-        assert session.upload_status.name == "CONFIRMED"
+        assert session.upload_status.name == "NA"
 
     def test_request_load_text_invalidates_pending_local_article_results(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         local_article_adapter = DummyLocalArticleAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             local_article_adapter=local_article_adapter,
             key_listener=None,
@@ -1084,16 +957,13 @@ class TestBridgeSpecialPlatform:
         assert local_article_adapter.clear_count >= 1
 
     def test_load_local_article_segment_locks_input_before_worker_finishes(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         local_article_adapter = DummyLocalArticleAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             local_article_adapter=local_article_adapter,
             key_listener=None,
@@ -1110,14 +980,11 @@ class TestBridgeSpecialPlatform:
         assert session.source_mode.name == "LOCAL_ARTICLE"
 
     def test_wenlai_load_request_locks_input_before_worker_finishes(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -1132,15 +999,12 @@ class TestBridgeSpecialPlatform:
         assert typing_adapter.text_read_only is True
 
     def test_wenlai_duplicate_load_request_is_ignored_at_bridge_boundary(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         wenlai_adapter = DummyWenlaiAdapter()
         wenlai_adapter._text_loading = True
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             key_listener=None,
@@ -1157,14 +1021,11 @@ class TestBridgeSpecialPlatform:
         assert typing_adapter.text_read_only is False
 
     def test_bridge_forwards_local_article_catalog_slots_and_signals(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         local_article_adapter = DummyLocalArticleAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             local_article_adapter=local_article_adapter,
             key_listener=None,
@@ -1185,14 +1046,11 @@ class TestBridgeSpecialPlatform:
         assert failures == ["失败"]
 
     def test_bridge_forwards_ziti_slots_signals_and_properties(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         ziti_adapter = DummyZitiAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             ziti_adapter=ziti_adapter,
             key_listener=None,
@@ -1224,14 +1082,11 @@ class TestBridgeSpecialPlatform:
         assert loaded == [("小鹤", 1)]
 
     def test_bridge_forwards_trainer_catalog_slots_signals_and_properties(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         trainer_adapter = DummyTrainerAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             trainer_adapter=trainer_adapter,
             key_listener=None,
@@ -1251,9 +1106,7 @@ class TestBridgeSpecialPlatform:
         assert failures == ["失败"]
 
     def test_trainer_segment_prepares_non_ranking_typing_session(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         trainer_adapter = DummyTrainerAdapter()
@@ -1262,7 +1115,6 @@ class TestBridgeSpecialPlatform:
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             wenlai_adapter=wenlai_adapter,
             local_article_adapter=local_article_adapter,
@@ -1305,15 +1157,12 @@ class TestBridgeSpecialPlatform:
         assert typing_adapter.text_title == "前500 2/25"
 
     def test_setup_slice_mode_clears_sourced_backend_flags(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         trainer_adapter = DummyTrainerAdapter()
         local_article_adapter = DummyLocalArticleAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             trainer_adapter=trainer_adapter,
             local_article_adapter=local_article_adapter,
@@ -1336,7 +1185,7 @@ class TestBridgeSpecialPlatform:
         assert trainer_adapter.segment_requests == []
 
     def test_typing_completed_clears_cursor_before_typing_ended(self):
-        typing_adapter, _, _, _ = self._create_mock_services()
+        typing_adapter, _, _ = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
 
@@ -1371,14 +1220,11 @@ class TestBridgeSpecialPlatform:
         assert cursor_is_none_during_emit == [True]
 
     def test_bridge_forwards_trainer_navigation_slots(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         trainer_adapter = DummyTrainerAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             trainer_adapter=trainer_adapter,
             key_listener=None,
@@ -1395,16 +1241,13 @@ class TestBridgeSpecialPlatform:
         assert trainer_adapter.shuffle_count == 1
 
     def test_trainer_retype_uses_current_segment_not_reload(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         trainer_adapter = DummyTrainerAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             trainer_adapter=trainer_adapter,
             key_listener=None,
@@ -1429,16 +1272,13 @@ class TestBridgeSpecialPlatform:
         assert trainer_adapter.segment_requests == []
 
     def test_trainer_shuffle_retype_uses_shuffle_current_group(self):
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         trainer_adapter = DummyTrainerAdapter()
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             trainer_adapter=trainer_adapter,
             key_listener=None,
@@ -1477,9 +1317,7 @@ class TestBridgeSpecialPlatform:
         from src.backend.models.dto.text_session import TextHandle, TextKind
         from src.backend.presentation.bridge import _compute_progress_key
 
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         local_article_adapter = DummyLocalArticleAdapter()
@@ -1487,7 +1325,6 @@ class TestBridgeSpecialPlatform:
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             local_article_adapter=local_article_adapter,
             text_slice_progress_store=store,
@@ -1543,9 +1380,7 @@ class TestBridgeSpecialPlatform:
         )
         from src.backend.presentation.bridge import _compute_progress_key
 
-        typing_adapter, text_adapter, auth_adapter, char_stats_adapter = (
-            self._create_mock_services()
-        )
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
         session = TypingSessionContext()
         typing_adapter._session_context = session
         trainer_adapter = DummyTrainerAdapter()
@@ -1553,7 +1388,6 @@ class TestBridgeSpecialPlatform:
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             trainer_adapter=trainer_adapter,
             text_slice_progress_store=store,
@@ -1698,7 +1532,6 @@ def test_find_progress_title_scan_prefers_newest():
         bridge = Bridge(
             typing_adapter=MagicMock(),
             text_adapter=MagicMock(),
-            auth_adapter=MagicMock(),
             char_stats_adapter=MagicMock(),
             key_listener=None,
         )
@@ -1729,7 +1562,6 @@ def test_full_shuffle_save_restore_cycle():
         bridge = Bridge(
             typing_adapter=MagicMock(),
             text_adapter=MagicMock(),
-            auth_adapter=MagicMock(),
             char_stats_adapter=MagicMock(),
             key_listener=None,
         )
@@ -1815,6 +1647,8 @@ class _FakeRegistryAdapter(QObject):
     entriesLoaded = Signal(list)
     entriesLoadFailed = Signal(str)
     entriesLoadingChanged = Signal()
+    refreshingRepoChanged = Signal()
+    refreshingAuthorityChanged = Signal()
 
     def __init__(self, runtime_config: RuntimeConfig):
         super().__init__()
@@ -1831,15 +1665,11 @@ class _FakeRegistryAdapter(QObject):
 
 
 class TestBridgeRegistryRepoSignals:
-    """第四轮 P2：面板侧订阅增删/启停后必须 emit registryUrlChanged，
-    否则设置页（NavigationView 缓存实例）字段残留旧值，点"应用"会用旧值复活订阅。"""
+    """Bridge 订阅槽经 registry_adapter 转发并持久化到 source_repos。"""
 
     def _make_bridge(self, tmp_path):
         char_stats_service = CharStatsService(repository=NoopCharStatsRepository())
         typing_service = TypingService(char_stats_service=char_stats_service)
-        auth_service = MagicMock(spec=AuthService)
-        auth_service.initialize.return_value = None
-        auth_service.is_logged_in = False
 
         score_gateway = MagicMock(spec=ScoreGateway)
         runtime_config = RuntimeConfig(_config_path=str(tmp_path / "config.json"))
@@ -1867,48 +1697,37 @@ class TestBridgeRegistryRepoSignals:
             load_text_usecase=load_text_usecase,
             local_text_loader=MagicMock(),
         )
-        auth_adapter = AuthAdapter(auth_service=auth_service)
         char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
         bridge = Bridge(
             typing_adapter=typing_adapter,
             text_adapter=text_adapter,
-            auth_adapter=auth_adapter,
             char_stats_adapter=char_stats_adapter,
             registry_adapter=_FakeRegistryAdapter(runtime_config),
         )
         return bridge, runtime_config
 
-    def test_repo_slots_emit_registry_url_changed(self, tmp_path):
-        """addRepo/removeRepo/setRepoEnabled 成功后应 emit registryUrlChanged。"""
-        bridge, _ = self._make_bridge(tmp_path)
-        emitted = []
-        bridge.registryUrlChanged.connect(lambda: emitted.append(True))
+    def test_repo_slots_forward_to_registry_adapter(self, tmp_path):
+        """addRepo/removeRepo/setRepoEnabled 应更新 source_repos 订阅配置。"""
+        bridge, runtime_config = self._make_bridge(tmp_path)
 
         bridge.addRepo("https://a.org/repo.json")
-        assert len(emitted) == 1, "addRepo 应 emit registryUrlChanged"
-        assert bridge.registryPrimaryUrl == "https://a.org/repo.json"
+        repos = [(r.url, r.enabled) for r in runtime_config.source_repos.repos]
+        assert repos == [("https://a.org/repo.json", True)]
 
         bridge.setRepoEnabled("https://a.org/repo.json", False)
-        assert len(emitted) == 2, "setRepoEnabled 应 emit registryUrlChanged"
-        # 禁用唯一 enabled 订阅后反推结果为空，设置页字段随之刷新
-        assert bridge.registryPrimaryUrl == ""
-
-        bridge.setRepoEnabled("https://a.org/repo.json", True)
-        assert len(emitted) == 3, "重新启用也应 emit registryUrlChanged"
+        repos = [(r.url, r.enabled) for r in runtime_config.source_repos.repos]
+        assert repos == [("https://a.org/repo.json", False)]
 
         bridge.removeRepo("https://a.org/repo.json")
-        assert len(emitted) == 4, "removeRepo 应 emit registryUrlChanged"
-        assert bridge.registryPrimaryUrl == ""
+        assert runtime_config.source_repos.repos == []
 
-    def test_disable_then_apply_does_not_revive_subscription(self, tmp_path):
-        """P2 场景：禁用订阅后 registryPrimaryUrl 刷新为空，
-        设置页"应用"（setRegistryUrls 空 primary）不应复活订阅。"""
+    def test_set_registry_urls_noop_does_not_revive_subscription(self, tmp_path):
+        """P2 场景：setRegistryUrls 是兼容占位，不复活已禁用订阅。"""
         bridge, runtime_config = self._make_bridge(tmp_path)
         bridge.addRepo("https://a.org/repo.json")
         bridge.setRepoEnabled("https://a.org/repo.json", False)
 
-        # 设置页字段已刷新为空 → 应用传空 primary，不复活被禁用订阅
-        assert bridge.registryPrimaryUrl == ""
+        # 设置页"应用"传空 primary（旧字段已随 ADR-013 移除，本槽为兼容占位）
         bridge.setRegistryUrls("", "")
         repos = [(r.url, r.enabled) for r in runtime_config.source_repos.repos]
         assert repos == [("https://a.org/repo.json", False)], (

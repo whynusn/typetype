@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import httpx
 
 from src.backend.config.runtime_config import (
-    RegistryConfig,
+    OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
@@ -72,9 +72,7 @@ def _manifest() -> dict:
 
 def _federation(tmp_path, manifest: dict) -> OttFederationProvider:
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = RegistryConfig(
-        cache_ttl_seconds=3600, max_content_bytes=1_048_576
-    )
+    config.ott = OttConfig(cache_ttl_seconds=3600, max_content_bytes=1_048_576)
     config.source_repos = SourceReposConfig(
         repos=[SourceRepoEntry(url="https://x.example.org/ott-repo.json", enabled=True)]
     )

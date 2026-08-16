@@ -79,6 +79,72 @@ def test_validate_valid_manifest():
     assert v["sources"][0]["endpoints"][0]["profile"] == "static"
 
 
+def test_validate_optional_max_entries():
+    """可选 max_entries（订阅源声明文本上限）：正数保留，缺失/非正 = 0 = 无上限。"""
+    m = _valid_manifest()
+    assert validate_repo_manifest(m)["max_entries"] == 0  # 缺失 → 0
+
+    m["max_entries"] = 1000
+    assert validate_repo_manifest(m)["max_entries"] == 1000
+
+    m["max_entries"] = -5
+    assert validate_repo_manifest(m)["max_entries"] == 0
+
+    m["max_entries"] = "lots"
+    assert validate_repo_manifest(m)["max_entries"] == 0
+
+
+def test_validate_preserves_common_source_fields():
+    """rule/script/bridge 的 tags/default_enabled 必须被归一化保留。
+
+    回归：曾只在 ott-instance 上保留，导致 rule/script 的 default_enabled
+    恒为 true、tags 全部丢失（源卡片与筛选没有数据可用）。
+    """
+    m = _valid_manifest()
+    m["sources"] = [
+        {
+            "type": "ott-rule",
+            "rule_id": "r1",
+            "label": "规则源",
+            "rule": {
+                "request": {"url": "https://example.com/api"},
+                "extract": {"content": "$.content"},
+                "schedule": {"mode": "daily", "cache_ttl_seconds": 3600},
+            },
+            "tags": ["quote"],
+            "default_enabled": False,
+        },
+        {
+            "type": "ott-bridge",
+            "bridge_kind": "generic-http",
+            "endpoint": "https://example.com/bridge",
+            "label": "桥接源",
+            "tags": ["poetry"],
+            "default_enabled": False,
+        },
+        {
+            "type": "ott-script",
+            "url": "https://example.com/fetch.py",
+            "label": "脚本源",
+            "tags": ["english"],
+            "default_enabled": False,
+        },
+    ]
+    v = validate_repo_manifest(m)
+    assert [s["type"] for s in v["sources"]] == [
+        "ott-rule",
+        "ott-bridge",
+        "ott-script",
+    ]
+    for source in v["sources"]:
+        assert source["default_enabled"] is False
+        assert source["tags"]
+    assert v["sources"][0]["rule"]["schedule"] == {
+        "mode": "daily",
+        "cache_ttl_seconds": 3600,
+    }
+
+
 def test_validate_rejects_bad_protocol():
     m = _valid_manifest()
     m["protocol"] = "nope"
@@ -377,6 +443,73 @@ def test_mirror_failover_after_primary_failure(tmp_path):
 
 
 def test_mirror_failover_without_cache_returns_none(tmp_path):
+    client = MagicMock(spec=httpx.Client)
+    fail_resp = _mock_response(json_data=None, status_code=500)
+    client.get.return_value = fail_resp
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+    )
+    repo = SourceRepoEntry(url="https://texts.example.org/ott-repo.json")
+
+    assert cache.refresh_manifest(repo) is None
+    assert client.get.call_count == 1
+
+
+def test_to_jsdelivr_url():
+    """raw.githubusercontent.com → cdn.jsdelivr.net 转换；非 raw URL 不降级。
+
+    （2026-08-14 该函数迁移至 ott_normalization，供 ScriptCache /
+    OttCachedFetcher 复用；此处改从新位置导入。）
+    """
+    from src.backend.integration.ott_normalization import to_jsdelivr_url
+
+    assert (
+        to_jsdelivr_url(
+            "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json"
+        )
+        == "https://cdn.jsdelivr.net/gh/whynusn/ott-source-hub@main/ott-repo.json"
+    )
+    assert (
+        to_jsdelivr_url(
+            "https://raw.githubusercontent.com/a/b/main/adapters/x/code/script.py"
+        )
+        == "https://cdn.jsdelivr.net/gh/a/b@main/adapters/x/code/script.py"
+    )
+    # 非 GitHub raw URL → 不降级（None）
+    assert to_jsdelivr_url("https://texts.example.org/ott-repo.json") is None
+    assert to_jsdelivr_url("file:///tmp/ott-repo.json") is None
+    # 路径段不足 → 不降级
+    assert to_jsdelivr_url("https://raw.githubusercontent.com/a/b") is None
+
+
+def test_first_fetch_failure_falls_back_to_jsdelivr(tmp_path):
+    """首次拉取失败（无缓存）→ raw 主地址失败后尝试 jsDelivr CDN 降级。"""
+    manifest = _valid_manifest()
+    client = MagicMock(spec=httpx.Client)
+    fail_resp = _mock_response(json_data=None, status_code=500)
+    ok_resp = _mock_response(json_data=manifest, status_code=200)
+    client.get.side_effect = [fail_resp, ok_resp]
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+    )
+    repo = SourceRepoEntry(
+        url="https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json"
+    )
+
+    assert cache.refresh_manifest(repo) is not None
+    urls = [call.args[0] for call in client.get.call_args_list]
+    assert urls == [
+        "https://raw.githubusercontent.com/whynusn/ott-source-hub/main/ott-repo.json",
+        "https://cdn.jsdelivr.net/gh/whynusn/ott-source-hub@main/ott-repo.json",
+    ]
+
+
+def test_first_fetch_failure_non_raw_url_no_jsdelivr(tmp_path):
+    """非 raw URL 首拉失败 → 无 CDN 降级，返回 None。"""
     client = MagicMock(spec=httpx.Client)
     fail_resp = _mock_response(json_data=None, status_code=500)
     client.get.return_value = fail_resp

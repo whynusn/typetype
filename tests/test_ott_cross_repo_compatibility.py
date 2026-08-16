@@ -1,3 +1,10 @@
+"""跨仓兼容测试：typetype 客户端消费 open-typing-texts 的 canonical fixtures。
+
+单实例 OttTextProvider 已删除（ADR-013 决策 5），消费路径改为 OttClient
+（federation 复用同一实现）。legacy registry_index.json / content/*.json
+fallback 不再存在，服务不可用时不回退 legacy 端点。
+"""
+
 import json
 import shutil
 import socket as _socket
@@ -12,9 +19,9 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from src.backend.config.runtime_config import RegistryConfig
+from src.backend.config.runtime_config import OttConfig
+from src.backend.integration.ott_client import OttClient
 from src.backend.integration.ott_repo_manifest import validate_repo_manifest
-from src.backend.integration.ott_text_provider import OttTextProvider
 
 OTT_ROOT = Path(__file__).resolve().parents[1].parent / "open-typing-texts"
 EXPECTED = OTT_ROOT / "tests" / "fixtures" / "ott" / "expected-normalized-entries.json"
@@ -52,6 +59,34 @@ def _mock_text_response(text: str, status_code=200):
     return response
 
 
+def _make_ott_client(
+    client: MagicMock,
+    config: "OttConfig | None" = None,
+    authority: str = "ott.example.com",
+) -> OttClient:
+    def fetch_json(cache_key, url, mirror_url, max_bytes):
+        response = client.get(url)
+        if response.status_code >= 400:
+            return None
+        data = response.json()
+        return data if isinstance(data, dict) else None
+
+    def fetch_text(cache_key, url, mirror_url, max_bytes):
+        response = client.get(url)
+        if response.status_code >= 400:
+            return None
+        return response.text
+
+    return OttClient(
+        primary_url="https://ott.example.com",
+        mirror_url="",
+        authority=authority,
+        fetch_json=fetch_json,
+        fetch_text=fetch_text,
+        max_content_bytes=config.max_content_bytes if config else 1_048_576,
+    )
+
+
 @pytest.mark.skipif(not EXPECTED.exists(), reason="OTT compatibility pack unavailable")
 def test_typetype_consumes_ott_expected_entry_summaries(tmp_path):
     expected = json.loads(EXPECTED.read_text(encoding="utf-8"))
@@ -59,13 +94,9 @@ def test_typetype_consumes_ott_expected_entry_summaries(tmp_path):
     client.get.return_value = _mock_response(
         {"entries": expected["summaries"], "total": 2, "page": 1, "pages": 1}
     )
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://ott.example.com"),
-        tmp_path / "cache",
-        http_client=client,
-    )
+    ott_client = _make_ott_client(client)
 
-    result = provider.fetch_all_entries()
+    result = ott_client.list_entries()
 
     assert result[0]["entry_id"] == expected["summaries"][0]["entry_id"]
     assert (
@@ -80,18 +111,13 @@ def test_typetype_consumes_ott_expected_entry_detail(tmp_path):
     detail = expected["details"][0]
     client = MagicMock(spec=httpx.Client)
     client.get.return_value = _mock_response(detail)
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://ott.example.com"),
-        tmp_path / "cache",
-        http_client=client,
-    )
+    ott_client = _make_ott_client(client)
 
-    result = provider.fetch_text_by_entry_id(detail["entry_id"])
+    result = ott_client.get_entry(detail["entry_id"])
 
     assert result is not None
-    assert result.entry_id == detail["entry_id"]
-    assert result.revision_id == detail["current_revision_id"]
-    assert result.content == detail["content"]
+    assert result["entry_id"] == detail["entry_id"]
+    assert result["content"] == detail["content"]
 
 
 @pytest.mark.skipif(
@@ -116,18 +142,14 @@ def test_typetype_consumes_ott_segmented_compatibility_fixture(tmp_path):
             }
         ),
     ]
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://ott.example.com"),
-        tmp_path / "cache",
-        http_client=client,
-    )
+    ott_client = _make_ott_client(client)
 
-    entries = provider.fetch_all_entries()
-    fetched_segment = provider.fetch_ott_segment(
+    entries = ott_client.list_entries()
+    fetched_segment = ott_client.get_segment(
         summary["entry_id"],
         summary["current_revision_id"],
         segment["index"],
-        summary["segment_size_hint"],
+        segment_size_hint=summary["segment_size_hint"],
     )
 
     assert entries[0]["content_mode"] == "segmented"
@@ -194,24 +216,20 @@ def test_typetype_reads_exported_ott_static_profile_fixture(tmp_path):
 
     client = MagicMock(spec=httpx.Client)
     client.get.side_effect = response_for_url
-    provider = OttTextProvider(
-        RegistryConfig(primary_url="https://ott.example.com"),
-        tmp_path / "cache",
-        http_client=client,
-    )
+    ott_client = _make_ott_client(client)
 
-    entries = provider.fetch_all_entries()
-    detail = provider.fetch_text_by_entry_id("ent_static_fixture")
-    segment = provider.fetch_ott_segment(
+    entries = ott_client.list_entries()
+    detail = ott_client.get_entry("ent_static_fixture")
+    segment = ott_client.get_segment(
         "ent_static_fixture",
         "rev_static_fixture",
         1,
-        source_segment_size=entries[0]["segment_size_hint"],
+        segment_size_hint=entries[0]["segment_size_hint"],
     )
 
     assert entries[0]["entry_id"] == "ent_static_fixture"
     assert detail is not None
-    assert detail.content_mode == "segmented"
+    assert detail["content_mode"] == "segmented"
     assert segment is not None
     assert segment["content"] == "abcd\n"
 

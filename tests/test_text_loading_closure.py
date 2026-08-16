@@ -8,7 +8,6 @@ from src.backend.application.usecases.load_text_usecase import (
     TextLoadPlan,
 )
 from src.backend.ports.local_text_loader import LocalTextLoader
-from src.backend.ports.text_provider import TextProvider
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.config.text_source_config import TextSourceEntry
 from src.backend.presentation.adapters.text_adapter import TextAdapter
@@ -63,7 +62,6 @@ def test_text_source_gateway_plan_load_returns_source_entry():
     runtime_config.get_text_source.side_effect = [local_entry, remote_entry]
     gateway = TextSourceGateway(
         runtime_config=runtime_config,
-        text_provider=MagicMock(spec=TextProvider),
         local_text_loader=MagicMock(spec=LocalTextLoader),
     )
 
@@ -77,7 +75,6 @@ def test_text_source_gateway_plan_load_returns_source_entry():
 def test_text_adapter_uses_usecase_plan_and_skips_runtime_strategy_lookup():
     """本地来源也走 Worker，验证 plan_load 被调用且 runtime_config 不被直接查询。"""
     runtime_config = MagicMock(spec=RuntimeConfig)
-    runtime_config.get_text_source_options.return_value = []
     runtime_config.default_text_source_key = "builtin_demo"
     source_entry = TextSourceEntry(key="local", label="Local", local_path="local.txt")
     load_text_usecase = MagicMock()
@@ -121,7 +118,6 @@ def test_text_adapter_uses_usecase_plan_and_skips_runtime_strategy_lookup():
 
 def test_text_adapter_enqueues_async_worker_from_application_plan():
     runtime_config = MagicMock(spec=RuntimeConfig)
-    runtime_config.get_text_source_options.return_value = []
     runtime_config.default_text_source_key = "builtin_demo"
     source_entry = TextSourceEntry(key="remote", label="Remote", local_path=None)
     load_text_usecase = MagicMock()

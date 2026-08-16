@@ -134,6 +134,24 @@ def test_builtin_federation_loads_entries_and_detail(tmp_path, monkeypatch):
     assert detail["content"]
 
 
+def test_builtin_federation_entries_carry_ott_instance_source_type(
+    tmp_path, monkeypatch
+):
+    """联邦聚合必须为 instance 源条目注入 _source_type=ott-instance（refresh 策略读它）。"""
+    _isolate_instance_cache(tmp_path, monkeypatch)
+    config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
+    manifest_cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=httpx.Client(timeout=10.0),
+        async_executor=None,
+        runtime_config=config,
+    )
+    federation = OttFederationProvider(config, manifest_cache)
+    entries = federation.list_all_entries()
+    assert len(entries) == 3
+    assert all(e["_source_type"] == "ott-instance" for e in entries)
+
+
 def test_local_path_from_file_uri_strips_windows_drive_slash() -> None:
     path = local_path_from_file_uri("file:///D:/a/b.json")
     normalized = str(path).replace("\\", "/")

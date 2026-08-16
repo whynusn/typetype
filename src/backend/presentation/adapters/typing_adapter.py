@@ -6,30 +6,21 @@
 - Qt 计时器管理
 - 文本着色（QTextCursor）
 - 信号发射
-- 成绩提交（通过 ScoreSubmitter）
 
 不负责：
 - 打字统计逻辑（由 TypingService 负责）
 - 状态管理（由 TypingService 负责）
 - 字符统计累积（由 TypingService 负责）
+- 成绩提交（typetype-server 耦合已移除，ADR-013）
 """
-
-from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QTextCharFormat, QTextCursor
 from PySide6.QtQuick import QQuickTextDocument
 
 from ...application.gateways.score_gateway import ScoreGateway
-from ...application.session_context import (
-    SourceMode,
-    TypingSessionContext,
-    UploadStatus,
-)
+from ...application.session_context import SourceMode, TypingSessionContext
 from ...domain.services.typing_service import TypingService
-
-if TYPE_CHECKING:
-    from ...ports.score_submitter import ScoreSubmitter
 
 
 class TypingAdapter(QObject):
@@ -48,22 +39,17 @@ class TypingAdapter(QObject):
     correctionChanged = Signal()
     keyAccuracyChanged = Signal()
     pauseChanged = Signal()
-    # 会话状态机信号
-    uploadStatusChanged = Signal(int)
-    eligibilityReasonChanged = Signal(str)
 
     def __init__(
         self,
         typing_service: TypingService,
         score_gateway: ScoreGateway,
-        score_submitter: "ScoreSubmitter | None" = None,
         time_interval: float = 0.15,
         session_context: TypingSessionContext | None = None,
     ):
         super().__init__()
         self._typing_service = typing_service
         self._score_gateway = score_gateway
-        self._score_submitter = score_submitter
         self._session_context = session_context
         self.timeInterval = time_interval
 
@@ -92,15 +78,6 @@ class TypingAdapter(QObject):
         # 信号发射缓存（避免无变化时重复触发 QML 重新评估）
         self._last_backspace_count = 0
         self._last_correction_count = 0
-
-        # 订阅状态机事件
-        if self._session_context:
-            self._session_context.subscribe_upload_status(
-                self._on_upload_status_changed
-            )
-            self._session_context.subscribe_eligibility_reason(
-                self.eligibilityReasonChanged.emit
-            )
 
     def _match_color_format(self) -> None:
         self._no_fmt.setBackground(QColor("transparent"))
@@ -218,11 +195,9 @@ class TypingAdapter(QObject):
                     "slowChars": s.slow_chars,
                 }
 
-            # 异步提交成绩到服务器（后台线程，不阻塞 UI）
             # 通知状态机完成当前会话
             if self._session_context:
                 self._session_context.complete_typing()
-            self._submit_score_async()
 
             # 必须在 typingEnded.emit() 之前构建 history record，
             # 因为 QML 的 onTypingEnded 回调会同步触发 loadNextSlice →
@@ -240,33 +215,6 @@ class TypingAdapter(QObject):
             self.historyRecordUpdated.emit(record)
             return True
         return False
-
-    def _submit_score_async(self) -> None:
-        """异步提交成绩到服务器（非阻塞）。
-
-        💡 设计决策：
-        - ApiClientScoreSubmitter.submit() 现在是异步的（入队操作 O(1)）
-        - 不再需要 QThreadPool + 旧 ScoreSubmitWorker
-        - 实际 HTTP POST 在后台队列线程中执行
-        """
-        if self._score_submitter is None:
-            return
-        # 由状态机决定是否提交
-        if self._session_context and not self._session_context.can_submit_score():
-            return
-        text_id = (
-            self._session_context.text_id
-            if self._session_context
-            else self._typing_service.text_id
-        )
-        if text_id is None or text_id <= 0:
-            return  # 纯练习模式或未载文，不提交
-        # 🎓 submit() 现在是异步的，立即返回
-        # 实际提交在后台队列线程中执行
-        self._score_submitter.submit(
-            self._typing_service.score_data,
-            text_id=text_id,
-        )
 
     def prepare_for_text_load(self) -> None:
         """为新一轮载文做准备：停止当前输入并锁定输入区。
@@ -737,18 +685,6 @@ class TypingAdapter(QObject):
         if self._session_context:
             self._session_context.reset()
 
-    def can_accept_resolved_text_id(self) -> bool:
-        """异步 text_id 回填只允许落到仍在等待解析的普通文本会话。"""
-        if not self._session_context:
-            return True
-        source_mode = self._session_context.source_mode
-        if source_mode is None:
-            return False
-        return (
-            source_mode in (SourceMode.LOCAL, SourceMode.CUSTOM)
-            and self._session_context.upload_status == UploadStatus.PENDING
-        )
-
     def advance_slice(self) -> None:
         """代理：推进到下一片。"""
         if self._session_context:
@@ -954,21 +890,3 @@ class TypingAdapter(QObject):
         self.set_slice_index(None)
         if self._session_context:
             self._session_context.exit_slice_mode()
-
-    @property
-    def upload_status(self) -> int:
-        """当前上传资格状态（int 供 QML 绑定）。"""
-        if self._session_context:
-            return self._session_context.upload_status.value
-        return UploadStatus.NA.value
-
-    @property
-    def eligibility_reason(self) -> str:
-        """当前资格原因消息。"""
-        if self._session_context:
-            return self._session_context.get_eligibility_reason()
-        return ""
-
-    def _on_upload_status_changed(self, status: UploadStatus) -> None:
-        """状态机 upload_status 变化回调。"""
-        self.uploadStatusChanged.emit(status.value)

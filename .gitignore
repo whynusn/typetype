@@ -96,3 +96,7 @@ ppt-swiss/
 # Session/harness artifacts
 .zcode/
 .trellis/
+
+# Local tool data / temporary harness scripts
+.codegraph/
+scripts/_ui_screenshot.py

@@ -10,7 +10,7 @@ import pytest
 
 from src.backend.integration import ott_script_runner as runner
 from src.backend.config.runtime_config import (
-    RegistryConfig,
+    OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
@@ -70,9 +70,7 @@ def _federation_with_script(
     tmp_path, *, trust_state: str = "verified", permissions=None, rights=None
 ):
     config = MagicMock(spec=RuntimeConfig)
-    config.registry = RegistryConfig(
-        cache_ttl_seconds=3600, max_content_bytes=1_048_576
-    )
+    config.ott = OttConfig(cache_ttl_seconds=3600, max_content_bytes=1_048_576)
 
     repo_entry = SourceRepoEntry(
         url="https://script-test.example.org/ott-repo.json",
@@ -253,6 +251,27 @@ class TestFederationWithScripts:
         assert script_entries[0]["title"] == "FromScript"
         # list_all_entries 为未标 authority 的脚本条目填充命名空间化 authority
         assert script_entries[0]["authority"] == script_entries[0]["_authority"]
+
+    def test_list_all_entries_sets_script_source_type(self, tmp_path) -> None:
+        """联邦聚合必须为 script 源条目注入 _source_type=ott-script（refresh 策略读它）。"""
+        provider = _federation_with_script(tmp_path)
+        from unittest.mock import patch
+
+        mock_entries = [
+            {
+                "entry_id": "script-entry-1",
+                "title": "FromScript",
+                "content": "ScriptEntry",
+            }
+        ]
+        with patch.object(_ScriptClient, "list_entries", return_value=mock_entries):
+            entries = provider.list_all_entries()
+
+        script_entries = [
+            e for e in entries if str(e.get("authority", "")).startswith("script:")
+        ]
+        assert len(script_entries) >= 1
+        assert script_entries[0]["_source_type"] == "ott-script"
 
 
 # ── 凭据注入（ADR-011 Phase 5.4）───────────────────────────────────────

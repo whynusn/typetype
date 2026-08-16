@@ -26,68 +26,53 @@ FluentPage {
     ColumnLayout {
         spacing: __lg
 
-            // ============== 用户信息（登录态/未登录态合一） ==============
-            Frame {
-                Layout.fillWidth: true
-                radius: 12
-                padding: __md
+        // ============== 本地统计信息 ==============
+        Frame {
+            Layout.fillWidth: true
+            radius: 12
+            padding: __md
 
-                RowLayout {
-                    anchors.fill: parent
-                    spacing: __md
+            RowLayout {
+                anchors.fill: parent
+                spacing: __md
 
-                    Image {
-                        source: resourceBaseUrl + "images/TypeTypeLogo.png"
-                        Layout.preferredWidth: 56
-                        Layout.preferredHeight: 56
-                        fillMode: Image.PreserveAspectFit
-                    }
+                Image {
+                    source: resourceBaseUrl + "images/TypeTypeLogo.png"
+                    Layout.preferredWidth: 56
+                    Layout.preferredHeight: 56
+                    fillMode: Image.PreserveAspectFit
+                }
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
-                        spacing: __xs
-                        Layout.maximumWidth: parent.width * 0.5
-
-                        Text {
-                            typography: Typography.Subtitle
-                            text: appBridge && appBridge.loggedin
-                                  ? (appBridge.userNickname || qsTr("昵称"))
-                                  : qsTr("未登录")
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                        Text {
-                            typography: Typography.Caption
-                            color: Theme.currentTheme.colors.textSecondaryColor
-                            text: appBridge && appBridge.loggedin
-                                  ? "@" + (appBridge.currentUser || qsTr("用户名"))
-                                  : qsTr("登录后可查看个人统计与历史记录")
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                        }
-                    }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: __xs
+                    Layout.maximumWidth: parent.width * 0.5
 
                     Text {
-                        Layout.alignment: Qt.AlignVCenter
-                        typography: Typography.BodyStrong
-                        color: Theme.currentTheme.colors.primaryColor
-                        text: qsTr("%1 场").arg(appBridge ? appBridge.typingHistoryCount : 0)
-                        visible: appBridge && appBridge.loggedin && appBridge.typingHistoryCount > 0
+                        typography: Typography.Subtitle
+                        text: qsTr("本地打字统计")
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
                     }
-
-                    Button {
-                        text: appBridge && appBridge.loggedin ? qsTr("退出登录") : qsTr("登录")
-                        highlighted: appBridge && appBridge.loggedin ? false : true
-                        onClicked: {
-                            if (appBridge && appBridge.loggedin)
-                                appBridge.logout()
-                            else
-                                loginDialog.open()
-                        }
+                    Text {
+                        typography: Typography.Caption
+                        color: Theme.currentTheme.colors.textSecondaryColor
+                        text: qsTr("打字历史与统计保存在本地")
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
                     }
                 }
+
+                Text {
+                    Layout.alignment: Qt.AlignVCenter
+                    typography: Typography.BodyStrong
+                    color: Theme.currentTheme.colors.primaryColor
+                    text: qsTr("%1 场").arg(appBridge ? appBridge.typingHistoryCount : 0)
+                    visible: appBridge && appBridge.typingHistoryCount > 0
+                }
             }
+        }
 
             // ============== 统计卡片 ==============
             GridLayout {
@@ -99,11 +84,11 @@ FluentPage {
                 Repeater {
                     model: [
                         { label: qsTr("今日字数"), value: appBridge ? appBridge.todayTypedChars : 0, unit: qsTr("字"), icon: "ic_fluent_calendar_20_regular" },
-                        { label: qsTr("总字数"), value: appBridge ? appBridge.totalTypedChars : 0, unit: qsTr("字"), icon: "ic_fluent_text_number_list_20_regular" },
-                        { label: qsTr("平均速度"), value: (appBridge ? appBridge.typingHistoryAverageSpeed : 0).toFixed(0), unit: qsTr("字/分"), icon: "ic_fluent_speedometer_20_regular" },
+                        { label: qsTr("总字数"), value: appBridge ? appBridge.totalTypedChars : 0, unit: qsTr("字"), icon: "ic_fluent_autosum_20_regular" },
+                        { label: qsTr("平均速度"), value: (appBridge ? appBridge.typingHistoryAverageSpeed : 0).toFixed(0), unit: qsTr("字/分"), icon: "ic_fluent_gauge_20_regular" },
                         { label: qsTr("最高速度"), value: (appBridge ? appBridge.typingHistoryMaxSpeed : 0).toFixed(0), unit: qsTr("字/分"), icon: "ic_fluent_flash_20_regular" },
                         { label: qsTr("平均键准"), value: (appBridge ? appBridge.typingHistoryAverageKeyAccuracy : 0).toFixed(1), unit: qsTr("%"), icon: "ic_fluent_target_arrow_20_regular" },
-                        { label: qsTr("总场次"), value: appBridge ? appBridge.typingHistoryCount : 0, unit: qsTr("场"), icon: "ic_fluent_ranking_20_regular" }
+                        { label: qsTr("总场次"), value: appBridge ? appBridge.typingHistoryCount : 0, unit: qsTr("场"), icon: "ic_fluent_trophy_20_regular" }
                     ]
 
                     Frame {
@@ -504,69 +489,6 @@ FluentPage {
                         visible: appBridge && appBridge.typingHistoryRecords.length === 0
                     }
                 }
-            }
-        }
-
-    // ============== 登录弹窗 ==============
-    Dialog {
-        id: loginDialog
-        title: qsTr("登录")
-        modal: true
-        ColumnLayout { Layout.preferredWidth: 320; spacing: __md
-            TextField { id: usernameField; placeholderText: qsTr("用户名"); Layout.fillWidth: true }
-            TextField { id: passwordField; placeholderText: qsTr("密码"); echoMode: TextInput.Password; Layout.fillWidth: true }
-            InfoBar { id: loginErrorBar; visible: false; severity: Severity.Error; Layout.fillWidth: true; isDynamic: false; closable: false }
-            RowLayout { Layout.fillWidth: true; spacing: __sm
-                Button { text: qsTr("取消"); Layout.fillWidth: true; onClicked: loginDialog.close() }
-                Button { id: loginBtn; text: qsTr("登录"); highlighted: true; Layout.fillWidth: true;
-                    onClicked: {
-                        var u=usernameField.text.trim(), p=passwordField.text;
-                        if (!u||!p){loginErrorBar.text=qsTr("请输入用户名和密码");loginErrorBar.visible=true;return}
-                        loginErrorBar.visible=false; loginBtn.enabled=false;
-                        if(appBridge) appBridge.login(u,p);
-                    }
-                }
-            }
-        }
-    }
-
-    Connections {
-        target: appBridge; enabled: appBridge !== null
-        function onLoginResult(success, message){
-            loginBtn.enabled=true;
-            if(success) loginDialog.close();
-            else {loginErrorBar.text=message; loginErrorBar.visible=true}
-        }
-        function onRegisterResult(success, message){
-            registerBtn.enabled=true;
-            if(success) registerDialog.close();
-            else {registerErrorBar.text=message; registerErrorBar.visible=true}
-        }
-    }
-
-    Dialog {
-        id: registerDialog
-        title: qsTr("注册")
-        modal: true
-        ColumnLayout { Layout.preferredWidth: 320; spacing: __md
-            TextField { id: registerUsernameField; placeholderText: qsTr("用户名（3-20位，字母数字下划线）"); Layout.fillWidth: true }
-            TextField { id: registerPasswordField; placeholderText: qsTr("密码（6-30位）"); echoMode: TextInput.Password; Layout.fillWidth: true }
-            TextField { id: registerConfirmField; placeholderText: qsTr("确认密码"); echoMode: TextInput.Password; Layout.fillWidth: true }
-            TextField { id: registerNicknameField; placeholderText: qsTr("昵称（可选）"); Layout.fillWidth: true }
-            InfoBar { id: registerErrorBar; visible: false; severity: Severity.Error; Layout.fillWidth: true; isDynamic: false; closable: false }
-            RowLayout { Layout.fillWidth: true; spacing: __sm
-                Button { text: qsTr("取消"); Layout.fillWidth: true; onClicked: registerDialog.close() }
-                Button { id: registerBtn; text: qsTr("注册"); highlighted: true; Layout.fillWidth: true;
-                    onClicked: {
-                        var u=registerUsernameField.text.trim(), p=registerPasswordField.text,
-                            c=registerConfirmField.text, n=registerNicknameField.text.trim();
-                        if (!u||!p){registerErrorBar.text=qsTr("请输入用户名和密码");registerErrorBar.visible=true;return}
-                        if (p!==c){registerErrorBar.text=qsTr("两次密码不一致");registerErrorBar.visible=true;return}
-                        registerErrorBar.visible=false; registerBtn.enabled=false;
-                        if(appBridge) appBridge.register(u,p,n);
-                    }
-                }
-            }
         }
     }
 }

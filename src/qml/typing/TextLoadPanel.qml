@@ -10,7 +10,6 @@ Item {
     // --- Inputs ---
     property var textSourceOptions: []
     property string defaultTextSourceKey: ""
-    property var catalogSourceOptions: []
     property bool compactMode: false  // true: 隐藏来源选择器，仅保留切片设置
     property bool hubMode: false      // true: 在载文中心内使用，隐藏"从文本库选择"
 
@@ -35,7 +34,7 @@ Item {
     readonly property int totalSlices: sliceSize > 0 ? Math.max(1, Math.ceil(contentLength / sliceSize)) : 1
 
     // textSourceOptions 外部变更时自动同步
-    onTextSourceOptionsChanged: syncSourceOptions(textSourceOptions, catalogSourceOptions)
+    onTextSourceOptionsChanged: syncSourceOptions(textSourceOptions)
 
     function sliceSizeMin() { return 1; }
     function sliceSizeMax() { return Math.max(1, contentLength); }
@@ -47,45 +46,24 @@ Item {
     readonly property string localGroupKey: "__local__"
     property var localSourceOptions: []
     property string selectedSourceKey: ""
-    property int pendingRemoteTextId: 0
     property bool syncingContentText: false
 
     ListModel { id: sourceListModel }
     ListModel { id: textListModel }
 
-    function syncSourceOptions(options, catalog) {
+    function syncSourceOptions(options) {
         localSourceOptions = [];
-        var nonLocalOptions = [];
         sourceListModel.clear();
         if (options) {
             for (var i = 0; i < options.length; i++) {
                 if (options[i].isLocal)
                     localSourceOptions.push(options[i]);
-                else
-                    nonLocalOptions.push(options[i]);
             }
         }
         if (localSourceOptions.length > 0) {
             sourceListModel.append({ key: localGroupKey, label: "本地文本", isLocalGroup: true });
         }
-        // Non-local config sources (network sources like jisubei)
-        var existingKeys = {};
-        for (var j = 0; j < nonLocalOptions.length; j++) {
-            existingKeys[nonLocalOptions[j].key] = true;
-            sourceListModel.append({ key: nonLocalOptions[j].key, label: nonLocalOptions[j].label });
-        }
-        // Catalog items from server (dedup against config-defined sources)
-        if (catalog) {
-            for (var k = 0; k < catalog.length; k++) {
-                if (!existingKeys[catalog[k].key])
-                    sourceListModel.append({ key: catalog[k].key, label: catalog[k].label || catalog[k].key });
-            }
-        }
         _restoreDefaultSource();
-    }
-
-    function onCatalogLoaded(catalog) {
-        syncSourceOptions(textSourceOptions, catalog)
     }
 
     function _restoreDefaultSource() {
@@ -113,7 +91,6 @@ Item {
 
     function reset() {
         selectedSourceKey = "";
-        pendingRemoteTextId = 0;
         _setContentText("");
         textListModel.clear();
         textListView.currentIndex = -1;
@@ -146,10 +123,6 @@ Item {
         if (!key) { reset(); return; }
         if (key === localGroupKey)
             _loadLocalSourceList(defaultTextSourceKey);
-        else if (appBridge) {
-            reset();
-            appBridge.loadTextList(key);
-        }
     }
 
     function _selectEntry(index) {
@@ -157,14 +130,11 @@ Item {
         textListView.currentIndex = index;
         var item = textListModel.get(index);
         if (item.isLocal) {
-            pendingRemoteTextId = 0;
             selectedSourceKey = item.sourceKey || "";
             _setContentText(appBridge ? appBridge.getLocalTextContent(selectedSourceKey) : "");
             return;
         }
         selectedSourceKey = item.sourceKey || "";
-        pendingRemoteTextId = item.id || 0;
-        if (pendingRemoteTextId > 0 && appBridge) appBridge.getTextContentById(pendingRemoteTextId);
     }
 
     // ====== UI ======
@@ -217,7 +187,6 @@ Item {
                         onTextChanged: {
                             if (!syncingContentText && activeFocus) {
                                 selectedSourceKey = "";
-                                pendingRemoteTextId = 0;
                             }
                         }
                     }
@@ -239,9 +208,7 @@ Item {
 
                 Text { text: "从文本库选择"; font.bold: true; font.pixelSize: 13; color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333" }
                 Text {
-                    text: sourceComboBox.currentValue === localGroupKey
-                        ? "“本地文本”会列出离线可用的内置文本，未联网时也能直接载文。"
-                        : "其余来源来自服务端文本目录，交互与“文本排行”页面保持一致。"
+                    text: "“本地文本”会列出离线可用的内置文本，未联网时也能直接载文。"
                     wrapMode: Text.Wrap; font.pixelSize: 11
                     color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
                 }
@@ -405,22 +372,5 @@ Item {
             }
         }
     }
-
-    // --- AppBridge 信号 ---
-
-    function onTextListLoaded(texts) {
-        var currentOption = sourceComboBox.currentIndex >= 0 && sourceComboBox.currentIndex < sourceListModel.count
-            ? sourceListModel.get(sourceComboBox.currentIndex) : null;
-        if (!currentOption || currentOption.key === localGroupKey) return;
-        textListModel.clear();
-        for (var i = 0; i < texts.length; i++) {
-            var t = texts[i];
-            textListModel.append({ id: t.id || 0, title: t.title || "", char_count: t.charCount !== undefined ? t.charCount : -1, clientTextId: t.clientTextId || 0, sourceKey: currentOption.key, isLocal: false });
-        }
-        if (texts.length > 0) _selectEntry(0);
-    }
-
-    function onTextContentLoaded(textId, content, title) {
-        if (visible && textId === pendingRemoteTextId) _setContentText(content);
-    }
 }
+

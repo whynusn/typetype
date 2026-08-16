@@ -1,8 +1,9 @@
 """OTT Core v1 client helpers.
 
 This client owns protocol routing between the Service Profile (`/ott/v1`) and
-the Static Profile. Caching and HTTP transport stay in OttTextProvider for
-now so this can be introduced without changing the persistence model.
+the Static Profile. Caching and HTTP transport are injected by the caller
+(``OttCachedFetcher`` in federation), keeping protocol routing decoupled from
+the persistence model.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ class OttClient:
         fetch_json: FetchJson,
         fetch_text: FetchText,
         max_content_bytes: int,
+        endpoint_profile: str | None = None,
     ) -> None:
         self._primary_url = primary_url.rstrip("/")
         self._mirror_url = mirror_url.rstrip("/")
@@ -38,35 +40,54 @@ class OttClient:
         self._fetch_json = fetch_json
         self._fetch_text = fetch_text
         self._max_content_bytes = max_content_bytes
+        # 端点声明的 profile（manifest endpoints[].profile）："service" 仅走
+        # Service Profile，"static" 仅走 Static Profile，None（未声明/兼容）两者都试。
+        # 遵守声明可避免对 static-only 端点（如 file:// 内置源）无谓探测 service 路径。
+        self._endpoint_profile = (
+            endpoint_profile if endpoint_profile in ("service", "static") else None
+        )
+
+    def _profiles_to_try(self) -> tuple[str, ...]:
+        if self._endpoint_profile == "service":
+            return ("service",)
+        if self._endpoint_profile == "static":
+            return ("static",)
+        return ("service", "static")
 
     def list_entries(self) -> list[dict] | None:
         for base_url in self._profile_base_urls():
-            service = self._list_service_entries(base_url)
-            if service is not None:
-                return service
-            static = self._list_static_entries(base_url)
-            if static is not None:
-                return static
+            if "service" in self._profiles_to_try():
+                service = self._list_service_entries(base_url)
+                if service is not None:
+                    return service
+            if "static" in self._profiles_to_try():
+                static = self._list_static_entries(base_url)
+                if static is not None:
+                    return static
         return None
 
     def list_sources(self) -> list[dict] | None:
         for base_url in self._profile_base_urls():
-            service = self._list_service_sources(base_url)
-            if service is not None:
-                return service
-            static = self._list_static_sources(base_url)
-            if static is not None:
-                return static
+            if "service" in self._profiles_to_try():
+                service = self._list_service_sources(base_url)
+                if service is not None:
+                    return service
+            if "static" in self._profiles_to_try():
+                static = self._list_static_sources(base_url)
+                if static is not None:
+                    return static
         return None
 
     def get_entry(self, entry_id: str) -> dict | None:
         for base_url in self._profile_base_urls():
-            service = self._get_service_entry(base_url, entry_id)
-            if service is not None:
-                return service
-            static = self._get_static_entry(base_url, entry_id)
-            if static is not None:
-                return static
+            if "service" in self._profiles_to_try():
+                service = self._get_service_entry(base_url, entry_id)
+                if service is not None:
+                    return service
+            if "static" in self._profiles_to_try():
+                static = self._get_static_entry(base_url, entry_id)
+                if static is not None:
+                    return static
         return None
 
     def get_segment(
@@ -77,20 +98,22 @@ class OttClient:
         segment_size_hint: int = DEFAULT_STATIC_SEGMENT_SIZE,
     ) -> dict | None:
         for base_url in self._profile_base_urls():
-            service = self._get_service_segment(
-                base_url, entry_id, revision_id, segment_index
-            )
-            if service is not None:
-                return service
-            static = self._get_static_segment(
-                base_url,
-                entry_id,
-                revision_id,
-                segment_index,
-                segment_size_hint,
-            )
-            if static is not None:
-                return static
+            if "service" in self._profiles_to_try():
+                service = self._get_service_segment(
+                    base_url, entry_id, revision_id, segment_index
+                )
+                if service is not None:
+                    return service
+            if "static" in self._profiles_to_try():
+                static = self._get_static_segment(
+                    base_url,
+                    entry_id,
+                    revision_id,
+                    segment_index,
+                    segment_size_hint,
+                )
+                if static is not None:
+                    return static
         return None
 
     def _profile_base_urls(self) -> list[str]:

@@ -1,7 +1,8 @@
 # Bridge Slot / Signal 速查
-<!-- 状态: active | 最后验证: 2026-07-04 -->
+<!-- 状态: active | 最后验证: 2026-08-13 -->
 
 > Bridge 是 QML 能看到的唯一后端门面。全局对象名：`appBridge`
+> typetype-server 已移除（ADR-013）：登录/注册、服务端排行榜、远程文本列表、`base_url` 相关槽/信号/属性已删除。
 
 ## Properties（QML 可直接绑定）
 
@@ -17,18 +18,12 @@
 | `totalTime` | `float` | 总用时（秒） |
 | `textReadOnly` | `bool` | 是否只读（未载文时禁止打字） |
 | `textLoading` | `bool` | 文本加载中 |
-| `loggedin` | `bool` | 登录状态 |
-| `currentUser` | `str` | 当前用户名 |
-| `userNickname` | `str` | 当前用户昵称 |
-| `textId` | `int` | 当前文本 ID（0=本地文本） |
+| `textId` | `int` | 当前文本 ID（0=无；服务端 text_id 已移除，仅作本地段号/历史标识） |
 | `defaultTextSourceKey` | `str` | 默认来源 key |
 | `defaultTextTitle` | `str` | 默认来源标题 |
 | `textSourceOptions` | `list[dict]` | 来源选项列表 |
-| `leaderboardLoading` | `bool` | 排行榜加载中 |
-| `textListLoading` | `bool` | 文本列表加载中 |
 | `isSpecialPlatform` | `bool` | 是否特殊平台（Wayland 下 evdev 监听可用） |
 | `keyAccuracy` | `float` | 键准（%） |
-| `baseUrl` | `str` | 当前 API 服务地址 |
 | `wenlaiLoading` | `bool` | 晴发文加载中 |
 | `wenlaiLoggedIn` | `bool` | 晴发文登录状态 |
 | `wenlaiCurrentUser` | `str` | 晴发文当前用户显示名 |
@@ -39,6 +34,9 @@
 | `wenlaiDifficultyLevel` | `int` | 晴发文难度等级（0=随机） |
 | `wenlaiCategory` | `str` | 晴发文分类 |
 | `wenlaiStrictLength` | `bool` | 晴发文是否精确字数 |
+| `currentVersion` | `str` | 当前应用版本（`src/backend/version.py` `APP_VERSION`，constant） |
+| `updateAvailable` | `bool` | 是否有可用更新 |
+| `updateVersion` | `str` | 可用更新版本号 |
 
 ## Signals（QML 通过 Connections 监听）
 
@@ -49,22 +47,7 @@
 | `textLoadingChanged` | 无 | 加载状态变化 |
 | `typingEnded` | 无 | 打字结束 |
 | `historyRecordUpdated` | `(dict record)` | 历史记录更新 |
-| `loginResult` | `(bool success, str message)` | 登录结果 |
-| `registerResult` | `(bool success, str message)` | 注册结果 |
-| `loginStateInitialized` | `(bool loggedIn)` | 启动时登录态初始化 |
-| `loggedinChanged` | 无 | 登录状态变化 |
-| `userInfoChanged` | 无 | 用户信息变化 |
 | `weakestCharsLoaded` | `(list chars)` | 薄弱字加载完成 |
-| `leaderboardLoaded` | `(dict data)` | 排行榜加载完成 |
-| `leaderboardLoadFailed` | `(str message)` | 排行榜加载失败 |
-| `leaderboardLoadingChanged` | 无 | 排行榜加载状态变化 |
-| `catalogLoaded` | `(list catalog)` | 来源目录加载完成 |
-| `catalogLoadFailed` | `(str message)` | 来源目录加载失败 |
-| `textListLoaded` | `(list texts)` | 文本列表加载完成 |
-| `textListLoadFailed` | `(str message)` | 文本列表加载失败 |
-| `textListLoadingChanged` | 无 | 文本列表加载状态变化 |
-| `uploadResult` | `(bool success, str message, int textId)` | 上传结果 |
-| `tokenExpired` | 无 | token 过期 |
 | `cursorPosChanged` | `(int pos)` | 光标位置变化 |
 | `specialPlatformConfirmed` | `(bool confirmed)` | 特殊平台确认 |
 | `textIdChanged` | 无 | textId 变化 |
@@ -72,11 +55,8 @@
 | `correctionChanged` | 无 | 回改次数变化 |
 | `sliceModeChanged` | 无 | 进入/退出载文模式 |
 | `sliceStatusChanged` | `(str status)` | 片进度更新（如 "载文模式: 第 3/5 片"） |
-| `textContentLoaded` | `(int text_id, str content, str title)` | 按 ID 获取的文本内容到达 |
-| `uploadStatusChanged` | `(int status)` | 成绩上传资格状态变化（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA） |
-| `eligibilityReasonChanged` | `(str reason)` | 资格原因消息变化 |
+| `textContentLoaded` | `(int text_id, str content, str title)` | 联邦 inline 条目内容到达（text_id 恒为 0） |
 | `keyAccuracyChanged` | 无 | 键准变化 |
-| `baseUrlChanged` | 无 | API 服务地址变化 |
 | `wenlaiLoadFailed` | `(str message)` | 晴发文载文失败 |
 | `wenlaiLoadingChanged` | 无 | 晴发文加载状态变化 |
 | `wenlaiLoginResult` | `(bool success, str message)` | 晴发文登录结果 |
@@ -84,6 +64,10 @@
 | `wenlaiConfigChanged` | 无 | 晴发文配置或 active 状态变化 |
 | `wenlaiDifficultiesLoaded` | `(list items)` | 晴发文难度列表加载完成 |
 | `wenlaiCategoriesLoaded` | `(list items)` | 晴发文分类列表加载完成 |
+| `uploadResult` | `(bool success, str message, int textId)` | 本地文本保存结果（云端上传已移除） |
+| `updateCheckFinished` | `(bool available, str version, str error)` | 更新检查完成 |
+| `updateDownloadProgress` | `(int percent)` | 更新下载进度（0-100） |
+| `updateStatusChanged` | `(str status)` | 更新状态变化（downloading/extracting/installing/done 或错误） |
 
 ## Slots（QML 可调用的方法）
 
@@ -98,29 +82,21 @@
 | `handleLoadedText` | `(QQuickTextDocument doc, str text="")` | 处理已加载的文本文档（可选 text 确保内容正确） |
 | `setTextTitle` | `(str title)` | 设置文本标题 |
 | `setTextId` | `(int textId)` | 设置文本 ID |
-| `loadFullText` | `(str text, str source_key="")` | 全文载入（不分片），异步回查 text_id |
+| `loadFullText` | `(str text, str source_key="")` | 全文载入（不分片） |
 | `requestLoadText` | `(str sourceKey)` | 请求加载文本 |
 | `loadTextFromClipboard` | 无 | 从剪贴板载文 |
-| `uploadText` | `(str title, str content, str sourceKey, bool toLocal, bool toCloud)` | 上传文本 |
+| `uploadText` | `(str title, str content, str sourceKey, bool toLocal, bool toCloud)` | 保存文本到本地（云端上传已移除，toCloud 参数保留兼容） |
+| `uploadTextFromFile` | `(str title, str filePath, str sourceKey, bool toLocal, bool toCloud)` | 从文件保存文本到本地（云端上传已移除） |
 | `handleStartStatus` | `(bool status)` | 处理开始/停止状态 |
 | `isStart` | → `bool` | 是否正在打字 |
 | `isReadOnly` | → `bool` | 是否只读 |
 | `getCursorPos` | → `int` | 获取光标位置 |
 | `setCursorPos` | `(int newPos)` | 设置光标位置 |
 | `getScoreMessage` | → `str` | 获取成绩摘要消息 |
+| `getScorePlainText` | → `str` | 获取纯文本成绩摘要 |
 | `copyScoreMessage` | 无 | 复制成绩到剪贴板 |
-| `login` | `(str username, str password)` | 登录 |
-| `register` | `(str username, str password, str nickname)` | 注册 |
-| `logout` | 无 | 登出 |
-| `checkTokenStatus` | 无 | 检查 token 状态 |
 | `loadWeakChars` | `(int n=10, str sortMode="error_rate", dict weights=None)` | 加载薄弱字 |
-| `loadLeaderboard` | `(str sourceKey)` | 加载来源最新排行榜 |
-| `loadLeaderboardByTextId` | `(int textId)` | 按文本 ID 加载排行榜 |
-| `loadTextList` | `(str sourceKey)` | 加载来源下文本列表 |
-| `loadCatalog` | 无 | 加载来源目录 |
-| `refreshCatalog` | 无 | 强制刷新来源目录 |
 | `requestShuffle` | 无 | 乱序当前文本 |
-| `getTextContentById` | `(int textId)` | 按 ID 异步获取文本内容 |
 | `copyToClipboard` | `(str text)` | 复制文本到剪贴板 |
 | `loadLocalArticles` | 无 | 异步扫描本地文库目录 |
 | `loadLocalArticleSegment` | `(str articleId, int segmentIndex, int segmentSize)` | 异步加载本地文库指定段；普通分片只读取目标字符窗口 |
@@ -152,8 +128,6 @@
 | `saveSliceMetricsPrefs` | `(float keyStrokeMin, int speedMin, int accuracyMin, int passCountMin, str onFailAction, bool autoDecreaseEnabled, float keyStrokeDecrease, int speedDecrease, int accuracyDecrease)` | 保存分片指标偏好设置 |
 | `getTextSliceProgress` | `(str text)` → `dict` | 查询指定文本的分片进度历史记录 |
 | `saveTextSliceProgress` | `(str text, str title, dict progress)` | 保存指定文本的分片进度 |
-| `setBaseUrl` | `(str newBaseUrl)` | 更新 API 服务地址，持久化并同步所有依赖对象 |
-| `initializeLoginState` | 无 | 启动时初始化登录状态（验证/刷新 token） |
 | `loginWenlai` | `(str username, str password)` | 登录晴发文 |
 | `logoutWenlai` | 无 | 退出晴发文 |
 | `loadRandomWenlaiText` | 无 | 加载晴发文随机文本 |
@@ -163,6 +137,9 @@
 | `refreshWenlaiDifficulties` | 无 | 刷新晴发文难度列表 |
 | `refreshWenlaiCategories` | 无 | 刷新晴发文分类列表 |
 | `updateWenlaiConfig` | `(str baseUrl, int length, int difficultyLevel, str category, str segmentMode, bool strictLength)` | 更新并持久化晴发文配置 |
+| `checkForUpdate` | 无 | 手动检查更新（强制） |
+| `downloadAndInstallUpdate` | `(str version)` | 下载并安装指定版本 |
+| `dismissUpdate` | 无 | 关闭更新提示 |
 
 ### OTT Repo 联邦目录 Slot（Phase 1）
 
@@ -172,11 +149,16 @@
 | `addRepo` | `(str url)` | 添加源仓库订阅（ott-repo.json URL） |
 | `removeRepo` | `(str url)` | 移除订阅并清除其 manifest 缓存 |
 | `setRepoEnabled` | `(str url, bool enabled)` | 启用/禁用订阅 |
+| `confirmRepoTrust` | `(str url)` | 确认信任订阅（TOFU pending → verified） |
+| `rejectRepoTrust` | `(str url)` | 拒绝信任订阅（pending → unverified） |
 | `refreshRepos` | 无 | 重新加载所有订阅的 manifest 摘要（后台 Worker） |
 | `refreshRepo` | `(str url)` | 强制刷新单条订阅的 manifest（后台 Worker） |
 | `loadFederatedEntries` | 无 | 加载联邦聚合的全部条目（后台 Worker） |
+| `loadFederatedEntrySegment` | `(str authority, str entryId, str revisionId, int segmentIndex, int segmentSize, int totalChars, int sourceSegmentSize, str title)` | 从联邦聚合加载 OTT 分段文本 |
+| `loadFederatedInlineEntry` | `(str authority, str entryId, str revisionId, str title)` | 从联邦聚合加载 inline 内容（规则/脚本源） |
+| `setScriptsEnabled` | `(bool enabled)` | 更新 ott-script（L3）开关并持久化 |
 
-对应 Properties：`reposLoading`（bool）、`federatedEntriesLoading`（bool）。
+对应 Properties：`reposLoading`（bool）、`federatedEntriesLoading`（bool）、`scriptsEnabled`（bool）。
 
 对应 Signals：`reposChanged(list)`、`reposLoadFailed(str)`、`registryFederatedEntriesLoaded(list)`、`registryFederatedEntriesLoadFailed(str)`。
 
@@ -188,5 +170,3 @@
 | `totalSliceCount` | `int` | 总片数 |
 | `sliceIndex` | `int` | 当前片索引（1-based） |
 | `slicePassCount` | `int` | 当前片已通过次数 |
-| `uploadStatus` | `int` | 成绩上传资格状态（0=CONFIRMED, 1=PENDING, 2=INELIGIBLE, 3=NA） |
-| `eligibilityReason` | `str` | 资格原因消息 |

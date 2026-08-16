@@ -5,6 +5,7 @@
   "repo_id": "typetype-builtin",
   "name": "TypeType 内置文本源",
   "description": "离线内置文本库（网络不可用时的 fallback）。",
+  "max_entries": 3,
   "maintainer": {
     "name": "typetype"
   },

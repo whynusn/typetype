@@ -351,6 +351,35 @@ class TestOttRuleInterpreter:
         e2 = interp.list_entries(self._rule(), "r1")
         assert e1[0]["entry_id"] == e2[0]["entry_id"]
 
+    def test_list_entries_same_content_different_page_same_id(self) -> None:
+        """同内容跨页 entry_id 稳定、revision 区分（2026-08-13 修复）。
+
+        原实现 entry_id = sha256(content + page)：同内容不同页产生不同
+        entry_id，federation 按 authority:entry_id 去重失效（hitokoto 同句 ×5）。
+        修复：entry_id = sha256(content)，page 只参与 revision。
+        """
+        data = [{"title": "T", "content": "same content"}]
+        client = _mock_client(data)
+        interp = OttRuleInterpreter(client)
+        rule = self._rule(
+            url="https://example.com/api?page={page}",
+            pagination={"param": "page", "start": 1, "step": 1, "max_pages": 3},
+        )
+        # 模拟两页返回相同内容：三个响应（page1/page2/空页终止）
+        client.get.side_effect = [
+            _MockResponse(json.dumps(data)),
+            _MockResponse(json.dumps(data)),
+            _MockResponse(json.dumps([])),
+        ]
+        entries = interp.list_entries(rule, "r1")
+        assert len(entries) == 2
+        assert entries[0]["entry_id"] == entries[1]["entry_id"], (
+            "同内容 entry_id 应稳定"
+        )
+        assert entries[0]["current_revision_id"] != entries[1]["current_revision_id"], (
+            "不同页 revision 应区分"
+        )
+
     def test_list_entries_pagination(self) -> None:
         # 两页数据 + 空页终止
         page1 = [{"title": "P1", "content": "page1"}]
@@ -447,12 +476,12 @@ class TestOttRuleInterpreter:
         entries = interp.list_entries(rule, "r1")
         assert entries == []
 
-    def test_list_entries_network_failure_returns_empty(self) -> None:
+    def test_list_entries_network_failure_returns_none(self) -> None:
         client = MagicMock(spec=httpx.Client)
         client.get.side_effect = httpx.ConnectError("offline")
         interp = OttRuleInterpreter(client)
         entries = interp.list_entries(self._rule(), "r1")
-        assert entries == []
+        assert entries is None  # 源不可用（区别于成功但空 []）
 
     def test_list_entries_invalid_json_returns_empty(self) -> None:
         client = _mock_client(text="not json at all <html>")
