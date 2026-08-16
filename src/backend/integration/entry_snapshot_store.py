@@ -126,7 +126,10 @@ class EntrySnapshotStore:
                     items.append(data)
         except OSError:
             return []
-        items.sort(key=lambda e: e.get("captured_at", 0.0), reverse=True)
+        items.sort(
+            key=lambda e: (e.get("captured_at", 0.0), e.get("entry_id", "")),
+            reverse=True,
+        )
         return items
 
     def list_all(self) -> list[dict]:
@@ -160,7 +163,10 @@ class EntrySnapshotStore:
                         items.append(data)
         except OSError:
             return []
-        items.sort(key=lambda e: e.get("captured_at", 0.0), reverse=True)
+        items.sort(
+            key=lambda e: (e.get("captured_at", 0.0), e.get("entry_id", "")),
+            reverse=True,
+        )
         return items
 
     # ------------------------------------------------------------------

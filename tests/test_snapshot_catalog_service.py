@@ -134,7 +134,7 @@ def test_prune_applies_on_refresh(tmp_path) -> None:
     svc, federation = _svc(tmp_path, [], max_per_source=2)
     for i in range(5):
         federation._entries = [_entry(entry_id=f"e{i}", content=f"c{i}")]
-        svc.refresh_source("auth")
+        svc.refresh_source("auth", now=float(i))
     assert svc.load_entry("auth", "e4") is not None
     assert svc.load_entry("auth", "e0") is None
     assert svc.load_entry("auth", "e1") is None
@@ -156,7 +156,7 @@ def test_prune_stale_removes_no_longer_live_snapshots(tmp_path) -> None:
     svc, federation = _svc(tmp_path, [], max_per_source=5)
     for i in range(8):
         federation._entries = [_entry(entry_id=f"e{i}", content=f"c{i}")]
-        svc.refresh_source("auth")
+        svc.refresh_source("auth", now=float(i))
     # 当前 live 只有 e7；旧快照 e0-e6 均为 stale，超限（保留最近 5 条）的被删除
     assert svc.load_entry("auth", "e7") is not None
     assert svc.load_entry("auth", "e6") is not None

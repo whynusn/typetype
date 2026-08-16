@@ -40,6 +40,14 @@ def _build_adapter(mirrors=None):
     return adapter, checker
 
 
+def _current_asset_name() -> str:
+    """返回当前测试平台对应的资产名，避免用例在 Win/macOS 上误用 Linux 资产名。"""
+    for prefix, asset in _PLATFORM_ASSETS.items():
+        if sys.platform.startswith(prefix):
+            return asset
+    raise AssertionError(f"unexpected platform: {sys.platform}")
+
+
 @pytest.fixture(autouse=True)
 def _reset_throttle():
     UpdateWorker.last_check_at = 0.0
@@ -150,7 +158,7 @@ def _mock_install_steps(adapter):
 def _run_install(adapter, checker, version="2.0.0"):
     _mock_install_steps(adapter)
     checker.check_for_update.return_value.assets = [
-        {"name": _PLATFORM_ASSETS["linux"], "url": "x", "sha256": "abc"}
+        {"name": _current_asset_name(), "url": "x", "sha256": "abc"}
     ]
     adapter._do_download_and_install(version)
 
@@ -219,11 +227,12 @@ def test_platform_asset_mapping():
 
 def test_sha256_read_from_update_info_assets():
     adapter, checker = _build_adapter()
+    asset_name = _current_asset_name()
     checker.check_for_update.return_value.assets = [
-        {"name": "typetype-linux-amd64.tar.gz", "sha256": "deadbeef"}
+        {"name": asset_name, "sha256": "deadbeef"}
     ]
 
-    sha = adapter._asset_sha256("2.0.0", "typetype-linux-amd64.tar.gz")
+    sha = adapter._asset_sha256("2.0.0", asset_name)
 
     assert sha == "deadbeef"
 
@@ -238,7 +247,7 @@ def test_mirrors_passed_to_build_candidates():
 
     checker.build_download_candidates.assert_called_once_with(
         "2.0.0",
-        "typetype-linux-amd64.tar.gz",
+        _current_asset_name(),
         ["https://m1.example"],
     )
 
@@ -252,7 +261,7 @@ def test_empty_mirrors_pass_none_to_use_builtin_defaults():
     _run_install(adapter, checker)
 
     checker.build_download_candidates.assert_called_once_with(
-        "2.0.0", "typetype-linux-amd64.tar.gz", None
+        "2.0.0", _current_asset_name(), None
     )
 
 
