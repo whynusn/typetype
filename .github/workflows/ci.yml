@@ -19,16 +19,19 @@ jobs:
         with:
           python-version: '3.14'
 
+      - name: 安装 Qt 系统依赖
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libxkbcommon0 libgl1 zlib1g
+
       - name: 安装 uv
         uses: astral-sh/setup-uv@v4
         with:
           version: '0.9.26'
 
       - name: 安装依赖
-        run: uv sync --frozen
+        run: uv sync --frozen --python 3.14
 
       - name: 验证配置加载
-        run: uv run pytest tests/test_runtime_config.py -q
+        run: uv run --python 3.14 pytest tests/test_runtime_config.py -q
 
   lint:
     name: 代码风格检查
