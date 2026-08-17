@@ -880,7 +880,7 @@ FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 class TestJisubeiRule:
     """极速杯迁移验证：DSL 单步全嵌套表达式 + body:null + 字节级请求体断言。
 
-    参考协议：docs/decisions/registry-repo-template/scripts/fetch_jisubei.py
+    参考协议：ott-source-hub 的 jisubei L1.5 DSL 规则
     （AES-CBC / ZeroPadding / Latin1 / Base64，post_payload={"0": enc[1:]}）。
     """
 

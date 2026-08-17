@@ -17,7 +17,6 @@ open-typing-texts/
 │   └── ...
 ├── scripts/                      ← 历史抓取/解析脚本
 │   ├── fetch_daily.py            ← 每日一文抓取脚本（本地运行）
-│   ├── fetch_jisubei.py          ← 极速杯文本抓取脚本（本地运行）
 │   └── gen_index.py              ← 索引生成脚本（历史）
 └── .github/workflows/
     ├── daily.yml                 ← 每日 0 点 cron + 手动触发
