@@ -84,6 +84,7 @@ jobs:
             --noinclude-dlls=libQt6WebEngine* \
             --include-data-dir=src/qml=src/qml \
             --include-data-dir=resources/texts=resources/texts \
+            --include-data-dir=resources/ott-repo=resources/ott-repo \
             --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
             --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
             --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf \
@@ -95,6 +96,7 @@ jobs:
         run: |
           DIST_DIR="build-src/deployment/main.dist"
           if [ -d "$DIST_DIR" ]; then
+            test -f "$DIST_DIR/resources/ott-repo/ott-repo.json"
             tar -czf typetype-linux-amd64.tar.gz -C "$DIST_DIR" .
           else
             echo "未找到打包输出目录 $DIST_DIR"
@@ -160,6 +162,7 @@ jobs:
             --assume-yes-for-downloads `
             --include-data-dir=src/qml=src/qml `
             --include-data-dir=resources/texts=resources/texts `
+            --include-data-dir=resources/ott-repo=resources/ott-repo `
             --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png `
             --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf `
             --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf `
@@ -171,6 +174,7 @@ jobs:
         run: |
           $distDir = "build-src\deployment\main.dist"
           if (Test-Path $distDir) {
+            if (-not (Test-Path "$distDir\resources\ott-repo\ott-repo.json")) { throw "内置 OTT Repo 未进入 Windows 发行目录" }
             # 列出文件用于调试
             Get-ChildItem $distDir -Recurse -Filter "*WebEngine*" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
             Compress-Archive -Path "$distDir\*" -DestinationPath typetype-windows-amd64.zip
@@ -235,6 +239,7 @@ jobs:
             --mode=app \
             --include-data-dir=src/qml=src/qml \
             --include-data-dir=resources/texts=resources/texts \
+            --include-data-dir=resources/ott-repo=resources/ott-repo \
             --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
             --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
             --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf \
@@ -246,6 +251,14 @@ jobs:
         run: |
           DIST_DIR="build-src/deployment/main.app"
           if [ -d "$DIST_DIR" ]; then
+            if [ -f "$DIST_DIR/Contents/MacOS/resources/ott-repo/ott-repo.json" ]; then
+              :
+            elif [ -f "$DIST_DIR/resources/ott-repo/ott-repo.json" ]; then
+              :
+            else
+              echo "未找到 macOS 内置 OTT Repo"
+              exit 1
+            fi
             ditto -c -k --sequesterRsrc --keepParent "$DIST_DIR" typetype-macos.zip
           else
             echo "未找到打包输出目录 $DIST_DIR"

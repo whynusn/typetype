@@ -204,11 +204,11 @@ typetype 正从"客户端 + typetype-server 中心化"演进为"去中心化空�
 | 4.2 静态 profile 合规 | 两个 static 目录 | 补 `sources.json`、`entries/{id}.json`；summary 不嵌全文；entry_id 符合 schema pattern |
 | 4.3 移除 ott-script 示例 | `typetype-default-ott-repo/ott-repo.json` | manifest 通过 `ott-repo.schema.json` 校验（CI 门禁） |
 
-> 状态（2026-08-10）：**4.1-4.3 已落地**。官方默认内容仓 `whynusn/typetype-default-ott-repo`
-> 已归档（无自动订阅、3 条目、28KB，保留无收益）；typetype 仅保留 `resources/ott-repo`
-> 内置离线快照作为唯一内容本体，`scripts/sync_builtin_ott_repo.py` 已删除（来源消失）。
-> 内置源以 file:// 订阅形式首启注入，离线可用，不自动订阅远程源；远程订阅能力
-> 保留（用户可手动添加任意第三方 OTT Repo），不再维护 `public-ott-repo`。
+> 状态（2026-08-10，后续修订）：**4.1-4.3 已落地**。官方默认内容仓
+> `typetype-default-ott-repo` 已归档；typetype 保留 `resources/ott-repo` 作为内置
+> file:// 仓。内置仓允许 L0/L1 数据与声明式规则能力，但具体默认源必须经过独立的
+> 来源、权利与稳定性审核；未经审核的 L1 规则不随官方内置 manifest 分发。
+> `ott-script` 不进入内置默认仓。远程订阅能力保留，用户可手动添加第三方 OTT Repo。
 
 ### Phase 5：沙箱与网络出口加固
 

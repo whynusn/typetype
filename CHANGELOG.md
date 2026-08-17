@@ -14,9 +14,10 @@
 
 ### Added
 
+- **内置 OTT Repo 政策收口**：保留 OTT L1 声明式规则的协议与联邦能力；未完成来源权利、归属和稳定性审核的具体规则不随官方内置 manifest 分发，`ott-script` 继续不进入内置仓。
 - **智能路由（SmartRouteSelector）**：刷新/拉取链路按**实时延迟与连通性**在候选路径间选路——候选 = 原始地址 → jsDelivr CDN → 配置的镜像/代理前缀（`ott.route_mirrors`，如 ghproxy 形态）→ manifest mirrors，纯动态派生不硬编码。短超时（2s）并发探测 + TTL 缓存（`ott.route_probe_ttl_seconds`，默认 300s）+ 失败指数退避冷却（30s→300s 封顶）+ 真实请求回写（延迟 EWMA）。接入 manifest 拉取（`RepoManifestCache`）、instance 条目/分段（`OttCachedFetcher`）、脚本下载（`ScriptCache`）；不可达候选不再消耗 10s 超时，修复「刷新一直转圈直到 45s 硬超时」；`router=None` 时保持原固定 failover，测试兼容
-- **内置默认文本源（ADR-011 Phase 4）**：首启自动注入 `file://` 内置 OTT Repo（经典中文短句 / 拼音声调练习 / 唐诗精选），完全离线可用，不自动订阅任何远程源；静态 profile 补齐 `sources.json` 与 `entries/{id}.json`，摘要不再内嵌全文，entry_id 符合 schema pattern，逐条标注 rights/license/origin；官方默认仓移除 ott-script/ott-rule 示例
-- **默认内容独立仓库（ADR-011 Phase 4 收口）**：官方默认 OTT Repo 迁移到 `whynusn/typetype-default-ott-repo`，订阅 URL 与客户端发布解耦；`resources/ott-repo` 改为由 `scripts/sync_builtin_ott_repo.py` 生成的离线快照
+- **内置默认文本源（ADR-011 Phase 4）**：首启自动注入 `file://` 内置 OTT Repo（经典中文短句 / 拼音声调练习 / 唐诗精选），完全离线可用；静态 profile 补齐 `sources.json` 与 `entries/{id}.json`，摘要不再嵌全文，entry_id 符合 schema pattern，逐条标注 rights/license/origin。内置仓允许 L0/L1 能力，但未经来源权利审核的规则源默认关闭，`ott-script` 不进入内置仓
+- **默认内容独立仓库（ADR-011 Phase 4 收口）**：官方默认 OTT Repo 迁移到 `whynusn/typetype-default-ott-repo`；该仓后续归档，`resources/ott-repo` 作为客户端内置 file:// 仓唯一事实来源，不再依赖同步脚本
 - **适配器包规范上移标准仓**：`docs/adapter-package.md` 与 `schemas/ott-adapter-v1.schema.json` 权威位置迁到 open-typing-texts，typetype SDK/测试引用兄弟仓，不再重复维护
 - **OTT DSL 组合安全加固（ADR-011 Phase 1.5）**：整数纳入单值字节上限（`bit_length` 估算），超大位移直接拒绝，字面量/结果超限检查前置到求值器内部；新增组合矩阵 + 固定种子模糊测试，随机表达式只可能成功或抛 `DslError`
 - **default_enabled 消费（ADR-011 Phase 3.4）**：联邦聚合按 manifest 声明的 `default_enabled` 启用/禁用 ott-instance 源，未声明时默认启用
@@ -43,7 +44,7 @@
 - **添加订阅支持目录预览**：`previewRepoManifest` 拉取 manifest 识别 `directory`，列出 `repository-ref` 供用户显式选择添加（不自动订阅）；`RepoConfigDialog` 补充描述/维护者/license/不兼容原因/不支持源展示
 - **开源文库筛选修正**：来源筛选统一使用 `_source_label || source_label`，修复 instance 源（组名来自 `_source_label`、条目 `source_label` 为空）筛选失效的问题
 - **断网刷新明确反馈，不再静默回退快照**：federation 物化统计成功/失败 authority（`last_list_ok/failed`，client 返回 `None` 视为源不可用），手动刷新（全部/源级）完成后检查——**全部失败 → 明确报错「刷新失败（网络不可达或源不可用），当前显示的是缓存快照」**；部分失败 → 日志提示；后台 revalidate 失败仍静默（保持快照视图不打扰）
-- **订阅源卡片展示「N / M 条」上限进度**：组头计数区升级——manifest 声明 `max_entries` 时显示「N / M 条」+ 细进度条（接近上限 80% 转琥珀色、满格绿色），未声明（无上限）保持「N 条」；内置默认源 manifest 补齐 `max_entries: 3`（3 篇静态文本）。快照归属元数据比对扩展至 `_repo_max_entries` 等全部字段——manifest 调整上限后 revalidate 自动补写，卡片展示即时更新
+- **订阅源卡片展示「N / M 条」上限进度**：组头计数区升级——外部 manifest 声明 `max_entries` 时显示「N / M 条」+ 细进度条（接近上限 80% 转琥珀色、满格绿色），未声明（无上限）保持「N 条」；快照归属元数据比对扩展至 `_repo_max_entries` 等全部字段——manifest 调整上限后 revalidate 自动补写，卡片展示即时更新。内置混合仓不声明该字段，避免将静态源上限误套到可选动态规则源
 - **开源文库组内条目不再串组**：`RepoEntriesPanel` 分组重建改为两遍构建（先按条目顺序收集有序组 + 组内条目，再按组顺序整组渲染）——旧实现单遍追加，同组条目在 entries 中不连续（随机源多次物化、新旧条目按 captured_at 交错）时，后到的条目会被追加到别的组头之下（实测 jisubei 的条目跑到「英文名言」组下面），展开组只显示部分条目；现组头与组内条目永远连续输出
 - **开源文库源组头可正常展开/收起**：`toggleGroup` 折叠判定曾写为 `!(x === false)`（恒等于 `x !== false`）——展开态点击恒置回展开、折叠态点击恒置回折叠，状态永不变、点击无法收起；现改为真正的状态切换（缺省展开，首次点击即折叠，再点展开）
 - **开源文库归类自愈（订阅源分组不再拆散）**：旧构建物化的快照缺 `_repo_id`/`_repo_name` 归属字段，且因内容指纹相同被 revalidate 永久跳过补写——同一订阅源的条目曾按 authority 回退拆成多个假源组（组名还来自 QML 硬编码的 source_label→中文映射）。现快照指纹比对同时校验归属字段（缺失/变化即补写，内容未变时保留原 `captured_at` 不虚刷 freshness），并删除 QML 硬编码映射（组名统一由 manifest `name` 提供）；存量旧快照在下次进入开源文库时后台自动补写归组
