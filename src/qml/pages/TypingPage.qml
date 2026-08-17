@@ -564,14 +564,16 @@ Item {
                 // 同步调用（不用 Qt.callLater）：让 prepare_for_text_load() 立即设置
                 // readOnly=true，使下方恢复代码在同一次 onActiveChanged 中就能看到
                 // 正确的 textReadOnly 状态。requestLoadText 内部仅做计划+启动后台
-                // Worker，不阻塞 UI。
-                appBridge.requestLoadText(appBridge.startupTextSourceKey);
+                // Worker，不阻塞 UI。没有可用本地来源时跳过自动载文，避免空 key
+                // 触发“未知文本来源()”误报。
+                if (appBridge.startupTextSourceKey)
+                    appBridge.requestLoadText(appBridge.startupTextSourceKey);
             }
             // 恢复：载文期间/之后 readOnly 可能仍为 true（信号丢失、用户切走再回来等）。
             if (appBridge && appBridge.textReadOnly) {
                 if (upperPane.text.length > 0) {
                     handleRetypeRequest();
-                } else {
+                } else if (appBridge.startupTextSourceKey) {
                     appBridge.requestLoadText(appBridge.startupTextSourceKey);
                 }
             }
