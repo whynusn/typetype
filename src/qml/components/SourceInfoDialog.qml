@@ -26,7 +26,8 @@ Dialog {
     title: qsTr("源详情")
     modal: true
     standardButtons: Dialog.Close
-    width: 440
+    width: Math.min(440, Window.window ? Math.max(280, Window.window.width - 24) : 440)
+    height: Math.min(460, Window.window ? Math.max(240, Window.window.height - 24) : 460)
 
     function _tierLabel(type) {
         if (type === "ott-instance") return qsTr("L0 静态实例")
@@ -74,6 +75,7 @@ Dialog {
             for (var i = 0; i < repos.length; i++) {
                 if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
             }
+            appBridge.refreshRepos()
         }
         var override = root._overrides[root.authority]
         if (override) {
@@ -92,6 +94,15 @@ Dialog {
         root._syncingOverride = false
     }
 
+    Connections {
+        target: appBridge
+        function onReposChanged(repos) {
+            for (var i = 0; i < repos.length; i++) {
+                if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
+            }
+        }
+    }
+
     ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
@@ -104,10 +115,17 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: root.sourceLabel || root.authority || qsTr("未知源")
                 typography: Typography.BodyStrong
                 color: Theme.currentTheme.colors.textColor
+                wrapMode: Text.NoWrap
                 elide: Text.ElideRight
+                HoverHandler { id: sourceLabelHover }
+                ToolTip {
+                    text: root.sourceLabel || root.authority || qsTr("未知源")
+                    visible: sourceLabelHover.hovered
+                }
             }
 
             RowLayout {
@@ -130,10 +148,17 @@ Dialog {
 
                 Text {
                     Layout.fillWidth: true
+                    Layout.minimumWidth: 0
                     text: root.authority
                     typography: Typography.Caption
                     color: Theme.currentTheme.colors.textSecondaryColor
+                    wrapMode: Text.NoWrap
                     elide: Text.ElideMiddle
+                    HoverHandler { id: authorityHover }
+                    ToolTip {
+                        text: root.authority
+                        visible: authorityHover.hovered
+                    }
                 }
             }
         }
@@ -186,6 +211,7 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 typography: Typography.Body
                 color: Theme.currentTheme.colors.textColor
                 text: qsTr("刷新频率")
@@ -233,11 +259,18 @@ Dialog {
                 typography: Typography.Body
                 color: Theme.currentTheme.colors.textColor
                 text: root._repo && root._repo.name ? root._repo.name : root.repoUrl
+                wrapMode: Text.NoWrap
                 elide: Text.ElideRight
+                HoverHandler { id: repoNameHover }
+                ToolTip {
+                    text: root._repo && root._repo.name ? root._repo.name : root.repoUrl
+                    visible: repoNameHover.hovered
+                }
             }
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 visible: text.length > 0
                 text: root._repo && root._repo.description ? root._repo.description : ""
                 typography: Typography.Caption
@@ -252,6 +285,7 @@ Dialog {
                       ? qsTr("License：%1").arg(root._repo.license) : ""
                 typography: Typography.Caption
                 color: Theme.currentTheme.colors.textSecondaryColor
+                wrapMode: Text.NoWrap
                 elide: Text.ElideRight
             }
 

@@ -20,7 +20,8 @@ Dialog {
     title: qsTr("管理订阅源")
     modal: true
     standardButtons: Dialog.Close
-    width: 420
+    width: Math.min(420, Window.window ? Math.max(280, Window.window.width - 24) : 420)
+    height: Math.min(420, Window.window ? Math.max(240, Window.window.height - 24) : 420)
 
     function _trustBadge(trustState) {
         if (trustState === "verified") return qsTr("已验证")
@@ -39,10 +40,15 @@ Dialog {
     // 打开时重新匹配摘要（启用/信任/删除后摘要会变化）
     onOpened: {
         root._repo = null
-        if (!appBridge) return
-        var repos = appBridge.getRepos() || []
-        for (var i = 0; i < repos.length; i++) {
-            if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
+        if (appBridge) appBridge.refreshRepos()
+    }
+
+    Connections {
+        target: appBridge
+        function onReposChanged(repos) {
+            for (var i = 0; i < repos.length; i++) {
+                if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
+            }
         }
     }
 
@@ -59,22 +65,37 @@ Dialog {
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: root._repo && root._repo.name ? root._repo.name : (root.repoId || qsTr("未知订阅源"))
                 typography: Typography.BodyStrong
                 color: Theme.currentTheme.colors.textColor
+                wrapMode: Text.NoWrap
                 elide: Text.ElideRight
+                HoverHandler { id: repoNameHover }
+                ToolTip {
+                    text: root._repo && root._repo.name ? root._repo.name : (root.repoId || qsTr("未知订阅源"))
+                    visible: repoNameHover.hovered
+                }
             }
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: root.repoUrl || root.repoId
                 typography: Typography.Caption
                 color: Theme.currentTheme.colors.textSecondaryColor
+                wrapMode: Text.NoWrap
                 elide: Text.ElideMiddle
+                HoverHandler { id: repoUrlHover }
+                ToolTip {
+                    text: root.repoUrl || root.repoId
+                    visible: repoUrlHover.hovered
+                }
             }
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 visible: text.length > 0
                 text: root._repo && root._repo.description ? root._repo.description : ""
                 typography: Typography.Caption
@@ -89,16 +110,19 @@ Dialog {
                       ? qsTr("维护者：%1").arg(root._repo.maintainer.name) : ""
                 typography: Typography.Caption
                 color: Theme.currentTheme.colors.textSecondaryColor
+                wrapMode: Text.NoWrap
                 elide: Text.ElideRight
             }
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 visible: text.length > 0
                 text: root._repo && root._repo.license
                       ? qsTr("License：%1").arg(root._repo.license) : ""
                 typography: Typography.Caption
                 color: Theme.currentTheme.colors.textSecondaryColor
+                wrapMode: Text.NoWrap
                 elide: Text.ElideRight
             }
 

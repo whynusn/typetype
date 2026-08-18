@@ -67,6 +67,7 @@ FluentPage {
     property string reposEntriesError: ""  // 开源文库条目加载错误（喂给 RepoEntriesPanel.errorText）
     property var federatedSourceStatuses: ({})  // authority -> {state,message,checked_at}
     property bool federatedContentLoading: false  // 联邦条目载文请求进行中（载入跟打按钮 Busy）
+    property bool repoManifestPreviewLoading: false
 
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
@@ -807,6 +808,7 @@ FluentPage {
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
         property string _error: ""
+        property bool _awaitingAdd: false
         property var _preview: null
         property var _directoryRepos: []
 
@@ -819,15 +821,37 @@ FluentPage {
         }
         onAccepted: {
             var u = addRepoUrlField.text.trim()
-            if (u.length > 0 && appBridge) appBridge.addRepo(u)
+            if (u.length > 0 && appBridge) {
+                addRepoDialog._awaitingAdd = true
+                appBridge.addRepo(u)
+            }
         }
 
         // 添加失败（网络/校验）→ 弹窗内提示，不关闭
         Connections {
             target: appBridge
-            enabled: addRepoDialog.visible && appBridge !== null
             function onReposLoadFailed(message) {
+                addRepoDialog._awaitingAdd = false
                 addRepoDialog._error = message
+                addRepoDialog.open()
+            }
+            function onReposChanged(repos) {
+                if (!addRepoDialog._awaitingAdd) return
+                addRepoDialog._awaitingAdd = false
+                root.statusMessage = qsTr("订阅添加成功")
+                if (Window.window && Window.window.appNotificationManager)
+                    Window.window.appNotificationManager.show(
+                        Severity.Success, "", qsTr("订阅添加成功"), 1800)
+            }
+            function onRepoManifestPreviewed(result) {
+                root.repoManifestPreviewLoading = false
+                if (result && result.error) {
+                    addRepoDialog._error = result.error
+                } else {
+                    addRepoDialog._preview = result
+                    if (result && result.type === "directory" && result.repositories)
+                        addRepoDialog._directoryRepos = result.repositories
+                }
             }
         }
 
@@ -860,14 +884,8 @@ FluentPage {
                         addRepoDialog._error = ""
                         addRepoDialog._preview = null
                         addRepoDialog._directoryRepos = []
-                        var result = appBridge.previewRepoManifest(addRepoUrlField.text.trim())
-                        if (result && result.error) {
-                            addRepoDialog._error = result.error
-                        } else {
-                            addRepoDialog._preview = result
-                            if (result && result.type === "directory" && result.repositories)
-                                addRepoDialog._directoryRepos = result.repositories
-                        }
+                        root.repoManifestPreviewLoading = true
+                        appBridge.previewRepoManifest(addRepoUrlField.text.trim())
                     }
                 }
 

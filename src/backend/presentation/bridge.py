@@ -131,6 +131,7 @@ class Bridge(QObject):
     reposChanged = Signal(list)  # list of repo summary dicts
     reposLoadFailed = Signal(str)
     reposLoadingChanged = Signal()
+    repoManifestPreviewed = Signal(object)
     registryFederatedEntriesLoaded = Signal(list)  # list of entry dicts
     registryFederatedEntriesLoadFailed = Signal(str)
     registryFederatedEntriesLoadingChanged = Signal()
@@ -433,6 +434,10 @@ class Bridge(QObject):
         if self._registry_adapter:
             self._registry_adapter.reposChanged.connect(self.reposChanged.emit)
             self._registry_adapter.reposLoadFailed.connect(self.reposLoadFailed.emit)
+            if hasattr(self._registry_adapter, "repoManifestPreviewed"):
+                self._registry_adapter.repoManifestPreviewed.connect(
+                    self.repoManifestPreviewed.emit
+                )
             self._registry_adapter.reposLoadingChanged.connect(
                 self.reposLoadingChanged.emit
             )
@@ -971,6 +976,11 @@ class Bridge(QObject):
     @Slot(QQuickTextDocument, str)
     def handleLoadedText(self, quickDoc: QQuickTextDocument, text: str = "") -> None:
         self._typing_adapter.handleLoadedText(quickDoc, text)
+
+    @Slot()
+    def handleTextLoadFailed(self) -> None:
+        """Release the loading lock without committing an error as practice text."""
+        self._typing_adapter.handleLoadFailed()
 
     @Slot(str)
     def setTextTitle(self, title: str) -> None:
@@ -2581,6 +2591,7 @@ class Bridge(QObject):
     def requestAiText(self) -> None:
         """请求 AI 生成文本。"""
         if self._ai_text_adapter:
+            self._typing_adapter.prepare_for_text_load()
             self._ai_text_adapter.requestAiText()
 
     @Property(bool, notify=aiTextLoadingChanged)

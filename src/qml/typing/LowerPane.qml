@@ -142,6 +142,17 @@ QQC.Pane {
                     return;
                 }
 
+                // The backend scores a sequential suffix only. A middle-cursor edit
+                // cannot be represented safely by that state machine, so restore the
+                // previous text instead of submitting the whole tail as new input.
+                if (textArea.cursorPosition < currentText.length) {
+                    root.suppressTextChanged = true;
+                    textArea.text = root.lastText;
+                    root.suppressTextChanged = false;
+                    textArea.cursorPosition = textArea.length;
+                    return;
+                }
+
                 // 注意：这里需要处理"用户删字"的情况
                 var startPos = textArea.cursorPosition;
                 var growLength = currentText.length - root.lastText.length;

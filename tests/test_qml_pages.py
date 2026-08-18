@@ -158,7 +158,16 @@ def test_typing_page_handles_local_article_segment_load_failure():
     assert "localArticleSegmentLoadFailed" in BRIDGE_SIGNALS
     assert "textReadOnly" in refs and "textReadOnly" in BRIDGE_PROPERTIES
     assert "setLowerPaneFocused" in refs and "setLowerPaneFocused" in BRIDGE_SLOTS
-    assert "upperPane.text = message" in source
+    assert "handleTextLoadFailed" in refs and "handleTextLoadFailed" in BRIDGE_SLOTS
+    assert "loadErrorMessage" in source
+    assert "upperPane.text = message" not in source
+
+
+def test_typing_page_locks_ai_stream_and_exposes_pause_state():
+    source = (QML_DIR / "pages/TypingPage.qml").read_text(encoding="utf-8")
+    assert "appBridge.aiTextLoading" in source
+    assert "enabled: !(appBridge && appBridge.aiTextLoading)" in source
+    assert "appBridge.typingPaused" in source
 
 
 def test_typing_page_renders_ziti_hint_from_bridge():

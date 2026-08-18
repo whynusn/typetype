@@ -101,7 +101,7 @@ def test_load_v2_file_does_not_rewrite(monkeypatch, tmp_path: Path):
     """已是 schema_version=2 的文件直接加载，不跑迁移（幂等）。"""
     user_config = tmp_path / "user" / "config.json"
     user_config.parent.mkdir(parents=True)
-    v2 = RuntimeConfig()._to_dict()
+    v2 = RuntimeConfig._fresh_with_builtin()._to_dict()
     v2["custom_unknown"] = "keep-me"
     user_config.write_text(json.dumps(v2), encoding="utf-8")
     monkeypatch.setattr(
@@ -559,6 +559,10 @@ def test_update_text_source_adds_entry(monkeypatch, tmp_path: Path):
     )
 
     config = RuntimeConfig.load_from_file(str(user_config))
+    # load_from_file 现在会自愈空 text_sources；这里显式清空以覆盖
+    # “第一个用户来源成为默认来源”的原始语义。
+    config.text_source_config.sources = {}
+    config.text_source_config.default_key = ""
     config.update_text_source("my_text", "我的文本", "/tmp/my.txt")
 
     entry = config.get_text_source("my_text")
@@ -583,7 +587,12 @@ def test_update_text_source_reuses_existing_default_key(monkeypatch, tmp_path: P
         json.dumps(
             {
                 "default_text_source_key": "existing_default",
-                "text_sources": {"existing_default": {"label": "Existing"}},
+                "text_sources": {
+                    "existing_default": {
+                        "label": "Existing",
+                        "local_path": "/tmp/existing.txt",
+                    }
+                },
             }
         ),
         encoding="utf-8",
@@ -619,7 +628,11 @@ def test_ensure_user_config_exists_merges_missing_sections(monkeypatch, tmp_path
     assert saved["schema_version"] == 2
     assert "base_url" not in saved
     assert "registry" not in saved
-    assert saved["text_sources"] == {}
+    assert (
+        saved["text_sources"]
+        == RuntimeConfig._fresh_with_builtin()._to_dict()["text_sources"]
+    )
+    assert saved["default_text_source_key"] == "builtin_demo"
     assert "ott" in saved
     assert "update" in saved
     assert "ai" in saved
@@ -661,7 +674,7 @@ def test_ensure_user_config_exists_no_write_when_complete(monkeypatch, tmp_path:
     """When config already has all sections, ensure_user_config_exists doesn't write."""
     user_config = tmp_path / "user" / "config.json"
     user_config.parent.mkdir(parents=True)
-    full = RuntimeConfig()._to_dict()
+    full = RuntimeConfig._fresh_with_builtin()._to_dict()
     user_config.write_text(json.dumps(full), encoding="utf-8")
     monkeypatch.setattr(
         "src.backend.config.runtime_config.user_config_path",
@@ -1109,15 +1122,8 @@ def test_clean_v2_with_example_org_cleaned_on_every_load(tmp_path):
 
 
 def test_clean_v2_without_example_org_not_rewritten(tmp_path):
-    """干净 v2 且无 example.org → 加载不写回（幂等）。"""
-    cfg = {
-        "schema_version": 2,
-        "source_repos": [
-            {
-                "url": "https://cdn.jsdelivr.net/gh/whynusn/ott-source-hub@main/ott-repo.json"
-            }
-        ],
-    }
+    """干净 v2（含默认文本源）且无 example.org → 加载不写回（幂等）。"""
+    cfg = RuntimeConfig._fresh_with_builtin()._to_dict()
     path = tmp_path / "config.json"
     path.write_text(json.dumps(cfg), encoding="utf-8")
 
@@ -1401,7 +1407,122 @@ def test_text_sources_null_loads_as_empty(tmp_path: Path):
     cfg_path = tmp_path / "config.json"
     cfg_path.write_text(json.dumps({"text_sources": None}), encoding="utf-8")
     config3 = RuntimeConfig.load_from_file(str(cfg_path))
-    assert config3.text_source_config.sources == {}
+    # null 是损坏/不完整配置，加载时补回默认本地来源。
+    assert (
+        config3.text_source_config.sources
+        == RuntimeConfig._fresh_with_builtin().text_source_config.sources
+    )
+
+
+def test_empty_text_sources_self_heals_to_builtin_default(tmp_path: Path):
+    """干净 v2 的空来源表保留用户选择，不被启动自愈覆盖。"""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_text_source_key": "",
+                "text_sources": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RuntimeConfig.load_from_file(str(cfg_path))
+
+    assert config.default_text_source_key == ""
+    assert config.text_source_config.sources == {}
+    saved = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert saved["default_text_source_key"] == ""
+    assert saved["text_sources"] == {}
+
+
+def test_orphaned_default_text_source_key_falls_back_to_first_source(tmp_path: Path):
+    """来源表非空但 default key 孤立时，选择第一个合法来源并持久化。"""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_text_source_key": "missing",
+                "text_sources": {
+                    "custom": {"label": "自定义", "local_path": "/tmp/custom.txt"}
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RuntimeConfig.load_from_file(str(cfg_path))
+
+    assert config.default_text_source_key == "custom"
+    saved = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert saved["default_text_source_key"] == "custom"
+
+
+def test_invalid_default_text_source_key_type_falls_back(tmp_path: Path):
+    """非法 default key 类型不会触发 unhashable TypeError。"""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_text_source_key": [],
+                "text_sources": {
+                    "custom": {
+                        "label": "自定义",
+                        "local_path": "/tmp/custom.txt",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RuntimeConfig.load_from_file(str(cfg_path))
+
+    assert config.default_text_source_key == "custom"
+
+
+def test_empty_text_sources_clears_invalid_default_key(tmp_path: Path):
+    """空来源表即使携带非法 truthy key，也会归一化为空字符串。"""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_text_source_key": {"broken": True},
+                "text_sources": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RuntimeConfig.load_from_file(str(cfg_path))
+
+    assert config.default_text_source_key == ""
+    saved = json.loads(cfg_path.read_text(encoding="utf-8"))
+    assert saved["default_text_source_key"] == ""
+
+
+def test_all_invalid_text_sources_self_heal_to_builtins(tmp_path: Path):
+    """来源表非空但条目全部非法时，不进入无来源空白页。"""
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "default_text_source_key": "broken",
+                "text_sources": {"broken": "not-an-entry"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = RuntimeConfig.load_from_file(str(cfg_path))
+
+    assert config.default_text_source_key == "builtin_demo"
+    assert len(config.text_source_config.sources) == 5
 
 
 def test_ai_timeout_float_precision_roundtrip():

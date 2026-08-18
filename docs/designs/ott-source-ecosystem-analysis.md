@@ -55,7 +55,7 @@
 |:---|:---|
 | **核心文件** | `OTT_SPEC.md`（Core v1 数据面）、`docs/repo-manifest-spec.md`（Repo v1 控制面）、`schemas/*.json`（7 个 JSON Schema） |
 | **参考适配器** | `ott_adapter/` — 一个完整的 Python HTTP 服务器，实现 Service Profile + Static Profile + Admin Profile |
-| **脚本模板** | `scripts/fetch_jisubei.py`、`scripts/fetch_poem.py` — 本地抓取脚本示例 |
+| **脚本模板** | `scripts/fetch_poem.py` — 本地抓取脚本示例；逆向源统一走 `ott-source-hub` L1.5 DSL 规则 |
 | **明确不提供** | 任何文本内容。README 三次声明"不提供、不分发、不托管" |
 | **版本** | OTT Core `1.0` + OTT Repo `1.1` + Adapter `0.5.0` |
 
@@ -348,11 +348,11 @@ OTT Core v1（数据面）和 OTT Repo v1（控制面）**独立版本号**。Co
 
 #### 6. 签名互操作的"自我参照"
 
-**现状**：`ott-source-hub` 的 `ott-repo.json` 中 `trust` 字段留空（`pubkey: ""`）。签名需要 Ed25519 密钥对。
+**现状**：`ott-source-hub` 的 `ott-repo.json` 已使用 Ed25519 签名，L3 脚本源具备签名准入条件。签名私钥只保存在维护者本地配置目录，不进入仓库。
 
-**问题**：如果 `ott-source-hub` 要分发 L3 脚本，必须有签名能力。但签名密钥管理（生成、存储、轮换）目前没有明确流程。
+**剩余问题**：当前发布仍依赖维护者本地签名操作；私钥丢失会触发公钥轮换，并使已固定旧公钥的客户端进入 `pending`。
 
-**建议**：参考 ADR-011 Phase 2.4 的 CI 签名流水线设计，为 `ott-source-hub` 配置 GitHub Actions + 离线私钥（存 GitHub Secret）。
+**建议**：后续配置 GitHub Actions 签名流水线时，将私钥放入仓库级 Secret，并保留人工审批/受保护环境，避免普通 PR 获得签名权限。
 
 ---
 

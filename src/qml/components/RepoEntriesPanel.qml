@@ -270,8 +270,10 @@ Frame {
 
             Text {
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 typography: Typography.BodyStrong
                 text: qsTr("开源文本")
+                wrapMode: Text.NoWrap
                 elide: Text.ElideRight
             }
 
@@ -468,10 +470,17 @@ Frame {
 
                                         Text {
                                             Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
                                             text: groupDelegate.groupData.name
                                             typography: Typography.BodyStrong
                                             color: Theme.currentTheme.colors.textColor
+                                            wrapMode: Text.NoWrap
                                             elide: Text.ElideRight
+                                            HoverHandler { id: groupNameHover }
+                                            ToolTip {
+                                                text: groupDelegate.groupData.name
+                                                visible: groupNameHover.hovered
+                                            }
                                         }
 
                                         Rectangle {
@@ -519,10 +528,17 @@ Frame {
 
                                         Text {
                                             Layout.fillWidth: true
+                                            Layout.minimumWidth: 0
                                             text: groupDelegate.groupData.subtitle
                                             typography: Typography.Caption
                                             color: Theme.currentTheme.colors.textSecondaryColor
+                                            wrapMode: Text.NoWrap
                                             elide: Text.ElideRight
+                                            HoverHandler { id: subtitleHover }
+                                            ToolTip {
+                                                text: groupDelegate.groupData.subtitle
+                                                visible: subtitleHover.hovered
+                                            }
                                         }
 
                                         // 源级健康芯片：失败时明确「正在显示缓存」，不盖整列表
@@ -554,24 +570,47 @@ Frame {
 
                                 // 文本计数 + 上限进度：manifest 声明 max_entries 时
                                 // 显示「N / M 条」+ 细进度条（接近上限转琥珀、满格绿）；
-                                // 未声明（M=0 = 无上限）只显示当前数
+                                // 未声明（M=0 = 无上限）只显示当前数。
+                                // 注意：M 是仓库声明的条目保留上限，而 N 是当前该源已缓存的快照数。
                                 ColumnLayout {
+                                    visible: root.width >= 300
                                     spacing: 2
                                     Layout.alignment: Qt.AlignVCenter
+                                    Layout.minimumWidth: 0
+                                    Layout.preferredWidth: 88
 
                                     Text {
                                         Layout.alignment: Qt.AlignRight
                                         text: {
-                                            var s = qsTr("%1 条").arg(groupDelegate.groupData.count)
-                                            if (groupDelegate.groupData.maxEntries > 0)
-                                                s = qsTr("%1 / %2 条").arg(groupDelegate.groupData.count).arg(groupDelegate.groupData.maxEntries)
+                                            var count = groupDelegate.groupData.count
+                                            var maxEntries = groupDelegate.groupData.maxEntries
+                                            var s = qsTr("%1 条").arg(count)
+                                            if (maxEntries > 0) {
+                                                if (count > maxEntries)
+                                                    s = qsTr("%1 条（超上限 %2）").arg(count).arg(maxEntries)
+                                                else
+                                                    s = qsTr("%1 / %2 条").arg(count).arg(maxEntries)
+                                            }
                                             return s
                                         }
+                                        wrapMode: Text.NoWrap
                                         typography: Typography.Caption
                                         color: groupDelegate.groupData.maxEntries > 0
                                                && groupDelegate.groupData.count / groupDelegate.groupData.maxEntries >= 0.8
-                                               ? Theme.currentTheme.colors.systemCautionColor
-                                               : Theme.currentTheme.colors.textSecondaryColor
+                                               && groupDelegate.groupData.count > groupDelegate.groupData.maxEntries
+                                               ? Theme.currentTheme.colors.systemCriticalColor
+                                               : (groupDelegate.groupData.maxEntries > 0
+                                                  && groupDelegate.groupData.count / groupDelegate.groupData.maxEntries >= 0.8
+                                                  ? Theme.currentTheme.colors.systemCautionColor
+                                                  : Theme.currentTheme.colors.textSecondaryColor)
+
+                                        HoverHandler { id: countHover }
+                                        ToolTip {
+                                            text: groupDelegate.groupData.maxEntries > 0
+                                                  ? qsTr("当前缓存 %1 条，仓库声明上限 %2 条").arg(groupDelegate.groupData.count).arg(groupDelegate.groupData.maxEntries)
+                                                  : qsTr("当前缓存 %1 条").arg(groupDelegate.groupData.count)
+                                            visible: countHover.hovered
+                                        }
                                     }
 
                                     // 上限进度条（仅声明上限时显示）
@@ -590,11 +629,14 @@ Frame {
                                             width: parent.width * ratio
                                             height: parent.height
                                             radius: 1.5
-                                            color: ratio >= 1
-                                                   ? Theme.currentTheme.colors.systemSuccessColor
-                                                   : (ratio >= 0.8
-                                                      ? Theme.currentTheme.colors.systemCautionColor
-                                                      : Theme.currentTheme.colors.primaryColor)
+                                            color: groupDelegate.groupData.maxEntries > 0
+                                                   && groupDelegate.groupData.count > groupDelegate.groupData.maxEntries
+                                                   ? Theme.currentTheme.colors.systemCriticalColor
+                                                   : (ratio >= 1
+                                                      ? Theme.currentTheme.colors.systemSuccessColor
+                                                      : (ratio >= 0.8
+                                                         ? Theme.currentTheme.colors.systemCautionColor
+                                                         : Theme.currentTheme.colors.primaryColor))
                                         }
                                     }
                                 }
@@ -793,10 +835,17 @@ Frame {
 
                                             Text {
                                                 Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
                                                 typography: Typography.Body
                                                 text: model.entry.title || model.entry.entry_id || ""
                                                 color: Theme.currentTheme.colors.textColor
+                                                wrapMode: Text.NoWrap
                                                 elide: Text.ElideRight
+                                                HoverHandler { id: entryTitleHover }
+                                                ToolTip {
+                                                    text: model.entry.title || model.entry.entry_id || ""
+                                                    visible: entryTitleHover.hovered
+                                                }
                                             }
 
                                             Text {
@@ -814,6 +863,9 @@ Frame {
                                         // 右：徽章列（分段/新鲜度）+ 字数
                                         ColumnLayout {
                                             Layout.alignment: Qt.AlignVCenter
+                                            Layout.minimumWidth: 0
+                                            Layout.maximumWidth: 132
+                                            Layout.preferredWidth: 112
                                             spacing: 3
 
                                             RowLayout {
@@ -875,6 +927,8 @@ Frame {
                                             }
 
                                             Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
                                                 Layout.alignment: Qt.AlignRight
                                                 visible: text.length > 0
                                                 text: {
@@ -888,6 +942,8 @@ Frame {
                                                 }
                                                 typography: Typography.Caption
                                                 color: Theme.currentTheme.colors.textSecondaryColor
+                                                wrapMode: Text.NoWrap
+                                                elide: Text.ElideLeft
                                             }
                                         }
                                     }

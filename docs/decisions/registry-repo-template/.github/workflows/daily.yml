@@ -38,11 +38,6 @@ jobs:
           ${{ github.event.inputs.date && format('--date {0}', github.event.inputs.date) || '' }}
         continue-on-error: true          # 单日失败不挂 workflow
 
-      - name: 抓取极速杯每日文本
-        run: python scripts/fetch_jisubei.py
-          ${{ github.event.inputs.date && format('--date {0}', github.event.inputs.date) || '' }}
-        continue-on-error: true          # 单日失败不挂 workflow
-
       - name: 重生成索引
         run: python scripts/gen_index.py
 

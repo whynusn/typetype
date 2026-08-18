@@ -66,6 +66,12 @@ def test_enter_shortcut_toggles_typing_pause():
     assert "toggleTypingPause" in BRIDGE_SLOTS
 
 
+def test_lower_pane_rejects_middle_cursor_edits():
+    source = (QML_DIR / "typing/LowerPane.qml").read_text(encoding="utf-8")
+    assert "textArea.cursorPosition < currentText.length" in source
+    assert "textArea.text = root.lastText" in source
+
+
 def test_main_window_auto_pauses_when_deactivated():
     main_qml = QML_DIR / "Main.qml"
     source = main_qml.read_text(encoding="utf-8")

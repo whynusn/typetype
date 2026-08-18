@@ -41,6 +41,19 @@ def _isolate_instance_cache(tmp_path, monkeypatch) -> None:
     )
 
 
+def _builtin_only_config(tmp_path: Path) -> RuntimeConfig:
+    """Return a config scoped to the bundled repo so tests never depend on the hub."""
+    config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
+    config.source_repos.repos = [
+        next(
+            repo
+            for repo in config.source_repos.repos
+            if repo.url == builtin_ott_repo_url()
+        )
+    ]
+    return config
+
+
 def test_fresh_config_seeds_builtin_repo(tmp_path):
     config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
     urls = [r.url for r in config.source_repos.repos]
@@ -75,7 +88,7 @@ def test_stale_only_subscription_reseeded_to_builtin(tmp_path):
 
 
 def test_setting_remote_primary_keeps_builtin(tmp_path):
-    config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
+    config = _builtin_only_config(tmp_path)
     config.update_registry_url(primary_url="https://example.org/ott-repo.json")
     urls = [r.url for r in config.source_repos.repos]
     assert builtin_ott_repo_url() in urls
@@ -88,7 +101,7 @@ def test_repo_manifest_has_no_executable_sources(repo_dir):
     normalized = validate_repo_manifest(manifest)
     assert normalized is not None
     assert all(s["type"] != "ott-script" for s in normalized["sources"])
-    assert all(s["type"] != "ott-rule" for s in normalized["sources"])
+    assert any(s["type"] == "ott-instance" for s in normalized["sources"])
 
 
 @pytest.mark.parametrize("repo_dir", _REPO_DIRS, ids=_REPO_IDS)
@@ -118,7 +131,7 @@ def test_static_profile_summaries_and_details_compliant(repo_dir):
 
 def test_builtin_federation_loads_entries_and_detail(tmp_path, monkeypatch):
     _isolate_instance_cache(tmp_path, monkeypatch)
-    config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
+    config = _builtin_only_config(tmp_path)
     manifest_cache = RepoManifestCache(
         cache_dir=tmp_path / "cache",
         http_client=httpx.Client(timeout=10.0),
@@ -127,8 +140,11 @@ def test_builtin_federation_loads_entries_and_detail(tmp_path, monkeypatch):
     )
     federation = OttFederationProvider(config, manifest_cache)
     entries = federation.list_all_entries()
-    assert len(entries) == 3
-    assert all(e["authority"] == "typetype-builtin-static" for e in entries)
+    static_entries = [
+        e for e in entries if e.get("authority") == "typetype-builtin-static"
+    ]
+    assert len(static_entries) == 3
+    assert len(entries) == len(static_entries)
     detail = federation.get_entry("typetype-builtin-static", "classic_sentences")
     assert detail is not None
     assert detail["content"]
@@ -139,7 +155,7 @@ def test_builtin_federation_entries_carry_ott_instance_source_type(
 ):
     """联邦聚合必须为 instance 源条目注入 _source_type=ott-instance（refresh 策略读它）。"""
     _isolate_instance_cache(tmp_path, monkeypatch)
-    config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
+    config = _builtin_only_config(tmp_path)
     manifest_cache = RepoManifestCache(
         cache_dir=tmp_path / "cache",
         http_client=httpx.Client(timeout=10.0),
@@ -152,6 +168,21 @@ def test_builtin_federation_entries_carry_ott_instance_source_type(
     assert all(e["_source_type"] == "ott-instance" for e in entries)
 
 
+def test_builtin_release_workflows_include_ott_repo_resources() -> None:
+    workflow = Path(__file__).parents[1] / ".github" / "workflows" / "build-release.yml"
+    text = workflow.read_text(encoding="utf-8")
+    for job_name, next_job in (
+        ("build-linux:", "build-windows:"),
+        ("build-windows:", "build-macos:"),
+        ("build-macos:", "release:"),
+    ):
+        job = text.split(job_name, 1)[1].split(next_job, 1)[0]
+        nuitka_command = job.split("uv run python -m nuitka", 1)[1]
+        assert (
+            "--include-data-dir=resources/ott-repo=resources/ott-repo" in nuitka_command
+        )
+
+
 def test_local_path_from_file_uri_strips_windows_drive_slash() -> None:
     path = local_path_from_file_uri("file:///D:/a/b.json")
     normalized = str(path).replace("\\", "/")
@@ -160,7 +191,7 @@ def test_local_path_from_file_uri_strips_windows_drive_slash() -> None:
 
 def test_blocked_content_hash_blocks_entry_detail(tmp_path, monkeypatch) -> None:
     _isolate_instance_cache(tmp_path, monkeypatch)
-    config = RuntimeConfig.load_from_file(str(tmp_path / "config.json"))
+    config = _builtin_only_config(tmp_path)
     detail_file = (
         builtin_ott_repo_dir() / "static" / "entries" / "classic_sentences.json"
     )

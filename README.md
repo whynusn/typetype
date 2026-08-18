@@ -206,7 +206,7 @@ TypeType 的文本来源按**到达方式**（本地 / OTT 订阅 / 独立协议
 - **练单器** — 词组分组练习，支持乱序与进度追踪
 
 **联网来源**（需订阅或第三方服务）：
-- **开源文库**（OTT Repo 订阅）— 首启自动注入 `file://` 内置离线源 + 官方默认仓（ott-source-hub）；可手动订阅任意第三方 OTT Repo，支持磁盘缓存与后台刷新、签名与 TOFU 信任、规则/脚本源（沙箱执行）
+- **开源文库**（OTT Repo 订阅）— 首启自动注入 `file://` 内置仓 + 官方源仓（ott-source-hub）；可手动订阅任意第三方 OTT Repo，支持磁盘缓存与后台刷新、签名与 TOFU 信任、L1 声明式规则源及受信任的 L3 沙箱脚本源
 - **晴发文** — 调用 [qingfawen.fcxxz.com](https://qingfawen.fcxxz.com) 第三方 API 获取随机/相邻文本，需注册账号。独立协议栈
 - **AI 智能推荐** — 通过 OpenAI / DeepSeek / Anthropic 等兼容 API 生成针对性练习文本，根据薄弱字自动出题。独立协议栈
 
@@ -216,7 +216,7 @@ TypeType 的文本来源按**到达方式**（本地 / OTT 订阅 / 独立协议
 
 ### 默认配置
 
-首次启动自动生成 `~/.config/typetype/config.json`（`schema_version=2`），默认 `text_sources` 包含五组本地文件（`builtin_demo` / `fst_500` / `mid_500` / `lst_500` / `essential_single_char`）；`source_repos` 默认订阅内置离线源与官方默认仓（OTT 开箱即用）。
+首次启动自动生成 `~/.config/typetype/config.json`（`schema_version=2`），默认 `text_sources` 包含五组本地文件（`builtin_demo` / `fst_500` / `mid_500` / `lst_500` / `essential_single_char`）；`source_repos` 默认订阅内置 file:// 仓与官方源仓。内置静态源离线可用，规则/脚本源是否启用以各 manifest 的 `default_enabled` 与信任策略为准。
 
 ---
 
@@ -254,6 +254,7 @@ uv run python -m nuitka main.py \
   --noinclude-dlls=libQt6WebEngine* \
   --include-data-dir=src/qml=src/qml \
   --include-data-dir=resources/texts=resources/texts \
+  --include-data-dir=resources/ott-repo=resources/ott-repo \
   --include-data-files=resources/images/TypeTypeLogo.png=resources/images/TypeTypeLogo.png \
   --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular-subset.ttf \
   --include-data-files=resources/fonts/LXGWWenKai-Regular-subset.ttf=resources/fonts/LXGWWenKai-Regular-subset.ttf \
