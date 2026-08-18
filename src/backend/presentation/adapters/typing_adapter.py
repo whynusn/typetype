@@ -362,6 +362,13 @@ class TypingAdapter(QObject):
         if changed:
             self.readOnlyChanged.emit()
 
+    def handleLoadFailed(self) -> None:
+        """Leave the loading state without turning an error message into text."""
+        self._cursor = None
+        changed = self._typing_service.set_read_only(False)
+        if changed:
+            self.readOnlyChanged.emit()
+
     def setTextTitle(self, title: str) -> None:
         """设置当前文本标题（用于上传）。"""
         self._typing_service.set_text_title(title)

@@ -40,6 +40,7 @@ class AiTextAdapter(QObject):
         self._runtime_config = runtime_config
         self._token_store = token_store
         self._loading = False
+        self._generation = 0
         self._thread_pool = QThreadPool.globalInstance()
 
     @property
@@ -76,29 +77,47 @@ class AiTextAdapter(QObject):
         """请求 AI 生成文本（流式）。"""
         if self._loading:
             return
+        self._generation += 1
+        generation = self._generation
         self._set_loading(True)
         worker = AiTextWorker(
             task=self._usecase.execute,
             error_prefix="AI 生成文本失败",
         )
-        worker.signals.chunk.connect(self.textChunk.emit)
-        worker.signals.succeeded.connect(self._on_success)
-        worker.signals.failed.connect(self._on_failed)
-        worker.signals.finished.connect(self._on_finished)
+        worker.signals.chunk.connect(
+            lambda chunk, gen=generation: self._on_chunk(chunk, gen)
+        )
+        worker.signals.succeeded.connect(
+            lambda result, gen=generation: self._on_success(result, gen)
+        )
+        worker.signals.failed.connect(
+            lambda message, gen=generation: self._on_failed(message, gen)
+        )
+        worker.signals.finished.connect(lambda gen=generation: self._on_finished(gen))
         self._thread_pool.start(worker)
 
-    def _on_success(self, result: "AiTextResult") -> None:
+    def _on_chunk(self, chunk: str, generation: int) -> None:
+        if generation == self._generation and self._loading:
+            self.textChunk.emit(chunk)
+
+    def _on_success(self, result: "AiTextResult", generation: int) -> None:
+        if generation != self._generation:
+            return
         self._set_loading(False)
         if result.success:
             self.textGenerated.emit(result.text, result.title)
         else:
             self.generationFailed.emit(result.error_message)
 
-    def _on_failed(self, msg: str) -> None:
+    def _on_failed(self, msg: str, generation: int) -> None:
+        if generation != self._generation:
+            return
         self._set_loading(False)
         self.generationFailed.emit(msg)
 
-    def _on_finished(self) -> None:
+    def _on_finished(self, generation: int) -> None:
+        if generation != self._generation:
+            return
         # 兜底：确保 loading 一定被清掉（success/failed 可能未触发）
         self._set_loading(False)
 

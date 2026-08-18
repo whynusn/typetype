@@ -11,6 +11,7 @@ Item {
     property string sliceStatusText: ""
     property string sliceCriteriaText: ""
     property string currentZitiHint: ""
+    property string loadErrorMessage: ""
     readonly property int historyMaxRows: 200
 
     //=====================================
@@ -29,6 +30,7 @@ Item {
     }
 
     function applyLoadedText(plainText) {
+        typingPage.loadErrorMessage = "";
         lowerPane.suppressTextChanged = true;
         lowerPane.text = "";
         lowerPane.suppressTextChanged = false;
@@ -340,23 +342,30 @@ Item {
             }
 
             function onTextLoadFailed(message) {
-                upperPane.text = message
+                typingPage.loadErrorMessage = message
+                if (appBridge) appBridge.handleTextLoadFailed()
                 _notifyError(qsTr("载文失败"), message)
             }
 
             function onWenlaiLoadFailed(message) {
-                upperPane.text = message
+                typingPage.loadErrorMessage = message
+                if (appBridge) appBridge.handleTextLoadFailed()
                 _notifyError(qsTr("晴发文加载失败"), message)
             }
 
-            function onAiTextPartial(text) { upperPane.text = text }
+            function onAiTextPartial(text) {
+                if (appBridge && appBridge.aiTextLoading)
+                    upperPane.text = text
+            }
             function onAiTextFailed(message) {
-                upperPane.text = message
+                typingPage.loadErrorMessage = message
+                if (appBridge) appBridge.handleTextLoadFailed()
                 _notifyError(qsTr("AI 文本生成失败"), message)
             }
 
             function onLocalArticleSegmentLoadFailed(message) {
-                upperPane.text = message
+                typingPage.loadErrorMessage = message
+                if (appBridge) appBridge.handleTextLoadFailed()
                 _notifyError(qsTr("本地文章加载失败"), message)
             }
         }
@@ -571,9 +580,9 @@ Item {
             }
             // 恢复：载文期间/之后 readOnly 可能仍为 true（信号丢失、用户切走再回来等）。
             if (appBridge && appBridge.textReadOnly) {
-                if (upperPane.text.length > 0) {
+                if (typingPage.loadErrorMessage.length === 0 && upperPane.text.length > 0) {
                     handleRetypeRequest();
-                } else if (appBridge.startupTextSourceKey) {
+                } else if (typingPage.loadErrorMessage.length === 0 && appBridge.startupTextSourceKey) {
                     appBridge.requestLoadText(appBridge.startupTextSourceKey);
                 }
             }
@@ -606,6 +615,19 @@ Item {
             Layout.bottomMargin: 2
             progress: appBridge ? appBridge.typingProgress : 0.0
             visible: appBridge && appBridge.charNum !== "0/0"
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 28
+            Layout.minimumHeight: 28
+            visible: appBridge && appBridge.typingPaused
+            color: Theme.currentTheme ? Theme.currentTheme.colors.subtleSecondaryColor : "#eeeeee"
+            Text {
+                anchors.centerIn: parent
+                text: qsTr("已暂停")
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666666"
+            }
         }
 
         RowLayout {
@@ -693,6 +715,7 @@ Item {
                         fontSize: fontMetricsText.sharedFontSize  // 绑定到共享属性
                         fontFamily: fontMetricsText.font.family
                         Layout.fillWidth: true
+                        enabled: !(appBridge && appBridge.aiTextLoading)
                         // 固定高度：2倍字体高
                         Layout.preferredHeight: fontMetricsText.height > 0 ? fontMetricsText.height * 3 : 80
                         Layout.minimumHeight: fontMetricsText.height > 0 ? fontMetricsText.height * 2 : 80 // 保证最少能显示2行

@@ -40,6 +40,7 @@ class RegistryAdapter(QObject):
     reposChanged = Signal(list)  # list of repo summary dicts
     reposLoadFailed = Signal(str)
     reposLoadingChanged = Signal()
+    repoManifestPreviewed = Signal(object)
 
     entriesLoaded = Signal(list)  # list of entry dicts
     entriesLoadFailed = Signal(str)
@@ -66,6 +67,7 @@ class RegistryAdapter(QObject):
         self._catalog = catalog
         self._thread_pool = QThreadPool.globalInstance()
         self._repos_loading = False
+        self._repos_cache: list[dict] = []
         self._entries_loading = False
         self._entries_revalidating = False
         self._refreshing_repo = ""
@@ -97,21 +99,33 @@ class RegistryAdapter(QObject):
 
     @Slot(result=list)
     def getRepos(self) -> list[dict]:
-        """返回所有订阅的摘要（同步，manifest 优先走缓存）。"""
-        try:
-            return self._federation.list_repos()
-        except Exception as e:
-            log_warning(f"[RegistryAdapter] getRepos 失败: {e}")
-            return []
+        """返回最近一次后台加载的订阅摘要，不在 UI 调用栈执行网络。"""
+        return list(self._repos_cache)
 
     @Slot(str, result="QVariantMap")
     def previewRepoManifest(self, url: str) -> dict:
-        """预览 manifest（不订阅）：供添加订阅弹窗识别仓库/目录。"""
-        try:
-            return self._federation.preview_manifest(url)
-        except Exception as e:
-            log_warning(f"[RegistryAdapter] 预览 manifest 失败: {e}")
-            return {"url": url, "error": "预览失败"}
+        """预览 manifest（不订阅），结果通过 repoManifestPreviewed 异步返回。"""
+        url = (url or "").strip().rstrip("/")
+        if not url:
+            self.repoManifestPreviewed.emit({"url": url, "error": "订阅地址不能为空"})
+            return {"url": url, "pending": False, "error": "订阅地址不能为空"}
+
+        from ...workers.base_worker import BaseWorker
+
+        worker = BaseWorker(
+            task=lambda: self._federation.preview_manifest(url),
+            error_prefix="预览失败",
+        )
+        worker.signals.succeeded.connect(
+            lambda result: self.repoManifestPreviewed.emit(result)
+        )
+        worker.signals.failed.connect(
+            lambda message: self.repoManifestPreviewed.emit(
+                {"url": url, "error": message}
+            )
+        )
+        self._start_worker(worker)
+        return {"url": url, "pending": True}
 
     @Slot(str)
     def addRepo(self, url: str) -> None:
@@ -253,6 +267,7 @@ class RegistryAdapter(QObject):
 
     def _on_repos_loaded(self, repos: list[dict]) -> None:
         self._set_repos_loading(False)
+        self._repos_cache = list(repos)
         self.reposChanged.emit(repos)
 
     def _on_repos_load_failed(self, message: str) -> None:

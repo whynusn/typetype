@@ -186,6 +186,29 @@ def test_streaming_chunks_emit_text_chunk_signal():
     assert chunks == ["你", "好"]
 
 
+def test_stale_worker_signals_are_ignored_after_new_request():
+    adapter, _, _, _ = _build_adapter()
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+    chunks: list[str] = []
+    failures: list[str] = []
+    adapter.textChunk.connect(chunks.append)
+    adapter.generationFailed.connect(failures.append)
+
+    adapter.requestAiText()
+    first = thread_pool.started_workers[0]
+    first.signals.failed.emit("old failure")
+    adapter.requestAiText()
+    second = thread_pool.started_workers[1]
+
+    first.signals.chunk.emit("old")
+    first.signals.failed.emit("late old failure")
+    second.signals.chunk.emit("new")
+
+    assert chunks == ["new"]
+    assert failures == ["old failure"]
+
+
 def test_has_api_key_returns_true_when_key_exists():
     adapter, _, _, _ = _build_adapter()
 

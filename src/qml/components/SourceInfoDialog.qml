@@ -75,6 +75,7 @@ Dialog {
             for (var i = 0; i < repos.length; i++) {
                 if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
             }
+            appBridge.refreshRepos()
         }
         var override = root._overrides[root.authority]
         if (override) {
@@ -91,6 +92,15 @@ Dialog {
                 mode === "weekly" ? 4 : 0
         }
         root._syncingOverride = false
+    }
+
+    Connections {
+        target: appBridge
+        function onReposChanged(repos) {
+            for (var i = 0; i < repos.length; i++) {
+                if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
+            }
+        }
     }
 
     ColumnLayout {

@@ -40,10 +40,15 @@ Dialog {
     // 打开时重新匹配摘要（启用/信任/删除后摘要会变化）
     onOpened: {
         root._repo = null
-        if (!appBridge) return
-        var repos = appBridge.getRepos() || []
-        for (var i = 0; i < repos.length; i++) {
-            if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
+        if (appBridge) appBridge.refreshRepos()
+    }
+
+    Connections {
+        target: appBridge
+        function onReposChanged(repos) {
+            for (var i = 0; i < repos.length; i++) {
+                if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
+            }
         }
     }
 
