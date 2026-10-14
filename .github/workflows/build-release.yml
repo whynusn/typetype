@@ -54,7 +54,7 @@ jobs:
       - name: 准备构建目录
         run: |
           mkdir -p build-src
-          cp -a main.py pyproject.toml uv.lock src resources RinUI config build-src/
+          cp -a main.py pyproject.toml uv.lock src resources RinUI build-src/
 
       - name: 安装依赖
         run: uv sync --frozen
@@ -76,7 +76,6 @@ jobs:
             --include-qt-plugins=qml \
             --include-package=RinUI \
             --include-data-dir=RinUI=RinUI \
-            --include-data-dir=config=config \
             --output-dir=deployment \
             --quiet \
             --noinclude-qt-translations \
@@ -89,7 +88,8 @@ jobs:
             --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
             --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf \
             --include-data-dir=resources/trainer=resources/trainer \
-            --include-data-dir=resources/ziti=resources/ziti
+            --include-data-dir=resources/ziti=resources/ziti \
+            --include-data-dir=resources/updater=resources/updater
         working-directory: build-src
 
       - name: 创建压缩包
@@ -97,6 +97,7 @@ jobs:
           DIST_DIR="build-src/deployment/main.dist"
           if [ -d "$DIST_DIR" ]; then
             test -f "$DIST_DIR/resources/ott-repo/ott-repo.json"
+            test -f "$DIST_DIR/resources/updater/updater.sh"
             tar -czf typetype-linux-amd64.tar.gz -C "$DIST_DIR" .
           else
             echo "未找到打包输出目录 $DIST_DIR"
@@ -129,7 +130,7 @@ jobs:
       - name: 准备构建目录
         run: |
           New-Item -ItemType Directory -Force -Path build-src | Out-Null
-          Copy-Item -Recurse -Force main.py,pyproject.toml,uv.lock,src,resources,RinUI,config -Destination build-src
+          Copy-Item -Recurse -Force main.py,pyproject.toml,uv.lock,src,resources,RinUI -Destination build-src
 
       - name: 安装依赖
         run: uv sync --frozen
@@ -151,7 +152,6 @@ jobs:
             --include-qt-plugins=qml `
             --include-package=RinUI `
             --include-data-dir=RinUI=RinUI `
-            --include-data-dir=config=config `
             --output-dir=deployment `
             --quiet `
             --noinclude-qt-translations `
@@ -167,7 +167,8 @@ jobs:
             --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf `
             --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf `
             --include-data-dir=resources/trainer=resources/trainer `
-            --include-data-dir=resources/ziti=resources/ziti
+            --include-data-dir=resources/ziti=resources/ziti `
+            --include-data-dir=resources/updater=resources/updater
         working-directory: build-src
 
       - name: 创建压缩包
@@ -175,6 +176,7 @@ jobs:
           $distDir = "build-src\deployment\main.dist"
           if (Test-Path $distDir) {
             if (-not (Test-Path "$distDir\resources\ott-repo\ott-repo.json")) { throw "内置 OTT Repo 未进入 Windows 发行目录" }
+            if (-not (Test-Path "$distDir\resources\updater\updater.bat")) { throw "Windows updater 未进入发行目录" }
             # 列出文件用于调试
             Get-ChildItem $distDir -Recurse -Filter "*WebEngine*" | ForEach-Object { Write-Host "Found: $($_.FullName)" }
             Compress-Archive -Path "$distDir\*" -DestinationPath typetype-windows-amd64.zip
@@ -210,7 +212,7 @@ jobs:
       - name: 准备构建目录
         run: |
           mkdir -p build-src
-          cp -a main.py pyproject.toml uv.lock src resources RinUI config build-src/
+          cp -a main.py pyproject.toml uv.lock src resources RinUI build-src/
 
       - name: 安装依赖
         run: uv sync --frozen
@@ -232,7 +234,6 @@ jobs:
             --include-qt-plugins=qml \
             --include-package=RinUI \
             --include-data-dir=RinUI=RinUI \
-            --include-data-dir=config=config \
             --output-dir=deployment \
             --quiet \
             --noinclude-qt-translations \
@@ -244,7 +245,8 @@ jobs:
             --include-data-files=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf=resources/fonts/HarmonyOS_Sans_SC_Regular.ttf \
             --include-data-files=resources/fonts/LXGWWenKai-Regular.ttf=resources/fonts/LXGWWenKai-Regular.ttf \
             --include-data-dir=resources/trainer=resources/trainer \
-            --include-data-dir=resources/ziti=resources/ziti
+            --include-data-dir=resources/ziti=resources/ziti \
+            --include-data-dir=resources/updater=resources/updater
         working-directory: build-src
 
       - name: 创建压缩包
@@ -257,6 +259,16 @@ jobs:
               :
             else
               echo "未找到 macOS 内置 OTT Repo"
+              exit 1
+            fi
+            if [ -f "$DIST_DIR/Contents/MacOS/resources/updater/updater.sh" ]; then
+              :
+            elif [ -f "$DIST_DIR/Contents/Resources/resources/updater/updater.sh" ]; then
+              :
+            elif [ -f "$DIST_DIR/Contents/resources/updater/updater.sh" ]; then
+              :
+            else
+              echo "未找到 macOS updater"
               exit 1
             fi
             ditto -c -k --sequesterRsrc --keepParent "$DIST_DIR" typetype-macos.zip
@@ -276,6 +288,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-linux, build-windows, build-macos]
     steps:
+      - name: 检出完整仓库历史
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装 manifest 签名依赖
+        run: python -m pip install --disable-pip-version-check cryptography
+
       - name: 下载 Linux artifact
         uses: actions/download-artifact@v4
         with:
@@ -293,6 +318,73 @@ jobs:
         with:
           name: typetype-macos
           path: release-assets
+
+      - name: 生成并验证签名 version.json
+        env:
+          UPDATE_SIGNING_SECRET_KEY: ${{ secrets.UPDATE_SIGNING_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          RELEASE_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+          assets=(
+            "typetype-linux-amd64.tar.gz"
+            "typetype-windows-amd64.zip"
+            "typetype-macos.zip"
+          )
+          asset_pairs=""
+          hash_pairs=""
+          for asset in "${assets[@]}"; do
+            test -s "release-assets/${asset}"
+            digest="$(sha256sum "release-assets/${asset}" | cut -d' ' -f1)"
+            if [ -z "${asset_pairs}" ]; then
+              asset_pairs="${asset}=${RELEASE_BASE}/${asset}"
+              hash_pairs="${asset}=${digest}"
+            else
+              asset_pairs="${asset_pairs},${asset}=${RELEASE_BASE}/${asset}"
+              hash_pairs="${hash_pairs},${asset}=${digest}"
+            fi
+          done
+          python scripts/gen_version_manifest.py \
+            --version "${TAG}" \
+            --assets "${asset_pairs}" \
+            --sha256 "${hash_pairs}" \
+            --out release-assets/version.json
+
+          expected_pubkey="$(python - <<'PY'
+          import os
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+          raw = os.environ["UPDATE_SIGNING_SECRET_KEY"].strip()
+          if ":" in raw:
+              raw = raw.split(":", 1)[1]
+          print(Ed25519PrivateKey.from_private_bytes(bytes.fromhex(raw)).public_key().public_bytes_raw().hex())
+          PY
+          )"
+          source_pubkey="$(sed -n 's/^UPDATE_PUBKEY = "\([0-9a-fA-F]*\)"$/\1/p' src/backend/integration/update_checker.py)"
+          test -n "${expected_pubkey}"
+          test "${source_pubkey}" = "${expected_pubkey}" || {
+            echo "UPDATE_PUBKEY 与 UPDATE_SIGNING_SECRET_KEY 派生公钥不一致"
+            exit 1
+          }
+
+      - name: 发布 version.json 到 main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          worktree="${RUNNER_TEMP}/typetype-main"
+          git fetch origin main
+          git worktree add --detach "${worktree}" origin/main
+          cp release-assets/version.json "${worktree}/version.json"
+          git -C "${worktree}" config user.name "github-actions[bot]"
+          git -C "${worktree}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${worktree}" add version.json
+          if git -C "${worktree}" diff --cached --quiet -- version.json; then
+            echo "version.json 已是最新，无需提交"
+          else
+            git -C "${worktree}" commit -m "Publish OTA manifest for ${GITHUB_REF_NAME}"
+            git -C "${worktree}" push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+          fi
 
       - name: 生成变更说明
         id: changelog
@@ -320,6 +412,7 @@ jobs:
             release-assets/typetype-linux-amd64.tar.gz
             release-assets/typetype-windows-amd64.zip
             release-assets/typetype-macos.zip
+            release-assets/version.json
           draft: false
           generate_release_notes: true
           body: ${{ steps.changelog.outputs.body }}

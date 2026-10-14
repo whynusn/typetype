@@ -1,5 +1,5 @@
 # RuntimeConfig 配置速查
-<!-- 状态: active | 最后验证: 2026-08-13 -->
+<!-- 状态: active | 最后验证: 2026-08-19 -->
 
 > 配置文件位于用户配置目录中的 `config.json`（schema_version=2，ADR-013）。首次启动时由 dataclass 默认值自动生成。macOS 用户配置目录为 `~/Library/Application Support/TypeType/`，Linux 为 `~/.config/typetype/`。
 
@@ -51,6 +51,8 @@
 | `ott.cache_ttl_seconds` | `int` | `3600` | rule/script 缓存 TTL（秒） |
 | `ott.max_content_bytes` | `int` | `1048576` | 单条目内容上限（1 MB，federation 传入沙箱） |
 | `ott.scripts_enabled` | `bool` | 非 Windows 为 `true` | L3 ott-script 沙箱开关（Windows 默认禁用，无 Landlock 沙箱） |
+| `ott.route_mirrors` | `list[str]` | `[]` | 智能路由的全局 HTTP(S) 镜像/代理前缀；按实时探测结果参与 OTT 与 OTA 候选排序，不写死域名 |
+| `ott.route_probe_ttl_seconds` | `int` | `300` | 智能路由探测结果缓存时间；TTL 内复用排序，避免每次请求重复探测 |
 
 ## update 子字段（OTA 更新检查，ADR-014 决策 6）
 

@@ -16,6 +16,7 @@
 
 - **内置 OTT Repo 政策收口**：保留 OTT L1 声明式规则的协议与联邦能力；未完成来源权利、归属和稳定性审核的具体规则不随官方内置 manifest 分发，`ott-script` 继续不进入内置仓。
 - **智能路由（SmartRouteSelector）**：刷新/拉取链路按**实时延迟与连通性**在候选路径间选路——候选 = 原始地址 → jsDelivr CDN → 配置的镜像/代理前缀（`ott.route_mirrors`，如 ghproxy 形态）→ manifest mirrors，纯动态派生不硬编码。短超时（2s）并发探测 + TTL 缓存（`ott.route_probe_ttl_seconds`，默认 300s）+ 失败指数退避冷却（30s→300s 封顶）+ 真实请求回写（延迟 EWMA）。接入 manifest 拉取（`RepoManifestCache`）、instance 条目/分段（`OttCachedFetcher`）、脚本下载（`ScriptCache`）；不可达候选不再消耗 10s 超时，修复「刷新一直转圈直到 45s 硬超时」；`router=None` 时保持原固定 failover，测试兼容
+- **OTA 共用智能路由**：`UpdateChecker` 的 GitHub Releases API、`version.json` 清单和二进制下载候选接入同一个 `SmartRouteSelector`；API/清单请求按实时健康度排序，真实请求结果回写路由统计，清单仍先验签、下载仍强制 sha256 校验。GitHub API 仅保留经过独立 API JSON 实测的前置镜像，避免把只支持 raw/下载的代理误用于 API
 - **内置默认文本源（ADR-011 Phase 4）**：首启自动注入 `file://` 内置 OTT Repo（经典中文短句 / 拼音声调练习 / 唐诗精选），完全离线可用；静态 profile 补齐 `sources.json` 与 `entries/{id}.json`，摘要不再嵌全文，entry_id 符合 schema pattern，逐条标注 rights/license/origin。内置仓允许 L0/L1 能力，但未经来源权利审核的规则源默认关闭，`ott-script` 不进入内置仓
 - **默认内容独立仓库（ADR-011 Phase 4 收口）**：官方默认 OTT Repo 迁移到 `whynusn/typetype-default-ott-repo`；该仓后续归档，`resources/ott-repo` 作为客户端内置 file:// 仓唯一事实来源，不再依赖同步脚本
 - **适配器包规范上移标准仓**：`docs/adapter-package.md` 与 `schemas/ott-adapter-v1.schema.json` 权威位置迁到 open-typing-texts，typetype SDK/测试引用兄弟仓，不再重复维护

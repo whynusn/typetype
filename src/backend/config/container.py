@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from ..integration.qt_local_text_loader import QtLocalTextLoader
     from ..integration.ott_repo_manifest import RepoManifestCache
     from ..integration.ott_federation_provider import OttFederationProvider
+    from ..integration.smart_router import SmartRouteSelector
     from ..integration.secure_token_store import SecureTokenStore
     from ..integration.refresh_scheduler import RefreshScheduler
     from ..integration.wenlai_provider import WenlaiProvider
@@ -98,6 +99,8 @@ class Providers:
     federation: OttFederationProvider
     wenlai: WenlaiProvider
     llm: LlmTextProvider
+    # OTT 与 OTA 共用一份实时路由统计，避免两个网络子系统各自冷启动。
+    router: "SmartRouteSelector | None" = None
 
 
 @dataclass
@@ -239,6 +242,7 @@ def create_providers(runtime_config: RuntimeConfig, infra: Infra) -> Providers:
     return Providers(
         manifest_cache=manifest_cache,
         federation=federation,
+        router=smart_router,
         wenlai=WenlaiProvider(
             api_client=infra.wenlai_api_client,
             base_url=runtime_config.wenlai.base_url,
@@ -499,7 +503,8 @@ def create_adapters(
         from ..integration.update_checker import UpdateChecker
 
         update_checker = UpdateChecker(
-            download_mirrors=runtime_config.update.mirrors or None
+            download_mirrors=runtime_config.update.mirrors or None,
+            router=providers.router,
         )
         update_adapter = UpdateAdapter(
             update_checker=update_checker,

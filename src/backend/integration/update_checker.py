@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from cryptography.exceptions import InvalidSignature
@@ -34,9 +35,21 @@ from ..utils.logger import log_info, log_warning
 from ..version import APP_VERSION
 from .ott_normalization import redact_url
 
+if TYPE_CHECKING:
+    from .smart_router import SmartRouteSelector
+
 # GitHub Releases API（主路径，ADR-014 决策 2）。未认证限流 60 req/h/IP，
 # 手动检查 + 自动检查（默认 24h）远在额度内。
 GITHUB_API_URL = "https://api.github.com/repos/whynusn/typetype/releases/latest"
+
+# GitHub API 前置镜像。该地址已在当前网络环境实测可返回 API JSON；仅作为
+# SmartRouteSelector 的显式候选，路由器仍会先按实时探测结果排序。
+GITHUB_API_MIRRORS = [
+    (
+        "https://gh-proxy.com/https://api.github.com/"
+        "repos/whynusn/typetype/releases/latest"
+    ),
+]
 
 # version.json 降级链：raw.githubusercontent.com → jsDelivr → ghproxy 系。
 # 前缀代理形态，可注入/可配置（ADR-014 决策 2、决策 6 update.mirrors）。
@@ -158,6 +171,22 @@ def _strip_key_prefix(value: str) -> str:
     return value.split(":", 1)[1] if ":" in value else value
 
 
+def _normalize_sha256(value: Any) -> str:
+    """返回小写裸 SHA-256 hex；接受常见的 ``sha256:`` 前缀。"""
+    if not isinstance(value, str):
+        return ""
+    digest = value.strip().lower()
+    if digest.startswith("sha256:"):
+        digest = digest[len("sha256:") :].strip()
+    if len(digest) != 64:
+        return ""
+    try:
+        bytes.fromhex(digest)
+    except ValueError:
+        return ""
+    return digest
+
+
 def _direct_download_url(release_tag: str, asset_name: str) -> str:
     """GitHub Releases 直链。tag 缺 ``v`` 前缀时自动补上（Release tag 均为 ``v*``）。"""
     tag = str(release_tag).strip()
@@ -186,6 +215,7 @@ class UpdateChecker:
         manifest_urls: list[str] | None = None,
         download_mirrors: list[str] | None = None,
         update_pubkey: str = UPDATE_PUBKEY,
+        router: "SmartRouteSelector | None" = None,
     ) -> None:
         """构造检查器。
 
@@ -199,6 +229,8 @@ class UpdateChecker:
             download_mirrors: 下载镜像前缀列表（默认 DEFAULT_DOWNLOAD_MIRRORS，
                 可注入/可配置，见 ADR-014 决策 6 ``update.mirrors``）。
             update_pubkey: 清单验签公钥（默认 UPDATE_PUBKEY）。
+            router: 共享智能路由器；传入后 API、version.json 和二进制下载
+                候选均按实时连通性/延迟排序，并回写真实请求结果。
         """
         if client is None:
             timeout = httpx.Timeout(15.0, connect=5.0)
@@ -214,6 +246,7 @@ class UpdateChecker:
         self._manifest_urls = list(manifest_urls or VERSION_MANIFEST_PATHS)
         self._download_mirrors = list(download_mirrors or DEFAULT_DOWNLOAD_MIRRORS)
         self._update_pubkey = str(update_pubkey or "")
+        self._router = router
 
     # ---- 更新检查 ----
 
@@ -225,29 +258,48 @@ class UpdateChecker:
         """
         info = self._check_github_api()
         if info is not None:
+            # GitHub API 在部分响应中只有 asset URL，没有 digest。用同版本
+            # 已验签 manifest 补齐 hash，但保留 API 的 release notes/URL。
+            if any(not _normalize_sha256(asset.get("sha256")) for asset in info.assets):
+                manifest_info = self._check_version_manifest()
+                if manifest_info is not None and manifest_info.version == info.version:
+                    hashes = {
+                        asset.get("name"): asset.get("sha256")
+                        for asset in manifest_info.assets
+                        if _normalize_sha256(asset.get("sha256"))
+                    }
+                    for asset in info.assets:
+                        if not _normalize_sha256(asset.get("sha256")):
+                            asset["sha256"] = hashes.get(asset.get("name"), "")
             return info
         return self._check_version_manifest()
 
     def _check_github_api(self) -> UpdateInfo | None:
-        data = self._get_json(GITHUB_API_URL)
-        if data is None:
-            return None
-        tag = data.get("tag_name")
-        if not isinstance(tag, str) or not tag.strip():
-            return None
-        version = tag.strip().lstrip("vV")
-        if not _version_gt(version, self._current_version):
-            return None
-        assets = self._parse_api_assets(data.get("assets"))
-        body = data.get("body")
-        release_notes = str(body) if isinstance(body, str) else ""
-        log_info(f"[UpdateChecker] GitHub API 发现新版本 {version}")
-        return UpdateInfo(
-            version=version,
-            assets=assets,
-            source="github_api",
-            release_notes=release_notes,
+        candidates = self._ordered_candidates(
+            GITHUB_API_URL,
+            GITHUB_API_MIRRORS if self._router is not None else [],
         )
+        for url in candidates:
+            data = self._get_json_routed(url)
+            if data is None:
+                continue
+            tag = data.get("tag_name")
+            if not isinstance(tag, str) or not tag.strip():
+                continue
+            version = tag.strip().lstrip("vV")
+            if not _version_gt(version, self._current_version):
+                return None
+            assets = self._parse_api_assets(data.get("assets"))
+            body = data.get("body")
+            release_notes = str(body) if isinstance(body, str) else ""
+            log_info(f"[UpdateChecker] GitHub API 发现新版本 {version}")
+            return UpdateInfo(
+                version=version,
+                assets=assets,
+                source="github_api",
+                release_notes=release_notes,
+            )
+        return None
 
     @staticmethod
     def _parse_api_assets(raw_assets: Any) -> list[dict]:
@@ -265,13 +317,16 @@ class UpdateChecker:
                 "url": str(item.get("browser_download_url") or item.get("url") or ""),
             }
             digest = item.get("sha256") or item.get("digest")
-            entry["sha256"] = digest.strip() if isinstance(digest, str) else ""
+            entry["sha256"] = _normalize_sha256(digest)
             assets.append(entry)
         return assets
 
     def _check_version_manifest(self) -> UpdateInfo | None:
-        for url in self._manifest_urls:
-            data = self._get_json(url)
+        if not self._manifest_urls:
+            return None
+        primary, *mirrors = self._manifest_urls
+        for url in self._ordered_candidates(primary, mirrors):
+            data = self._get_json_routed(url)
             if data is None:
                 continue
             info = self._build_manifest_info(data, url)
@@ -279,6 +334,30 @@ class UpdateChecker:
                 return info
             # 验签失败/结构非法 → 尝试下一个镜像
         return None
+
+    def _ordered_candidates(self, primary: str, mirrors: list[str]) -> list[str]:
+        """返回网络候选；无路由器时保留旧的固定 fallback 顺序。"""
+        if self._router is None:
+            return [primary, *mirrors]
+        try:
+            return self._router.ordered_candidates(primary, mirrors=mirrors or None)
+        except Exception:  # noqa: BLE001 - 路由异常不得阻断 OTA 检查
+            return [primary, *mirrors]
+
+    def _get_json_routed(self, url: str) -> dict | None:
+        """拉取单个候选并把真实请求结果回写智能路由器。"""
+        started_at = time.monotonic()
+        data = self._get_json(url)
+        if self._router is not None:
+            try:
+                self._router.record(
+                    url,
+                    ok=data is not None,
+                    latency=time.monotonic() - started_at,
+                )
+            except Exception:  # noqa: BLE001 - 统计失败不影响更新检查
+                pass
+        return data
 
     def _build_manifest_info(self, data: dict, url: str) -> UpdateInfo | None:
         signature = data.get("signature")
@@ -309,7 +388,7 @@ class UpdateChecker:
                     {
                         "name": name,
                         "url": str(asset_url or ""),
-                        "sha256": str(sha256 or ""),
+                        "sha256": _normalize_sha256(sha256),
                     }
                 )
         log_info(f"[UpdateChecker] version.json 发现新版本 {version}")
@@ -349,7 +428,7 @@ class UpdateChecker:
         超时 → 删除临时文件并返回 False（调用方换下一个镜像）。dest 父
         目录不存在时自动创建。
         """
-        expected = str(sha256 or "").strip().lower()
+        expected = _normalize_sha256(sha256)
         if not expected:
             log_warning("[UpdateChecker] 缺少预期 sha256，拒绝下载")
             return False
@@ -359,35 +438,42 @@ class UpdateChecker:
         except OSError:
             return False
         tmp_path = dest_path.with_name(dest_path.name + ".part")
+        started_at = time.monotonic()
+        route_ok = False
         try:
-            if self._fetch_bytes is not None:
-                data = self._fetch_bytes(url)
-                if data is None:
-                    log_warning(f"[UpdateChecker] 下载失败: {redact_url(url)}")
-                    return False
-                digest = hashlib.sha256(data).hexdigest()
-                tmp_path.write_bytes(data)
-            else:
-                digest = self._stream_download(url, tmp_path)
-        except httpx.HTTPError as e:
-            log_warning(f"[UpdateChecker] 下载失败: {redact_url(url)} — {e}")
-            self._remove_file(tmp_path)
-            return False
-        except OSError as e:
-            log_warning(f"[UpdateChecker] 写文件失败: {dest_path} — {e}")
-            self._remove_file(tmp_path)
-            return False
-        if digest != expected:
-            log_warning(f"[UpdateChecker] sha256 不匹配，丢弃: {redact_url(url)}")
-            self._remove_file(tmp_path)
-            return False
-        try:
-            tmp_path.replace(dest_path)
-        except OSError as e:
-            log_warning(f"[UpdateChecker] 移动临时文件失败: {dest_path} — {e}")
-            self._remove_file(tmp_path)
-            return False
-        return True
+            try:
+                if self._fetch_bytes is not None:
+                    data = self._fetch_bytes(url)
+                    if data is None:
+                        log_warning(f"[UpdateChecker] 下载失败: {redact_url(url)}")
+                        self._remove_file(tmp_path)
+                        return False
+                    digest = hashlib.sha256(data).hexdigest()
+                    tmp_path.write_bytes(data)
+                else:
+                    digest = self._stream_download(url, tmp_path)
+            except httpx.HTTPError as e:
+                log_warning(f"[UpdateChecker] 下载失败: {redact_url(url)} — {e}")
+                self._remove_file(tmp_path)
+                return False
+            except OSError as e:
+                log_warning(f"[UpdateChecker] 写文件失败: {dest_path} — {e}")
+                self._remove_file(tmp_path)
+                return False
+            if digest != expected:
+                log_warning(f"[UpdateChecker] sha256 不匹配，丢弃: {redact_url(url)}")
+                self._remove_file(tmp_path)
+                return False
+            try:
+                tmp_path.replace(dest_path)
+            except OSError as e:
+                log_warning(f"[UpdateChecker] 移动临时文件失败: {dest_path} — {e}")
+                self._remove_file(tmp_path)
+                return False
+            route_ok = True
+            return True
+        finally:
+            self._record_route(url, route_ok, started_at)
 
     def _stream_download(self, url: str, tmp_path: Path) -> str:
         """经 httpx 流式下载到 tmp_path，返回内容 sha256。失败抛 httpx/OSError。"""
@@ -429,7 +515,14 @@ class UpdateChecker:
             if candidate not in seen:
                 seen.add(candidate)
                 candidates.append(candidate)
-        return candidates
+        if self._router is None:
+            return candidates
+        try:
+            return self._router.ordered_candidates(
+                direct, mirrors=candidates[1:] or None
+            )
+        except Exception:  # noqa: BLE001 - 选路失败退回固定候选顺序
+            return candidates
 
     # ---- 网络原语 ----
 
@@ -452,3 +545,13 @@ class UpdateChecker:
             log_warning(f"[UpdateChecker] 响应解析失败: {redact_url(url)} — {e}")
             return None
         return data if isinstance(data, dict) else None
+
+    def _record_route(self, url: str, ok: bool, started_at: float) -> None:
+        if self._router is None:
+            return
+        try:
+            self._router.record(
+                url, ok=ok, latency=max(0.0, time.monotonic() - started_at)
+            )
+        except Exception:  # noqa: BLE001 - 统计失败不影响更新流程
+            pass

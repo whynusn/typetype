@@ -11,13 +11,11 @@
 # 注意: 本脚本由应用 detach 调用（后台进程），应用自身退出后执行替换。
 #       期间请勿手动关闭；替换是原子目录切换（rename），中途断电只会留下 .bak。
 
-set -u
+set -euo pipefail
 
 INSTALL_DIR="${1:-}"
 STAGE_DIR="${2:-}"
 BACKUP_DIR="${INSTALL_DIR}.bak"
-
-EXECUTABLE_NAME="typetype"
 
 if [ -z "$INSTALL_DIR" ] || [ -z "$STAGE_DIR" ]; then
   echo "usage: $0 <install_dir> <stage_dir>" >&2
@@ -32,12 +30,17 @@ if [ ! -d "$INSTALL_DIR" ]; then
   exit 1
 fi
 
-# macOS 产物为 .app 包整体替换（stage 内为 main.app）
-if [ -d "$STAGE_DIR/main.app" ]; then
-  STAGE_DIR="$STAGE_DIR/main.app"
-  EXECUTABLE_NAME="typetype"
-  if [ -x "$STAGE_DIR/Contents/MacOS/typetype" ]; then
-    EXECUTABLE_NAME="typetype"
+# macOS 产物为 .app 包整体替换（Nuitka 当前输出为 main.app）。
+if [ "$(uname -s)" = "Darwin" ]; then
+  APP_DIR=""
+  for candidate in "$STAGE_DIR"/*.app; do
+    if [ -d "$candidate" ]; then
+      APP_DIR="$candidate"
+      break
+    fi
+  done
+  if [ -n "$APP_DIR" ]; then
+    STAGE_DIR="$APP_DIR"
   fi
 fi
 
@@ -61,10 +64,27 @@ fi
 # 3) 删除备份
 rm -rf "$BACKUP_DIR"
 
-# 4) 重启应用（detach，nohup 脱离会话；可执行名失败时回退搜索）
-RESTART_BIN="$INSTALL_DIR/$EXECUTABLE_NAME"
-if [ ! -x "$RESTART_BIN" ]; then
-  RESTART_BIN="$(find "$INSTALL_DIR" -maxdepth 3 -type f -name "$EXECUTABLE_NAME" -perm -u+x 2>/dev/null | head -n 1)"
+# 4) 重启应用（Nuitka 入口名是 main.py，因此 standalone 产物通常是 main；
+#    同时兼容历史/重命名后的 typetype）。
+RESTART_BIN=""
+if [ -d "$INSTALL_DIR/Contents/MacOS" ]; then
+  for candidate in \
+    "$INSTALL_DIR/Contents/MacOS/typetype" \
+    "$INSTALL_DIR/Contents/MacOS/main"; do
+    if [ -x "$candidate" ]; then
+      RESTART_BIN="$candidate"
+      break
+    fi
+  done
+else
+  for candidate in \
+    "$INSTALL_DIR/typetype" \
+    "$INSTALL_DIR/main"; do
+    if [ -x "$candidate" ]; then
+      RESTART_BIN="$candidate"
+      break
+    fi
+  done
 fi
 if [ -n "${RESTART_BIN:-}" ] && [ -x "$RESTART_BIN" ]; then
   nohup "$RESTART_BIN" >/dev/null 2>&1 &

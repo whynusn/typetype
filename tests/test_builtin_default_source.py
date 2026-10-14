@@ -181,6 +181,15 @@ def test_builtin_release_workflows_include_ott_repo_resources() -> None:
         assert (
             "--include-data-dir=resources/ott-repo=resources/ott-repo" in nuitka_command
         )
+        assert (
+            "--include-data-dir=resources/updater=resources/updater" in nuitka_command
+        )
+
+    assert "--include-data-dir=config=config" not in text
+    assert "gen_version_manifest.py" in text
+    assert "release-assets/version.json" in text
+    assert "UPDATE_SIGNING_SECRET_KEY" in text
+    assert "fetch-depth: 0" in text
 
 
 def test_local_path_from_file_uri_strips_windows_drive_slash() -> None:

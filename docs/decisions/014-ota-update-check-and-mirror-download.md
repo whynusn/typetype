@@ -1,8 +1,8 @@
 # ADR-014: OTA 更新检查与镜像加速下载（GitHub Releases）
 
-<!-- 状态: accepted | 决策日期: 2026-08-13 | 最后验证: 2026-08-13 -->
+<!-- 状态: accepted | 决策日期: 2026-08-13 | 最后验证: 2026-08-19 -->
 
-> 实施状态（2026-08-13，Wave 2）：**决策 1-6 已落地**。`version.py`（APP_VERSION）+ `build-release.yml` 新增 `assert-version` job（tag==pyproject==APP_VERSION 三断言）；`update_checker.py`（API→version.json 降级链 + 镜像下载 + sha256 强制校验 + Ed25519 验签）；`update_worker.py`/`update_adapter.py`/`resources/updater/{sh,bat}`/设置页「关于与更新」区；`update` 配置段入 v2 schema。镜像默认列表已按 2026-08-13 实测更新（见决策 3）。`UPDATE_PUBKEY` 仍为测试密钥占位，正式发布前须替换（待确认 1）。
+> 实施状态（2026-08-19，Wave 2）：**决策 1-6 已落地**。`version.py`（APP_VERSION）+ `build-release.yml` 新增 `assert-version` job（tag==pyproject==APP_VERSION 三断言）；`update_checker.py`（API→version.json 降级链 + 镜像下载 + sha256 强制校验 + Ed25519 验签）；`update_worker.py`/`update_adapter.py`/`resources/updater/{sh,bat}`/设置页「关于与更新」区；`update` 配置段入 v2 schema。OTT 与 OTA 共用 `SmartRouteSelector`，API、清单和二进制候选均可按实时连通性/延迟排序并回写真实请求结果。GitHub API 前置镜像只保留经过 API JSON 实测的候选；本轮复核受当前执行环境 DNS/网络权限限制，未将本地 DNS 失败误判为镜像失效。`UPDATE_PUBKEY` 仍为测试密钥占位，正式发布前须替换（待确认 1）。
 
 > 本 ADR 与 [ADR-013](./013-converge-to-three-repo-model.md) 正交（三仓收敛不依赖本机制），独立评审与排期。核心结论：**typetype 内置基于 GitHub Releases 的 OTA 更新检查（API 权威 + version.json CDN 降级链），二进制下载走内置镜像列表 fallback，所有下载强制 sha256 校验，版本清单 Ed25519 验签（独立于 L3 适配器 key）**。
 
@@ -33,6 +33,7 @@
 2. **版本检查：GitHub Releases API 权威 + manifest CDN 降级链**。
    - 主路径：`GET https://api.github.com/repos/whynusn/typetype/releases/latest` → `tag_name` + `assets[]`；semver 比较（可复用 `ott_federation_provider.py:66` 的版本约束解析思路）。未认证限流 60 req/h/IP，手动检查 + 自动检查（默认 24h）远在额度内。
    - 降级链：API 不可达（网络封锁/限流）→ 仓库内 `version.json` 清单，经 `raw.githubusercontent.com` → jsDelivr `cdn.jsdelivr.net` → ghproxy 系镜像依次。全部失败则静默，UI 不阻塞。
+   - 选路：容器创建一份 `SmartRouteSelector`，与 OTT manifest/条目链路共享；它对 API、清单和下载候选做短超时并发探测、TTL 缓存、失败冷却和延迟排序。API 显式镜像不复用 raw/下载专用代理，只有经过 API JSON 实测的地址才能进入 `GITHUB_API_MIRRORS`。
 
 3. **二进制下载镜像链**。直链 `https://github.com/whynusn/typetype/releases/download/{tag}/{asset}` 优先；内置镜像列表（前缀代理形态，如 ghproxy 系）按序 fallback，命中即用、失败换下一个。镜像列表放配置 `update.mirrors`（默认内置，用户可增删/调序）。**每个下载必须校验 sha256**（来源：已验签 manifest 或 API 返回），校验失败立即丢弃并换下一个镜像，杜绝镜像投毒。
 

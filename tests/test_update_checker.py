@@ -13,6 +13,7 @@ import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from src.backend.integration.update_checker import (
+    GITHUB_API_MIRRORS,
     GITHUB_API_URL,
     VERSION_MANIFEST_PATHS,
     UpdateChecker,
@@ -98,6 +99,26 @@ def test_api_newer_version_returns_update():
     assert info.assets[0]["sha256"] == ""
 
 
+def test_api_digest_sha256_prefix_is_normalized():
+    digest = "ab" * 32
+    release = {
+        "tag_name": "v0.5.0",
+        "assets": [
+            {
+                "name": ASSET_NAME,
+                "browser_download_url": DIRECT_URL,
+                "digest": f"sha256:{digest.upper()}",
+            }
+        ],
+    }
+    checker = UpdateChecker(fetch_json=lambda url: release)
+
+    info = checker.check_for_update()
+
+    assert info is not None
+    assert info.assets[0]["sha256"] == digest
+
+
 def test_api_same_version_returns_none():
     release = {"tag_name": f"v{APP_VERSION}", "assets": []}
 
@@ -106,6 +127,29 @@ def test_api_same_version_returns_none():
 
     checker = UpdateChecker(fetch_json=fetch_json)
     assert checker.check_for_update() is None
+
+
+def test_router_orders_github_api_candidates_and_records_result():
+    release = {"tag_name": "v0.5.0", "assets": []}
+    router = MagicMock()
+    mirror_url = GITHUB_API_MIRRORS[0]
+    router.ordered_candidates.return_value = [mirror_url, GITHUB_API_URL]
+
+    checker = UpdateChecker(
+        fetch_json=lambda url: release if url == mirror_url else None,
+        current_version="0.1.0",
+        router=router,
+    )
+    info = checker.check_for_update()
+
+    assert info is not None
+    assert info.version == "0.5.0"
+    router.ordered_candidates.assert_called_once_with(
+        GITHUB_API_URL, mirrors=GITHUB_API_MIRRORS
+    )
+    router.record.assert_called_once()
+    assert router.record.call_args.args[0] == mirror_url
+    assert router.record.call_args.kwargs["ok"] is True
 
 
 # ---- version.json 降级链 ----
@@ -135,6 +179,50 @@ def test_api_failure_falls_back_to_manifest():
     assert info.version == "0.6.0"
     assert calls[0] == GITHUB_API_URL
     assert calls[1] == VERSION_MANIFEST_PATHS[0]
+
+
+def test_router_orders_manifest_candidates_and_records_result():
+    private_key, pubkey = _make_keypair()
+    manifest = _make_manifest("0.6.0", [], private_key)
+    router = MagicMock()
+    router.ordered_candidates.return_value = [
+        VERSION_MANIFEST_PATHS[1],
+        VERSION_MANIFEST_PATHS[0],
+    ]
+
+    checker = UpdateChecker(
+        fetch_json=lambda url: manifest if url == VERSION_MANIFEST_PATHS[1] else None,
+        update_pubkey=pubkey,
+        router=router,
+    )
+    info = checker.check_for_update()
+
+    assert info is not None
+    assert info.source == "manifest"
+    assert (
+        router.ordered_candidates.call_args_list[-1].args[0]
+        == VERSION_MANIFEST_PATHS[0]
+    )
+    assert router.record.call_args.args[0] == VERSION_MANIFEST_PATHS[1]
+    assert router.record.call_args.kwargs["ok"] is True
+
+
+def test_manifest_signature_failure_still_records_network_success():
+    private_key, pubkey = _make_keypair()
+    manifest = _make_manifest("0.6.0", [], private_key)
+    manifest["signature"] = "00" * 64
+    router = MagicMock()
+    router.ordered_candidates.return_value = [VERSION_MANIFEST_PATHS[0]]
+
+    checker = UpdateChecker(
+        fetch_json=lambda url: manifest,
+        update_pubkey=pubkey,
+        router=router,
+    )
+
+    assert checker._check_version_manifest() is None
+    router.record.assert_called_once()
+    assert router.record.call_args.kwargs["ok"] is True
 
 
 def test_manifest_valid_signature_accepted():
@@ -212,6 +300,20 @@ def test_download_sha256_mismatch_deletes_file(tmp_path):
     assert not dest.with_name(dest.name + ".part").exists()
 
 
+def test_download_records_failed_route(tmp_path):
+    router = MagicMock()
+    checker = UpdateChecker(fetch_bytes=lambda url: None, router=router)
+    dest = tmp_path / "update.tar.gz"
+
+    assert (
+        checker.download("https://mirror.example/update.tar.gz", "aa" * 32, dest)
+        is False
+    )
+    router.record.assert_called_once()
+    assert router.record.call_args.args[0] == "https://mirror.example/update.tar.gz"
+    assert router.record.call_args.kwargs["ok"] is False
+
+
 def test_download_missing_sha256_rejected(tmp_path):
     checker = UpdateChecker()
     dest = tmp_path / "update.tar.gz"
@@ -271,6 +373,20 @@ def test_build_download_candidates_uses_default_mirrors():
     candidates = checker.build_download_candidates("v0.5.0", ASSET_NAME, None)
     assert candidates[0] == DIRECT_URL
     assert len(candidates) > 1
+
+
+def test_build_download_candidates_uses_router_order():
+    router = MagicMock()
+    direct = _direct_download_url("v0.5.0", ASSET_NAME)
+    mirror = "https://ghproxy.example/" + direct
+    router.ordered_candidates.return_value = [mirror, direct]
+    checker = UpdateChecker(
+        router=router,
+        download_mirrors=["https://ghproxy.example/"],
+    )
+
+    assert checker.build_download_candidates("v0.5.0", ASSET_NAME) == [mirror, direct]
+    router.ordered_candidates.assert_called_once_with(direct, mirrors=[mirror])
 
 
 def test_direct_download_url_adds_v_prefix():
