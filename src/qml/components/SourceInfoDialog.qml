@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
+import "../helpers/SourceBadges.js" as Badges
 
 /**
  * 开源文库源详情弹窗（只读信息 + 刷新频率覆盖）。
@@ -26,16 +27,12 @@ Dialog {
     title: qsTr("源详情")
     modal: true
     standardButtons: Dialog.Close
-    width: Math.min(440, Window.window ? Math.max(280, Window.window.width - 24) : 440)
-    height: Math.min(460, Window.window ? Math.max(240, Window.window.height - 24) : 460)
+    // Popup 非 Item 派生，Window.window 附加属性不可用；Overlay.overlay 支持附加到
+    // Popup 且尺寸等于窗口内容区（RinUI Dialog 的 Overlay.modal 同款机制）
+    width: Math.min(440, Math.max(280, (QQC.Overlay.overlay ? QQC.Overlay.overlay.width : 464) - 24))
+    height: Math.min(460, Math.max(240, (QQC.Overlay.overlay ? QQC.Overlay.overlay.height : 484) - 24))
 
-    function _tierLabel(type) {
-        if (type === "ott-instance") return qsTr("L0 静态实例")
-        if (type === "ott-rule") return qsTr("L1 声明式规则")
-        if (type === "ott-bridge") return qsTr("L2 桥接")
-        if (type === "ott-script") return qsTr("L3 签名脚本")
-        return qsTr("未知类型")
-    }
+    // tier 标签统一走 helpers/SourceBadges.js（单一事实源）
 
     function _policyMode(status) {
         var policy = (status && status.refresh_policy) || {}
@@ -101,6 +98,11 @@ Dialog {
                 if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
             }
         }
+        // 「立即刷新该源」完成后健康状态经此信号回流，弹窗实时更新
+        // （Bridge 信号名为 federatedSourceStatusChanged）
+        function onFederatedSourceStatusChanged(authority, status) {
+            if (authority === root.authority) root._status = status
+        }
     }
 
     ColumnLayout {
@@ -135,12 +137,12 @@ Dialog {
                 Rectangle {
                     Layout.preferredWidth: tierText.implicitWidth + 12
                     Layout.preferredHeight: 20
-                    radius: 10
+                    radius: Utils.radiusCard
                     color: Theme.currentTheme.colors.controlColor
                     Text {
                         id: tierText
                         anchors.centerIn: parent
-                        text: root._tierLabel(root.sourceType)
+                        text: Badges.tierLabel(root.sourceType)
                         typography: Typography.Caption
                         color: Theme.currentTheme.colors.textAccentColor
                     }

@@ -29,16 +29,16 @@ Frame {
             Text {
                 text: qsTr("分片设置")
                 font.bold: true
-                font.pixelSize: 13
-                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                typography: Typography.Body
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : Utils.fallbackTextColor
             }
 
             Item { Layout.fillWidth: true }
 
             Text {
                 text: qsTr("共 %1 段").arg(root.totalSlices)
-                font.pixelSize: 11
-                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                typography: Typography.Caption
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : Utils.fallbackSecondaryTextColor
             }
 
             CheckBox {
@@ -83,7 +83,7 @@ Frame {
             Text {
                 Layout.fillWidth: true
                 typography: Typography.Caption
-                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : Utils.fallbackSecondaryTextColor
                 text: qsTr("共 %1 段").arg(root.totalSlices)
                 elide: Text.ElideRight
             }
@@ -116,7 +116,7 @@ Frame {
             Text {
                 Layout.fillWidth: true
                 typography: Typography.Caption
-                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666"
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : Utils.fallbackSecondaryTextColor
                 text: qsTr("范围 1-%1").arg(startSliceSpin.to)
                 elide: Text.ElideRight
             }
@@ -130,8 +130,8 @@ Frame {
 
             Text {
                 text: qsTr("全文乱序")
-                font.pixelSize: 13
-                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : "#333"
+                typography: Typography.Body
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : Utils.fallbackTextColor
             }
 
             Item { Layout.fillWidth: true }

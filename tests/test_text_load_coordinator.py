@@ -62,6 +62,71 @@ def test_init_sets_defaults():
     assert coord.pending_slice_params["on_fail_action"] == "retype"
     assert coord.pending_slice_params["advance_mode"] == "sequential"
     assert coord.pending_slice_params["pass_count_min"] == 1
+    assert coord.active_request is None
+    assert coord.request_state == "idle"
+
+
+def test_begin_request_records_identity_and_generation():
+    coord, _, _, _, _, _ = _make_coordinator()
+
+    request = coord.begin_request("local", "article-1", 2, 500)
+
+    assert request.generation == 1
+    assert request.source == "local"
+    assert request.identifier == "article-1"
+    assert request.segment_index == 2
+    assert request.segment_size == 500
+    assert coord.active_request == request
+    assert coord.request_state == "active"
+    assert coord.is_current_request("local", "article-1", 2, 500)
+
+
+def test_new_request_invalidates_previous_request_identity():
+    coord, _, _, _, _, _ = _make_coordinator()
+    first = coord.begin_request("local", "article-1", 1, 500)
+
+    second = coord.begin_request("trainer", "trainer-1", 3, 20)
+
+    assert second.generation == first.generation + 1
+    assert coord.active_request == second
+    assert not coord.is_current_request("local", "article-1", 1, 500)
+    assert coord.is_current_request("trainer", "trainer-1", 3, 20)
+
+
+def test_request_identity_rejects_mismatched_fields():
+    coord, _, _, _, _, _ = _make_coordinator()
+    coord.begin_request("local", "article-1", 2, 500)
+
+    assert not coord.is_current_request("trainer", "article-1", 2, 500)
+    assert not coord.is_current_request("local", "article-2", 2, 500)
+    assert not coord.is_current_request("local", "article-1", 3, 500)
+    assert not coord.is_current_request("local", "article-1", 2, 1000)
+    assert coord.is_current_request("local", "article-1", 2, 500)
+
+
+def test_invalidate_request_rejects_late_result():
+    coord, _, _, _, _, _ = _make_coordinator()
+    coord.begin_request("trainer", "trainer-1", 1, 20)
+
+    coord.invalidate_request()
+
+    assert coord.active_request is None
+    assert coord.request_state == "idle"
+    assert not coord.is_current_request("trainer", "trainer-1", 1, 20)
+
+
+def test_complete_and_fail_request_transition_only_active_request():
+    coord, _, _, _, _, _ = _make_coordinator()
+    coord.begin_request("local", "article-1", 1, 500)
+
+    coord.complete_request()
+    assert coord.request_state == "completed"
+    assert not coord.is_current_request("local", "article-1", 1, 500)
+
+    coord.begin_request("local", "article-1", 1, 500)
+    coord.fail_request()
+    assert coord.request_state == "failed"
+    assert not coord.is_current_request("local", "article-1", 1, 500)
 
 
 def test_init_accepts_none_adapters():

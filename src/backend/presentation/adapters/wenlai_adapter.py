@@ -7,7 +7,7 @@ from ...application.usecases.load_wenlai_text_usecase import (
 )
 from ...models.dto.wenlai_dto import WenlaiText
 from ...ports.wenlai_provider import WenlaiAuthRequiredError
-from ...workers.base_worker import BaseWorker
+from ...workers.base_worker import BaseWorker, WorkerReleaseProxy, retain_worker
 
 
 class WenlaiAdapter(QObject):
@@ -36,6 +36,7 @@ class WenlaiAdapter(QObject):
         self._loading = False
         self._active_worker_count = 0
         self._active_workers: set[BaseWorker] = set()
+        self._release_proxies: dict[int, WorkerReleaseProxy] = {}
         self._text_loading = False
         self._current_text: WenlaiText | None = None
         self._is_active = False
@@ -143,10 +144,14 @@ class WenlaiAdapter(QObject):
     def _track_worker(self, worker: BaseWorker) -> None:
         worker.setAutoDelete(False)
         self._active_workers.add(worker)
-        worker.signals.finished.connect(lambda done=worker: self._release_worker(done))
+        proxy = WorkerReleaseProxy(self, worker, self._release_worker)
+        self._release_proxies[id(worker)] = proxy
+        worker.signals.finished.connect(proxy.release)
+        retain_worker(worker)
 
     def _release_worker(self, worker: BaseWorker) -> None:
         self._active_workers.discard(worker)
+        self._release_proxies.pop(id(worker), None)
 
     def _run_text_worker(self, task, error_prefix: str) -> BaseWorker | None:
         if self._text_loading:

@@ -24,10 +24,10 @@ QQC.Pane {
     }
 
     background: Rectangle {
-        color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.cardColor : "#f5f5f5"
-        border.color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.dividerBorderColor : "#e0e0e0"
+        color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.cardColor : Rin.Utils.fallbackSurfaceColor
+        border.color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.dividerBorderColor : Rin.Utils.fallbackSecondaryTextColor
         border.width: 1
-        radius: 2
+        radius: Rin.Utils.radiusSmall
     }
 
     QQC.ScrollView {
@@ -59,7 +59,7 @@ QQC.Pane {
             textFormat: TextEdit.PlainText   // PlainText 避免 RichText 转换导致 toPlainText() 异常
             font.pixelSize: 14
             text: "你好，世界。"
-            color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textColor : "black"
+            color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textColor : Rin.Utils.fallbackTextColor
             background: Rectangle {
                 color: "transparent"
             }
@@ -98,5 +98,9 @@ QQC.Pane {
                 }
             }
         }
+    }
+
+    Rin.FocusIndicator {
+        control: textArea
     }
 }

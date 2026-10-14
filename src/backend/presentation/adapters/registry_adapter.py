@@ -18,6 +18,7 @@ from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 
 from ...application.exception_handler import GlobalExceptionHandler
 from ...utils.logger import log_info, log_warning
+from ...workers.base_worker import WorkerReleaseProxy, retain_worker
 
 if TYPE_CHECKING:
     from ...config.runtime_config import RuntimeConfig
@@ -84,6 +85,7 @@ class RegistryAdapter(QObject):
         # Python wrapper（及其 WorkerSignals QObject）若被 GC，跨线程排队
         # 信号可能丢失（成功清标记的 lambda 不再执行 → 动画永转，实测）。
         self._active_workers: set["BaseWorker"] = set()
+        self._release_proxies: dict[int, WorkerReleaseProxy] = {}
         # 手动刷新与后台 revalidate 各自独立硬超时：单发 QTimer 互不干扰，
         # 避免「源级刷新成功后，残留的 revalidate 定时器到点误报超时」。
         self._refresh_timer = QTimer(self)
@@ -362,11 +364,15 @@ class RegistryAdapter(QObject):
         """持有引用地启动 worker；finished 后释放（跨线程信号交付完毕）。"""
         worker.setAutoDelete(False)
         self._active_workers.add(worker)
-        worker.signals.finished.connect(lambda done=worker: self._release_worker(done))
+        proxy = WorkerReleaseProxy(self, worker, self._release_worker)
+        self._release_proxies[id(worker)] = proxy
+        worker.signals.finished.connect(proxy.release)
+        retain_worker(worker)
         self._thread_pool.start(worker)
 
     def _release_worker(self, worker: "BaseWorker") -> None:
         self._active_workers.discard(worker)
+        self._release_proxies.pop(id(worker), None)
 
     def _next_refresh_seq(self) -> int:
         """并发刷新序号：晚完成的前一次刷新不得清除新一轮刷新的标记。"""

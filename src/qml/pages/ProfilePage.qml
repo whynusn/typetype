@@ -4,6 +4,7 @@ import QtQuick.Layouts 1.15
 import QtQuick.Window 2.15
 import QtCharts
 import RinUI
+import "../components"
 
 FluentPage {
     id: root
@@ -307,10 +308,8 @@ FluentPage {
                         }
 
                         // 无数据占位
-                        Text {
+                        EmptyState {
                             anchors.centerIn: parent
-                            typography: Typography.Caption
-                            color: Theme.currentTheme.colors.textSecondaryColor
                             text: qsTr("暂无趋势数据，多打几局后自动生成")
                             visible: !parent.hasData
                         }
@@ -477,14 +476,11 @@ FluentPage {
                         QQC.ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                     }
 
-                    Text {
+                    EmptyState {
                         Layout.alignment: Qt.AlignHCenter
                         Layout.fillWidth: true
                         Layout.preferredHeight: 60
                         verticalAlignment: Text.AlignVCenter
-                        horizontalAlignment: Text.AlignHCenter
-                        typography: Typography.Caption
-                        color: Theme.currentTheme.colors.textSecondaryColor
                         text: qsTr("暂无历史记录，打完一局后会自动记录")
                         visible: appBridge && appBridge.typingHistoryRecords.length === 0
                     }

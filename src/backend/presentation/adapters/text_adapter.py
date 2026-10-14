@@ -11,6 +11,7 @@ from ...application.usecases.load_text_usecase import (
 from ...application.usecases.text_session_usecase import TextSessionUseCase
 from ...config.runtime_config import RuntimeConfig
 from ...models.dto.text_session import SegmentResult, TextHandle, TextKind
+from ...workers.base_worker import BaseWorker, WorkerReleaseProxy, retain_worker
 from ...workers.text_load_worker import TextLoadWorker
 
 if TYPE_CHECKING:
@@ -34,6 +35,8 @@ class TextAdapter(QObject):
     textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
+    localTextContentsLoaded = Signal(list)  # [{sourceKey, content}]
+    localTextContentsLoadFailed = Signal(str)
 
     def __init__(
         self,
@@ -54,6 +57,9 @@ class TextAdapter(QObject):
         self._text_loading = False
         self._thread_pool = QThreadPool.globalInstance()
         self._load_generation = 0
+        self._preview_generation = 0
+        self._active_workers: set[BaseWorker] = set()
+        self._release_proxies: dict[int, WorkerReleaseProxy] = {}
 
     def _set_text_loading(self, loading: bool) -> None:
         if self._text_loading != loading:
@@ -61,8 +67,9 @@ class TextAdapter(QObject):
             self.textLoadingChanged.emit()
 
     def clear_active(self) -> None:
-        """失效当前普通载文 worker。"""
+        """失效当前普通载文和本地预览 worker。"""
         self._load_generation += 1
+        self._preview_generation += 1
         self._set_text_loading(False)
 
     def _next_load_generation(self) -> int:
@@ -130,7 +137,23 @@ class TextAdapter(QObject):
         worker.signals.finished.connect(
             lambda gen=load_generation: self._on_text_load_finished_for_request(gen)
         )
+        self._start_worker(worker)
+
+    def _start_worker(self, worker: BaseWorker) -> None:
+        """持有 worker 到 finished，确保跨线程信号不会因 GC 丢失。"""
+        worker.setAutoDelete(False)
+        self._active_workers.add(worker)
+        proxy = WorkerReleaseProxy(self, worker, self._release_worker)
+        self._release_proxies[id(worker)] = proxy
+        worker.signals.finished.connect(proxy.release)
+        # Adapter 可能在 worker 完成前被页面销毁；全局 manager 保证
+        # WorkerSignals 在 queued signal 交付前仍然有效。
+        retain_worker(worker)
         self._thread_pool.start(worker)
+
+    def _release_worker(self, worker: BaseWorker) -> None:
+        self._active_workers.discard(worker)
+        self._release_proxies.pop(id(worker), None)
 
     def _on_text_loaded_for_request(
         self, load_generation: int, result: LoadTextResult
@@ -210,16 +233,43 @@ class TextAdapter(QObject):
             return source.label
         return ""
 
-    def get_local_text_content(self, source_key: str) -> str:
-        """读取指定本地来源的完整内容。"""
-        source = self._runtime_config.text_source_config.get_source(source_key)
-        if not source or not source.local_path:
-            return ""
+    @Slot(list)
+    def requestLocalTextContents(self, source_keys: list[str]) -> None:
+        """在后台批量读取本地来源预览，避免 QML 调用同步文件 I/O。"""
+        self._preview_generation += 1
+        preview_generation = self._preview_generation
+        keys = list(dict.fromkeys(key for key in source_keys if isinstance(key, str)))
+        source_specs: list[tuple[str, str | None]] = []
+        for key in keys:
+            source = self._runtime_config.text_source_config.get_source(key)
+            source_specs.append((key, source.local_path if source else None))
 
-        try:
-            return self._local_text_loader.load_text(source.local_path) or ""
-        except Exception:
-            return ""
+        def load_contents() -> list[dict[str, str]]:
+            contents: list[dict[str, str]] = []
+            for key, path in source_specs:
+                if not path:
+                    contents.append({"sourceKey": key, "content": ""})
+                    continue
+                content = self._local_text_loader.load_text(path)
+                contents.append({"sourceKey": key, "content": content or ""})
+            return contents
+
+        worker = BaseWorker(task=load_contents, error_prefix="读取本地文本失败")
+        worker.signals.succeeded.connect(
+            lambda contents, gen=preview_generation: (
+                self.localTextContentsLoaded.emit(contents)
+                if gen == self._preview_generation
+                else None
+            )
+        )
+        worker.signals.failed.connect(
+            lambda message, gen=preview_generation: (
+                self.localTextContentsLoadFailed.emit(message)
+                if gen == self._preview_generation
+                else None
+            )
+        )
+        self._start_worker(worker)
 
     def refresh_runtime_config(self) -> None:
         self._runtime_config.reload()
@@ -239,7 +289,33 @@ class TextAdapter(QObject):
         slice_size: int,
         start_slice: int = 1,
     ) -> "SegmentResult | None":
-        """启动统一载文会话（File 模式），返回首段结果。调用方负责发射信号。"""
+        """同步启动文件会话，供非 UI 工作线程或兼容入口使用。"""
+        built = self.buildFileTextSession(
+            file_path=file_path,
+            kind=kind,
+            identifier=identifier,
+            title=title,
+            version=version,
+            slice_size=slice_size,
+            start_slice=start_slice,
+        )
+        if built is None:
+            return None
+        usecase, result = built
+        self.attachTextSession(usecase, slice_size)
+        return result
+
+    def buildFileTextSession(
+        self,
+        file_path: str,
+        kind: TextKind,
+        identifier: str,
+        title: str,
+        version: str,
+        slice_size: int,
+        start_slice: int = 1,
+    ) -> "tuple[TextSessionUseCase, SegmentResult] | None":
+        """构建文件会话但不替换当前会话，供 Worker 使用。"""
         if not file_path or slice_size <= 0:
             return None
 
@@ -263,14 +339,13 @@ class TextAdapter(QObject):
             char_count=total_chars,
             version=version,
         )
-        self._text_session_usecase = TextSessionUseCase(
+        usecase = TextSessionUseCase(
             provider,
             handle,
             full_shuffle_threshold=self._runtime_config.text_session.full_shuffle_threshold,
             in_memory_provider_cls=self._in_memory_provider_cls,
         )
-        self._session_slice_size = slice_size
-        return self._text_session_usecase.get_segment(start_slice, slice_size)
+        return usecase, usecase.get_segment(start_slice, slice_size)
 
     def startProviderTextSession(
         self,

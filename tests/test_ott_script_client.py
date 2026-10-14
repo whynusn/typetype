@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -14,9 +15,11 @@ import pytest
 
 from src.backend.integration import ott_script_runner as runner
 from src.backend.integration.ott_script_client import (
+    SCRIPT_MAX_BYTES,
     ScriptCache,
     ScriptSandbox,
     execute_script,
+    script_cache_key,
 )
 from src.backend.integration.ott_script_runner import landlock_available
 
@@ -706,6 +709,25 @@ class TestSeccomp:
 
 
 class TestScriptCache:
+    @staticmethod
+    def _write_cached_script(cache_dir: Path, url: str, source: str) -> None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache_dir / f"{script_cache_key(url)}.py"
+        cache_file.write_text(source, encoding="utf-8")
+
+    @staticmethod
+    def _stream_response(mock_http: MagicMock, source: str) -> None:
+        resp = MagicMock(spec=httpx.Response)
+        resp.status_code = 200
+        resp.text = source
+        resp.headers = {"content-length": str(len(source.encode("utf-8")))}
+        resp.raise_for_status = MagicMock()
+        resp.iter_text.return_value = iter([source])
+        stream_ctx = MagicMock()
+        stream_ctx.__enter__.return_value = resp
+        stream_ctx.__exit__.return_value = False
+        mock_http.stream.return_value = stream_ctx
+
     def test_cache_fetches_and_writes(self, tmp_path) -> None:
         source = "def fetch_entries():\n    return []\n"
         mock_http = MagicMock(spec=httpx.Client)
@@ -752,8 +774,6 @@ class TestScriptCache:
         safe_source = "def fetch_entries():\n    return []\n"
         cache_dir = tmp_path / "scripts"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        from src.backend.integration.ott_script_client import script_cache_key
-
         cache_file = cache_dir / f"{script_cache_key('https://example.com/s.py')}.py"
         cache_file.write_text(safe_source, encoding="utf-8")
 
@@ -765,6 +785,116 @@ class TestScriptCache:
         result = cache.get_script("https://example.com/s.py", ttl_seconds=0)
         # 网络失败但缓存存在 → 返回缓存
         assert result == safe_source
+
+    def test_invalid_url_never_reads_existing_cache(self, tmp_path) -> None:
+        """非法 URL 不能因命中旧缓存而绕过下载边界。"""
+        url = "file:///tmp/script.py"
+        cache_dir = tmp_path / "scripts"
+        self._write_cached_script(
+            cache_dir, url, "def fetch_entries():\n    return []\n"
+        )
+        mock_http = MagicMock(spec=httpx.Client)
+
+        cache = ScriptCache(cache_dir, mock_http)
+
+        assert cache.get_script(url) is None
+        mock_http.stream.assert_not_called()
+
+    def test_oversized_script_does_not_fall_back_to_existing_cache(
+        self, tmp_path
+    ) -> None:
+        """超大脚本是安全拒绝，不是网络失败，不能回退旧脚本。"""
+        url = "https://example.com/large.py"
+        cache_dir = tmp_path / "scripts"
+        old_source = "def fetch_entries():\n    return []\n"
+        self._write_cached_script(cache_dir, url, old_source)
+
+        mock_http = MagicMock(spec=httpx.Client)
+        self._stream_response(mock_http, "x" * (SCRIPT_MAX_BYTES + 1))
+        cache = ScriptCache(cache_dir, mock_http)
+
+        assert cache.get_script(url, ttl_seconds=0) is None
+
+    def test_download_checksum_mismatch_does_not_fall_back_to_existing_cache(
+        self, tmp_path
+    ) -> None:
+        """新下载 checksum 不匹配时拒绝，不回退未关联版本的旧脚本。"""
+        url = "https://example.com/checksum.py"
+        cache_dir = tmp_path / "scripts"
+        old_source = "def fetch_entries():\n    return []\n"
+        self._write_cached_script(cache_dir, url, old_source)
+
+        downloaded_source = "def fetch_entries():\n    return [{'content': 'new'}]\n"
+        mock_http = MagicMock(spec=httpx.Client)
+        self._stream_response(mock_http, downloaded_source)
+        cache = ScriptCache(cache_dir, mock_http)
+
+        assert (
+            cache.get_script(
+                url,
+                ttl_seconds=0,
+                expected_checksum="0" * 64,
+            )
+            is None
+        )
+
+    def test_unsafe_download_does_not_fall_back_to_existing_cache(
+        self, tmp_path
+    ) -> None:
+        """网络返回 AST 不安全脚本时拒绝，不回退旧脚本。"""
+        url = "https://example.com/unsafe.py"
+        cache_dir = tmp_path / "scripts"
+        old_source = "def fetch_entries():\n    return []\n"
+        self._write_cached_script(cache_dir, url, old_source)
+        dangerous = (
+            "import os\n"
+            "def fetch_entries():\n"
+            "    os.system('echo pwned')\n"
+            "    return []\n"
+        )
+        mock_http = MagicMock(spec=httpx.Client)
+        self._stream_response(mock_http, dangerous)
+        cache = ScriptCache(cache_dir, mock_http)
+
+        assert cache.get_script(url, ttl_seconds=0) is None
+
+    def test_network_failure_falls_back_to_checksum_valid_cache(self, tmp_path) -> None:
+        """只有网络失败允许回退，并且回退缓存必须匹配期望 checksum。"""
+        url = "https://example.com/offline.py"
+        cache_dir = tmp_path / "scripts"
+        source = "def fetch_entries():\n    return []\n"
+        self._write_cached_script(cache_dir, url, source)
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.stream.side_effect = httpx.ConnectError("offline")
+        cache = ScriptCache(cache_dir, mock_http)
+
+        assert (
+            cache.get_script(
+                url,
+                ttl_seconds=0,
+                expected_checksum=hashlib.sha256(source.encode("utf-8")).hexdigest(),
+            )
+            == source
+        )
+
+    def test_network_failure_rejects_checksum_invalid_cache(self, tmp_path) -> None:
+        url = "https://example.com/offline-bad.py"
+        cache_dir = tmp_path / "scripts"
+        self._write_cached_script(
+            cache_dir, url, "def fetch_entries():\n    return []\n"
+        )
+        mock_http = MagicMock(spec=httpx.Client)
+        mock_http.stream.side_effect = httpx.ConnectError("offline")
+        cache = ScriptCache(cache_dir, mock_http)
+
+        assert (
+            cache.get_script(
+                url,
+                ttl_seconds=0,
+                expected_checksum="0" * 64,
+            )
+            is None
+        )
 
     def test_jsdelivr_fallback_on_raw_github_failure(self, tmp_path) -> None:
         """GitHub raw 超时 → jsDelivr CDN 降级重试（2026-08-13 实测超时场景）。"""

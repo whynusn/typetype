@@ -8,7 +8,7 @@ from ...application.usecases.load_trainer_segment_usecase import (
     LoadTrainerSegmentUseCase,
 )
 from ...models.dto.trainer import TrainerCatalogItem, TrainerSegment
-from ...workers.base_worker import BaseWorker
+from ...workers.base_worker import BaseWorker, start_worker
 
 
 class TrainerAdapter(QObject):
@@ -129,7 +129,7 @@ class TrainerAdapter(QObject):
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
         self._active_worker = worker
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     def _run_segment_worker(
         self,
@@ -157,7 +157,7 @@ class TrainerAdapter(QObject):
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
         self._active_worker = worker
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     def _on_trainers_loaded(
         self,
@@ -277,7 +277,6 @@ class TrainerAdapter(QObject):
                 return ""
 
         worker = BaseWorker(task=_do_load, error_prefix="加载词库预览失败")
-        worker.setAutoDelete(True)
         worker.signals.succeeded.connect(
             lambda content, gen=request_generation: self._on_preview_loaded(
                 gen, content
@@ -287,7 +286,7 @@ class TrainerAdapter(QObject):
             lambda msg, gen=request_generation: self._on_preview_failed(gen, msg)
         )
         self._preview_active_worker = worker
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     def _on_preview_loaded(self, request_generation: int, content: str) -> None:
         if request_generation != self._preview_request_generation:

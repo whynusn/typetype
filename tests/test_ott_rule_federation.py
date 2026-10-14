@@ -170,7 +170,12 @@ class TestRuleClient:
             },
             interpreter=interp,
         )
-        entries = client.list_entries()
+        # validate_url/_pin_url 都会做 DNS 安全校验；测试只验证
+        # HTTP 200 + 空数组的业务契约，因此固定为公网测试地址。
+        with patch.object(
+            interpreter_module, "_resolve_host", return_value=["93.184.215.14"]
+        ):
+            entries = client.list_entries()
         assert entries == []
 
     def test_returns_none_on_exception(self) -> None:

@@ -25,7 +25,6 @@ Frame {
     // 别名属性
     property alias conditionChecked: conditionCheck.checked
     property alias advanceModeValue: advanceModeCombo.currentValue
-    property bool fullShuffleChecked: false
 
     function _buildValidationMessage() {
         var ks = keyStrokeMinSpin.value / 100;
@@ -169,8 +168,8 @@ Frame {
             ComboBox {
                 id: advanceModeCombo
                 model: ListModel {
-                    ListElement { text: "顺序下一段"; value: "sequential" }
-                    ListElement { text: "随机下一段"; value: "random" }
+                    ListElement { text: qsTr("顺序下一段"); value: "sequential" }
+                    ListElement { text: qsTr("随机下一段"); value: "random" }
                 }
                 textRole: "text"
                 valueRole: "value"
@@ -210,7 +209,7 @@ Frame {
                 visible: root.autoDecreaseEnabled
                 typography: Typography.Caption
                 text: qsTr("失败降")
-                color: Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#4b88ff"
+                color: Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : Utils.fallbackPrimaryColor
             }
             SpinBox {
                 id: keyStrokeDecreaseSpin
@@ -249,7 +248,7 @@ Frame {
                 visible: root.autoDecreaseEnabled
                 typography: Typography.Caption
                 text: qsTr("失败降")
-                color: Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#4b88ff"
+                color: Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : Utils.fallbackPrimaryColor
             }
             SpinBox {
                 id: speedDecreaseSpin
@@ -287,7 +286,7 @@ Frame {
                 visible: root.autoDecreaseEnabled
                 typography: Typography.Caption
                 text: qsTr("失败降")
-                color: Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : "#4b88ff"
+                color: Theme.currentTheme ? Theme.currentTheme.colors.primaryColor : Utils.fallbackPrimaryColor
             }
             SpinBox {
                 id: accuracyDecreaseSpin
@@ -341,9 +340,9 @@ Frame {
             ComboBox {
                 id: onFailActionCombo
                 model: ListModel {
-                    ListElement { text: "乱序重打"; value: "shuffle" }
-                    ListElement { text: "重打"; value: "retype" }
-                    ListElement { text: "无动作"; value: "none" }
+                    ListElement { text: qsTr("乱序重打"); value: "shuffle" }
+                    ListElement { text: qsTr("重打"); value: "retype" }
+                    ListElement { text: qsTr("无动作"); value: "none" }
                 }
                 textRole: "text"
                 valueRole: "value"
@@ -374,7 +373,7 @@ Frame {
         Text {
             visible: root.validationMessage !== ""
             text: root.validationMessage
-            font.pixelSize: 11
+            typography: Typography.Caption
             color: Theme.currentTheme ? Theme.currentTheme.colors.systemCriticalColor : "#d13438"
             wrapMode: Text.Wrap
             Layout.fillWidth: true

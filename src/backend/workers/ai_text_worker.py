@@ -27,6 +27,9 @@ class AiTextWorker(QRunnable):
         error_prefix: str = "AI 生成文本失败",
     ):
         super().__init__()
+        # 与 BaseWorker 保持一致：queued chunk/result/finished 信号处理完前
+        # 不允许 QThreadPool 自动销毁 runnable。
+        self.setAutoDelete(False)
         self._task = task
         self._error_prefix = error_prefix
         self.signals = AiTextWorkerSignals()

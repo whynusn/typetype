@@ -21,10 +21,10 @@ QQC.Pane {
     signal lowerPaneFocusChanged(bool hasFocus)
 
     background: Rectangle {
-        color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.cardColor : "#f5f5f5"
-        border.color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.dividerBorderColor : "#e0e0e0"
+        color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.cardColor : Rin.Utils.fallbackSurfaceColor
+        border.color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.dividerBorderColor : Rin.Utils.fallbackSecondaryTextColor
         border.width: 1
-        radius: 2
+        radius: Rin.Utils.radiusSmall
     }
 
     QQC.ScrollView {
@@ -43,14 +43,16 @@ QQC.Pane {
             font.pixelSize: 14
             verticalAlignment: TextInput.AlignTop // 文字靠上
             width: scrollView.width // 宽度绑定到 scrollView，保证换行正确
-            color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textColor : "black"
+            color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textColor : Rin.Utils.fallbackTextColor
             background: Rectangle {
                 color: "transparent"
             }
-            placeholderText: "请输入内容..."
-            placeholderTextColor: "#999999"
+            placeholderText: qsTr("请输入内容...")
+            placeholderTextColor: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.textSecondaryColor : Rin.Utils.fallbackTertiaryTextColor
 
-            readOnly: appBridge ? appBridge.textReadOnly : true
+            // AI 流式生成期间也锁定输入：chunk 会持续覆盖 UpperPane，
+            // 此时打字既对着旧文档计分、又会在生成完成时被静默清空。
+            readOnly: appBridge ? (appBridge.textReadOnly || appBridge.aiTextLoading) : true
 
             onReadOnlyChanged: {
                 if (!readOnly) {
@@ -68,6 +70,8 @@ QQC.Pane {
                 if (event.key === Qt.Key_Backspace && appBridge && !appBridge.isSpecialPlatform) {
                     appBridge.accumulateBackspace();
                 }
+                // Ctrl+R/O/U/P 由 TypingPage 的 Shortcut（WindowShortcut）接管，此处只保留
+                // 未被 Shortcut 声明的 V/L；同名分支会被 shortcut-override 遮蔽成死代码。
                 var shortcutPressed = (event.modifiers & Qt.ControlModifier) || (event.modifiers & Qt.MetaModifier);
                 if (shortcutPressed) {
                     if (event.key === Qt.Key_V) {
@@ -78,26 +82,6 @@ QQC.Pane {
                         event.accepted = true;
                         if (appBridge)
                             appBridge.requestShuffle();
-                    } else if (event.key === Qt.Key_R) {
-                        event.accepted = true;
-                        if (appBridge)
-                            appBridge.loadRandomWenlaiText();
-                    } else if (event.key === Qt.Key_O || event.key === Qt.Key_U) {
-                        event.accepted = true;
-                        if (appBridge) {
-                            if (appBridge.isWenlaiActive && !appBridge.sliceMode)
-                                appBridge.loadPrevWenlaiSegment();
-                            else
-                                appBridge.loadPrevSlice();
-                        }
-                    } else if (event.key === Qt.Key_P) {
-                        event.accepted = true;
-                        if (appBridge) {
-                            if (appBridge.isWenlaiActive && !appBridge.sliceMode)
-                                appBridge.loadNextWenlaiSegment();
-                            else
-                                appBridge.loadNextSlice();
-                        }
                     }
                 }
             }
@@ -199,5 +183,9 @@ QQC.Pane {
                 root.lastText = currentText;
             }
         }
+    }
+
+    Rin.FocusIndicator {
+        control: textArea
     }
 }

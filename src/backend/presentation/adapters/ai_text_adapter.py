@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ...workers.ai_text_worker import AiTextWorker
+from ...workers.base_worker import start_worker
 
 if TYPE_CHECKING:
     from ...application.usecases.generate_ai_text_usecase import (
@@ -94,7 +95,7 @@ class AiTextAdapter(QObject):
             lambda message, gen=generation: self._on_failed(message, gen)
         )
         worker.signals.finished.connect(lambda gen=generation: self._on_finished(gen))
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     def _on_chunk(self, chunk: str, generation: int) -> None:
         if generation == self._generation and self._loading:

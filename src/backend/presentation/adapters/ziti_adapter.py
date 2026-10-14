@@ -2,6 +2,7 @@ from PySide6.QtCore import QObject, QThreadPool, Signal, Slot
 
 from ...application.gateways.ziti_gateway import ZitiGateway
 from ...models.dto.ziti import ZitiScheme, ZitiSchemeData
+from ...workers.base_worker import start_worker
 from ...workers.ziti_worker import ZitiWorker
 
 
@@ -57,7 +58,7 @@ class ZitiAdapter(QObject):
         worker = ZitiWorker(task=self._list_schemes, error_prefix="加载字提示方案失败")
         worker.signals.succeeded.connect(self._on_schemes_loaded)
         worker.signals.failed.connect(self.schemesLoadFailed.emit)
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     @Slot(str)
     def loadScheme(self, name: str) -> None:
@@ -67,7 +68,7 @@ class ZitiAdapter(QObject):
         )
         worker.signals.succeeded.connect(self._on_scheme_loaded)
         worker.signals.failed.connect(self.schemeLoadFailed.emit)
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     @Slot(bool)
     def setEnabled(self, enabled: bool) -> None:

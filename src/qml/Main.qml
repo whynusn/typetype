@@ -32,6 +32,24 @@ FluentWindow {
         z: 999
     }
 
+    // 自动检查发现新版本时全局感知：设置页卡片只在用户打开设置页时可见，
+    // 其余页面靠通知入口（手动检查时用户正盯着卡片，多一条通知无副作用）。
+    Connections {
+        target: appBridge
+        enabled: appBridge !== null
+
+        function onUpdateCheckFinished(available, version, error) {
+            if (available && version) {
+                appNotificationManager.show(
+                    Severity.Info,
+                    qsTr("发现新版本"),
+                    qsTr("v%1 可用，前往「设置 → 关于与更新」下载安装").arg(version),
+                    6000
+                )
+            }
+        }
+    }
+
     navigationItems: [
         {
             title: qsTr("跟打"),
@@ -43,12 +61,6 @@ FluentWindow {
             title: qsTr("载文"),
             page: Qt.resolvedUrl("pages/TextLoadHubPage.qml"),
             icon: "ic_fluent_document_text_20_regular",
-            position: Position.None
-        },
-        {
-            title: qsTr("上传文本"),
-            page: Qt.resolvedUrl("pages/UploadTextPage.qml"),
-            icon: "ic_fluent_document_add_20_regular",
             position: Position.None
         },
         {

@@ -29,12 +29,19 @@ Item {
         });
     }
 
+    // 赋新文本前先把光标归 0：旧文长光标靠后、新文更短时，
+    // 赋值瞬间 cursorPosition 越界（QTextCursor::setPosition 越界警告）。
+    function _setUpperTextSafe(plainText) {
+        upperPane.setCursorAndScroll(0, false);
+        upperPane.text = plainText;
+    }
+
     function applyLoadedText(plainText) {
         typingPage.loadErrorMessage = "";
         lowerPane.suppressTextChanged = true;
         lowerPane.text = "";
         lowerPane.suppressTextChanged = false;
-        upperPane.text = plainText;
+        _setUpperTextSafe(plainText);
         appBridge.handleLoadedText(upperPane.textDocument, plainText);
         upperPane.setCursorAndScroll(0, true);
         // handleLoadedText 完成后，延迟到当前事件循环末尾再同步 lastText。
@@ -173,24 +180,6 @@ Item {
             event.accepted = true;
         }
 
-        // --- Ctrl+R 晴发文 ---
-        if (shortcutPressed && event.key === Qt.Key_R) {
-            triggerRandomWenlaiText();
-            event.accepted = true;
-        }
-
-        // --- Ctrl+O 上一段（Ctrl+U 保留为兼容别名）---
-        if (shortcutPressed && (event.key === Qt.Key_O || event.key === Qt.Key_U)) {
-            triggerPrevSegment();
-            event.accepted = true;
-        }
-
-        // --- Ctrl+P 下一段 ---
-        if (shortcutPressed && event.key === Qt.Key_P) {
-            triggerNextSegment();
-            event.accepted = true;
-        }
-
         // --- Ctrl+V 剪贴板载文 ---
         if (shortcutPressed && event.key === Qt.Key_V) {
             if (appBridge)
@@ -198,18 +187,8 @@ Item {
             event.accepted = true;
         }
 
-        // --- Ctrl+D 发文 ---
-        if (shortcutPressed && event.key === Qt.Key_D) {
-            toolLine.requestSendText();
-            event.accepted = true;
-        }
-
-        // --- Ctrl+E AI 推荐 ---
-        if (shortcutPressed && event.key === Qt.Key_E) {
-            if (appBridge)
-                appBridge.requestAiText();
-            event.accepted = true;
-        }
+        // 注意：Ctrl+R/O/U/D/P/E 由下方 Shortcut（WindowShortcut 上下文）统一接管，
+        // shortcut-override 优先于 item 按键分发，此处不要再写同名分支（会成死代码并漂移）。
     }
 
     //======================================
@@ -284,14 +263,14 @@ Item {
         sequence: "Ctrl+E"
         context: Qt.WindowShortcut
         enabled: typingPage.active
-        onActivated: appBridge.requestAiText()
+        onActivated: { if (appBridge) appBridge.requestAiText() }
     }
 
     Shortcut {
         sequence: "Meta+E"
         context: Qt.WindowShortcut
         enabled: typingPage.active
-        onActivated: appBridge.requestAiText()
+        onActivated: { if (appBridge) appBridge.requestAiText() }
     }
 
     // ==========================================
@@ -355,7 +334,7 @@ Item {
 
             function onAiTextPartial(text) {
                 if (appBridge && appBridge.aiTextLoading)
-                    upperPane.text = text
+                    _setUpperTextSafe(text)
             }
             function onAiTextFailed(message) {
                 typingPage.loadErrorMessage = message
@@ -597,14 +576,44 @@ Item {
         ToolLine {
             id: toolLine
             Layout.fillWidth: true
-            Layout.preferredHeight: 56
-            Layout.minimumHeight: 56
-            Layout.maximumHeight: 56
+            Layout.preferredHeight: implicitHeight
+            Layout.minimumHeight: implicitHeight
             wenlaiLoading: appBridge ? appBridge.wenlaiLoading : false
             aiTextLoading: appBridge ? appBridge.aiTextLoading : false
             onRequestAiText: {
                 if (appBridge)
                     appBridge.requestAiText();
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 28
+            Layout.minimumHeight: 28
+            visible: appBridge && appBridge.aiTextLoading
+            color: Theme.currentTheme
+                ? Theme.currentTheme.colors.subtleSecondaryColor
+                : Utils.fallbackSurfaceColor
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: 12
+                anchors.rightMargin: 12
+                spacing: 8
+
+                BusyIndicator {
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    running: parent.parent.visible
+                }
+
+                Text {
+                    text: qsTr("AI 正在生成文本")
+                    typography: Typography.Body
+                    color: Theme.currentTheme
+                        ? Theme.currentTheme.colors.textSecondaryColor
+                        : Utils.fallbackSecondaryTextColor
+                }
             }
         }
 
@@ -622,11 +631,11 @@ Item {
             Layout.preferredHeight: 28
             Layout.minimumHeight: 28
             visible: appBridge && appBridge.typingPaused
-            color: Theme.currentTheme ? Theme.currentTheme.colors.subtleSecondaryColor : "#eeeeee"
+            color: Theme.currentTheme ? Theme.currentTheme.colors.subtleSecondaryColor : Utils.fallbackSurfaceColor
             Text {
                 anchors.centerIn: parent
                 text: qsTr("已暂停")
-                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : "#666666"
+                color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : Utils.fallbackSecondaryTextColor
             }
         }
 
@@ -676,10 +685,10 @@ Item {
                         radius: 4
                         color: Theme.currentTheme
                             ? Theme.currentTheme.colors.cardColor
-                            : "#f8f8f8"
+                            : Utils.fallbackSurfaceColor
                         border.color: Theme.currentTheme
                             ? Theme.currentTheme.colors.dividerBorderColor
-                            : "#d8d8d8"
+                            : Utils.fallbackSecondaryTextColor
                         border.width: 1
 
                         RowLayout {
@@ -690,10 +699,10 @@ Item {
 
                             Text {
                                 text: appBridge ? appBridge.zitiCurrentScheme : ""
-                                font.pixelSize: 11
+                                typography: Typography.Caption
                                 color: Theme.currentTheme
                                     ? Theme.currentTheme.colors.textSecondaryColor
-                                    : "#666"
+                                    : Utils.fallbackSecondaryTextColor
                             }
 
                             Text {
@@ -701,11 +710,11 @@ Item {
                                 Layout.fillWidth: true
                                 text: typingPage.currentZitiHint
                                 elide: Text.ElideRight
-                                font.pixelSize: 13
+                                typography: Typography.BodyStrong
                                 font.bold: true
                                 color: Theme.currentTheme
                                     ? Theme.currentTheme.colors.textColor
-                                    : "#222"
+                                    : Utils.fallbackTextColor
                             }
                         }
                     }
@@ -733,10 +742,10 @@ Item {
                         radius: 8
                         color: Theme.currentTheme
                             ? Theme.currentTheme.colors.cardColor
-                            : "#f8f8f8"
+                            : Utils.fallbackSurfaceColor
                         border.color: Theme.currentTheme
                             ? Theme.currentTheme.colors.primaryColor
-                            : "#4b88ff"
+                            : Utils.fallbackPrimaryColor
                         border.width: 1
 
                         RowLayout {
@@ -748,19 +757,19 @@ Item {
                             Rectangle {
                                 Layout.preferredWidth: 22
                                 Layout.preferredHeight: 22
-                                radius: 11
+                                radius: Utils.radiusCard
                                 color: Theme.currentTheme
                                     ? Theme.currentTheme.colors.primaryColor + "20"
-                                    : "#4b88ff20"
+                                    : Utils.fallbackPrimaryColor + "20"
 
                                 Text {
                                     anchors.centerIn: parent
                                     text: qsTr("段")
-                                    font.pixelSize: 11
+                                    typography: Typography.Caption
                                     font.bold: true
                                     color: Theme.currentTheme
                                         ? Theme.currentTheme.colors.primaryColor
-                                        : "#4b88ff"
+                                        : Utils.fallbackPrimaryColor
                                 }
                             }
 
@@ -770,40 +779,40 @@ Item {
 
                                 Text {
                                     text: typingPage.sliceStatusPrimaryText()
-                                    font.pixelSize: 13
+                                    typography: Typography.BodyStrong
                                     font.bold: true
                                     color: Theme.currentTheme
                                         ? Theme.currentTheme.colors.textColor
-                                        : "#222"
+                                        : Utils.fallbackTextColor
                                 }
 
                                 Text {
                                     text: typingPage.sliceStatusSecondaryText().length > 0
                                         ? typingPage.sliceStatusSecondaryText()
                                         : "分段模式下的成绩仅本地记录，不提交排行榜"
-                                    font.pixelSize: 11
+                                    typography: Typography.Caption
                                     color: Theme.currentTheme
                                         ? Theme.currentTheme.colors.textSecondaryColor
-                                        : "#666"
+                                        : Utils.fallbackSecondaryTextColor
                                 }
                             }
 
                             Text {
                                 text: typingPage.sliceCriteriaText
-                                font.pixelSize: 11
+                                typography: Typography.Caption
                                 color: Theme.currentTheme
                                     ? Theme.currentTheme.colors.textSecondaryColor
-                                    : "#666"
+                                    : Utils.fallbackSecondaryTextColor
                                 visible: typingPage.sliceCriteriaText.length > 0
                             }
 
                             Text {
                                 text: appBridge ? "达标次数: " + appBridge.slicePassCount : ""
-                                font.pixelSize: 12
+                                typography: Typography.Body
                                 font.bold: true
                                 color: Theme.currentTheme
                                     ? Theme.currentTheme.colors.primaryColor
-                                    : "#4b88ff"
+                                    : Utils.fallbackPrimaryColor
                                 visible: appBridge && appBridge.sliceMode
                             }
 
@@ -861,10 +870,10 @@ Item {
             Layout.maximumHeight: 30
             color: Theme.currentTheme
                 ? Theme.currentTheme.colors.cardColor
-                : "#f8f8f8"
+                : Utils.fallbackSurfaceColor
             border.color: Theme.currentTheme
                 ? Theme.currentTheme.colors.dividerBorderColor
-                : "#e0e0e0"
+                : Utils.fallbackSecondaryTextColor
             border.width: 1
 
             RowLayout {
@@ -877,31 +886,23 @@ Item {
                     Layout.fillWidth: true
                     text: appBridge ? appBridge.windowTitle : "TypeType"
                     elide: Text.ElideRight
-                    font.pixelSize: 12
+                    typography: Typography.Body
                     color: Theme.currentTheme
                         ? Theme.currentTheme.colors.textSecondaryColor
-                        : "#666"
+                        : Utils.fallbackSecondaryTextColor
                 }
 
                 Text {
                     text: appBridge
                         ? qsTr("今日字数: ") + appBridge.todayTypedChars + qsTr("  总字数: ") + appBridge.totalTypedChars
                         : ""
-                    font.pixelSize: 12
+                    typography: Typography.Body
                     font.bold: true
                     color: Theme.currentTheme
                         ? Theme.currentTheme.colors.textColor
-                        : "#222"
+                        : Utils.fallbackTextColor
                 }
             }
         }
     }
-
-    EndDialog {
-        id: endDialog
-        x: (parent.width - width) / 2
-        y: (parent.height - height) / 2
-        property bool isSliceAggregate: false
-    }
-
 }

@@ -6,6 +6,7 @@ Bridge 通过回调将信号发射委托给 QML。
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -15,6 +16,21 @@ if TYPE_CHECKING:
     from .adapters.typing_adapter import TypingAdapter
     from .adapters.wenlai_adapter import WenlaiAdapter
     from .bridge import Bridge
+
+
+@dataclass(frozen=True, slots=True)
+class TextSessionRequest:
+    """当前载文意图的不可变快照。
+
+    QML 只表达来源和参数，Bridge/Coordinator 负责把它变成内部请求身份。
+    ``generation`` 用于区分同一来源、同一片段的连续请求。
+    """
+
+    generation: int
+    source: str
+    identifier: str
+    segment_index: int = 0
+    segment_size: int = 0
 
 
 class TextLoadCoordinator:
@@ -64,6 +80,85 @@ class TextLoadCoordinator:
         # 随机模式已访问片段集合
         self._visited_slices: set[int] = set()
 
+        # 载文事务身份。Adapter 自身负责 worker generation；这里负责跨来源
+        # 的会话意图，避免迟到结果继续改写当前打字会话。
+        self._request_generation = 0
+        self._active_request: TextSessionRequest | None = None
+        self._request_state = "idle"
+
+    # ==========================================
+    # 载文请求身份
+    # ==========================================
+
+    def begin_request(
+        self,
+        source: str,
+        identifier: str = "",
+        segment_index: int = 0,
+        segment_size: int = 0,
+    ) -> TextSessionRequest:
+        """登记新的载文意图，并使所有旧意图失效。"""
+        self._request_generation += 1
+        request = TextSessionRequest(
+            generation=self._request_generation,
+            source=str(source),
+            identifier=str(identifier),
+            segment_index=int(segment_index),
+            segment_size=int(segment_size),
+        )
+        self._active_request = request
+        self._request_state = "active"
+        return request
+
+    def invalidate_request(self) -> None:
+        """使当前载文意图失效，供切页、退出分片和来源切换使用。"""
+        self._request_generation += 1
+        self._active_request = None
+        self._request_state = "idle"
+
+    @property
+    def active_request(self) -> TextSessionRequest | None:
+        return self._active_request
+
+    @property
+    def request_state(self) -> str:
+        return self._request_state
+
+    @property
+    def current_request_source(self) -> str | None:
+        return self._active_request.source if self._active_request else None
+
+    def is_current_request(
+        self,
+        source: str,
+        identifier: str = "",
+        segment_index: int | None = None,
+        segment_size: int | None = None,
+    ) -> bool:
+        """判断结果是否仍属于当前载文意图。"""
+        request = self._active_request
+        if request is None or self._request_state != "active":
+            return False
+        if request.source != str(source) or request.identifier != str(identifier):
+            return False
+        if segment_index is not None and request.segment_index != int(segment_index):
+            return False
+        if segment_size is not None and request.segment_size != int(segment_size):
+            return False
+        return True
+
+    def is_active_request(self, request: TextSessionRequest) -> bool:
+        """按完整代际身份校验异步结果是否仍可写入会话。"""
+        return self._request_state == "active" and self._active_request == request
+
+    def complete_request(self) -> None:
+        if self._active_request is not None:
+            self._request_state = "completed"
+
+    def fail_request(self) -> None:
+        if self._active_request is not None:
+            self._request_state = "failed"
+
     # ==========================================
     # 来源清理（幂等，无需判断当前来源）
     # ==========================================
@@ -85,6 +180,7 @@ class TextLoadCoordinator:
 
     def reset_session_for_standard_load(self, bridge: "Bridge") -> None:
         """普通载文先清掉特殊来源会话。"""
+        self.invalidate_request()
         self._typing.reset_session_context()
         bridge._text_id = 0
         bridge.textIdChanged.emit()
@@ -94,6 +190,7 @@ class TextLoadCoordinator:
     # ==========================================
 
     def prepare_for_wenlai_load(self, bridge: "Bridge") -> None:
+        self.invalidate_request()
         if self._typing.is_slice_mode():
             bridge.exitSliceMode()
         if self._local_article:
@@ -104,10 +201,13 @@ class TextLoadCoordinator:
         self.clear_text_id(bridge)
 
     def prepare_for_trainer_load(self, bridge: "Bridge") -> None:
+        self.invalidate_request()
         if self._typing.is_slice_mode():
             bridge.exitSliceMode()
         if self._wenlai:
             self._wenlai.clear_active()
+        if self._trainer:
+            self._trainer.clear_active()
         if self._local_article and self._local_article.local_article_loading:
             self._local_article.clear_active()
         self._typing.prepare_for_text_load()
@@ -115,10 +215,13 @@ class TextLoadCoordinator:
         self._typing.setup_trainer_session()
 
     def prepare_for_local_article_load(self, bridge: "Bridge") -> None:
+        self.invalidate_request()
         if self._typing.is_slice_mode():
             bridge.exitSliceMode()
         if self._wenlai:
             self._wenlai.clear_active()
+        if self._local_article:
+            self._local_article.clear_active()
         if self._trainer:
             self._trainer.clear_active()
         self._typing.prepare_for_text_load()
@@ -293,6 +396,12 @@ class TextLoadCoordinator:
         backend = self._source_slice_backend
         if backend == "trainer" and self._source_slice_trainer_id:
             assert self._trainer is not None
+            self.begin_request(
+                "trainer",
+                self._source_slice_trainer_id,
+                next_idx,
+                self._source_slice_group_size,
+            )
             # 使用 next_segment() 而不是 loadTrainerSegment()
             # next_segment() 只更新 session 中的 index，不会重新加载词库
             # 这样可以保持打乱后的顺序
@@ -330,6 +439,12 @@ class TextLoadCoordinator:
         backend = self._source_slice_backend
         if backend == "trainer" and self._source_slice_trainer_id:
             assert self._trainer is not None
+            self.begin_request(
+                "trainer",
+                self._source_slice_trainer_id,
+                next_idx,
+                self._source_slice_group_size,
+            )
             # 使用 setTrainerSegment() 而不是 loadTrainerSegment()
             # setTrainerSegment() 只更新 session 中的 index，不会重新加载词库
             # 这样可以保持打乱后的顺序
@@ -352,6 +467,12 @@ class TextLoadCoordinator:
         backend = self._source_slice_backend
         if backend == "trainer":
             assert self._trainer is not None
+            self.begin_request(
+                "trainer",
+                self._source_slice_trainer_id,
+                self._typing.slice_index - 1,
+                self._source_slice_group_size,
+            )
             self._trainer.loadPreviousTrainerSegment()
         elif backend == "ott":
             prev_idx = self._typing.slice_index - 1
@@ -383,6 +504,12 @@ class TextLoadCoordinator:
         if action == "retype":
             if backend == "trainer":
                 assert self._trainer is not None
+                self.begin_request(
+                    "trainer",
+                    self._source_slice_trainer_id,
+                    current,
+                    self._source_slice_group_size,
+                )
                 self._trainer.loadCurrentTrainerSegment()
             elif backend == "ott":
                 bridge.loadOttCurrentSessionSegment(current)
@@ -406,6 +533,7 @@ class TextLoadCoordinator:
         )
 
     def exit_slice_mode(self, bridge: "Bridge") -> None:
+        self.invalidate_request()
         self._source_slice_backend = None
         self._source_slice_article_id = ""
         self._source_slice_segment_size = 0

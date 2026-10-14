@@ -22,6 +22,16 @@ from unittest.mock import MagicMock
 from typing import cast
 
 
+class DeferredThreadPool:
+    """Capture asynchronous work without creating cross-test Qt events."""
+
+    def __init__(self) -> None:
+        self.started_workers = []
+
+    def start(self, worker) -> None:
+        self.started_workers.append(worker)
+
+
 class DummyListener(QObject):
     keyPressed = Signal(int, str)
 
@@ -318,6 +328,7 @@ class TestBridgeSpecialPlatform:
             load_text_usecase=load_text_usecase,
             local_text_loader=local_text_loader,
         )
+        text_adapter._thread_pool = DeferredThreadPool()
 
         char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
 
@@ -874,6 +885,7 @@ class TestBridgeSpecialPlatform:
         bridge.setupSliceMode("天地玄黄宇宙洪荒", 4, 1, 0, 0, 0, 1, "retype")
         wenlai_adapter.emit_loaded_text()
         bridge.setTextId(88)
+        bridge.loadLocalArticleSegment("a1", 2, 500)
         clear_count_before_segment = wenlai_adapter.clear_count
 
         payload = {
@@ -908,6 +920,7 @@ class TestBridgeSpecialPlatform:
             local_article_adapter=local_article_adapter,
             key_listener=None,
         )
+        bridge.loadLocalArticleSegment("a1", 1, 500)
         local_article_adapter.localArticleSegmentLoaded.emit(
             {
                 "articleId": "a1",
@@ -971,13 +984,102 @@ class TestBridgeSpecialPlatform:
         typing_adapter._typing_service.set_total_chars(4)
         typing_adapter.handleStartStatus(True)
         assert typing_adapter.text_read_only is False
+        scheduled: list[tuple] = []
+        bridge._submit_to_thread_pool = lambda fn, success, failure: scheduled.append(
+            (fn, success, failure)
+        )
 
         bridge.loadLocalArticleSegment("a1", 1, 500)
 
-        assert local_article_adapter.segment_requests == [("a1", 1, 500)]
         assert typing_adapter.text_read_only is True
         assert bridge.textId == 0
+        worker, on_success, _ = scheduled.pop()
+        on_success(worker())
+        assert local_article_adapter.segment_requests == [("a1", 1, 500)]
         assert session.source_mode.name == "LOCAL_ARTICLE"
+
+    def test_local_file_session_ignores_superseded_worker_result(self, tmp_path):
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
+        text_adapter._runtime_config.text_session = MagicMock(
+            small_file_threshold=100_000,
+            full_shuffle_threshold=1_000_000,
+        )
+        local_article_adapter = DummyLocalArticleAdapter()
+        article_path = tmp_path / "article.txt"
+        article_path.write_text("天地玄黄", encoding="utf-8")
+        local_article_adapter.resolve_article_path = lambda _: str(article_path)
+        local_article_adapter.get_article_title = lambda _: "文章"
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            char_stats_adapter=char_stats_adapter,
+            local_article_adapter=local_article_adapter,
+            key_listener=None,
+        )
+        scheduled: list[tuple] = []
+        bridge._submit_to_thread_pool = lambda fn, success, failure: scheduled.append(
+            (fn, success, failure)
+        )
+        loaded: list[str] = []
+        bridge.textLoaded.connect(lambda text, _, __: loaded.append(text))
+
+        bridge.loadLocalArticleSegment("a1", 1, 2)
+        first = scheduled.pop()
+        bridge.loadLocalArticleSegment("a1", 2, 2)
+        second = scheduled.pop()
+
+        first[1](first[0]())
+        second[1](second[0]())
+
+        assert loaded == ["玄黄"]
+
+    def test_local_file_resolution_runs_in_the_background_worker(self, tmp_path):
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
+        text_adapter._runtime_config.text_session = MagicMock(
+            small_file_threshold=100_000,
+            full_shuffle_threshold=1_000_000,
+        )
+        local_article_adapter = DummyLocalArticleAdapter()
+        article_path = tmp_path / "article.txt"
+        article_path.write_text("天地玄黄", encoding="utf-8")
+        resolve_path = MagicMock(return_value=str(article_path))
+        local_article_adapter.resolve_article_path = resolve_path
+        local_article_adapter.get_article_title = lambda _: "文章"
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            char_stats_adapter=char_stats_adapter,
+            local_article_adapter=local_article_adapter,
+            key_listener=None,
+        )
+        scheduled: list[tuple] = []
+        bridge._submit_to_thread_pool = lambda fn, success, failure: scheduled.append(
+            (fn, success, failure)
+        )
+
+        bridge.loadLocalArticleSegment("a1", 1, 2)
+
+        assert resolve_path.call_count == 0
+        worker, on_success, _ = scheduled.pop()
+        on_success(worker())
+        assert resolve_path.call_count == 1
+
+    def test_trainer_selection_supersedes_an_inflight_selection(self):
+        typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
+        trainer_adapter = DummyTrainerAdapter()
+        trainer_adapter._trainer_loading = True
+        bridge = Bridge(
+            typing_adapter=typing_adapter,
+            text_adapter=text_adapter,
+            char_stats_adapter=char_stats_adapter,
+            trainer_adapter=trainer_adapter,
+            key_listener=None,
+        )
+
+        bridge.loadTrainerSegment("t2", 1, 20)
+
+        assert trainer_adapter.clear_count == 1
+        assert trainer_adapter.segment_requests == [("t2", 1, 20)]
 
     def test_wenlai_load_request_locks_input_before_worker_finishes(self):
         typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
@@ -1034,11 +1136,17 @@ class TestBridgeSpecialPlatform:
         failures: list[str] = []
         bridge.localArticlesLoaded.connect(catalogs.append)
         bridge.localArticlesLoadFailed.connect(failures.append)
+        scheduled: list[tuple] = []
+        bridge._submit_to_thread_pool = lambda fn, success, failure: scheduled.append(
+            (fn, success, failure)
+        )
 
         bridge.loadLocalArticles()
         bridge.loadLocalArticleSegment("a1", 3, 500)
         local_article_adapter.localArticlesLoaded.emit([{"articleId": "a1"}])
         local_article_adapter.localArticlesLoadFailed.emit("失败")
+        worker, on_success, _ = scheduled.pop()
+        on_success(worker())
 
         assert local_article_adapter.load_articles_count == 1
         assert local_article_adapter.segment_requests == [("a1", 3, 500)]
@@ -1697,6 +1805,7 @@ class TestBridgeRegistryRepoSignals:
             load_text_usecase=load_text_usecase,
             local_text_loader=MagicMock(),
         )
+        text_adapter._thread_pool = DeferredThreadPool()
         char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
         bridge = Bridge(
             typing_adapter=typing_adapter,

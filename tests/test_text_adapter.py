@@ -245,34 +245,113 @@ def test_startup_source_keeps_default_when_no_local_source_exists():
     assert adapter.get_startup_source_key() == "old"
 
 
-def test_get_local_text_content_reads_from_local_source():
+def test_local_text_preview_is_loaded_in_one_worker_for_all_sources():
     adapter, runtime_config, _ = _build_adapter()
     runtime_config.text_source_config.sources = {
         "builtin_demo": TextSourceEntry(
             key="builtin_demo",
             label="本地示例",
             local_path="resources/texts/builtin_demo.txt",
-        )
+        ),
+        "local_b": TextSourceEntry(
+            key="local_b",
+            label="本地B",
+            local_path="resources/texts/local_b.txt",
+        ),
+        "missing_path": TextSourceEntry(
+            key="missing_path",
+            label="无路径",
+        ),
     }
-    adapter._local_text_loader.load_text.return_value = "离线文本"
+    adapter._local_text_loader.load_text.side_effect = ["离线文本", "第二篇"]
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+    loaded: list[list[dict[str, str]]] = []
+    adapter.localTextContentsLoaded.connect(loaded.append)
 
-    assert adapter.get_local_text_content("builtin_demo") == "离线文本"
-    runtime_config.text_source_config.get_source.assert_called_once_with("builtin_demo")
-    adapter._local_text_loader.load_text.assert_called_once_with(
-        "resources/texts/builtin_demo.txt"
+    adapter.requestLocalTextContents(
+        ["builtin_demo", "local_b", "missing_path", "builtin_demo"]
     )
 
+    assert len(thread_pool.started_workers) == 1
+    worker = thread_pool.started_workers[0]
+    assert worker in adapter._active_workers
+    worker.run()
 
-def test_get_local_text_content_returns_empty_for_non_local_source():
+    assert loaded == [
+        [
+            {"sourceKey": "builtin_demo", "content": "离线文本"},
+            {"sourceKey": "local_b", "content": "第二篇"},
+            {"sourceKey": "missing_path", "content": ""},
+        ]
+    ]
+    assert adapter._local_text_loader.load_text.call_count == 2
+    assert adapter._active_workers == set()
+
+
+def test_stale_local_preview_response_is_ignored_after_new_request():
     adapter, runtime_config, _ = _build_adapter()
     runtime_config.text_source_config.sources = {
-        "jisubei": TextSourceEntry(
-            key="jisubei",
-            label="极速杯",
-        )
+        "a": TextSourceEntry(key="a", label="A", local_path="a.txt"),
+        "b": TextSourceEntry(key="b", label="B", local_path="b.txt"),
     }
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+    loaded: list[list[dict[str, str]]] = []
+    adapter.localTextContentsLoaded.connect(loaded.append)
 
-    assert adapter.get_local_text_content("jisubei") == ""
+    adapter.requestLocalTextContents(["a"])
+    first_worker = thread_pool.started_workers[0]
+    adapter.requestLocalTextContents(["b"])
+    second_worker = thread_pool.started_workers[1]
+
+    first_worker.signals.succeeded.emit([{"sourceKey": "a", "content": "旧"}])
+    first_worker.signals.finished.emit()
+    second_worker.signals.succeeded.emit([{"sourceKey": "b", "content": "新"}])
+    second_worker.signals.finished.emit()
+
+    assert loaded == [[{"sourceKey": "b", "content": "新"}]]
+    assert adapter._active_workers == set()
+
+
+def test_clear_active_invalidates_local_preview_response():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.sources = {
+        "a": TextSourceEntry(key="a", label="A", local_path="a.txt"),
+    }
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+    loaded: list[list[dict[str, str]]] = []
+    adapter.localTextContentsLoaded.connect(loaded.append)
+
+    adapter.requestLocalTextContents(["a"])
+    worker = thread_pool.started_workers[0]
+    adapter.clear_active()
+    worker.signals.succeeded.emit([{"sourceKey": "a", "content": "旧"}])
+    worker.signals.finished.emit()
+
+    assert loaded == []
+    assert adapter._active_workers == set()
+
+
+def test_local_text_preview_failure_is_reported_and_worker_released():
+    adapter, runtime_config, _ = _build_adapter()
+    runtime_config.text_source_config.sources = {
+        "a": TextSourceEntry(key="a", label="A", local_path="a.txt"),
+    }
+    thread_pool = DummyThreadPool()
+    adapter._thread_pool = thread_pool
+    failures: list[str] = []
+    adapter.localTextContentsLoadFailed.connect(failures.append)
+
+    adapter.requestLocalTextContents(["a"])
+    worker = thread_pool.started_workers[0]
+    assert worker in adapter._active_workers
+    worker.signals.failed.emit("读取本地文本失败：文件不可读")
+    worker.signals.finished.emit()
+
+    assert failures == ["读取本地文本失败：文件不可读"]
+    assert adapter._active_workers == set()
 
 
 def test_start_file_text_session_uses_injected_provider_cls(tmp_path):
@@ -302,6 +381,36 @@ def test_start_file_text_session_uses_injected_provider_cls(tmp_path):
     assert result is not None
     assert result.content == "你好"
     assert adapter.text_session_usecase is not None
+
+
+def test_build_file_text_session_does_not_replace_active_session(tmp_path):
+    from src.backend.config.runtime_config import RuntimeConfig
+    from src.backend.integration.file_segment_provider import FileSegmentProvider
+    from src.backend.models.dto.text_session import TextKind
+
+    adapter = TextAdapter(
+        runtime_config=RuntimeConfig(),
+        load_text_usecase=MagicMock(),
+        local_text_loader=MagicMock(),
+        file_segment_provider_cls=FileSegmentProvider,
+    )
+    adapter._text_session_usecase = sentinel = object()
+    p = tmp_path / "sample.txt"
+    p.write_text("你好世界", encoding="utf-8")
+
+    built = adapter.buildFileTextSession(
+        file_path=str(p),
+        kind=TextKind.LOCAL_ARTICLE,
+        identifier="a1",
+        title="示例",
+        version="v1",
+        slice_size=2,
+    )
+
+    assert built is not None
+    _, result = built
+    assert result.content == "你好"
+    assert adapter.text_session_usecase is sentinel
 
 
 def test_start_file_text_session_falls_back_to_default_provider(tmp_path):

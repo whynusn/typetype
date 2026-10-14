@@ -180,6 +180,9 @@ class ScriptCache:
     ) -> str | None:
         if not self._enabled:
             return None
+        if not _validate_script_url(url):
+            log_warning(f"[ScriptCache] 脚本 URL 非法: {redact_url(url)}")
+            return None
         cache_key = script_cache_key(url)
         cached = self._read_cache(cache_key)
         ttl = self._ttl_seconds if ttl_seconds is None else ttl_seconds
@@ -201,30 +204,30 @@ class ScriptCache:
     ) -> str | None:
         if not _validate_script_url(url):
             log_warning(f"[ScriptCache] 脚本 URL 非法: {redact_url(url)}")
-            return self._read_cache(cache_key)
+            return None
         try:
             source = self._download_limited(url, SCRIPT_MAX_BYTES)
         except _ScriptTooLargeError:
             log_warning(
                 f"[ScriptCache] 脚本超过 {SCRIPT_MAX_BYTES} 字节上限: {redact_url(url)}"
             )
-            return self._read_cache(cache_key)
+            return None
         except (httpx.HTTPError, httpx.InvalidURL, OSError) as e:
             log_warning(f"[ScriptCache] 下载失败: {redact_url(url)} — {e}")
-            return self._read_cache(cache_key)
+            return self._read_cache(cache_key, expected_checksum)
 
         if expected_checksum and not _checksum_matches(source, expected_checksum):
             log_warning(
                 f"[ScriptCache] 脚本 checksum 不匹配，拒绝缓存与执行: {redact_url(url)}"
             )
-            return self._read_cache(cache_key)
+            return None
 
         # AST 安全检查
         report = validate_script_source(source, url)
         if not report.valid:
             codes = [i.code for i in report.issues]
             log_warning(f"[ScriptCache] AST 检查失败: {redact_url(url)} — {codes}")
-            return self._read_cache(cache_key)
+            return None
 
         self._write_cache(cache_key, source)
         return source
@@ -285,12 +288,16 @@ class ScriptCache:
     def cache_path(self, cache_key: str) -> Path:
         return self._cache_dir / f"{cache_key}.py"
 
-    def _read_cache(self, cache_key: str) -> str | None:
+    def _read_cache(self, cache_key: str, expected_checksum: str = "") -> str | None:
         path = self.cache_path(cache_key)
         try:
             if not path.exists():
                 return None
-            return path.read_text(encoding="utf-8")
+            source = path.read_text(encoding="utf-8")
+            if expected_checksum and not _checksum_matches(source, expected_checksum):
+                log_warning("[ScriptCache] 回退缓存 checksum 不匹配")
+                return None
+            return source
         except OSError:
             return None
 

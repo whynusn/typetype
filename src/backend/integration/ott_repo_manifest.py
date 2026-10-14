@@ -511,7 +511,7 @@ class RepoManifestCache:
         """智能路由版 manifest 拉取：候选 = 原始 + jsDelivr + 已缓存镜像，
         按实时延迟/连通性排序逐个尝试（记录回写统计）。file:// 直读本地。"""
         if repo.url.startswith("file://"):
-            return self._fetch_manifest(repo.url, cache_key, repo.etag), ""
+            return self._fetch_manifest(repo.url, cache_key, repo.etag)
         cached = self._read_validated_cache(cache_key)
         mirrors: list[str] = []
         if cached:

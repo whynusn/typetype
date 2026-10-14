@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
+import "../helpers/SourceBadges.js" as Badges
 
 /**
  * 订阅源（repo）配置弹窗：管理单个订阅源。
@@ -16,30 +17,29 @@ Dialog {
     property string repoId: ""    // 由入口设置（组头 key）
     property string repoUrl: ""   // 由入口设置（组头 url）
     property var _repo: null      // getRepos() 匹配到的摘要
+    property bool _syncingSwitch: false  // 摘要回写时抑制 Switch 的 onCheckedChanged
 
     title: qsTr("管理订阅源")
     modal: true
     standardButtons: Dialog.Close
-    width: Math.min(420, Window.window ? Math.max(280, Window.window.width - 24) : 420)
-    height: Math.min(420, Window.window ? Math.max(240, Window.window.height - 24) : 420)
+    // Popup 非 Item 派生，Window.window 附加属性不可用；Overlay.overlay 支持附加到
+    // Popup 且尺寸等于窗口内容区（RinUI Dialog 的 Overlay.modal 同款机制）
+    width: Math.min(420, Math.max(280, (QQC.Overlay.overlay ? QQC.Overlay.overlay.width : 444) - 24))
+    height: Math.min(420, Math.max(240, (QQC.Overlay.overlay ? QQC.Overlay.overlay.height : 444) - 24))
 
-    function _trustBadge(trustState) {
-        if (trustState === "verified") return qsTr("已验证")
-        if (trustState === "pending") return qsTr("待确认")
-        if (trustState === "failed") return qsTr("验证失败")
-        return qsTr("未验证")
-    }
+    // trust 徽章文案与配色统一走 helpers/SourceBadges.js（单一事实源）
 
-    function _trustColor(trustState) {
-        if (trustState === "verified") return Theme.currentTheme.colors.systemSuccessColor
-        if (trustState === "pending") return Theme.currentTheme.colors.systemCautionColor
-        if (trustState === "failed") return Theme.currentTheme.colors.systemCriticalColor
-        return Theme.currentTheme.colors.textSecondaryColor
+    // 摘要回写走此函数：绑定重算会触发 Switch.onCheckedChanged，必须守卫，
+    // 否则每次刷新摘要都白调一次 setRepoEnabled（写配置 + refreshRepos）。
+    function _setRepo(repo) {
+        root._syncingSwitch = true
+        root._repo = repo
+        root._syncingSwitch = false
     }
 
     // 打开时重新匹配摘要（启用/信任/删除后摘要会变化）
     onOpened: {
-        root._repo = null
+        root._setRepo(null)
         if (appBridge) appBridge.refreshRepos()
     }
 
@@ -47,7 +47,7 @@ Dialog {
         target: appBridge
         function onReposChanged(repos) {
             for (var i = 0; i < repos.length; i++) {
-                if ((repos[i].url || "") === root.repoUrl) { root._repo = repos[i]; break }
+                if ((repos[i].url || "") === root.repoUrl) { root._setRepo(repos[i]); break }
             }
         }
     }
@@ -167,14 +167,14 @@ Dialog {
             Rectangle {
                 Layout.preferredWidth: badgeText.implicitWidth + 12
                 Layout.preferredHeight: 20
-                radius: 10
+                radius: Utils.radiusCard
                 readonly property color badgeColor:
-                    root._trustColor(root._repo ? root._repo.trust_state || "" : "")
+                    Badges.trustColor(root._repo ? root._repo.trust_state || "" : "", Theme.currentTheme.colors)
                 color: Qt.rgba(badgeColor.r, badgeColor.g, badgeColor.b, 0.18)
                 Text {
                     id: badgeText
                     anchors.centerIn: parent
-                    text: root._trustBadge(root._repo ? root._repo.trust_state || "" : "")
+                    text: Badges.trustLabel(root._repo ? root._repo.trust_state || "" : "")
                     typography: Typography.Caption
                     color: parent.badgeColor
                 }
@@ -218,7 +218,7 @@ Dialog {
             Switch {
                 checked: root._repo ? root._repo.enabled === true : false
                 onCheckedChanged: {
-                    if (appBridge && root._repo)
+                    if (!root._syncingSwitch && appBridge && root._repo)
                         appBridge.setRepoEnabled(root.repoUrl, checked)
                 }
             }

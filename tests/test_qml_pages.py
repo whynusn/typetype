@@ -54,9 +54,22 @@ def test_main_window_includes_unified_text_load_hub():
     assert 'page: Qt.resolvedUrl("pages/TextLoadHubPage.qml")' in source
 
 
+def test_text_load_panel_does_not_read_local_preview_synchronously():
+    """TextLoadPanel 已收敛为自定义 tab 的纯文本输入面板（hubMode 死分支删除）。
+
+    本地文库预览由 hub「本地文库」tab 承担；面板不再触碰任何本地内容
+    加载 API——既不同步读（getLocalTextContent），也不走异步请求
+    （requestLocalTextContents）。
+    """
+    source = (QML_DIR / "typing/TextLoadPanel.qml").read_text(encoding="utf-8")
+    assert "getLocalTextContent" not in source
+    assert "requestLocalTextContents" not in source
+
+
 def test_text_load_hub_uses_expected_bridge_contract():
     page_qml = QML_DIR / "pages/TextLoadHubPage.qml"
     qml_source = page_qml.read_text(encoding="utf-8")
+    bridge_source = BRIDGE_PATH.read_text(encoding="utf-8")
     # 载文 trait 行为已下沉到 JS 分派模块，bridge 引用分布在 QML + JS 里
     js_behaviors = PROJECT_ROOT / "src/qml/helpers/TextSourceBehaviors.js"
     js_source = (
@@ -71,10 +84,11 @@ def test_text_load_hub_uses_expected_bridge_contract():
     assert "trainerLoading" in refs and "trainerLoading" in BRIDGE_PROPERTIES
     assert "loadLocalArticles" in refs and "loadLocalArticles" in BRIDGE_SLOTS
     assert "loadTrainers" in refs and "loadTrainers" in BRIDGE_SLOTS
-    assert (
-        "loadLocalArticleSegment" in refs and "loadLocalArticleSegment" in BRIDGE_SLOTS
-    )
-    assert "loadTrainerSegment" in refs and "loadTrainerSegment" in BRIDGE_SLOTS
+    # 分片入口由 queueTextSession 统一表达；旧的具体 slot 保留为兼容 API，
+    # 但页面不再携带来源分支并直接调用它们。
+    assert "queueTextSession" in refs and "queueTextSession" in BRIDGE_SLOTS
+    assert "loadLocalArticleSegment" in BRIDGE_SLOTS
+    assert "loadTrainerSegment" in BRIDGE_SLOTS
     # OTT 源仓库联邦聚合 Slot（hub 直接浏览/载入联邦条目）
     assert "loadFederatedEntries" in refs and "loadFederatedEntries" in BRIDGE_SLOTS
     assert (
@@ -85,6 +99,9 @@ def test_text_load_hub_uses_expected_bridge_contract():
         "loadFederatedInlineEntry" in refs
         and "loadFederatedInlineEntry" in BRIDGE_SLOTS
     )
+    assert '@Slot(str, str, str, str, "QVariantMap")' in bridge_source
+    assert "sliceOptions" in bridge_source
+    assert "sliceOpts" in qml_source
     # 总刷新（全部源强制换新）与源级刷新（该 authority 换新）都接在 hub；
     # 订阅源（repo）级刷新已随分组语义收敛到源级（refreshFederatedSource）
     assert "refreshFederatedAll" in refs and "refreshFederatedAll" in BRIDGE_SLOTS

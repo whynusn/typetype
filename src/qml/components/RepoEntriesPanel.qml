@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
+import "../helpers/SourceBadges.js" as Badges
 
 /**
  * 开源文库条目列表面板（联邦聚合条目的统一展示）。
@@ -105,21 +106,7 @@ Frame {
         return root.sourceStatuses[group.key]
     }
 
-    function _tierShort(type) {
-        if (type === "ott-instance") return "L0"
-        if (type === "ott-rule") return "L1"
-        if (type === "ott-bridge") return "L2"
-        if (type === "ott-script") return "L3"
-        return ""
-    }
-
-    function _trustLabel(state) {
-        if (state === "verified") return qsTr("已验证")
-        if (state === "pending") return qsTr("待确认")
-        if (state === "failed") return qsTr("验证失败")
-        if (state === "unverified") return qsTr("未验证")
-        return ""
-    }
+    // trust/tier 徽章文案与配色统一走 helpers/SourceBadges.js（单一事实源）
 
     function _matches(entry, text) {
         var haystack = (entry.title || "") + " " +
@@ -338,7 +325,15 @@ Frame {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 30
                 placeholderText: qsTr("搜索标题或预览")
-                onTextChanged: root.rebuild()
+                // 去抖：rebuild 是全量清空+重建（Column+Repeater 全量实例化），
+                // 键击级直接重建在长列表下开销大，200ms 合并连续输入
+                onTextChanged: searchDebounce.restart()
+
+                Timer {
+                    id: searchDebounce
+                    interval: 200
+                    onTriggered: root.rebuild()
+                }
             }
         }
 
@@ -396,6 +391,11 @@ Frame {
                             && root._showHistory[groupDelegate.groupData.key] !== true
                             && groupDelegate.groupData.entries.length > 1
 
+                        // 历史已展开时的「收起历史」入口（与上面互斥，保证可逆）
+                        readonly property bool showHistoryCollapseRow: root._innerVersion >= 0
+                            && groupDelegate.groupData.onDemand
+                            && root._showHistory[groupDelegate.groupData.key] === true
+
                         // 组内行模型（ListModel；role 访问可靠——JS 数组模型
                         // 在本环境 role 全 undefined，见 fillInnerModel 注释）
                         ListModel { id: innerModel }
@@ -423,7 +423,10 @@ Frame {
                             border.color: Theme.currentTheme.colors.cardBorderColor
                             border.width: 1
                             Behavior on color {
-                                ColorAnimation { duration: Utils.appearanceSpeed; easing.type: Easing.OutQuad }
+                                ColorAnimation {
+                                    duration: Utils.animationDuration(Utils.appearanceSpeed)
+                                    easing.type: Easing.OutQuad
+                                }
                             }
 
                             // 整行点击 = 展开/收起（按钮子项位于其上方优先响应）
@@ -455,7 +458,10 @@ Frame {
                                         origin.x: 8
                                         origin.y: 8
                                         Behavior on angle {
-                                            NumberAnimation { duration: Utils.animationSpeed; easing.type: Easing.OutQuint }
+                                            NumberAnimation {
+                                                duration: Utils.animationDuration(Utils.animationSpeed)
+                                                easing.type: Easing.OutQuint
+                                            }
                                         }
                                     }
                                 }
@@ -484,7 +490,7 @@ Frame {
                                         }
 
                                         Rectangle {
-                                            visible: root._tierShort(groupDelegate.groupData.sourceType).length > 0
+                                            visible: Badges.tierShort(groupDelegate.groupData.sourceType).length > 0
                                             Layout.preferredWidth: tierBadgeText.implicitWidth + 8
                                             Layout.preferredHeight: 16
                                             radius: 8
@@ -492,30 +498,24 @@ Frame {
                                             Text {
                                                 id: tierBadgeText
                                                 anchors.centerIn: parent
-                                                text: root._tierShort(groupDelegate.groupData.sourceType)
+                                                text: Badges.tierShort(groupDelegate.groupData.sourceType)
                                                 typography: Typography.Caption
                                                 color: Theme.currentTheme.colors.textAccentColor
                                             }
                                         }
 
                                         Rectangle {
-                                            visible: root._trustLabel(groupDelegate.groupData.trustState).length > 0
+                                            visible: Badges.trustLabel(groupDelegate.groupData.trustState).length > 0
                                             Layout.preferredWidth: trustBadgeText.implicitWidth + 8
                                             Layout.preferredHeight: 16
                                             radius: 8
                                             readonly property color trustColor:
-                                                groupDelegate.groupData.trustState === "verified"
-                                                    ? Theme.currentTheme.colors.systemSuccessColor
-                                                    : groupDelegate.groupData.trustState === "pending"
-                                                      ? Theme.currentTheme.colors.systemCautionColor
-                                                      : groupDelegate.groupData.trustState === "failed"
-                                                        ? Theme.currentTheme.colors.systemCriticalColor
-                                                        : Theme.currentTheme.colors.textSecondaryColor
+                                                Badges.trustColor(groupDelegate.groupData.trustState, Theme.currentTheme.colors)
                                             color: Qt.rgba(trustColor.r, trustColor.g, trustColor.b, 0.16)
                                             Text {
                                                 id: trustBadgeText
                                                 anchors.centerIn: parent
-                                                text: root._trustLabel(groupDelegate.groupData.trustState)
+                                                text: Badges.trustLabel(groupDelegate.groupData.trustState)
                                                 typography: Typography.Caption
                                                 color: parent.trustColor
                                             }
@@ -654,7 +654,9 @@ Frame {
                                         opacity: root._isRefreshingGroup(groupDelegate.groupData) ? 0 : 1
                                         enabled: !root._isRefreshingGroup(groupDelegate.groupData) && !root.loading
                                         Behavior on opacity {
-                                            NumberAnimation { duration: Utils.animationSpeedFaster }
+                                            NumberAnimation {
+                                                duration: Utils.animationDuration(Utils.animationSpeedFaster)
+                                            }
                                         }
                                         onClicked: root.refreshSourceRequested(groupDelegate.groupData.key)
                                         ToolTip {
@@ -721,14 +723,11 @@ Frame {
                             height: groupDelegate.expanded ? innerColumn.height : 0
                             opacity: groupDelegate.expanded ? 1 : 0
 
-                            Behavior on height {
-                                NumberAnimation {
-                                    duration: Utils.animationSpeedExpander
-                                    easing.type: Easing.OutQuint
-                                }
-                            }
                             Behavior on opacity {
-                                NumberAnimation { duration: Utils.appearanceSpeed; easing.type: Easing.OutQuad }
+                                NumberAnimation {
+                                    duration: Utils.animationDuration(Utils.appearanceSpeed)
+                                    easing.type: Easing.OutQuad
+                                }
                             }
 
                             // ---- 条目列：连续无间隔（spacing 0） ----
@@ -743,20 +742,25 @@ Frame {
                                     delegate: entryRowComp
                                 }
 
-                                // ---- 历史行：随机源「显示更早 N 条」入口 ----
+                                // ---- 历史行：随机源「显示更早 N 条」入口 / 展开后「收起历史」 ----
                                 Rectangle {
                                     id: historyRow
                                     width: parent.width
                                     height: 36
-                                    visible: groupDelegate.showHistoryRow
+                                    visible: groupDelegate.showHistoryRow || groupDelegate.showHistoryCollapseRow
+                                    readonly property bool collapseMode: groupDelegate.showHistoryCollapseRow
                                     color: historyMouse.containsMouse
                                            ? Theme.currentTheme.colors.subtleSecondaryColor
                                            : "transparent"
                                     Behavior on color {
-                                        ColorAnimation { duration: Utils.appearanceSpeed; easing.type: Easing.OutQuad }
+                                        ColorAnimation {
+                                            duration: Utils.animationDuration(Utils.appearanceSpeed)
+                                            easing.type: Easing.OutQuad
+                                        }
                                     }
 
-                                    // 与最新条目的分隔细线
+                                    // 与列表的分隔细线（两种模式都保留：入口行位于最新条目下，
+                                    // 收起行位于全部历史条目下）
                                     Rectangle {
                                         anchors.left: parent.left
                                         anchors.right: parent.right
@@ -772,7 +776,9 @@ Frame {
                                         spacing: 6
 
                                         Text {
-                                            text: qsTr("显示更早 %1 条").arg(groupDelegate.groupData.entries.length - 1)
+                                            text: historyRow.collapseMode
+                                                  ? qsTr("收起历史")
+                                                  : qsTr("显示更早 %1 条").arg(groupDelegate.groupData.entries.length - 1)
                                             typography: Typography.Caption
                                             color: Theme.currentTheme.colors.primaryColor
                                         }
@@ -780,7 +786,9 @@ Frame {
                                         IconWidget {
                                             Layout.preferredWidth: 12
                                             Layout.preferredHeight: 12
-                                            icon: "ic_fluent_chevron_down_20_regular"
+                                            icon: historyRow.collapseMode
+                                                  ? "ic_fluent_chevron_up_20_regular"
+                                                  : "ic_fluent_chevron_down_20_regular"
                                             color: Theme.currentTheme.colors.primaryColor
                                         }
                                     }
@@ -816,7 +824,10 @@ Frame {
                                               ? Theme.currentTheme.colors.subtleTertiaryColor
                                               : "transparent")
                                     Behavior on color {
-                                        ColorAnimation { duration: Utils.appearanceSpeed; easing.type: Easing.OutQuad }
+                                        ColorAnimation {
+                                            duration: Utils.animationDuration(Utils.appearanceSpeed)
+                                            easing.type: Easing.OutQuad
+                                        }
                                     }
 
                                     RowLayout {

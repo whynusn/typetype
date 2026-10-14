@@ -7,7 +7,7 @@ import RinUI
 FluentPage {
     id: uploadPage
     property bool active: false  // 由 NavigationView 注入
-    title: qsTr("上传文本")
+    title: qsTr("导入文本")
     contentSpacing: 4
 
     onActiveChanged: {
@@ -16,7 +16,6 @@ FluentPage {
         }
     }
 
-    property bool toLocal: true
     property bool uploading: false
     property string filePath: ""  // 导入的文件路径
     property int maxContentLength: 10000  // 手动输入字数上限
@@ -25,8 +24,6 @@ FluentPage {
         titleField.text = "";
         contentArea.text = "";
         filePath = "";
-        localCheckBox.checked = true;
-        toLocal = true;
     }
 
     function showInfo(severity, title, text) {
@@ -76,7 +73,7 @@ FluentPage {
         Text {
             visible: uploadPage.filePath !== ""
             typography: Typography.Caption
-            color: "#666"
+            color: Theme.currentTheme ? Theme.currentTheme.colors.textSecondaryColor : Utils.fallbackSecondaryTextColor
             text: qsTr("已导入文件（仅显示前 20 行预览，上传时直接传输文件）")
         }
 
@@ -157,26 +154,6 @@ FluentPage {
         }
     }
 
-    // 上传目标
-    Text {
-        Layout.topMargin: 8
-        typography: Typography.Subtitle
-        text: qsTr("上传目标")
-    }
-
-    SettingCard {
-        Layout.fillWidth: true
-        title: qsTr("本地文本库")
-        description: qsTr("保存到本地，可离线使用")
-        icon.name: "ic_fluent_folder_20_regular"
-
-        CheckBox {
-            id: localCheckBox
-            checked: true
-            onCheckedChanged: uploadPage.toLocal = checked
-        }
-    }
-
     // 上传进度
     ProgressBar {
         Layout.fillWidth: true
@@ -202,17 +179,13 @@ FluentPage {
 
         Button {
             id: uploadBtn
-            text: qsTr("上传")
+            text: qsTr("导入")
             highlighted: true
             enabled: !uploadPage.uploading
             onClicked: {
                 var title = titleField.text.trim();
                 if (!title) {
                     showInfo(Severity.Error, qsTr("验证失败"), qsTr("请输入标题"));
-                    return;
-                }
-                if (!uploadPage.toLocal) {
-                    showInfo(Severity.Error, qsTr("验证失败"), qsTr("请选择本地文本库"));
                     return;
                 }
 
@@ -232,10 +205,11 @@ FluentPage {
 
                 uploadPage.uploading = true;
                 if (appBridge) {
+                    // 目标恒为本地文本库（云端上传已随 ADR-013 移除，参数保留兼容）
                     if (hasFile) {
-                        appBridge.uploadTextFromFile(title, uploadPage.filePath, "custom", uploadPage.toLocal, false);
+                        appBridge.uploadTextFromFile(title, uploadPage.filePath, "custom", true, false);
                     } else {
-                        appBridge.uploadText(title, contentArea.text.trim(), "custom", uploadPage.toLocal, false);
+                        appBridge.uploadText(title, contentArea.text.trim(), "custom", true, false);
                     }
                 }
             }
@@ -250,9 +224,9 @@ FluentPage {
             uploadPage.uploading = false;
             if (success) {
                 clearForm();
-                showInfo(Severity.Success, qsTr("上传成功"), message || qsTr("文本已成功上传"));
+                showInfo(Severity.Success, qsTr("导入成功"), message || qsTr("文本已成功导入"));
             } else {
-                showInfo(Severity.Error, qsTr("上传失败"), message);
+                showInfo(Severity.Error, qsTr("导入失败"), message);
             }
         }
         function onTextFileLoaded(preview) {
