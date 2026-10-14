@@ -38,11 +38,6 @@ FluentPage {
             }
             textRole: "text"
             valueRole: "value"
-            delegate: ItemDelegate {
-                width: sortModeCombo.width
-                text: model.text === "按错误率" ? qsTr("按错误率")
-                    : model.text === "按错误次数" ? qsTr("按错误次数") : qsTr("加权评分")
-            }
             currentIndex: 0
             onCurrentIndexChanged: {
                 if (currentIndex >= 0 && currentIndex < sortModeModel.count) {

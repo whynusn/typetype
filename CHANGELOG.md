@@ -60,6 +60,8 @@
 - **文本计数 x / 上限**：manifest 新增可选字段 `max_entries`（订阅源声明文本上限，缺失/非正 = 无上限），组头显示「当前 N 条」或「N / M 条」；repo 级刷新（`refreshFederatedRepo`）只物化该订阅源下的全部源，其他订阅源零调用
 - **脚本下载 GitHub raw 超时兜底**：`ScriptCache` 与 `OttCachedFetcher` 主地址失败时自动走 jsDelivr CDN 降级（raw.githubusercontent.com → cdn.jsdelivr.net，与 manifest 拉取同款），修复脚本源/instance 源在国内网络下 `read operation timed out`
 - **占位订阅清理后补回内置源**：配置里只剩 `example.org` 测试占位时，清理后自动重新注入内置 OTT Repo，避免应用启动后源列表为空
+- **薄弱字页崩溃（ItemDelegate 未限定导入）**：`WeakCharsPage` 排序下拉曾自定义 `delegate: ItemDelegate`，而 `QtQuick.Controls` 按规范限定导入为 `QQC`、RinUI 又不导出该类型，未限定引用导致整页加载失败（`ItemDelegate is not a type`）。RinUI ComboBox 的弹窗本就从模型自绘（经 `textRole` 读角色），删除该多余 delegate 即恢复
+- **设置页 ott-script 开关绑定环**：`Switch.checked` 绑定 `appBridge.scriptsEnabled`，`onCheckedChanged` 又无条件写回 `setScriptsEnabled`，后端再无条件发射 `scriptsEnabledChanged` → 绑定重算形成反馈环（`Binding loop detected for property "checked"`）。QML 侧加等值守卫（仅状态确有不一致才写回），`setScriptsEnabled` 改为同值静默返回——同时消除每次打开设置页都重写 `config.json` 的冗余
 
 ### Removed
 

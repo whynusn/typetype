@@ -236,7 +236,11 @@ FluentPage {
                     id: ottScriptsSwitch
                     checked: appBridge ? appBridge.scriptsEnabled : false
                     onCheckedChanged: {
-                        if (appBridge) appBridge.setScriptsEnabled(checked)
+                        // 等值守卫：绑定回写与后端 notify 会形成反馈环
+                        // （checkedChanged → setScriptsEnabled → scriptsEnabledChanged
+                        // → 绑定重算 checked），仅在状态确有不一致时才写回
+                        if (appBridge && checked !== appBridge.scriptsEnabled)
+                            appBridge.setScriptsEnabled(checked)
                     }
                 }
 

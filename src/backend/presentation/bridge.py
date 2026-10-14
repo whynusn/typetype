@@ -2546,6 +2546,11 @@ class Bridge(QObject):
     @Slot(bool)
     def setScriptsEnabled(self, enabled: bool) -> None:
         """更新 ott-script（L3）开关并持久化。"""
+        # 条件发射：无条件 emit 会把 QML 侧 checked 绑定重新求值，
+        # 与 onCheckedChanged 写回形成反馈环；同值时静默返回，
+        # 同时避免每次打开设置页都重写 config.json。
+        if self.scriptsEnabled == bool(enabled):
+            return
         self._text_adapter.runtime_config.update_scripts_enabled(enabled)
         self.scriptsEnabledChanged.emit()
 
