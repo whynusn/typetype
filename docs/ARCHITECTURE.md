@@ -116,16 +116,21 @@ tools/ui_probe/
 ├── mock_bridge.py        # 由 API 面生成 mock bridge QML（保真默认值）
 ├── fixtures.py           # 独立加载属性注入（$listmodel / $qml / 原语）
 ├── fixtures.json         # 各目标孤立加载所需的注入声明
-├── message_capture.py    # qInstallMessageHandler 消息捕获
-├── loader.py             # 离屏环境装配 + 组件加载
-├── report.py             # 结构化报告（ui-probe/report@1）
+├── message_capture.py    # qInstallMessageHandler 消息捕获（卸载恢复前一个 handler）
+├── loader.py             # 离屏环境装配 + 组件加载（组件与实例同生命周期）
+├── report.py             # 冒烟结构化报告（ui-probe/report@1）
+├── snapshot.py           # 结构化对象树快照 + CLI（ui-probe/snapshot@1）
+├── app_run.py            # 真机验收：真实客户端离屏启动 + 快照（ui-probe/app-run@1）
 └── smoke.py              # 冒烟运行器 CLI（含 --selfcheck-loop）
 ```
 
 离屏加载 `src/qml/` 全部页面/组件，抓加载错误（如 RinUI 模块外未解析类型）、
-QML 绑定环与警告，产出 `ui_report.json`（AI agent 消费接口）。pytest 入口
-`tests/ui_probe/test_qml_smoke.py` 以**子进程**方式运行（Qt 初始化不污染
-主测试进程退出期）。详细设计与分期见 [ADR-015](../decisions/015-ui-acceptance-harness.md)。
+QML 绑定环与警告，产出结构化 JSON（AI agent 消费接口）。三个视角互补：
+`smoke`（mock bridge，快）、`snapshot`（对象树/几何/属性快照）、`app_run`
+（**真实客户端**：真 Bridge/真配置/真数据，抓 mock 保真度覆盖不到的真实问题）。
+pytest 入口在 `tests/ui_probe/`，均以**子进程**方式运行（Qt 初始化不污染
+主测试进程退出期）。`main.py` 的启动序列抽为 `bootstrap()/shutdown()`，
+供自动化复用同一条真实启动路径。详细设计与分期见 [ADR-015](../decisions/015-ui-acceptance-harness.md)。
 
 ### 载文入口
 

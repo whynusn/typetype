@@ -42,7 +42,12 @@ class OffscreenHarness:
     """离屏 QML 加载环境（进程内单例语义：一个 app + 一个 engine）。"""
 
     def __init__(self, repo_root: Path) -> None:
-        self.repo_root = Path(repo_root)
+        self.repo_root = Path(repo_root).resolve()
+
+        # RinUI 是仓内 vendored 包，harness 作为库被导入时调用方未必把
+        # 仓库根挂在 sys.path 上——自包含：自己补上。
+        if str(self.repo_root) not in sys.path:
+            sys.path.insert(0, str(self.repo_root))
 
         self._owns_app = QApplication.instance() is None
         if self._owns_app:
@@ -73,10 +78,13 @@ class OffscreenHarness:
         )
 
         # mock bridge：由 bridge.py API 面自动生成
+        # 临时目录必须显式清理：/tmp 满时 tempfile 会回落到 cwd，
+        # 在仓库里留下 ui-probe-* 目录（实测污染工作区）。
         api = parse_bridge_file(self.repo_root / "src/backend/presentation/bridge.py")
         import tempfile
 
-        mock_path = write_mock_bridge(api, Path(tempfile.mkdtemp(prefix="ui-probe-")))
+        self._tmpdir = tempfile.TemporaryDirectory(prefix="ui-probe-")
+        mock_path = write_mock_bridge(api, Path(self._tmpdir.name))
         self._mock_component = QQmlComponent(
             self.engine, QUrl.fromLocalFile(str(mock_path))
         )
@@ -87,6 +95,8 @@ class OffscreenHarness:
         self.engine.rootContext().setContextProperty("appBridge", self._mock_bridge)
 
         self._instances: list[object] = []
+        # 组件与实例同生命周期：销毁组件会删除其创建的对象见 load()
+        self._components: list[object] = []
 
     @staticmethod
     def _error_dict(error) -> dict:
@@ -134,7 +144,13 @@ class OffscreenHarness:
                 if instance is None:
                     errors = [self._error_dict(e) for e in component.errors()]
             if instance is not None:
-                # 持有引用，避免 GC 早于延迟错误/销毁完成
+                # QML 创建的对象默认是 JS 所有权：没有 JS 引用时引擎会
+                # 立刻回收，后续快照/交互拿到的是已删除的 C++ 对象。
+                # 改 C++ 所有权，由 harness 持有到 close()。
+                QQmlEngine.setObjectOwnership(instance, QQmlEngine.CppOwnership)
+                # 组件销毁会连带删除它创建的对象（实测：load() 返回、局部
+                # component 析构后实例即失效）——组件必须和实例一起持有。
+                self._components.append(component)
                 self._instances.append(instance)
 
         return LoadResult(
@@ -147,9 +163,13 @@ class OffscreenHarness:
 
     def close(self) -> None:
         self._instances.clear()
+        self._components.clear()
         self._mock_component = None
         self._mock_bridge = None
         self._rin_window = None
+        if getattr(self, "_tmpdir", None) is not None:
+            self._tmpdir.cleanup()
+            self._tmpdir = None
         if self._owns_app:
             # 必须主动销毁 QApplication，不能留着到进程退出：Qt/shiboken
             # 的退出期静态析构会与后台 daemon 线程（如 OTT 跨仓测试的

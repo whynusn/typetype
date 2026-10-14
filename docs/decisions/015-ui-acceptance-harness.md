@@ -62,6 +62,11 @@ pytest 插件形态（仓库内 `tools/ui_probe/`，`tests/ui_probe/` 提供 pyt
 > - **门禁**：加载失败 / 绑定环 / 零警告（新警告按回归处理）/ 发现覆盖度 / fixture key 有效性 / 绑定环检测器自检（合成已知环，防检测机制静默失效）。
 > - **覆盖边界**：经 appBridge 往返的绑定环（`checked → setX → XChanged → 绑定重算`）需真实初始值≠QML 默认值才会在加载期显形，被动 mock 复现不了——归 P1 场景驱动（种子状态 + 交互）解决。
 
+> P1.1/P1.3 落地补记（2026-10-14）：
+> - **结构化快照**（`tools/ui_probe/snapshot.py`，`ui-probe/snapshot@1`）：遍历 QQuickItem 树，输出 type/objectName/path/几何(场景坐标)/visible/enabled/text + 选定属性。踩坑：① 类型名带引擎后缀（`WeakCharsPage_QMLTYPE_92`→归一化）；② **objectName 绝大多数为空**，选择器只能靠 type+text+path；③ 离屏无窗口，根节点须显式设视口尺寸（默认 1280×800）布局才解算；④ **QQmlComponent 析构会连带删除它创建的对象**——组件必须与实例同生命周期。全量 33 目标 12597 节点，默认紧凑 JSON（缩进版约 40MB）。
+> - **真机验收**（`tools/ui_probe/app_run.py`，`ui-probe/app-run@1`）：复用 `main.bootstrap()` 起真实客户端（真 Bridge/真配置/真数据/真 worker），跑一段事件循环后快照窗口树并捕获 QML 消息。为此把 `main.py` 的启动序列抽成 `bootstrap()/shutdown()`（可测性重构，行为不变）——自动化拿到 engine/window 句柄而不会被 `app.exec()` 阻塞。测试用临时 HOME 隔离真实用户配置（注意：真机启动会往 HOME 拷字体数 MB，不能放小 tmpfs）。
+> - **真机首日即抓到两个真实缺陷**（mock 冒烟抓不到）：① 无 keyring 后端的机器上 `create_infra` 抛 `NoKeyringError` 导致**客户端完全起不来**——凭据是可选能力，改为优雅降级；② 已拔出/换过 USB 口的键盘设备以 ERROR 刷屏（可恢复场景），按 errno 降级为带提示的 WARNING。
+
 ### 6. 场景 DSL 约束
 
 YAML 声明式（`load / click / type / wait / assert / screenshot`），**只引用 a11y 语义**（objectName / 文本 / role），不 import 任何 typetype 或 RinUI 类型——这是通用性与 AI 可编写性的关键。场景文件即文档，可评审、可 diff。
@@ -70,8 +75,10 @@ YAML 声明式（`load / click / type / wait / assert / screenshot`），**只�
 
 | 期 | 内容 | 状态 |
 |:---|:---|:---|
-| P0 | 冒烟：离屏加载全部页面/组件 + 消息捕获（加载错误/绑定环/qWarning）+ mock bridge 自动生成（ast 解析 bridge API + 保真默认值）+ fixtures 属性注入 + pytest/CI 接入（子进程隔离） | ✅ 本次落地 |
-| P1 | 场景 DSL v0 + 离屏交互（Qt 事件注入）+ a11y 语义树序列化 + `ui_report.json` v1 + typetype 核心流程场景 | 计划 |
+| P0 | 冒烟：离屏加载全部页面/组件 + 消息捕获（加载错误/绑定环/qWarning）+ mock bridge 自动生成（ast 解析 bridge API + 保真默认值）+ fixtures 属性注入 + pytest/CI 接入（子进程隔离） | ✅ 已落地 |
+| P1.1 | **结构化快照**（`ui-probe/snapshot@1`）：QQuickItem 树 + 属性/几何/可见性，全量目标快照门禁 | ✅ 已落地 |
+| P1.3 | **真机验收**（`ui-probe/app-run@1`）：真实客户端（真 Bridge/真配置/真数据）离屏启动 + 窗口快照 + 消息捕获 | ✅ 已落地 |
+| P1.2 | 场景 DSL v0 + 离屏交互（Qt 事件注入）+ typetype 核心流程场景 + `ui_report.json` v1 | 进行中 |
 | P2 | 重轨 E2E：封装 CU 协议 → xvfb + 虚拟键鼠 + grim，CU 标准流程固化为场景，黄金基线库 | 计划 |
 | P3 | 通用化：核心抽独立包/仓 + 文档发布，typetype 只留场景库 | 计划 |
 

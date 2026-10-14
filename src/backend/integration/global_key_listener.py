@@ -8,13 +8,14 @@
 
 from __future__ import annotations
 
+import errno as errno_constants
 import os
 from typing import Any
 
 from PySide6.QtCore import QObject, QSettings, QSocketNotifier, Signal
 
 from ..ports.key_codes import KeyCodes
-from ..utils.logger import log_debug, log_error, log_info
+from ..utils.logger import log_debug, log_error, log_info, log_warning
 
 # computer use 自动化测试的虚拟键盘白名单（按设备名）。
 # ydotoold virtual device 是键鼠合一的 uinput 设备（带 EV_REL），会被两阶段扫描当鼠标
@@ -275,7 +276,13 @@ class GlobalKeyListener(QObject):
         ]
 
     def _open_selected_devices(self, paths: list[str]) -> list[Any]:
-        """打开指定路径的 evdev 设备。"""
+        """打开指定路径的 evdev 设备。
+
+        打开失败是**可恢复**的常规情况（设备已拔出 / 换 USB 口后 by-id 路径
+        变化 / 容器里没有 /dev/input / 权限不足），随后会回落到自动发现——
+        按 errno 分级：不存在/不可访问降为 WARNING 并给出可操作提示，
+        其余才是 ERROR。
+        """
         devices = []
         for path in paths:
             try:
@@ -283,7 +290,16 @@ class GlobalKeyListener(QObject):
                 devices.append(device)
                 log_info(f"手动选择设备: {device.name} ({path})")
             except Exception as exc:
-                log_error(f"无法打开设备 {path}: {exc}")
+                errno = getattr(exc, "errno", None)
+                if errno in (errno_constants.ENOENT, errno_constants.EACCES):
+                    hint = (
+                        "设备路径不存在（可能已拔出或换过 USB 口）"
+                        if errno == errno_constants.ENOENT
+                        else "权限不足（需加入 input 用户组或以 root 运行）"
+                    )
+                    log_warning(f"跳过设备 {path}：{hint}（{exc}）")
+                else:
+                    log_error(f"无法打开设备 {path}: {exc}")
         return devices
 
     # ==========================================

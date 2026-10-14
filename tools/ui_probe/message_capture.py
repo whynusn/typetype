@@ -51,13 +51,16 @@ class MessageCollector:
     def install(self) -> None:
         if self._installed:
             return
-        qInstallMessageHandler(self._handler)
+        # 记住前一个 handler：真实 app 装了自己的日志 handler，
+        # 卸载时若传 None 会把它丢掉（后续消息不再进项目日志）
+        self._previous = qInstallMessageHandler(self._handler)
         self._installed = True
 
     def uninstall(self) -> None:
         if not self._installed:
             return
-        qInstallMessageHandler(None)
+        qInstallMessageHandler(self._previous)
+        self._previous = None
         self._installed = False
 
     def __enter__(self) -> "MessageCollector":

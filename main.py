@@ -1,7 +1,9 @@
 import os
 import sys
+from dataclasses import dataclass
 
 from PySide6.QtCore import QUrl
+from PySide6.QtQml import QQmlEngine
 from PySide6.QtWidgets import QApplication
 from RinUI import RinUIWindow
 
@@ -28,11 +30,34 @@ from src.backend.utils.logger import (
 install_rinui_darkdetect_patch()
 
 
-def main():
+@dataclass
+class AppRuntime:
+    """启动后的运行时句柄。
+
+    供自动化验收（tools/ui_probe）使用：拿到 engine/window/bridge 后做
+    真实运行时的快照与交互，而不被事件循环阻塞。
+    """
+
+    app: QApplication
+    window: RinUIWindow
+    engine: QQmlEngine
+    bridge: "Bridge"
+    services: object
+    providers: object
+    adapters: object
+
+
+def bootstrap(argv: list[str] | None = None) -> AppRuntime:
+    """构建对象图并加载主窗口（不进入事件循环）。
+
+    argv 可传 ``["-platform", "offscreen"]`` 之类参数供离屏自动化使用。
+    """
     install_qt_message_handler()
     ensure_app_initialized()
 
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(
+        argv if argv is not None else sys.argv
+    )
     setup_app_font(app)
 
     runtime_config = RuntimeConfig.load_from_file()
@@ -104,14 +129,29 @@ def main():
     log_debug(f"Loading QML from: {main_qml_path}")
     rin_window.load(main_qml_path)
 
-    # 事件循环 + 清理
-    exit_code = app.exec()
-    services.char_stats.flush()
-    providers.federation.close()
-    if adapters.key_listener:
-        adapters.key_listener.stop()
-    del engine
-    del rin_window
+    return AppRuntime(
+        app=app,
+        window=rin_window,
+        engine=engine,
+        bridge=bridge,
+        services=services,
+        providers=providers,
+        adapters=adapters,
+    )
+
+
+def shutdown(runtime: AppRuntime) -> None:
+    """事件循环结束后的清理（worker flush / 连接池关闭 / 键盘监听停止）。"""
+    runtime.services.char_stats.flush()
+    runtime.providers.federation.close()
+    if runtime.adapters.key_listener:
+        runtime.adapters.key_listener.stop()
+
+
+def main():
+    runtime = bootstrap()
+    exit_code = runtime.app.exec()
+    shutdown(runtime)
     os._exit(exit_code)
 
 

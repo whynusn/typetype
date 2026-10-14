@@ -14,6 +14,7 @@
 
 ### Added
 
+- **前端验收工具 P1.1/P1.3（ADR-015）**：`tools/ui_probe/snapshot.py` 结构化对象树快照（`ui-probe/snapshot@1`：type/objectName/path/几何/可见性/文本/属性，全量 33 目标 12597 节点门禁）；`tools/ui_probe/app_run.py` **真机验收**（`ui-probe/app-run@1`）——复用 `main.bootstrap()` 起真实客户端（真 Bridge/真配置/真数据/真异步 worker），离屏跑一段事件循环后快照窗口树并捕获 QML 消息。`main.py` 启动序列相应抽为 `bootstrap()/shutdown()`（行为不变，但自动化可复用同一条真实启动路径而不被 `app.exec()` 阻塞）
 - **前端验收自动化工具 P0（ADR-015）**：`tools/ui_probe/` + `tests/ui_probe/`——离屏加载 `src/qml/` 全部页面/组件，抓取加载错误（如 RinUI 模块外未解析类型）、QML 绑定环与 qWarning，产出结构化 `ui-probe/report@1` JSON 报告（AI agent 可 grep/diff 的验收反馈接口）。mock bridge 由 `ast` 解析 bridge.py API 面自动生成（list 属性默认 `[]`、Slot 按返回注解给类型化默认值）；依赖父级状态的组件经 `fixtures.json` 显式注入（如 FontManagerDialog 的 `fontModel`）；测试以子进程隔离运行（规避 Qt/shiboken 退出期与 daemon 线程的冲突），随全量 pytest 必跑，含绑定环检测器自检与发现覆盖度门禁
 - **内置 OTT Repo 政策收口**：保留 OTT L1 声明式规则的协议与联邦能力；未完成来源权利、归属和稳定性审核的具体规则不随官方内置 manifest 分发，`ott-script` 继续不进入内置仓。
 - **智能路由（SmartRouteSelector）**：刷新/拉取链路按**实时延迟与连通性**在候选路径间选路——候选 = 原始地址 → jsDelivr CDN → 配置的镜像/代理前缀（`ott.route_mirrors`，如 ghproxy 形态）→ manifest mirrors，纯动态派生不硬编码。短超时（2s）并发探测 + TTL 缓存（`ott.route_probe_ttl_seconds`，默认 300s）+ 失败指数退避冷却（30s→300s 封顶）+ 真实请求回写（延迟 EWMA）。接入 manifest 拉取（`RepoManifestCache`）、instance 条目/分段（`OttCachedFetcher`）、脚本下载（`ScriptCache`）；不可达候选不再消耗 10s 超时，修复「刷新一直转圈直到 45s 硬超时」；`router=None` 时保持原固定 failover，测试兼容
@@ -32,6 +33,8 @@
 
 ### Fixed
 
+- **无密钥环后端时客户端无法启动（真机验收发现）**：`create_infra` 阶段读 token 时 `keyring` 抛 `NoKeyringError`（无头 Linux / 未装 gnome-keyring/kwallet / dbus 缺失），整个客户端直接崩掉、完全起不来。凭据存储是**可选**能力：改为能力探测 + 优雅降级（读不到即"未存储"，写失败告警返回，删除条目不存在视为幂等成功），并新增 `SecureStorage.is_available()` 供诊断。注意探测不能用真实读写——macOS 上会触发钥匙串解锁弹窗，改为识别 `keyring.backends.fail.Keyring`
+- **键盘设备不存在时启动日志 ERROR 刷屏**：已拔出/换过 USB 口（by-id 路径变化）/容器内无 `/dev/input`/权限不足时，手动选择的设备打开失败会打 ERROR——但随后会回落自动发现，属可恢复场景。按 errno 分级：ENOENT/EACCES 降为带可操作提示的 WARNING（"设备路径不存在（可能已拔出或换过 USB 口）"/"权限不足（需加入 input 用户组）"），其余仍为 ERROR
 - **开源文库分组精度到源（authority）级**：列表按**每一条规则/源**分组展示（一言 / 极速杯 / 今日诗词桥接 / 英文名言 / 内置静态源各一组），组头显示源名（manifest `source.label` 注入 `_source_label`，不硬编码）+ 所属订阅源标识（`_repo_name` 小字）+ 计数/上限；订阅源（repo）本身不再作为分组出现在列表中（管理按钮仍作用于所属订阅源弹窗）。存量旧快照缺 `_source_label` 时回退 `source_label` 原文，自愈逻辑同步补写
 - **刷新作用域与分组一致（源级）**：组头刷新改为 `refreshFederatedSource(authority)` → 只物化该源并重发列表（旧 repo 级 `refreshRepoEntries` 保留后端能力）；刷新动画标记改为 `refreshingFederatedSource`（authority），成功/失败/超时三路都清除标记——修复「刷新动画无限显示、没有结束状态」
 - **源级刷新动画不再随机永转（worker 生命周期 + 双定时器）**：`RegistryAdapter` 提交 `QRunnable` 后曾不持有 Python wrapper 引用，跨线程排队的「清标记」连接随机丢失——文本已更新但组头转圈直到 45s 超时；现统一 `_start_worker()`（`setAutoDelete(False)` + `_active_workers` 持有到 `finished`）、成功/失败各只连一个槽并在 `try/finally` 中清标记 + 序号守卫。手动刷新与后台 revalidate 拆成两个独立 45s 单发定时器，操作完成即停表——不再出现「源级刷新已成功，残留 revalidate 定时器到点误报刷新超时」

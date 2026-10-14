@@ -90,6 +90,8 @@
 | **"同步文档"** | 按"代码变更→文档更新映射"逐项检查更新 |
 | **"检查文档"** | 运行 `scripts/verify-framework.sh`，汇总结果 |
 | **"前端冒烟"** | 运行 `uv run python -m ui_probe.smoke --report ui_report.json`（PYTHONPATH=tools），汇总加载失败/绑定环/警告 |
+| **"前端快照"** | 运行 `python -m ui_probe.snapshot --target <qml> [--pretty]`，读结构化对象树（type/几何/文本/属性）判断界面实况 |
+| **"真机验收"** | 运行 `python -m ui_probe.app_run --out app_report.json`，真实客户端离屏启动 + 窗口快照 + QML 消息捕获 |
 | **"记录决策"** | 在 `docs/decisions/` 创建 ADR |
 | **"更新 CHANGELOG"** | 检查 git 提交，追加版本条目 |
 
@@ -175,7 +177,8 @@
 - 优先覆盖用例层与核心逻辑，不依赖真实 UI
 - 对网络错误、超时、解析异常必须有测试
 - 新增文本来源时补充：`LoadTextUseCase` 测试 + `GlobalExceptionHandler` 测试 + service/integration 测试
-- **前端验收分层**（ADR-015）：`tests/ui_probe/` 离屏冒烟（加载错误/绑定环/警告，子进程隔离，随全量 pytest 必跑）覆盖全部页面/组件；前端改动后先跑 `uv run pytest tests/ui_probe/ -q`，新增依赖父级状态的组件须在 `tools/ui_probe/fixtures.json` 补注入声明
+- **前端验收分层**（ADR-015）：`tests/ui_probe/` 三个视角——`smoke` 离屏冒烟（mock bridge：加载错误/绑定环/警告）、`snapshot` 结构化对象树快照（几何/文本/属性断言）、`app_run` **真机验收**（真实客户端离屏启动，抓 mock 保真度覆盖不到的真实问题）。全部子进程隔离、随全量 pytest 必跑
+- 前端改动后先跑 `uv run pytest tests/ui_probe/ -q`；新增依赖父级状态的组件须在 `tools/ui_probe/fixtures.json` 补注入声明；改 `main.py` 启动序列时保持 `bootstrap()/shutdown()` 拆分（自动化复用于真机验收）
 
 ---
 
