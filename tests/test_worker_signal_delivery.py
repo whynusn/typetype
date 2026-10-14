@@ -2,7 +2,7 @@
 
 Existing adapter tests use DummyThreadPool which calls worker.run()
 synchronously. These tests verify signals actually arrive across thread
-boundaries when dispatched through QThreadPool.globalInstance().
+boundaries when dispatched through an isolated real QThreadPool.
 
 The adapter must keep a reference to the dispatched QRunnable (via
 self._active_worker) so the Python wrapper — and its WorkerSignals
@@ -31,10 +31,16 @@ def _spin_event_loop(app: QCoreApplication, timeout_s: float = 5.0) -> None:
         time.sleep(0.005)
 
 
+def _drain_pool(app: QCoreApplication, pool: QThreadPool) -> None:
+    """Wait for worker execution, then deliver queued main-thread signals."""
+    pool.waitForDone()
+    app.processEvents()
+
+
 def test_base_worker_signals_arrive_via_real_threadpool() -> None:
     """Sanity: BaseWorker signals work across real QThreadPool."""
     app = _ensure_app()
-    pool = QThreadPool.globalInstance()
+    pool = QThreadPool()
 
     results: list[str] = []
     finished = [False]
@@ -45,6 +51,7 @@ def test_base_worker_signals_arrive_via_real_threadpool() -> None:
 
     pool.start(worker)
     _spin_event_loop(app)
+    _drain_pool(app, pool)
 
     assert finished[0], "worker.finished was never delivered"
     assert results == ["hello"]
@@ -69,13 +76,15 @@ def test_trainer_adapter_signals_arrive_via_real_threadpool() -> None:
         )
     ]
     adapter = TrainerAdapter(gateway=gateway, load_segment_usecase=MagicMock())
-    adapter._thread_pool = QThreadPool.globalInstance()
+    pool = QThreadPool()
+    adapter._thread_pool = pool
 
     loaded: list[list[dict]] = []
     adapter.trainersLoaded.connect(loaded.append)
 
     adapter.loadTrainers()
     _spin_event_loop(app)
+    _drain_pool(app, pool)
 
     assert len(loaded) == 1
     assert loaded[0][0]["trainerId"] == "1.前500"
@@ -102,13 +111,15 @@ def test_local_article_adapter_signals_arrive_via_real_threadpool() -> None:
         )
     ]
     adapter = LocalArticleAdapter(gateway=gateway, load_segment_usecase=MagicMock())
-    adapter._thread_pool = QThreadPool.globalInstance()
+    pool = QThreadPool()
+    adapter._thread_pool = pool
 
     loaded: list[list[dict]] = []
     adapter.localArticlesLoaded.connect(loaded.append)
 
     adapter.loadLocalArticles()
     _spin_event_loop(app)
+    _drain_pool(app, pool)
 
     assert len(loaded) == 1
     assert loaded[0][0]["articleId"] == "a1"
@@ -133,7 +144,8 @@ def test_registry_source_refresh_clears_spinner_via_real_threadpool() -> None:
     adapter = RegistryAdapter(
         federation=MagicMock(), manifest_cache=MagicMock(), catalog=catalog
     )
-    adapter._thread_pool = QThreadPool.globalInstance()
+    pool = QThreadPool()
+    adapter._thread_pool = pool
 
     loaded: list[list[dict]] = []
     adapter.entriesLoaded.connect(loaded.append)
@@ -141,6 +153,7 @@ def test_registry_source_refresh_clears_spinner_via_real_threadpool() -> None:
     adapter.refreshSourceEntries("a1")
     assert adapter.refreshing_authority == "a1"
     _spin_event_loop(app)
+    _drain_pool(app, pool)
 
     assert loaded and loaded[-1][0]["entry_id"] == "e1"
     assert adapter.refreshing_authority == ""  # 成功即清，动画必须有结束态
