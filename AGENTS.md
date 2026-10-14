@@ -89,6 +89,7 @@
 | **"项目概览"** | 阅读 README 摘要 + ARCHITECTURE 一句话理解，汇总输出 |
 | **"同步文档"** | 按"代码变更→文档更新映射"逐项检查更新 |
 | **"检查文档"** | 运行 `scripts/verify-framework.sh`，汇总结果 |
+| **"前端冒烟"** | 运行 `uv run python -m ui_probe.smoke --report ui_report.json`（PYTHONPATH=tools），汇总加载失败/绑定环/警告 |
 | **"记录决策"** | 在 `docs/decisions/` 创建 ADR |
 | **"更新 CHANGELOG"** | 检查 git 提交，追加版本条目 |
 
@@ -174,6 +175,7 @@
 - 优先覆盖用例层与核心逻辑，不依赖真实 UI
 - 对网络错误、超时、解析异常必须有测试
 - 新增文本来源时补充：`LoadTextUseCase` 测试 + `GlobalExceptionHandler` 测试 + service/integration 测试
+- **前端验收分层**（ADR-015）：`tests/ui_probe/` 离屏冒烟（加载错误/绑定环/警告，子进程隔离，随全量 pytest 必跑）覆盖全部页面/组件；前端改动后先跑 `uv run pytest tests/ui_probe/ -q`，新增依赖父级状态的组件须在 `tools/ui_probe/fixtures.json` 补注入声明
 
 ---
 

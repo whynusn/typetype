@@ -108,6 +108,25 @@ src/backend/
 
 > 完整文件树见 git 仓库。本文档不再维护逐文件列表（代码提交即变更）。
 
+### 前端验收工具（UI Acceptance Harness，ADR-015）
+
+```
+tools/ui_probe/
+├── bridge_introspect.py  # ast 解析 bridge.py 的 Property/Slot/Signal API 面
+├── mock_bridge.py        # 由 API 面生成 mock bridge QML（保真默认值）
+├── fixtures.py           # 独立加载属性注入（$listmodel / $qml / 原语）
+├── fixtures.json         # 各目标孤立加载所需的注入声明
+├── message_capture.py    # qInstallMessageHandler 消息捕获
+├── loader.py             # 离屏环境装配 + 组件加载
+├── report.py             # 结构化报告（ui-probe/report@1）
+└── smoke.py              # 冒烟运行器 CLI（含 --selfcheck-loop）
+```
+
+离屏加载 `src/qml/` 全部页面/组件，抓加载错误（如 RinUI 模块外未解析类型）、
+QML 绑定环与警告，产出 `ui_report.json`（AI agent 消费接口）。pytest 入口
+`tests/ui_probe/test_qml_smoke.py` 以**子进程**方式运行（Qt 初始化不污染
+主测试进程退出期）。详细设计与分期见 [ADR-015](../decisions/015-ui-acceptance-harness.md)。
+
 ### 载文入口
 
 | 入口 | 文件 | 触发方式 | 分类 | 分段模式 | 乱序 |

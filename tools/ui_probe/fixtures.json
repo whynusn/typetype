@@ -1,0 +1,5 @@
+{
+  "src/qml/settings/FontManagerDialog.qml": {
+    "fontModel": { "$listmodel": true }
+  }
+}

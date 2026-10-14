@@ -14,6 +14,7 @@
 
 ### Added
 
+- **前端验收自动化工具 P0（ADR-015）**：`tools/ui_probe/` + `tests/ui_probe/`——离屏加载 `src/qml/` 全部页面/组件，抓取加载错误（如 RinUI 模块外未解析类型）、QML 绑定环与 qWarning，产出结构化 `ui-probe/report@1` JSON 报告（AI agent 可 grep/diff 的验收反馈接口）。mock bridge 由 `ast` 解析 bridge.py API 面自动生成（list 属性默认 `[]`、Slot 按返回注解给类型化默认值）；依赖父级状态的组件经 `fixtures.json` 显式注入（如 FontManagerDialog 的 `fontModel`）；测试以子进程隔离运行（规避 Qt/shiboken 退出期与 daemon 线程的冲突），随全量 pytest 必跑，含绑定环检测器自检与发现覆盖度门禁
 - **内置 OTT Repo 政策收口**：保留 OTT L1 声明式规则的协议与联邦能力；未完成来源权利、归属和稳定性审核的具体规则不随官方内置 manifest 分发，`ott-script` 继续不进入内置仓。
 - **智能路由（SmartRouteSelector）**：刷新/拉取链路按**实时延迟与连通性**在候选路径间选路——候选 = 原始地址 → jsDelivr CDN → 配置的镜像/代理前缀（`ott.route_mirrors`，如 ghproxy 形态）→ manifest mirrors，纯动态派生不硬编码。短超时（2s）并发探测 + TTL 缓存（`ott.route_probe_ttl_seconds`，默认 300s）+ 失败指数退避冷却（30s→300s 封顶）+ 真实请求回写（延迟 EWMA）。接入 manifest 拉取（`RepoManifestCache`）、instance 条目/分段（`OttCachedFetcher`）、脚本下载（`ScriptCache`）；不可达候选不再消耗 10s 超时，修复「刷新一直转圈直到 45s 硬超时」；`router=None` 时保持原固定 failover，测试兼容
 - **OTA 共用智能路由**：`UpdateChecker` 的 GitHub Releases API、`version.json` 清单和二进制下载候选接入同一个 `SmartRouteSelector`；API/清单请求按实时健康度排序，真实请求结果回写路由统计，清单仍先验签、下载仍强制 sha256 校验。GitHub API 仅保留经过独立 API JSON 实测的前置镜像，避免把只支持 raw/下载的代理误用于 API
