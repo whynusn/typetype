@@ -1,5 +1,5 @@
 # Bridge Slot / Signal 速查
-<!-- 状态: active | 最后验证: 2026-08-13 -->
+<!-- 状态: active | 最后验证: 2026-08-18 -->
 
 > Bridge 是 QML 能看到的唯一后端门面。全局对象名：`appBridge`
 > typetype-server 已移除（ADR-013）：登录/注册、服务端排行榜、远程文本列表、`base_url` 相关槽/信号/属性已删除。
@@ -45,6 +45,8 @@
 | `textLoaded` | `(str text, int textId, str sourceLabel)` | 文本加载完成 |
 | `textLoadFailed` | `(str message)` | 文本加载失败 |
 | `textLoadingChanged` | 无 | 加载状态变化 |
+| `localTextContentsLoaded` | `(list items)` | 本地文本预览批量读取完成，元素为 `{sourceKey, content}` |
+| `localTextContentsLoadFailed` | `(str message)` | 本地文本预览读取失败 |
 | `typingEnded` | 无 | 打字结束 |
 | `historyRecordUpdated` | `(dict record)` | 历史记录更新 |
 | `weakestCharsLoaded` | `(list chars)` | 薄弱字加载完成 |
@@ -55,7 +57,6 @@
 | `correctionChanged` | 无 | 回改次数变化 |
 | `sliceModeChanged` | 无 | 进入/退出载文模式 |
 | `sliceStatusChanged` | `(str status)` | 片进度更新（如 "载文模式: 第 3/5 片"） |
-| `textContentLoaded` | `(int text_id, str content, str title)` | 联邦 inline 条目内容到达（text_id 恒为 0） |
 | `keyAccuracyChanged` | 无 | 键准变化 |
 | `wenlaiLoadFailed` | `(str message)` | 晴发文载文失败 |
 | `wenlaiLoadingChanged` | 无 | 晴发文加载状态变化 |
@@ -84,6 +85,8 @@
 | `setTextId` | `(int textId)` | 设置文本 ID |
 | `loadFullText` | `(str text, str source_key="")` | 全文载入（不分片） |
 | `requestLoadText` | `(str sourceKey)` | 请求加载文本 |
+| `requestLocalTextContents` | `(list sourceKeys)` | 后台批量读取本地来源预览 |
+| `queueTextSession` | `(dict request)` | 统一的分片载文意图入口；当前支持 `{source: "local"|"trainer", identifier, segmentIndex, segmentSize}` |
 | `loadTextFromClipboard` | 无 | 从剪贴板载文 |
 | `uploadText` | `(str title, str content, str sourceKey, bool toLocal, bool toCloud)` | 保存文本到本地（云端上传已移除，toCloud 参数保留兼容） |
 | `uploadTextFromFile` | `(str title, str filePath, str sourceKey, bool toLocal, bool toCloud)` | 从文件保存文本到本地（云端上传已移除） |
@@ -114,7 +117,6 @@
 | `exitSliceMode` | 无 | 退出载文模式，清理状态 |
 | `getSliceStatus` | → `str` | 返回当前片进度摘要 |
 | `getLastSliceStats` | → `dict` | 获取最近一次分片完成时的 score_data 快照 |
-| `getLocalTextContent` | `(str source_key)` → `str` | 同步读取本地文本内容（供载文 Dialog 离线预览） |
 | `loadPrevSlice` | 无 | 载入上一片 |
 | `getOnFailAction` | → `str` | 返回当前未达标处理动作 |
 | `checkSliceResult` | → `str` | 检查当前片结果：fail/pass/advance |
@@ -155,7 +157,7 @@
 | `refreshRepo` | `(str url)` | 强制刷新单条订阅的 manifest（后台 Worker） |
 | `loadFederatedEntries` | 无 | 加载联邦聚合的全部条目（后台 Worker） |
 | `loadFederatedEntrySegment` | `(str authority, str entryId, str revisionId, int segmentIndex, int segmentSize, int totalChars, int sourceSegmentSize, str title)` | 从联邦聚合加载 OTT 分段文本 |
-| `loadFederatedInlineEntry` | `(str authority, str entryId, str revisionId, str title)` | 从联邦聚合加载 inline 内容（规则/脚本源） |
+| `loadFederatedInlineEntry` | `(str authority, str entryId, str revisionId, str title, dict sliceOptions={})` | 从联邦聚合加载 inline 内容（规则/脚本/桥接源）；`sliceOptions.slice_size > 0` 时按本地分片设置切分，支持 `start_slice` / `restored_progress`，进度 key 为 `ott:{authority}:{entryId}@{revisionId}`；缺省为全文 |
 | `setScriptsEnabled` | `(bool enabled)` | 更新 ott-script（L3）开关并持久化 |
 
 对应 Properties：`reposLoading`（bool）、`federatedEntriesLoading`（bool）、`scriptsEnabled`（bool）。

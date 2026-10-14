@@ -203,10 +203,15 @@ function progressKeyAndId(sourceKey, item, previewContent, customText) {
         return { key: "custom_text", identifier: customText || "" }
     case "repos":
         // 进度键格式：ott:{authority}:{entry_id}@{revision_id}
-        if (item && item.authority && item.entry_id && item.current_revision_id) {
+        var authority = item ? (item._authority || item.authority || "") : ""
+        var entryId = item ? (item.entry_id || "") : ""
+        var revisionId = item
+                ? (item.current_revision_id || item.revision_id || "v1")
+                : ""
+        if (authority && entryId && revisionId) {
             return {
                 key: "ott",
-                identifier: item.authority + ":" + item.entry_id + "@" + item.current_revision_id
+                identifier: authority + ":" + entryId + "@" + revisionId
             }
         }
         return { key: "", identifier: "" }

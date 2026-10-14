@@ -17,6 +17,17 @@ QtObject {
     property QtObject appearance: Theme.currentTheme.appearance // 界面外观
     property QtObject typography: Theme.currentTheme.typography // 字体
 
+    // Product-level tokens layered on top of RinUI's theme vocabulary.
+    property bool reducedMotion: false
+    readonly property int radiusSmall: 4
+    readonly property int radiusControl: 6
+    readonly property int radiusCard: 8
+    readonly property color fallbackTextColor: "#202020"
+    readonly property color fallbackSecondaryTextColor: "#666666"
+    readonly property color fallbackTertiaryTextColor: "#999999"
+    readonly property color fallbackSurfaceColor: "#eeeeee"
+    readonly property color fallbackPrimaryColor: "#3399ff"
+
     property int windowDragArea: 5 // 窗口可拖动范围 (px)
     property int dialogMaximumWidth: 600 // 对话框最大宽度 (px)
     property int dialogMinimumWidth: 320 // 对话框最小宽度 (px)
@@ -28,6 +39,10 @@ QtObject {
     property int appearanceSpeed: 175 // 界面切换速度 (ms)
     property int animationSpeedMiddle: 450 // 动画速度 (ms)
     property int progressBarAnimationSpeed: 1550 // 进度条动画速度 (ms)
+
+    function animationDuration(duration) {
+        return reducedMotion ? 0 : duration;
+    }
 
     function loadFontIconIndex() {
         Qt.include(fontIconIndexSource);

@@ -99,6 +99,11 @@ def test_create_adapters_wires_cross_layer_injections(monkeypatch):
     assert adapters.registry._manifest_cache is providers.manifest_cache
 
 
+def test_providers_router_is_optional_for_compatibility():
+    _, _, providers, _, _, _ = _mock_bundles(RuntimeConfig())
+    assert providers.router is None
+
+
 def test_registry_adapter_wired_with_catalog(monkeypatch):
     monkeypatch.setattr(
         "src.backend.integration.key_listener_factory.create_key_listener",

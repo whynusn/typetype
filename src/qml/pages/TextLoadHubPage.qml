@@ -65,8 +65,11 @@ FluentPage {
     property bool catalogLoading: false  // 目录加载状态
     property var federatedEntries: []    // 联邦聚合的条目（所有 repo 的条目）
     property string reposEntriesError: ""  // 开源文库条目加载错误（喂给 RepoEntriesPanel.errorText）
+    property string localListError: ""     // 本地文库列表加载错误（喂给 TextSourceListPanel.errorText）
+    property string trainerListError: ""   // 练单器词库列表加载错误（同上）
     property var federatedSourceStatuses: ({})  // authority -> {state,message,checked_at}
     property bool federatedContentLoading: false  // 联邦条目载文请求进行中（载入跟打按钮 Busy）
+    property bool repoManifestPreviewLoading: false
 
     // ---- 初始化 / 激活 ----
     onActiveChanged: {
@@ -90,6 +93,8 @@ FluentPage {
         errorMessage = ""
         statusMessage = ""
         reposEntriesError = ""
+        localListError = ""
+        trainerListError = ""
         hasProgress = false
         if (active) loadCurrentSource()
     }
@@ -319,8 +324,7 @@ FluentPage {
                 launchKind: capability.launchKind,
                 identifier: id,
                 title: itemDisplayTitle(),
-                fullSize: SrcBehav.articleCharCount(selectedItem),
-                loadSegmentMethod: "loadLocalArticleSegment"
+                fullSize: SrcBehav.articleCharCount(selectedItem)
             }
         }
 
@@ -332,8 +336,7 @@ FluentPage {
                 launchKind: capability.launchKind,
                 identifier: tid,
                 title: itemDisplayTitle(),
-                fullSize: SrcBehav.trainerEntryCount(selectedItem),
-                loadSegmentMethod: "loadTrainerSegment"
+                fullSize: SrcBehav.trainerEntryCount(selectedItem)
             }
         }
 
@@ -391,10 +394,12 @@ FluentPage {
         setupSliceCriteria(rp)
         navigateToTyping()
         Qt.callLater(function() {
-            if (request.loadSegmentMethod === "loadLocalArticleSegment")
-                appBridge.loadLocalArticleSegment(request.identifier, index, size)
-            else if (request.loadSegmentMethod === "loadTrainerSegment")
-                appBridge.loadTrainerSegment(request.identifier, index, size)
+            appBridge.queueTextSession({
+                source: request.source,
+                identifier: request.identifier,
+                segmentIndex: index,
+                segmentSize: size
+            })
         })
     }
 
@@ -406,6 +411,7 @@ FluentPage {
             setupSliceCriteria(rp)
             navigateToTyping()
             root.federatedContentLoading = true
+            federatedLoadTimeoutTimer.restart()
             Qt.callLater(function() {
                 appBridge.loadFederatedEntrySegment(
                     request.authority, request.entryId, request.revisionId,
@@ -418,12 +424,24 @@ FluentPage {
         }
         /* inline（规则/脚本/桥接源）同步读取快照/拉取内容，后端直发
            textLoaded（镜像 loadFullText 链路）：先进入打字页再载文，
-           busy 由 onTextLoaded 清除 */
+           busy 由 onTextLoaded 清除。开启分片设置时经 sliceOpts 由后端
+           本地切分（setupSliceMode），进度键 ott:{authority}:{entry_id}@{revision_id} */
         root.federatedContentLoading = true
+        federatedLoadTimeoutTimer.restart()
+        if (root.sliceModeChecked) setupSliceCriteria(rp)
         navigateToTyping()
         Qt.callLater(function() {
+            var s = rp || {}
+            var sliceOpts = {}
+            if (root.sliceModeChecked) {
+                sliceOpts = {
+                    slice_size: sliceSettingsPanel.sliceSize,
+                    start_slice: s.current_slice > 0 ? s.current_slice : sliceSettingsPanel.startSlice,
+                    restored_progress: rp ? JSON.stringify(rp) : ""
+                }
+            }
             appBridge.loadFederatedInlineEntry(
-                request.authority, request.entryId, request.revisionId, request.title
+                request.authority, request.entryId, request.revisionId, request.title, sliceOpts
             )
         })
     }
@@ -466,6 +484,23 @@ FluentPage {
 
     function canContinue() {
         return hasProgress && canLoad()
+    }
+
+    // ---- 联邦载文超时兜底 ----
+    // 与后端 RegistryAdapter._ENTRIES_REFRESH_TIMEOUT_S=45 对齐：极端路径（DNS 挂起等）
+    // 下 textLoaded/textLoadFailed 可能不到达，federatedContentLoading 会永转。
+    // 单发定时器；操作提前完成时在常驻 Connections 中停止，陈旧超时经状态检查忽略。
+    Timer {
+        id: federatedLoadTimeoutTimer
+        interval: 45000
+        repeat: false
+        onTriggered: {
+            if (root.federatedContentLoading) {
+                root.federatedContentLoading = false
+                root.errorMessage = qsTr("载文超时，请检查网络后重试")
+                root.statusMessage = ""
+            }
+        }
     }
 
     // ===================================================================
@@ -516,13 +551,18 @@ FluentPage {
 
             // index 0: local — 本地文库
             TextSourceListPanel {
+                id: localPanel
                 title: qsTr("文章")
                 icon: "ic_fluent_library_20_regular"
                 sourceItems: root.localItems
                 loading: root.currentSource === "local" && (appBridge ? appBridge.localArticleLoading : false)
                 emptyText: qsTr("暂无本地文章")
+                errorText: root.localListError
                 onItemClicked: function(originalIndex) { root.selectListItem("local", originalIndex) }
-                onRefreshRequested: { if (appBridge) appBridge.loadLocalArticles() }
+                onRefreshRequested: {
+                    root.localListError = ""
+                    if (appBridge) appBridge.loadLocalArticles()
+                }
 
                 ToolButton {
                     Layout.preferredWidth: 28
@@ -533,7 +573,7 @@ FluentPage {
                         if (Window.window && Window.window.navigationView)
                             Window.window.navigationView.push(Qt.resolvedUrl("UploadTextPage.qml"))
                     }
-                    ToolTip { text: qsTr("上传文本"); visible: parent.hovered }
+                    ToolTip { text: qsTr("导入文本"); visible: parent.hovered }
                 }
             }
 
@@ -580,18 +620,25 @@ FluentPage {
 
             // index 2: trainer — 练单器
             TextSourceListPanel {
+                id: trainerPanel
                 title: qsTr("词库")
                 icon: "ic_fluent_apps_list_detail_20_regular"
                 sourceItems: root.trainerItems
                 loading: root.currentSource === "trainer" && (appBridge ? appBridge.trainerLoading : false)
                 emptyText: qsTr("暂无练单器词库")
+                errorText: root.trainerListError
                 onItemClicked: function(originalIndex) { root.selectListItem("trainer", originalIndex) }
-                onRefreshRequested: { if (appBridge) appBridge.loadTrainers() }
+                onRefreshRequested: {
+                    root.trainerListError = ""
+                    if (appBridge) appBridge.loadTrainers()
+                }
             }
 
             // index 3: wenlai — 晴发文
             WenlaiSourcePanel {
+                id: wenlaiPanel
                 onLoadRequested: {
+                    wenlaiPanel.errorText = ""
                     root.navigateToTyping()
                     Qt.callLater(function() {
                         if (appBridge) appBridge.loadRandomWenlaiText()
@@ -601,7 +648,9 @@ FluentPage {
 
             // index 4: ai — AI 推荐
             AiSourcePanel {
+                id: aiPanel
                 onLoadRequested: {
+                    aiPanel.errorText = ""
                     root.navigateToTyping()
                     Qt.callLater(function() {
                         if (appBridge) appBridge.requestAiText()
@@ -626,10 +675,6 @@ FluentPage {
                     id: textLoadPanel
                     anchors.fill: parent
                     anchors.margins: 8
-                    compactMode: false
-                    hubMode: true
-                    textSourceOptions: appBridge ? appBridge.textSourceOptions : []
-                    defaultTextSourceKey: appBridge ? appBridge.defaultTextSourceKey : ""
                 }
             }
         }
@@ -807,6 +852,7 @@ FluentPage {
         modal: true
         standardButtons: Dialog.Ok | Dialog.Cancel
         property string _error: ""
+        property bool _awaitingAdd: false
         property var _preview: null
         property var _directoryRepos: []
 
@@ -819,15 +865,37 @@ FluentPage {
         }
         onAccepted: {
             var u = addRepoUrlField.text.trim()
-            if (u.length > 0 && appBridge) appBridge.addRepo(u)
+            if (u.length > 0 && appBridge) {
+                addRepoDialog._awaitingAdd = true
+                appBridge.addRepo(u)
+            }
         }
 
         // 添加失败（网络/校验）→ 弹窗内提示，不关闭
         Connections {
             target: appBridge
-            enabled: addRepoDialog.visible && appBridge !== null
             function onReposLoadFailed(message) {
+                addRepoDialog._awaitingAdd = false
                 addRepoDialog._error = message
+                addRepoDialog.open()
+            }
+            function onReposChanged(repos) {
+                if (!addRepoDialog._awaitingAdd) return
+                addRepoDialog._awaitingAdd = false
+                root.statusMessage = qsTr("订阅添加成功")
+                if (Window.window && Window.window.appNotificationManager)
+                    Window.window.appNotificationManager.show(
+                        Severity.Success, "", qsTr("订阅添加成功"), 1800)
+            }
+            function onRepoManifestPreviewed(result) {
+                root.repoManifestPreviewLoading = false
+                if (result && result.error) {
+                    addRepoDialog._error = result.error
+                } else {
+                    addRepoDialog._preview = result
+                    if (result && result.type === "directory" && result.repositories)
+                        addRepoDialog._directoryRepos = result.repositories
+                }
             }
         }
 
@@ -860,14 +928,8 @@ FluentPage {
                         addRepoDialog._error = ""
                         addRepoDialog._preview = null
                         addRepoDialog._directoryRepos = []
-                        var result = appBridge.previewRepoManifest(addRepoUrlField.text.trim())
-                        if (result && result.error) {
-                            addRepoDialog._error = result.error
-                        } else {
-                            addRepoDialog._preview = result
-                            if (result && result.type === "directory" && result.repositories)
-                                addRepoDialog._directoryRepos = result.repositories
-                        }
+                        root.repoManifestPreviewLoading = true
+                        appBridge.previewRepoManifest(addRepoUrlField.text.trim())
                     }
                 }
 
@@ -975,7 +1037,6 @@ FluentPage {
             if (_source === "" || _source === "custom") {
                 var text = textLoadPanel.contentText
                 var rp = appBridge.applySliceProgressRestore(appBridge.getProgressKey("custom_text", text), true, textLoadPanel.selectedSourceLabel || "")
-                textLoadPanel.startSlice = 1
                 root.startCustomTyping(rp)
                 return
             }
@@ -987,7 +1048,6 @@ FluentPage {
         onStartFresh: {
             if (_source === "" || _source === "custom") {
                 appBridge.applySliceProgressRestore(appBridge.getProgressKey("custom_text", textLoadPanel.contentText), false, textLoadPanel.selectedSourceLabel || "")
-                textLoadPanel.startSlice = 1
                 root.startCustomTyping()
                 return
             }
@@ -1005,10 +1065,27 @@ FluentPage {
             if (root.active && root.currentSource === "local") {
                 root._syncToCurrentList(articles)
                 root.errorMessage = ""
+                root.localListError = ""
             }
         }
         function onLocalArticlesLoadFailed(message) {
-            if (root.active && root.currentSource === "local") { root.errorMessage = message; root.statusMessage = "" }
+            if (root.active && root.currentSource === "local") {
+                root.errorMessage = message
+                root.statusMessage = ""
+                root.localListError = message
+            }
+        }
+        function onTrainersLoaded(trainers) {
+            if (root.active && root.currentSource === "trainer") {
+                root.trainerItems = trainers || []
+                root.trainerListError = ""
+            }
+        }
+        function onTrainersLoadFailed(message) {
+            if (root.active && root.currentSource === "trainer") {
+                root.trainerItems = []
+                root.trainerListError = message
+            }
         }
         function onLocalArticleSegmentLoaded(segment) {
             if (root.active) {
@@ -1042,15 +1119,6 @@ FluentPage {
                 else root.errorMessage = message
             }
         }
-        function onTrainersLoaded(items) {
-            if (root.active && root.currentSource === "trainer") {
-                root._syncToCurrentList(items)
-                root.errorMessage = ""
-            }
-        }
-        function onTrainersLoadFailed(message) {
-            if (root.active && root.currentSource === "trainer") { root.errorMessage = message; root.statusMessage = "" }
-        }
         function onTrainerSegmentLoaded(segment) {
             if (root.active) {
                 var title = segment && segment.title ? segment.title : SrcBehav.trainerTitle(root.selectedItem)
@@ -1072,11 +1140,13 @@ FluentPage {
 
         function onTextLoaded(text, textId, sourceLabel) {
             /* 联邦条目载文完成（segmented/inline 均直发 textLoaded），清除载文 busy 状态 */
+            federatedLoadTimeoutTimer.stop()
             root.federatedContentLoading = false
         }
         function onTextLoadFailed(message) {
             /* 联邦载文失败：清除 busy 状态 */
             if (root.federatedContentLoading) {
+                federatedLoadTimeoutTimer.stop()
                 root.federatedContentLoading = false
                 root.errorMessage = message
                 root.statusMessage = ""
@@ -1087,9 +1157,18 @@ FluentPage {
                 root.statusMessage = qsTr("正在加载条目…")
             }
         }
+        // 即时源失败回流：载文落在 TypingPage，失败原因要留存在来源面板上，
+        // 用户回到 hub 时能看到（再次发起时由面板自行清空）。
+        function onWenlaiLoadFailed(message) {
+            wenlaiPanel.errorText = message
+        }
+        function onAiTextFailed(message) {
+            aiPanel.errorText = message
+        }
         function onRegistryFederatedEntriesLoadFailed(message) {
             root.reposEntriesError = message
             root.statusMessage = ""
+            federatedLoadTimeoutTimer.stop()
             root.federatedContentLoading = false
         }
         function onFederatedSourceStatusChanged(authority, status) {

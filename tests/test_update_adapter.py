@@ -10,7 +10,9 @@
 """
 
 import sys
+import tarfile
 import time
+import zipfile
 
 import pytest
 from unittest.mock import MagicMock
@@ -157,9 +159,10 @@ def _mock_install_steps(adapter):
 
 def _run_install(adapter, checker, version="2.0.0"):
     _mock_install_steps(adapter)
-    checker.check_for_update.return_value.assets = [
-        {"name": _current_asset_name(), "url": "x", "sha256": "abc"}
-    ]
+    info = MagicMock()
+    info.version = version
+    info.assets = [{"name": _current_asset_name(), "url": "x", "sha256": "aa" * 32}]
+    checker.check_for_update.return_value = info
     adapter._do_download_and_install(version)
 
 
@@ -228,13 +231,26 @@ def test_platform_asset_mapping():
 def test_sha256_read_from_update_info_assets():
     adapter, checker = _build_adapter()
     asset_name = _current_asset_name()
-    checker.check_for_update.return_value.assets = [
-        {"name": asset_name, "sha256": "deadbeef"}
-    ]
+    info = MagicMock()
+    info.version = "2.0.0"
+    info.assets = [{"name": asset_name, "sha256": "de" * 32}]
+    checker.check_for_update.return_value = info
 
     sha = adapter._asset_sha256("2.0.0", asset_name)
 
-    assert sha == "deadbeef"
+    assert sha == "de" * 32
+
+
+def test_download_rejects_manifest_for_different_requested_version():
+    adapter, checker = _build_adapter()
+    info = MagicMock()
+    info.version = "2.0.1"
+    info.assets = [{"name": _current_asset_name(), "sha256": "aa" * 32}]
+    checker.check_for_update.return_value = info
+
+    with pytest.raises(RuntimeError, match="没有可验证的资产 sha256"):
+        adapter._do_download_and_install("2.0.0")
+    checker.download.assert_not_called()
 
 
 def test_mirrors_passed_to_build_candidates():
@@ -285,3 +301,34 @@ def test_dismiss_clears_state():
 
     assert adapter.available_version == ""
     assert statuses == [""]
+
+
+def test_zip_path_traversal_is_rejected(tmp_path):
+    archive = tmp_path / "malicious.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("../outside.txt", "owned")
+
+    adapter, _ = _build_adapter()
+    with pytest.raises(RuntimeError, match="归档路径越界"):
+        adapter._extract_archive(archive, tmp_path / "stage")
+    assert not (tmp_path / "outside.txt").exists()
+
+
+def test_tar_symlink_is_rejected(tmp_path):
+    archive = tmp_path / "malicious.tar.gz"
+    with tarfile.open(archive, "w:gz") as tf:
+        link = tarfile.TarInfo("link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/tmp/outside"
+        tf.addfile(link)
+
+    adapter, _ = _build_adapter()
+    with pytest.raises(RuntimeError, match="特殊文件"):
+        adapter._extract_archive(archive, tmp_path / "stage")
+
+
+def test_archive_windows_drive_path_is_rejected(tmp_path):
+    stage = (tmp_path / "stage").resolve()
+    adapter, _ = _build_adapter()
+    with pytest.raises(RuntimeError, match="归档路径越界"):
+        adapter._validate_archive_member("C:\\outside.txt", stage)

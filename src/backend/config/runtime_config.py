@@ -314,7 +314,6 @@ class RuntimeConfig:
     _ui_dirty: bool = field(default=False, repr=False, compare=False)
 
     @classmethod
-    @classmethod
     def _needs_v1_migration(cls, data: Any) -> bool:
         """是否需要对配置执行 v1→v2 迁移。
 
@@ -342,6 +341,9 @@ class RuntimeConfig:
                 log_error(f"[RuntimeConfig] 配置文件损坏，使用默认配置: {config_path}")
                 config = cls(_config_path=config_path)
                 config._ensure_builtin_default_repo()
+                config._ensure_builtin_default_text_sources()
+                config._ensure_valid_text_source_default()
+                config._save_to_file()
                 return config
 
             if cls._needs_v1_migration(data):
@@ -355,6 +357,8 @@ class RuntimeConfig:
 
                 config = cls._from_dict(data)
                 config._config_path = config_path  # 先绑定路径，后续 save 写入目标文件
+                seeded_text_sources = config._ensure_builtin_default_text_sources()
+                default_changed = config._ensure_valid_text_source_default()
                 if had_repos and not config.source_repos.repos:
                     # 原有「清空后重新 ensure_builtin」语义：v1 有订阅但迁移
                     # （example.org 占位清理）后全部被移除 → 补默认订阅并持久化，
@@ -364,6 +368,8 @@ class RuntimeConfig:
                 elif "source_repos" not in data:
                     # 全新/极简 v1 配置无 source_repos 键 → 补默认订阅（与 v2 路径一致）
                     config._ensure_builtin_default_repo()
+                    config._save_to_file()
+                elif seeded_text_sources or default_changed:
                     config._save_to_file()
                 return config
 
@@ -379,11 +385,25 @@ class RuntimeConfig:
                 config._save_to_file()
             if "source_repos" not in data:
                 config._ensure_builtin_default_repo()
+            # 干净 v2 配置的空 dict 是用户可表达的“暂不配置本地来源”，不覆盖。
+            # 缺字段或显式 null/非 dict 属于不完整/损坏配置，才补默认来源。
+            text_sources_data = data.get("text_sources")
+            seeded_text_sources = False
+            if "text_sources" not in data or not isinstance(text_sources_data, dict):
+                seeded_text_sources = config._ensure_builtin_default_text_sources()
+            elif text_sources_data and not config.text_source_config.sources:
+                # 外层 dict 非空但所有条目均非法时，不能静默进入无来源空白页。
+                seeded_text_sources = config._ensure_builtin_default_text_sources()
+            default_changed = config._ensure_valid_text_source_default()
+            if seeded_text_sources or default_changed:
+                config._save_to_file()
             return config
 
         else:
             config = cls(_config_path=config_path)
             config._ensure_builtin_default_repo()
+            config._ensure_builtin_default_text_sources()
+            config._ensure_valid_text_source_default()
 
         return config
 
@@ -553,10 +573,70 @@ class RuntimeConfig:
             SourceRepoEntry(url=default_ott_hub_url(), enabled=True)
         )
 
+    @staticmethod
+    def _builtin_text_sources() -> dict[str, "TextSourceEntry"]:
+        """内置本地文本源（首次启动/空配置时用于兜底，与 docs/reference/config.md 一致）。"""
+        return {
+            "builtin_demo": TextSourceEntry(
+                key="builtin_demo",
+                label="本地示例",
+                local_path="resources/texts/builtin_demo.txt",
+            ),
+            "fst_500": TextSourceEntry(
+                key="fst_500",
+                label="前五百",
+                local_path="resources/texts/前五百.txt",
+            ),
+            "mid_500": TextSourceEntry(
+                key="mid_500",
+                label="中五百",
+                local_path="resources/texts/中五百.txt",
+            ),
+            "lst_500": TextSourceEntry(
+                key="lst_500",
+                label="后五百",
+                local_path="resources/texts/后五百.txt",
+            ),
+            "essential_single_char": TextSourceEntry(
+                key="essential_single_char",
+                label="打词必备单字",
+                local_path="resources/texts/打词必备单字.txt",
+            ),
+        }
+
+    def _ensure_builtin_default_text_sources(self) -> bool:
+        """如果当前没有任何本地文本来源，补入内置五组并返回是否变更。
+
+        与 ``_ensure_builtin_default_repo`` 一样属于配置自愈：防止旧版本/迁移
+        生成的空 ``text_sources`` 在启动自动载文时触发“未知文本来源()”。
+        """
+        if self.text_source_config.sources:
+            return False
+        self.text_source_config.sources.update(self._builtin_text_sources())
+        if not self.text_source_config.default_key:
+            self.text_source_config.default_key = "builtin_demo"
+        return True
+
+    def _ensure_valid_text_source_default(self) -> bool:
+        """修复孤立默认 key；不把空来源表强行变成内置来源表。"""
+        sources = self.text_source_config.sources
+        if not sources:
+            if self.text_source_config.default_key != "":
+                self.text_source_config.default_key = ""
+                return True
+            return False
+        if not isinstance(self.text_source_config.default_key, str) or (
+            self.text_source_config.default_key not in sources
+        ):
+            self.text_source_config.default_key = next(iter(sources))
+            return True
+        return False
+
     @classmethod
     def _fresh_with_builtin(cls) -> "RuntimeConfig":
         config = cls()
         config._ensure_builtin_default_repo()
+        config._ensure_builtin_default_text_sources()
         return config
 
     @classmethod
@@ -608,9 +688,49 @@ class RuntimeConfig:
             data = cls._migrate_legacy_v1(data if isinstance(data, dict) else {})
 
         defaults = cls._fresh_with_builtin()._to_dict()
-        missing = {k: v for k, v in defaults.items() if k not in data}
+        changed = False
+        # text_sources/default key 需要按用户现有来源表单独合并；直接把默认
+        # builtin_demo 写入一个已有自定义来源表，会制造孤立 default key。
+        missing = {
+            k: v
+            for k, v in defaults.items()
+            if k not in data and k not in {"text_sources", "default_text_source_key"}
+        }
         if missing:
             data.update(missing)
+            changed = True
+
+        text_sources = data.get("text_sources")
+        if "text_sources" not in data or not isinstance(text_sources, dict):
+            data["text_sources"] = defaults["text_sources"]
+            data["default_text_source_key"] = defaults["default_text_source_key"]
+            changed = True
+        elif text_sources:
+            valid_text_sources = {
+                key: value
+                for key, value in text_sources.items()
+                if isinstance(key, str) and isinstance(value, dict)
+            }
+            if not valid_text_sources:
+                data["text_sources"] = defaults["text_sources"]
+                data["default_text_source_key"] = defaults["default_text_source_key"]
+                changed = True
+                text_sources = data["text_sources"]
+            elif len(valid_text_sources) != len(text_sources):
+                data["text_sources"] = valid_text_sources
+                text_sources = valid_text_sources
+                changed = True
+            default_key = data.get("default_text_source_key")
+            if not isinstance(default_key, str) or default_key not in text_sources:
+                data["default_text_source_key"] = next(iter(text_sources))
+                changed = True
+        elif "default_text_source_key" not in data or not isinstance(
+            data["default_text_source_key"], str
+        ):
+            data["default_text_source_key"] = ""
+            changed = True
+
+        if changed:
             try:
                 with target.open("w", encoding="utf-8") as f:
                     try:

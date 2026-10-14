@@ -33,6 +33,7 @@ class UpdateWorkerSignals(QObject):
     """
 
     checkFinished = Signal(bool, str, str)
+    infoReady = Signal(object)
     finished = Signal()
 
 
@@ -63,6 +64,7 @@ class UpdateWorker(BaseWorker):
             if info is None:
                 self.signals.checkFinished.emit(False, "", "")
             else:
+                self.signals.infoReady.emit(info)
                 self.signals.checkFinished.emit(True, str(info.version), "")
         except Exception as e:
             msg = GlobalExceptionHandler.handle(e)

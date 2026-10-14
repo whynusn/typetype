@@ -28,8 +28,23 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+
+def _normalize_sha256(value: str) -> str:
+    """规范化并校验 SHA-256，返回小写裸 hex。"""
+    digest = str(value or "").strip().lower()
+    if digest.startswith("sha256:"):
+        digest = digest[len("sha256:") :].strip()
+    if len(digest) != 64:
+        return ""
+    try:
+        bytes.fromhex(digest)
+    except ValueError:
+        return ""
+    return digest
 
 
 def _load_private_key() -> Ed25519PrivateKey:
@@ -67,7 +82,15 @@ def _parse_pairs(value: str) -> dict[str, str]:
             print(f"错误：无法解析 '{item}'（应为 name=value）", file=sys.stderr)
             sys.exit(1)
         name, _, val = item.partition("=")
-        result[name.strip()] = val.strip()
+        name = name.strip()
+        val = val.strip()
+        if not name or not val:
+            print(f"错误：资产键和值都不能为空: '{item}'", file=sys.stderr)
+            sys.exit(1)
+        if name in result:
+            print(f"错误：重复的资产名: {name}", file=sys.stderr)
+            sys.exit(1)
+        result[name] = val
     return result
 
 
@@ -98,16 +121,38 @@ def main() -> None:
         sys.exit(1)
 
     assets_map = _parse_pairs(assets_raw)
-    sha256_map = _parse_pairs(sha256_raw) if sha256_raw else {}
-    for name in assets_map:
-        if not sha256_map.get(name):
-            print(f"警告：资产 {name} 缺少 sha256，客户端下载将拒绝", file=sys.stderr)
+    for name, url in assets_map.items():
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            print(f"错误：资产 {name} 的 URL 必须是完整 https URL", file=sys.stderr)
+            sys.exit(1)
+    if not sha256_raw:
+        print("错误：必须提供 --sha256 或环境变量 UPDATE_SHA256", file=sys.stderr)
+        sys.exit(1)
+    sha256_map = _parse_pairs(sha256_raw)
+    if set(sha256_map) != set(assets_map):
+        missing = sorted(set(assets_map) - set(sha256_map))
+        extra = sorted(set(sha256_map) - set(assets_map))
+        details = []
+        if missing:
+            details.append(f"缺少: {', '.join(missing)}")
+        if extra:
+            details.append(f"多余: {', '.join(extra)}")
+        print(f"错误：sha256 资产集合不匹配（{'；'.join(details)}）", file=sys.stderr)
+        sys.exit(1)
+    normalized_hashes: dict[str, str] = {}
+    for name, value in sha256_map.items():
+        digest = _normalize_sha256(value)
+        if not digest:
+            print(f"错误：资产 {name} 的 sha256 非法", file=sys.stderr)
+            sys.exit(1)
+        normalized_hashes[name] = digest
 
     private_key = _load_private_key()
     manifest: dict = {
         "version": version,
         "assets": [
-            {"name": name, "url": assets_map[name], "sha256": sha256_map.get(name, "")}
+            {"name": name, "url": assets_map[name], "sha256": normalized_hashes[name]}
             for name in assets_map
         ],
     }

@@ -16,6 +16,15 @@ from PySide6.QtCore import QObject, QSettings, QSocketNotifier, Signal
 from ..ports.key_codes import KeyCodes
 from ..utils.logger import log_debug, log_error, log_info
 
+# computer use 自动化测试的虚拟键盘白名单（按设备名）。
+# ydotoold virtual device 是键鼠合一的 uinput 设备（带 EV_REL），会被两阶段扫描当鼠标
+# 过滤掉，导致自动化注入的键事件不可见；白名单内的设备只要求 EV_KEY + 标准键码，
+# 让注入的键盘事件与物理键盘走同一条 evdev 链路。
+VIRTUAL_KEYBOARD_WHITELIST = {
+    "ydotoold virtual device",
+    "cu-virtual-keyboard",
+}
+
 
 class GlobalKeyListener(QObject):
     keyPressed = Signal(int, str)  # (按键码, 设备名)
@@ -57,6 +66,9 @@ class GlobalKeyListener(QObject):
 
         if self.ecodes.EV_KEY not in caps:
             return False
+        if device.name in VIRTUAL_KEYBOARD_WHITELIST:
+            # 白名单虚拟键盘：只要求 EV_KEY + 标准键码，跳过 EV_REL/EV_ABS 排除
+            return any(k < 256 for k in caps[self.ecodes.EV_KEY])
         if self.ecodes.EV_REL in caps:
             return False
         if self.ecodes.EV_ABS in caps:
@@ -76,6 +88,8 @@ class GlobalKeyListener(QObject):
 
         if self.ecodes.EV_KEY not in caps:
             return False
+        if device.name in VIRTUAL_KEYBOARD_WHITELIST:
+            return any(k < 256 for k in caps[self.ecodes.EV_KEY])
         # 排除鼠标：有相对位移的设备
         if self.ecodes.EV_REL in caps:
             return False

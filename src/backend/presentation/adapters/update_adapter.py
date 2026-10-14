@@ -22,18 +22,22 @@
 from __future__ import annotations
 
 import inspect
+import os
+import shutil
+import stat
 import subprocess
 import sys
 import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from ...utils.logger import log_warning
-from ...workers.base_worker import BaseWorker
+from ...workers.base_worker import BaseWorker, start_worker
 from ...workers.update_worker import UpdateWorker
 
 if TYPE_CHECKING:
@@ -91,6 +95,7 @@ class UpdateAdapter(QObject):
         self._downloading = False
         self._manual = False
         self._available_version = ""
+        self._available_info = None
         self._current_version = _resolve_app_version()
         # Lane E 的 download 是否支持 on_progress 回调（探测一次，避免每次抛 TypeError）
         self._download_supports_progress = self._probe_progress_support()
@@ -144,19 +149,26 @@ class UpdateAdapter(QObject):
             force=force,
         )
         worker.signals.checkFinished.connect(self._on_check_finished)
+        worker.signals.infoReady.connect(self._on_info_ready)
         worker.signals.finished.connect(self._on_check_worker_finished)
         self._checking = True
         # 清掉上一次的状态文本（检查期间 UI 显示按钮禁用态）
         self.statusChanged.emit("")
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     def _on_check_finished(self, available: bool, version: str, error: str) -> None:
         # 自动检查失败静默：不向 UI 抛错误（worker 已 log_warning）
         if error and not self._manual:
             self.checkFinished.emit(False, "", "")
             return
+        if not available:
+            self._available_info = None
         self._available_version = version if available else ""
         self.checkFinished.emit(available, version, error)
+
+    def _on_info_ready(self, info) -> None:
+        """保留本次检查的完整清单，下载时绑定到用户确认的版本。"""
+        self._available_info = info
 
     def _on_check_worker_finished(self) -> None:
         self._checking = False
@@ -179,7 +191,7 @@ class UpdateAdapter(QObject):
         worker = BaseWorker(task=_task, error_prefix="下载更新失败")
         worker.signals.failed.connect(self._on_download_error)
         worker.signals.finished.connect(self._on_download_worker_finished)
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     def _on_download_error(self, message: str) -> None:
         self.statusChanged.emit(f"error:{message}")
@@ -191,6 +203,8 @@ class UpdateAdapter(QObject):
         """同步核心：下载 → 解压 → 调用 updater。测试可直接调用。"""
         asset_name = self._platform_asset_name()
         sha256 = self._asset_sha256(version, asset_name)
+        if not sha256:
+            raise RuntimeError(f"目标版本 {version} 没有可验证的资产 sha256")
         urls = self._build_candidates(version, asset_name)
         if not urls:
             raise RuntimeError("无可用的下载源")
@@ -223,17 +237,41 @@ class UpdateAdapter(QObject):
         补全（Lane E 行为）；仍为空则 download() 会拒绝（返回 False），
         走 fallback 链直至报错。
         """
-        try:
-            info = self._update_checker.check_for_update()
-        except Exception as e:  # noqa: BLE001 - 取不到 sha256 按空处理
-            log_warning(f"[UpdateAdapter] 获取更新清单失败: {e}")
-            return ""
+        info = self._info_for_version(version)
         if info is None:
             return ""
         for asset in info.assets or []:
             if asset.get("name") == asset_name:
                 return str(asset.get("sha256") or "")
         return ""
+
+    @staticmethod
+    def _version_key(value: str) -> str:
+        return str(value or "").strip().lstrip("vV")
+
+    def _info_for_version(self, version: str):
+        """返回与目标版本严格匹配的清单，拒绝 latest 竞态覆盖。"""
+        requested = self._version_key(version)
+        if not requested:
+            return None
+        info = self._available_info
+        if (
+            info is not None
+            and self._version_key(getattr(info, "version", "")) == requested
+        ):
+            return info
+        try:
+            info = self._update_checker.check_for_update()
+        except Exception as e:  # noqa: BLE001 - 取不到 sha256 按空处理
+            log_warning(f"[UpdateAdapter] 获取更新清单失败: {e}")
+            return None
+        if info is None or self._version_key(getattr(info, "version", "")) != requested:
+            log_warning(
+                f"[UpdateAdapter] 更新清单版本不匹配，拒绝下载: requested={requested}"
+            )
+            return None
+        self._available_info = info
+        return info
 
     def _mirrors(self) -> list[str]:
         if self._runtime_config:
@@ -290,26 +328,77 @@ class UpdateAdapter(QObject):
         self.downloadProgress.emit(max(0, min(100, percent)))
 
     def _extract_archive(self, archive_path: Path, stage_dir: Path) -> None:
-        """解压归档到 stage 目录（tar.gz / zip 两态）。"""
+        """安全解压归档到 stage 目录（tar.gz / zip 两态）。"""
+        stage_root = stage_dir.resolve()
+        stage_root.mkdir(parents=True, exist_ok=True)
         if archive_path.name.endswith(".zip"):
             with zipfile.ZipFile(archive_path) as zf:
-                zf.extractall(stage_dir)
+                for member in zf.infolist():
+                    self._validate_archive_member(member.filename, stage_root)
+                    mode = (member.external_attr >> 16) & 0xFFFF
+                    if stat.S_ISLNK(mode):
+                        raise RuntimeError(
+                            f"归档包含不允许的符号链接: {member.filename}"
+                        )
+                    zf.extract(member, stage_root)
         else:
             with tarfile.open(archive_path, "r:gz") as tf:
-                tf.extractall(stage_dir)
+                for member in tf.getmembers():
+                    self._validate_archive_member(member.name, stage_root)
+                    if member.issym() or member.islnk() or member.isdev():
+                        raise RuntimeError(f"归档包含不允许的特殊文件: {member.name}")
+                    tf.extract(member, stage_root)
+
+    @staticmethod
+    def _validate_archive_member(name: str, stage_root: Path) -> None:
+        """拒绝绝对路径、父目录跳出和 NUL 路径。"""
+        if not isinstance(name, str) or "\x00" in name:
+            raise RuntimeError("归档包含非法路径")
+        normalized = name.replace("\\", "/")
+        relative = PurePosixPath(normalized)
+        is_drive_path = len(normalized) >= 2 and normalized[1] == ":"
+        if (
+            relative.is_absolute()
+            or is_drive_path
+            or any(part == ".." for part in relative.parts)
+        ):
+            raise RuntimeError(f"归档路径越界: {name}")
+        target = (stage_root / Path(*relative.parts)).resolve()
+        try:
+            target.relative_to(stage_root)
+        except ValueError as exc:
+            raise RuntimeError(f"归档路径越界: {name}") from exc
 
     def _install_dir(self) -> Path:
         """安装目录 = 当前运行可执行文件所在目录。"""
         if getattr(sys, "frozen", False):
-            return Path(sys.executable).resolve().parent
+            executable = Path(sys.executable).resolve()
+            if sys.platform == "darwin":
+                for parent in (executable, *executable.parents):
+                    if parent.name.endswith(".app"):
+                        return parent
+            return executable.parent
         return Path(sys.argv[0]).resolve().parent
 
     def _run_updater(self, install_dir: Path, stage_dir: Path) -> None:
         """后台 detach 调用平台 updater 脚本（返回后由 updater 自行替换并重启）。"""
         script = self._updater_script_path()
-        args = [str(script), str(install_dir), str(stage_dir)]
+        if not script.is_file():
+            raise FileNotFoundError(f"更新器脚本不存在: {script}")
+        # updater 通常位于当前安装目录。Windows 无法在脚本仍被 cmd 使用时
+        # 移动该目录，因此先复制一份到独立临时目录再启动。
+        updater_dir = Path(tempfile.mkdtemp(prefix="typetype-updater-"))
+        runtime_script = updater_dir / script.name
+        try:
+            shutil.copy2(script, runtime_script)
+        except OSError as exc:
+            shutil.rmtree(updater_dir, ignore_errors=True)
+            raise RuntimeError(f"复制更新器失败: {script}") from exc
+        args = [str(runtime_script), str(install_dir), str(stage_dir)]
         kwargs: dict = {}
         if sys.platform == "win32":
+            command = "call " + " ".join(f'"{value}"' for value in args)
+            args = [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", command]
             creationflags = 0
             if hasattr(subprocess, "DETACHED_PROCESS"):
                 creationflags = (
@@ -318,19 +407,42 @@ class UpdateAdapter(QObject):
             kwargs["creationflags"] = creationflags
             kwargs["stdin"] = kwargs["stdout"] = kwargs["stderr"] = subprocess.DEVNULL
         else:
+            args = ["/bin/bash", *args]
             kwargs["start_new_session"] = True
             kwargs["stdout"] = subprocess.DEVNULL
             kwargs["stderr"] = subprocess.DEVNULL
         subprocess.Popen(args, **kwargs)
 
     def _updater_script_path(self) -> Path:
-        root = Path(__file__).resolve().parents[4]
-        updater_dir = root / "resources" / "updater"
-        if sys.platform == "win32":
-            return updater_dir / "updater.bat"
-        return updater_dir / "updater.sh"
+        if getattr(sys, "frozen", False):
+            executable = Path(sys.executable).resolve()
+            executable_dir = executable.parent
+            roots = [
+                executable_dir,
+                executable_dir.parent,
+                executable_dir.parent / "Resources",
+                *[
+                    parent
+                    for parent in executable.parents
+                    if parent.name.endswith(".app")
+                ],
+            ]
+        else:
+            roots = [Path(__file__).resolve().parents[4]]
+        filename = "updater.bat" if sys.platform == "win32" else "updater.sh"
+        seen: set[Path] = set()
+        for root in roots:
+            root = root.resolve()
+            if root in seen:
+                continue
+            seen.add(root)
+            candidate = root / "resources" / "updater" / filename
+            if candidate.is_file():
+                return candidate
+        return roots[0] / "resources" / "updater" / filename
 
     def dismiss(self) -> None:
         """清除更新提示状态。"""
         self._available_version = ""
+        self._available_info = None
         self.statusChanged.emit("")

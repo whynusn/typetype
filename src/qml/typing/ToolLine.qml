@@ -20,33 +20,37 @@ QQC.Pane {
 
     // 自定义 Pane 的背景（跟随 RinUI 主题）
     background: Rectangle {
-        color: Theme.currentTheme ? Theme.currentTheme.colors.cardColor : "#d3d3d3"
-        radius: 2
-        border.color: Theme.currentTheme ? Theme.currentTheme.colors.controlBorderColor : "#b0b0b0"
+        color: Theme.currentTheme ? Theme.currentTheme.colors.cardColor : Utils.fallbackSurfaceColor
+        radius: Utils.radiusSmall
+        border.color: Theme.currentTheme ? Theme.currentTheme.colors.controlBorderColor : Utils.fallbackSecondaryTextColor
         border.width: 1
     }
 
-    Row {
-        id: rowLayout
+    implicitHeight: flowLayout.childrenRect.height + padding * 2
+
+    Flow {
+        id: flowLayout
         anchors.fill: parent
         anchors.leftMargin: 15
         anchors.rightMargin: 15
-        spacing: 15
+        anchors.topMargin: 8
+        anchors.bottomMargin: 8
+        spacing: 8
 
         Image {
             source: resourceBaseUrl + "images/TypeTypeLogo.png"
+            sourceSize: Qt.size(72, 72)
+            width: 36
             height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            fillMode: Image.PreserveAspectFit   // 保持宽高比，不会变形
+            fillMode: Image.PreserveAspectFit
         }
 
         // 发文（移到第一位）
         Button {
             id: sendText
-            width: 110
+            width: Math.max(implicitWidth, 104)
             height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            text: "发文[C^D]"
+            text: qsTr("发文[C^D]")
             onClicked: {
                 root.requestSendText();
             }
@@ -54,10 +58,9 @@ QQC.Pane {
 
         Button {
             id: clipboardLoadText
-            width: 110
+            width: Math.max(implicitWidth, 104)
             height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            text: "剪贴板[C^V]"
+            text: qsTr("剪贴板[C^V]")
             onClicked: {
                 root.requestLoadTextFromClipboard();
             }
@@ -65,10 +68,9 @@ QQC.Pane {
 
         Button {
             id: retype
-            width: 110
+            width: Math.max(implicitWidth, 104)
             height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            text: "重打[F3]"
+            text: qsTr("重打[F3]")
             onClicked: {
                 root.requestRetype();
             }
@@ -76,10 +78,9 @@ QQC.Pane {
 
         Button {
             id: shuffle
-            width: 110
+            width: Math.max(implicitWidth, 104)
             height: 36
-            anchors.verticalCenter: parent.verticalCenter
-            text: "乱序[C^L]"
+            text: qsTr("乱序[C^L]")
             onClicked: {
                 root.requestShuffle();
             }
@@ -88,9 +89,8 @@ QQC.Pane {
         // 晴发文
         Button {
             id: wenlaiLoadText
-            width: 110
+            width: Math.max(implicitWidth, 104)
             height: 36
-            anchors.verticalCenter: parent.verticalCenter
             enabled: !root.wenlaiLoading
             text: "晴发文[C^R]"
             onClicked: {
@@ -98,20 +98,24 @@ QQC.Pane {
             }
         }
 
-        BusyIndicator {
+        Item {
             width: 24
-            height: 24
-            anchors.verticalCenter: parent.verticalCenter
-            running: root.wenlaiLoading
-            visible: root.wenlaiLoading
+            height: 36
+
+            BusyIndicator {
+                anchors.centerIn: parent
+                width: 24
+                height: 24
+                running: root.wenlaiLoading
+                visible: root.wenlaiLoading
+            }
         }
 
         // AI 推荐
         Button {
             id: aiRecommend
-            width: 110
+            width: Math.max(implicitWidth, 104)
             height: 36
-            anchors.verticalCenter: parent.verticalCenter
             enabled: !root.aiTextLoading
             text: "AI 推荐[^E]"
             onClicked: {
@@ -119,12 +123,16 @@ QQC.Pane {
             }
         }
 
-        BusyIndicator {
+        Item {
             width: 24
-            height: 24
-            anchors.verticalCenter: parent.verticalCenter
-            running: root.aiTextLoading
-            visible: root.aiTextLoading
+            height: 36
+            BusyIndicator {
+                anchors.centerIn: parent
+                width: 24
+                height: 24
+                running: root.aiTextLoading
+                visible: root.aiTextLoading
+            }
         }
     }
 }

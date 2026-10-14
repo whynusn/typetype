@@ -457,6 +457,30 @@ def test_mirror_failover_without_cache_returns_none(tmp_path):
     assert client.get.call_count == 1
 
 
+def test_routed_file_manifest_returns_data_without_router_probe(tmp_path):
+    """路由模式下 file:// 仍返回 (data, etag)，不产生嵌套 tuple。"""
+    manifest_path = tmp_path / "ott-repo.json"
+    manifest_path.write_text(
+        json.dumps(_valid_manifest(), ensure_ascii=False), encoding="utf-8"
+    )
+    client = MagicMock(spec=httpx.Client)
+    router = MagicMock()
+    cache = RepoManifestCache(
+        cache_dir=tmp_path / "cache",
+        http_client=client,
+        async_executor=None,
+        router=router,
+    )
+    repo = SourceRepoEntry(url=manifest_path.as_uri())
+
+    result = cache.refresh_manifest(repo)
+
+    assert result is not None
+    assert result["repo_id"] == "texts.example.org"
+    router.ordered_candidates.assert_not_called()
+    client.get.assert_not_called()
+
+
 def test_to_jsdelivr_url():
     """raw.githubusercontent.com → cdn.jsdelivr.net 转换；非 raw URL 不降级。
 

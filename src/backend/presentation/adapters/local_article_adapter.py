@@ -7,7 +7,7 @@ from ...application.usecases.load_local_article_segment_usecase import (
     LoadLocalArticleSegmentUseCase,
 )
 from ...models.dto.local_article import LocalArticleCatalogItem, LocalArticleSegment
-from ...workers.base_worker import BaseWorker
+from ...workers.base_worker import BaseWorker, start_worker
 
 
 class LocalArticleAdapter(QObject):
@@ -159,7 +159,7 @@ class LocalArticleAdapter(QObject):
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
         self._active_worker = worker
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     @Slot(str, int, int)
     def loadLocalArticleSegment(
@@ -190,7 +190,7 @@ class LocalArticleAdapter(QObject):
             lambda gen=request_generation: self._on_worker_finished(gen)
         )
         self._active_worker = worker
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     @property
     def local_article_loading(self) -> bool:
@@ -208,7 +208,7 @@ class LocalArticleAdapter(QObject):
         worker.signals.failed.connect(
             lambda msg: self.localArticleDeleted.emit(False, msg)
         )
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     @Slot(str)
     def loadLocalArticlePreview(self, article_id: str) -> None:
@@ -221,7 +221,7 @@ class LocalArticleAdapter(QObject):
         - 使用 _preview_request_generation 代际守卫丢弃过期回调
         - 跟踪当前 active worker，新请求到来时断开旧 worker 的信号连接
           （防止 thread pool 中堆积的 worker 完成后密集发射信号击穿 Qt 事件循环）
-        - worker.setAutoDelete(True) 确保 worker 完成后立即释放
+        - worker 保活到 finished 信号排队处理完成，避免跨线程信号丢失
         """
         # 缓存命中
         if article_id in self._preview_cache:
@@ -252,7 +252,6 @@ class LocalArticleAdapter(QObject):
                 return ""
 
         worker = BaseWorker(task=_do_load, error_prefix="加载文章预览失败")
-        worker.setAutoDelete(True)
         worker.signals.succeeded.connect(
             lambda content, gen=request_generation: self._on_preview_loaded(
                 gen, content
@@ -262,7 +261,7 @@ class LocalArticleAdapter(QObject):
             lambda msg, gen=request_generation: self._on_preview_failed(gen, msg)
         )
         self._preview_active_worker = worker
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)
 
     def _on_preview_loaded(self, request_generation: int, content: str) -> None:
         if request_generation != self._preview_request_generation:
@@ -294,4 +293,4 @@ class LocalArticleAdapter(QObject):
         worker.signals.failed.connect(
             lambda msg: self.localArticleRenamed.emit(False, msg)
         )
-        self._thread_pool.start(worker)
+        start_worker(self._thread_pool, worker)

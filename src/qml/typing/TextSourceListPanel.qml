@@ -21,6 +21,7 @@ Frame {
     property var sourceItems: []
     property bool loading: false
     property string emptyText: qsTr("暂无项目")
+    property string errorText: ""  // 加载失败信息（非空时列表区显示错误 + 重试，不复用 emptyText）
     property bool searchable: true
     default property alias extraHeaderItems: extraHeaderRow.data
 
@@ -53,11 +54,9 @@ Frame {
                 })
             }
         }
-        if (listModel.count > 0) {
-            listView.currentIndex = 0
-        } else {
-            listView.currentIndex = -1
-        }
+        // ⚠️ 不自动选中首行：高亮必须等于真实用户选择（旧实现 currentIndex = 0
+        // 只高亮不回发 itemClicked，右栏预览与高亮脱节）
+        listView.currentIndex = -1
     }
 
     onSourceItemsChanged: Qt.callLater(rebuild)
@@ -135,6 +134,7 @@ Frame {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
+            visible: root.errorText.length === 0
             model: ListModel { id: listModel }
             boundsBehavior: Flickable.StopAtBounds
 
@@ -171,6 +171,30 @@ Frame {
                 }
             }
 
+            // 错误态（非空时盖掉列表内容：错误文案 + 重试）
+            ColumnLayout {
+                anchors.centerIn: parent
+                width: parent.width - 24
+                spacing: 10
+                visible: root.errorText.length > 0
+
+                Text {
+                    Layout.fillWidth: true
+                    typography: Typography.Body
+                    color: Theme.currentTheme.colors.systemCriticalColor
+                    text: root.errorText
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                }
+
+                Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: qsTr("重试")
+                    icon.name: "ic_fluent_arrow_sync_20_regular"
+                    onClicked: root.refreshRequested()
+                }
+            }
+
             Text {
                 anchors.centerIn: parent
                 width: parent.width - 24
@@ -178,7 +202,7 @@ Frame {
                 color: Theme.currentTheme.colors.textSecondaryColor
                 text: root.loading ? qsTr("加载中...") : root.emptyText
                 horizontalAlignment: Text.AlignHCenter
-                visible: listModel.count === 0
+                visible: listModel.count === 0 && root.errorText.length === 0
                 wrapMode: Text.WordWrap
             }
         }

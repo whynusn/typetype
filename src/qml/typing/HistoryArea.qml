@@ -61,7 +61,7 @@ QQC.Pane {
                 text: typeof modelData !== "undefined" ? modelData : ""
                 color: headerView.textColor
                 font.bold: true
-                font.pixelSize: 13
+                typography: Typography.Body
             }
         }
     }
@@ -132,7 +132,7 @@ QQC.Pane {
                     return value === undefined || value === null ? "" : value;
                 }
                 color: Theme.currentTheme ? Theme.currentTheme.colors.textColor : palette.text
-                font.pixelSize: 13
+                typography: Typography.Body
             }
 
             MouseArea {

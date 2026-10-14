@@ -16,19 +16,31 @@ import json
 from unittest.mock import MagicMock
 
 import httpx
+from PySide6.QtCore import QObject, Signal
 
+from src.backend.application.gateways.score_gateway import ScoreGateway
+from src.backend.application.session_context import TypingSessionContext
+from src.backend.application.usecases.load_text_usecase import LoadTextUseCase
 from src.backend.config.runtime_config import (
     OttConfig,
     RuntimeConfig,
     SourceRepoEntry,
     SourceReposConfig,
 )
+from src.backend.domain.services.char_stats_service import CharStatsService
+from src.backend.domain.services.typing_service import TypingService
+from src.backend.integration.noop_char_stats_repository import NoopCharStatsRepository
 from src.backend.integration.ott_federation_provider import (
     _BridgeClient,
     OttFederationProvider,
 )
 from src.backend.integration.ott_normalization import _bridge_authority
 from src.backend.integration.ott_repo_manifest import RepoManifestCache
+from src.backend.models.dto.fetched_text import FetchedText
+from src.backend.presentation.adapters.char_stats_adapter import CharStatsAdapter
+from src.backend.presentation.adapters.text_adapter import TextAdapter
+from src.backend.presentation.adapters.typing_adapter import TypingAdapter
+from src.backend.presentation.bridge import Bridge, _compute_progress_key
 
 
 # ---------------------------------------------------------------------------
@@ -313,3 +325,133 @@ class TestBridgeFederation:
         entry = provider.get_entry(entries[0]["_authority"], entries[0]["entry_id"])
         assert entry is not None
         assert entry["content"] == "桥接文本"
+
+
+class _InlineRegistryAdapter(QObject):
+    """最小 Registry stub：只提供 Bridge 载入 inline 所需的 catalog。"""
+
+    reposChanged = Signal(list)
+    reposLoadFailed = Signal(str)
+    reposLoadingChanged = Signal()
+    entriesLoaded = Signal(list)
+    entriesLoadFailed = Signal(str)
+    entriesLoadingChanged = Signal()
+    refreshingRepoChanged = Signal()
+    refreshingAuthorityChanged = Signal()
+
+    def __init__(self, detail: dict) -> None:
+        super().__init__()
+        self.catalog = MagicMock()
+        self.catalog.load_entry.return_value = detail
+        self._federation = MagicMock()
+
+
+def _make_inline_bridge(tmp_path, detail: dict) -> Bridge:
+    """创建真实 Bridge/TypingAdapter，隔离 Registry 网络实现。"""
+    runtime_config = RuntimeConfig(_config_path=str(tmp_path / "config.json"))
+    char_stats_service = CharStatsService(repository=NoopCharStatsRepository())
+    typing_service = TypingService(char_stats_service=char_stats_service)
+    typing_adapter = TypingAdapter(
+        typing_service=typing_service,
+        score_gateway=MagicMock(spec=ScoreGateway),
+        session_context=TypingSessionContext(),
+    )
+    text_gateway = MagicMock()
+    text_gateway.plan_load.return_value = None
+    text_gateway.load_from_plan.return_value = (
+        True,
+        FetchedText(content="", text_id=0, title=""),
+        "",
+    )
+    text_adapter = TextAdapter(
+        runtime_config=runtime_config,
+        load_text_usecase=LoadTextUseCase(
+            text_gateway=text_gateway,
+            clipboard_reader=MagicMock(),
+        ),
+        local_text_loader=MagicMock(),
+    )
+    char_stats_adapter = CharStatsAdapter(char_stats_service=char_stats_service)
+    return Bridge(
+        typing_adapter=typing_adapter,
+        text_adapter=text_adapter,
+        char_stats_adapter=char_stats_adapter,
+        registry_adapter=_InlineRegistryAdapter(detail),
+        key_listener=None,
+    )
+
+
+def test_bridge_loads_inline_entry_with_local_slices(tmp_path) -> None:
+    """inline 条目开启分片时加载指定片，并使用 OTT 协议进度 key。"""
+    content = "春眠不觉晓，处处闻啼鸟。夜来风雨声，花落知多少。" * 30
+    bridge = _make_inline_bridge(
+        tmp_path,
+        {
+            "entry_id": "fake_entry",
+            "title": "测试长文",
+            "content": content,
+            "content_mode": "inline",
+        },
+    )
+    bridge.setSliceCriteria(0, 0, 0, 1, "retype")
+
+    loaded: list[tuple[str, int, str]] = []
+    bridge.textLoaded.connect(
+        lambda text, text_id, title: loaded.append((text, text_id, title))
+    )
+    bridge.loadFederatedInlineEntry(
+        "fake_auth",
+        "fake_entry",
+        "v1",
+        "测试长文",
+        {"slice_size": 100, "start_slice": 2},
+    )
+
+    session = bridge._typing_adapter._session_context
+    assert loaded == [(content[100:200], -1, "测试长文 2/8")]
+    assert session.slice_index == 2
+    assert session.slice_total == 8
+    assert session.current_slice_content == content[100:200]
+    assert bridge._progress_key_override == _compute_progress_key(
+        "ott", "fake_auth:fake_entry@v1"
+    )
+
+
+def test_bridge_restores_inline_slice_progress(tmp_path) -> None:
+    """inline 分片路径按 restored_progress 从保存片号恢复。"""
+    content = "甲乙丙丁戊己庚辛壬癸" * 80
+    bridge = _make_inline_bridge(
+        tmp_path,
+        {"entry_id": "fake_entry", "content": content},
+    )
+    bridge.setSliceCriteria(0, 0, 0, 1, "retype")
+    restored = {
+        "current_slice": 3,
+        "total_slices": 8,
+        "slice_size": 100,
+        "slice_pass_counts": [0] * 8,
+        "slice_stats": [],
+        "slice_metrics": [],
+        "metrics": {},
+    }
+
+    loaded: list[tuple[str, int, str]] = []
+    bridge.textLoaded.connect(
+        lambda text, text_id, title: loaded.append((text, text_id, title))
+    )
+    bridge.loadFederatedInlineEntry(
+        "fake_auth",
+        "fake_entry",
+        "v2",
+        "恢复长文",
+        {
+            "slice_size": 100,
+            "start_slice": 1,
+            "restored_progress": json.dumps(restored),
+        },
+    )
+
+    session = bridge._typing_adapter._session_context
+    assert loaded == [(content[200:300], -1, "恢复长文 3/8")]
+    assert session.slice_index == 3
+    assert session.slice_total == 8

@@ -1,0 +1,5 @@
+module settings
+AiSection 254.0 AiSection.qml
+FontManagerDialog 254.0 FontManagerDialog.qml
+KeyboardDevicesSection 254.0 KeyboardDevicesSection.qml
+WenlaiSection 254.0 WenlaiSection.qml

@@ -80,6 +80,21 @@ class TestGlobalKeyListenerLogic:
         assert listener._is_keyboard_strict(dev) is False
         assert listener._is_keyboard_permissive(dev) is False
 
+    def test_whitelisted_virtual_keyboard_passes_both_scans(self):
+        """cu-test: 白名单虚拟键盘（键鼠合一，带 EV_REL）两阶段扫描都应命中"""
+        listener = self._listener_with_ecodes()
+        dev = FakeDevice({1: [1, 30], 2: [0, 1]})
+        dev.name = "ydotoold virtual device"
+        assert listener._is_keyboard_strict(dev) is True
+        assert listener._is_keyboard_permissive(dev) is True
+
+    def test_whitelisted_device_without_std_keys_fails(self):
+        listener = self._listener_with_ecodes()
+        dev = FakeDevice({1: [272, 273]})
+        dev.name = "ydotoold virtual device"
+        assert listener._is_keyboard_strict(dev) is False
+        assert listener._is_keyboard_permissive(dev) is False
+
     def test_classify_device_keyboard(self):
         listener = self._listener_with_ecodes()
         dev = FakeDevice({1: [1, 30, 48]})

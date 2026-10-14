@@ -83,6 +83,24 @@ def test_revalidate_failure_keeps_store_view():
     assert failed == []  # 失败静默：视图仍为当前快照存储
 
 
+def test_preview_manifest_runs_in_worker_and_emits_result():
+    adapter, pool = _build_adapter()
+    adapter._federation.preview_manifest.return_value = {
+        "url": "https://example.test/repo.json",
+        "type": "repository",
+    }
+    results: list[dict] = []
+    adapter.repoManifestPreviewed.connect(results.append)
+
+    result = adapter.previewRepoManifest("https://example.test/repo.json")
+
+    assert result == {"url": "https://example.test/repo.json", "pending": True}
+    assert adapter._federation.preview_manifest.call_count == 0
+    assert len(pool.started_workers) == 1
+    pool.started_workers[0].run()
+    assert results == [adapter._federation.preview_manifest.return_value]
+
+
 def test_load_federated_entries_without_catalog_falls_back_to_federation():
     """未装配 catalog（旧路径）：退化为 federation 全量列表。"""
     federation = MagicMock()

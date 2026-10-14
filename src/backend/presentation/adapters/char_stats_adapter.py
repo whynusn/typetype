@@ -4,6 +4,7 @@ from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 
 from ...domain.services.char_stats_service import CharStatsService
 from ...utils.logger import log_info
+from ...workers.base_worker import start_worker
 from ...workers.weak_chars_query_worker import WeakCharsQueryWorker
 
 
@@ -86,7 +87,7 @@ class CharStatsAdapter(QObject):
         worker.signals.failed.connect(
             lambda msg, sig=signature: self._on_weak_chars_failed(msg, sig)
         )
-        QThreadPool.globalInstance().start(worker)
+        start_worker(QThreadPool.globalInstance(), worker)
 
     @Slot()
     def loadWeakChars(

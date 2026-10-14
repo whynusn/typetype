@@ -1,5 +1,5 @@
 # TypeType 架构设计手册
-<!-- 状态: active | 最后验证: 2026-08-13 -->
+<!-- 状态: active | 最后验证: 2026-08-18 -->
 
 ## 📍 文档导航卡（你在这里）
 
@@ -11,7 +11,7 @@
 
 ---
 
-> 最后更新：2026-08-13
+> 最后更新：2026-08-18
 
 ---
 
@@ -131,7 +131,7 @@ src/backend/
 - `SliceSettingsPanel` — 分片大小、起始片、全文乱序
 - `SliceCriteriaPanel` — 达标条件（击键/速度/键准/通过次数）、失败后行为
 
-OTT segmented 大文本使用服务端定义的 segment 边界，并通过 `OttSegmentProvider` 接入通用分片管线。为避免客户端拉取完整远程长文，OTT segmented 不启用全文乱序；普通按段推进、随机段、重打仍走统一分片控制。
+OTT segmented 大文本使用服务端定义的 segment 边界，并通过 `OttSegmentProvider` 接入通用分片管线。为避免客户端拉取完整远程长文，OTT segmented 不启用全文乱序；普通按段推进、随机段、重打仍走统一分片控制。inline 条目默认全文载入，但开启载文中心分片设置时，Bridge 接收 `sliceOptions` 后在已取得的 inline 正文上复用 `setupSliceMode` 本地切分，进度 key 仍按 `ott:{authority}:{entry_id}@{revision_id}` 隔离。
 
 晴发文单独在服务端做分段，App 侧只做逐段推进。
 
@@ -147,15 +147,23 @@ typetype-server 已随 [ADR-013](./decisions/013-converge-to-three-repo-model.md
 
 ```
 ToolLine.qml / TextLoadHubPage.qml
-  -> appBridge.requestLoadText(sourceKey) 或联邦载文 Slot
-  -> Bridge -> TextAdapter / RegistryAdapter
+  -> appBridge.requestLoadText(sourceKey) / queueTextSession(request) / 联邦载文 Slot
+  -> Bridge + TextLoadCoordinator（登记请求身份、来源切换、分片状态）
+  -> TextAdapter / LocalArticleAdapter / TrainerAdapter / RegistryAdapter
   -> LoadTextUseCase.plan_load(sourceKey)
   -> TextSourceGateway -> TextLoadPlan
-  -> TextLoadWorker（后台线程）
+  -> Worker（后台线程：文件读取、索引、网络或目录读取）
   -> LoadTextUseCase.load(plan)
   -> QtLocalTextLoader（本地文件）/ OttFederationProvider（OTT 联邦，Worker）
-  -> Adapter emit textLoaded() -> TypingPage.applyLoadedText()
+  -> Bridge 按 request identity 接受当前结果 -> textLoaded()
+  -> TypingPage.applyLoadedText()
 ```
+
+### 载文请求生命周期
+
+`TextLoadCoordinator` 保存当前 `TextSessionRequest`：`generation`、来源、标识、片号和片大小。来源切换、退出分片、普通载文和下一次载文都会使前一个请求失效；异步成功或失败只能在身份仍匹配时改写打字会话。
+
+本地文章的目录解析、文件统计、稀疏索引和首段构建在 Worker 中完成。Worker 只构建未挂接的 `TextSessionUseCase`；Bridge 在主线程确认请求仍有效后才 `attachTextSession()` 并发射 `textLoaded`。这同时避免 GUI 线程文件 I/O 和迟到任务替换新会话。
 
 ### 打字统计链路
 
@@ -183,7 +191,7 @@ WeakCharsPage.qml
 ```
 启动时 main.py -> trigger_auto_update_check()
   -> UpdateAdapter.start_auto_check()（后台 Worker，静默失败）
-  -> UpdateChecker.check_for_update()  // GitHub API → 已验签 version.json 降级链
+  -> UpdateChecker.check_for_update()  // 共用 SmartRouteSelector：GitHub API → 已验签 version.json
   -> checkFinished(available, version, error) -> QML「关于与更新」区
 
 用户触发 downloadAndInstallUpdate(version)
@@ -270,6 +278,12 @@ onActivated → Qt.callLater() 延迟触发信号
 ```
 
 相关决策见 [ADR-003：单实例页面导航](./decisions/003-single-instance-page-navigation.md)。
+
+### 载文异步结果必须具备跨来源请求身份
+
+Adapter 内部的 generation 只能阻止其自身旧 Worker 回调，不能表达“用户已切换到另一来源”或“同一文章重新选择了同一片”。因此载文请求身份必须由 Bridge/Coordinator 维护，至少比较来源、标识、片号、片大小和 generation。
+
+来源切换、退出分片、普通全文载文都必须失效当前请求。后台任务可以继续运行，但不得挂接或修改活动会话；同源重选必须先让 Adapter 失效旧请求，再提交新请求。此规则是 ADR-001 所要求显式 pending-request 协议的最小实现，不意味着 `TextLoadHubPage` 或三层文本源模型需要重写。
 
 ---
 
@@ -385,7 +399,7 @@ Directory（可选，发现层）                ← 未来 Phase 2+
 | `ScriptCache` | `integration/ott_script_client.py` | 脚本下载缓存（TTL + AST 校验 + 原子写 + 离线回退） |
 | `ott_script_runner.py` | `integration/ott_script_runner.py` | 子进程沙箱入口（资源限制 + 受限 builtins + 白名单模块 + stdout JSON） |
 | `validate_script_source()` | `integration/ott_script_safety.py` | 脚本 AST 安全检查（黑名单 import/call + 动态导入检测） |
-| `SmartRouteSelector` | `integration/smart_router.py` | 网络选路：按实时延迟/连通性在原始地址、jsDelivr、`ott.route_mirrors` 前缀镜像、manifest mirrors 间选路（短超时并发探测 + TTL 缓存 + 失败冷却 + 真实请求回写；供 `RepoManifestCache`/`OttCachedFetcher`/`ScriptCache` 复用） |
+| `SmartRouteSelector` | `integration/smart_router.py` | 网络选路：按实时延迟/连通性在原始地址、jsDelivr、`ott.route_mirrors` 前缀镜像、调用方显式 mirrors 间选路（短超时并发探测 + TTL 缓存 + 失败冷却 + 真实请求回写；供 OTT 与 OTA 复用） |
 | `EntrySnapshotStore` | `integration/entry_snapshot_store.py` | 条目内容快照落盘（`captured_at`=内容变化时间 + `last_checked_at`=检查时间，原子写） |
 | `SourceStatusStore` | `integration/source_status_store.py` | per-authority 源健康状态持久化（last check/success/error + 连续失败计数） |
 | `SnapshotCatalogService` | `application/services/snapshot_catalog_service.py` | 物化 → 快照/prune → 刷新策略/源状态 → 列表装饰 |
@@ -437,13 +451,18 @@ src/backend/integration/
 src/backend/presentation/adapters/
   └─ registry_adapter.py                    # RegistryAdapter（Qt 适配层）
 src/backend/config/container.py             # + manifest_cache, federation, registry_adapter
-src/qml/components/ReposManagementPanel.qml # 源仓库管理面板（独立页面承载）
-src/qml/components/RepoEntriesPanel.qml      # 开源文库条目列表面板
-src/qml/components/WenlaiSourcePanel.qml     # 晴发文即时源面板
-src/qml/components/AiSourcePanel.qml         # AI 推荐即时源面板
+src/qml/components/RepoEntriesPanel.qml      # 开源文库条目列表面板（组头卡片 + 手风琴 + 源级刷新）
+src/qml/components/RepoConfigDialog.qml      # 订阅源管理弹窗（启用/信任/删除，取代独立管理页）
+src/qml/components/SourceInfoDialog.qml      # 源详情弹窗（tier/健康状态/刷新频率覆盖）
+src/qml/components/InstantSourcePanel.qml    # 即时源面板骨架（晴发文/AI 共用）
+src/qml/components/WenlaiSourcePanel.qml     # 晴发文即时源面板（薄壳，继承 InstantSourcePanel）
+src/qml/components/AiSourcePanel.qml         # AI 推荐即时源面板（薄壳，继承 InstantSourcePanel）
+src/qml/components/EmptyState.qml            # 空态占位组件
+src/qml/components/SettingSectionHeader.qml  # 设置页区块标题组件
 src/qml/helpers/TextSourceBehaviors.js      # + repos 来源分派
+src/qml/helpers/SourceBadges.js             # trust/tier 徽章文案与配色单一事实源
+src/qml/settings/                           # SettingsPage 拆分区块（WenlaiSection/AiSection/KeyboardDevicesSection/FontManagerDialog，各自包含模型/对话框/Connections）
 src/qml/pages/TextLoadHubPage.qml           # 6 来源 tab（本地/开源/练单/晴发文/AI/自定义）+ Segmented 切换
-src/qml/pages/ReposManagementPage.qml       # 订阅管理独立子页面
 ```
 
 ### 配置字段
@@ -487,7 +506,7 @@ src/qml/pages/ReposManagementPage.qml       # 订阅管理独立子页面
 | 组件 | 位置 | 职责 |
 |:---|:---|:---|
 | `APP_VERSION` | `src/backend/version.py` | 运行时版本单一事实源（Nuitka 产物内不可读 pyproject.toml） |
-| `UpdateChecker` | `integration/update_checker.py` | GitHub API → 已验签 `version.json` 降级链 + 镜像下载 + sha256 校验 |
+| `UpdateChecker` | `integration/update_checker.py` | 使用共享 `SmartRouteSelector` 的 GitHub API → 已验签 `version.json` 降级链 + 镜像下载 + sha256 校验；无路由器时兼容固定候选顺序 |
 | `UpdateWorker` | `workers/update_worker.py` | 后台异步检查（节流 + 静默失败） |
 | `UpdateAdapter` | `presentation/adapters/update_adapter.py` | 平台资产匹配、下载解压、调用 updater 脚本；Bridge 信号代理 |
 | `updater.sh` / `updater.bat` | `resources/updater/` | 平台替换/重启小工具 |

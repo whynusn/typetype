@@ -2,6 +2,7 @@ import QtQuick 2.15
 import QtQuick.Controls 2.15 as QQC
 import QtQuick.Layouts 1.15
 import RinUI
+import "../components"
 
 FluentPage {
     id: weakCharsPage
@@ -37,6 +38,11 @@ FluentPage {
             }
             textRole: "text"
             valueRole: "value"
+            delegate: ItemDelegate {
+                width: sortModeCombo.width
+                text: model.text === "按错误率" ? qsTr("按错误率")
+                    : model.text === "按错误次数" ? qsTr("按错误次数") : qsTr("加权评分")
+            }
             currentIndex: 0
             onCurrentIndexChanged: {
                 if (currentIndex >= 0 && currentIndex < sortModeModel.count) {
@@ -60,7 +66,7 @@ FluentPage {
         // 错误率 weight
         RowLayout {
             spacing: 4
-            Text { text: "错误率"; color: Theme.currentTheme.colors.textColor; font.pixelSize: 12 }
+            Text { text: qsTr("错误率"); color: Theme.currentTheme.colors.textColor; typography: Typography.Body }
             ComboBox {
                 id: errorRateWeight
                 Layout.preferredWidth: 56
@@ -72,7 +78,7 @@ FluentPage {
         // 出现频率 weight
         RowLayout {
             spacing: 4
-            Text { text: "出现频率"; color: Theme.currentTheme.colors.textColor; font.pixelSize: 12 }
+            Text { text: qsTr("出现频率"); color: Theme.currentTheme.colors.textColor; typography: Typography.Body }
             ComboBox {
                 id: totalCountWeight
                 Layout.preferredWidth: 56
@@ -84,7 +90,7 @@ FluentPage {
         // 错误次数 weight
         RowLayout {
             spacing: 4
-            Text { text: "错误次数"; color: Theme.currentTheme.colors.textColor; font.pixelSize: 12 }
+            Text { text: qsTr("错误次数"); color: Theme.currentTheme.colors.textColor; typography: Typography.Body }
             ComboBox {
                 id: errorCountWeight
                 Layout.preferredWidth: 56
@@ -118,7 +124,7 @@ FluentPage {
                     Layout.alignment: Qt.AlignVCenter
                     horizontalAlignment: Qt.AlignHCenter
                     verticalAlignment: Qt.AlignVCenter
-                    font.pixelSize: 32
+                    typography: Typography.Display
                     font.weight: Font.DemiBold
                     font.family: Utils.fontFamily
                     color: errorRate > 20 ? Theme.currentTheme.colors.systemCriticalColor : (errorRate > 10 ? Theme.currentTheme.colors.systemCautionColor : Theme.currentTheme.colors.systemSuccessColor)
@@ -152,7 +158,7 @@ FluentPage {
                             Layout.alignment: Qt.AlignVCenter
                             typography: Typography.Caption
                             color: Theme.currentTheme.colors.textSecondaryColor
-                            text: "⌀ " + avgMs + "ms"
+                            text: qsTr("平均 %1 ms").arg(avgMs)
                         }
                     }
 
@@ -190,13 +196,10 @@ FluentPage {
         }
     }
 
-    Text {
+    EmptyState {
         Layout.fillWidth: true
         Layout.topMargin: 40
-        typography: Typography.Body
-        color: Theme.currentTheme.colors.textSecondaryColor
         text: qsTr("暂无薄弱字记录，开始打字练习吧！")
-        horizontalAlignment: Qt.AlignHCenter
         visible: weakCharsModel.count === 0
     }
 

@@ -46,12 +46,20 @@ def _get_qml_refs(source):
 
 
 def test_wenlai_previous_segment_shortcut_matches_typesunny_ctrl_o():
+    """Ctrl+O 上一段由 WindowShortcut 接管（shortcut-override 优先于 item 按键分发）。
+
+    Keys.onPressed 中的同名分支会被 Shortcut 遮蔽成死代码（且历史上已漂移：
+    LowerPane 版缺 wenlaiLoading 守卫），因此两个文件都不允许再出现
+    `event.key === Qt.Key_O` 分支；行为契约由 Shortcut 断言承载。
+    """
     typing_page = QML_DIR / "pages/TypingPage.qml"
     lower_pane = QML_DIR / "typing/LowerPane.qml"
     tp_source = typing_page.read_text(encoding="utf-8")
     lp_source = lower_pane.read_text(encoding="utf-8")
-    assert "event.key === Qt.Key_O" in tp_source
-    assert "event.key === Qt.Key_O" in lp_source
+    assert 'sequence: "Ctrl+O"' in tp_source
+    assert "triggerPrevSegment()" in tp_source
+    assert "event.key === Qt.Key_O" not in tp_source
+    assert "event.key === Qt.Key_O" not in lp_source
 
 
 def test_enter_shortcut_toggles_typing_pause():
@@ -66,6 +74,12 @@ def test_enter_shortcut_toggles_typing_pause():
     assert "toggleTypingPause" in BRIDGE_SLOTS
 
 
+def test_lower_pane_rejects_middle_cursor_edits():
+    source = (QML_DIR / "typing/LowerPane.qml").read_text(encoding="utf-8")
+    assert "textArea.cursorPosition < currentText.length" in source
+    assert "textArea.text = root.lastText" in source
+
+
 def test_main_window_auto_pauses_when_deactivated():
     main_qml = QML_DIR / "Main.qml"
     source = main_qml.read_text(encoding="utf-8")
@@ -75,7 +89,10 @@ def test_main_window_auto_pauses_when_deactivated():
 
 def test_settings_manual_wenlai_mode_prompt_matches_typesunny():
     settings_page = QML_DIR / "pages/SettingsPage.qml"
+    wenlai_section = QML_DIR / "settings/WenlaiSection.qml"
+    # 晴发文区块已拆到 settings/ 子组件，提示文案契约随组件迁移
     source = settings_page.read_text(encoding="utf-8")
+    source += "\n" + wenlai_section.read_text(encoding="utf-8")
     assert 'title: qsTr("晴发文换段模式")' in source
     assert "手动换段模式：" in source
     assert "打完后不会自动发下一段" in source
@@ -163,9 +180,11 @@ def test_ai_recommend_button_shows_ctrl_e_shortcut():
 
 
 def test_ctrl_e_shortcut_triggers_ai_text():
+    """Ctrl+E 由 WindowShortcut 触发 AI 文本请求（Keys 分支已被遮蔽删除）。"""
     typing_page = PROJECT_ROOT / "src/qml/pages/TypingPage.qml"
     tp = typing_page.read_text(encoding="utf-8")
-    assert "event.key === Qt.Key_E" in tp
+    # 词边界：Qt.Key_Enter 含子串 "Qt.Key_E"，裸 `in` 会误判
+    assert not re.search(r"event\.key === Qt\.Key_E\b", tp)
     assert "appBridge.requestAiText()" in tp
     assert 'sequence: "Ctrl+E"' in tp
     assert 'sequence: "Meta+E"' in tp

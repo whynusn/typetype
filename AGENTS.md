@@ -159,6 +159,12 @@
 - `FluentPage` 不使用 `layer.effect: OpacityMask`
 - **FluentPage 内容区子项必须用 `Layout.*` 而非 `anchors`**
 - **QQC 必须限定导入 `as QQC`**（避免与 RinUI 同名组件冲突）
+- **共享组件注册表**（新代码优先复用，不手写重复实现）：
+  - `components/EmptyState.qml` — 空态占位（居中 + textSecondaryColor）；布局参数与可见性条件留在调用方
+  - `components/SettingSectionHeader.qml` — 设置页区块标题（Subtitle + 16/8 上下边距）
+  - `components/InstantSourcePanel.qml` — 即时源面板骨架（晴发文/AI 共用：图标/标题/描述/内容插槽/errorText/主操作行）
+  - `helpers/SourceBadges.js` — trust 徽章与 tier 标签的文案/配色单一事实源（`.pragma library`，配色经参数传 Theme 颜色，JS 库不直接依赖 RinUI 单例）
+  - `settings/` 目录 — SettingsPage 拆分出的区块组件（`WenlaiSection`/`AiSection`/`KeyboardDevicesSection`/`FontManagerDialog`），每个区块自包含模型、对话框与 Connections，主页只做 section 编排
 - 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部 RinUI `Segmented` 切换 6 个来源 tab（本地文库/开源文库/练单器/晴发文/AI 推荐/自定义）；各来源共享同一组分片/达标组件，不再分散为多个独立入口页。开源文库 tab 按订阅源分组展示联邦聚合条目（`RepoEntriesPanel`，选中即载入；源组头可展开/收起/刷新/管理），订阅管理收敛到源组头弹窗 `RepoConfigDialog`（独立管理页 `ReposManagementPage` 已删除）
 
 ---
@@ -258,13 +264,21 @@ onActiveChanged: {
 
 **历史**：2026-04-13 重构中删除。
 
-### ⚠️ TextAdapter 所有文本加载必须走 Worker
+### ⚠️ 所有文本加载和文件会话构建必须走 Worker
 
-**问题**：本地文本加载曾在主线程同步执行导致 UI 阻塞（旧实现隐含同步 HTTP 回查）。
+**问题**：本地文本加载曾在主线程同步执行导致 UI 阻塞（旧实现隐含同步 HTTP 回查）。2026-08-18 审计又发现本地长文虽使用 `FileSegmentProvider`，但路径解析、字数统计、索引和首段构建仍由 `Bridge.startFileTextSession()` 同步执行。
 
-**正确做法**：所有加载统一走 Worker。两阶段异步：Worker 只读文件 → daemon thread 异步回查（现本地载文已无回查，OTT 订阅走 `RegistryAdapter` Worker）。
+**正确做法**：所有加载统一走 Worker。普通本地文本和预览由 `TextAdapter` Worker 读取；本地长文先在 Worker 中构建未挂接的 `TextSessionUseCase`，主线程仅在请求仍有效时 `attachTextSession()` 并更新 UI。`Bridge.startFileTextSession()` 是兼容入口，不得从 QML 或 GUI 线程载文路径调用。现本地载文已无 text_id 回查，OTT 订阅走 `RegistryAdapter` Worker。
 
-**历史**：2026-04-16 发现，2026-04-19 拆分为两阶段。
+**历史**：2026-04-16 发现，2026-04-19 拆分为两阶段；2026-08-18 修复本地长文 FileSession 漏网同步 I/O。
+
+### ⚠️ 载文异步结果必须验证完整请求身份
+
+**问题**：仅靠 Adapter 的局部 generation 无法防止跨来源切换或同一文章/词库重新选择同一片时的迟到结果覆盖当前会话。仅比较来源、标识、片号也不足以区分同一意图的重复发起。
+
+**正确做法**：由 `TextLoadCoordinator` 创建不可变 `TextSessionRequest`（`generation`、来源、标识、片号、片大小）。每个会话结果在 Bridge 落地前都必须验证完整 request；来源切换、退出分片、普通载文和新请求必须先使旧 request 失效。Worker 可以继续执行，但不得 `attachTextSession()`、发 `textLoaded` 或清理新请求状态。
+
+**历史**：2026-08-18 前端与载文架构审计。
 
 ### ⚠️ QThreadPool 提交后必须持有 worker 的 Python 引用直到 finished
 
@@ -397,7 +411,7 @@ onActiveChanged: {
 - OTT 标准客户端边界是 `/ott/v1` Service Profile 或 Static Profile
 - 目录/条目读取由 `OttFederationProvider` 统一承担（按 `source_repos` 订阅联邦聚合），优先读 `/ott/v1/sources`、`/ott/v1/entries`，再 fallback 到 Static Profile
 - 旧 `OttTextProvider` / `RegistryTextProvider` / `registry_index.json` 单实例数据面与 legacy fallback 已整体删除（ADR-013）
-- inline OTT 条目通过联邦路径 `loadFederatedInlineEntry(authority, entry_id, revision_id)` 显式加载，不靠 `entry_id` 前缀猜测
+- inline OTT 条目通过联邦路径 `loadFederatedInlineEntry(authority, entry_id, revision_id, title, sliceOptions)` 显式加载，不靠 `entry_id` 前缀猜测；默认全文，开启载文中心分片时必须传 `sliceOptions.slice_size`、`start_slice` 和可选 `restored_progress`，由 Bridge 复用 `setupSliceMode` 在已取得正文上本地切分
 - segmented OTT 条目通过 `OttSegmentProvider` 接入通用分片管线，进度 key 为 `ott:{authority}:{entry_id}@{revision_id}`
 - `OttClient` 负责 Service Profile / Static Profile 读取顺序（manifest `endpoints[].profile` 显式声明时尊重声明、只探测对应 profile）；缓存复用 `OttCachedFetcher`
 
@@ -562,6 +576,59 @@ onActiveChanged: {
 **最终方案（2026-08-16 根治，第 1/5/8 点不再适用）**：嵌套列表（条目数有限）**一律放弃「嵌套 ListView + Loader 中继 + ListViewDelegate」组合**，改用 **`Column` + `Repeater` 全量实例化 + 自绘行组件**（行高 = 内部 `RowLayout`/`ColumnLayout` implicit 尺寸 + padding，全部由布局器计算）——从机制上消除 delegate 实例化时机（`height: 20000` hack）、Loader 尺寸透传（`Layout.preferredHeight` hack）、`ListView.view` attached property 三类问题，行高永不塌缩、文字永不重叠。**组列表（订阅源卡片）同样用 `Column` + `Repeater`**（`ScrollView` 内 `Column { width: parent.width; height: implicitHeight; spacing }`，组 delegate 高度 = 组头 + 内容区），滚动由 ScrollView 的 Flickable 依子项几何自动扩展。第 2/3/4/6/7 点坑仍然适用（ListModel 模型、`groupData` 承接、`on_InnerVersionChanged`、显式 y 定位、`Rectangle` 透明背景）。
 
 **历史**：2026-08-16 开源文库 UI/UX 重构（默认收起 + 手风琴动画 + 条目本地文库化 + 历史入口下沉到列表底部）。
+
+### ⚠️ RinUI utils.qml 产品 token 扩展（vendored 库禁改规则的唯一例外）
+
+**问题**：`RinUI/` 是 vendored 第三方库，规范禁止修改；但产品级设计 token（fallback 色值、圆角档位、动画时长）无处安放，曾散落为各文件的 `"#666"` 硬编码三元。
+
+**现状**（2026-08-18 建立）：
+- `RinUI/themes/utils.qml` 追加**白名单式**产品 token：`fallbackTextColor/fallbackSecondaryTextColor/fallbackTertiaryTextColor/fallbackSurfaceColor/fallbackPrimaryColor`、`radiusSmall/radiusControl/radiusCard`、`animationDuration()`（配合 `reducedMotion`）
+- 各文件的主题回退一律用 `Utils.fallback*`，**禁止新写裸色值三元**
+- token 只允许追加，不允许改动/删除既有字段（vendored 兼容面）
+
+**正确做法**：新增产品级常量 → 加进 utils.qml 白名单；样式代码主题回退 → 引用 `Utils.fallback*`。
+
+**历史**：2026-08-18 前端重构批次引入（此前硬编码色值散布于 TypingPage/LowerPane/UploadTextPage 等 10+ 文件）。
+
+### ⚠️ RinUI Dialog standardButtons 的 AcceptRole 会自动关弹窗
+
+**问题**：`RepoConfigDialog`/添加订阅弹窗曾用 `standardButtons: Dialog.Ok`，点击确定**必关弹窗**（RinUI Dialog footer 是 QQC DialogButtonBox，AcceptRole 接到 `dialog.accept()`），但业务上「添加失败 → 弹窗内提示不关闭」；配合 `Connections enabled: dialog.visible`，关闭后异步失败信号被静默丢弃——添加订阅成败用户完全无感知。
+
+**正确做法**：
+- 需要「失败留在弹窗内」的流程 → 不用 standardButtons，自定义按钮 + 手动 `close()`；异步结果经常驻 Connections（不绑 visible）处理，`_awaitingAdd` 守卫区分确认与失败
+- 成功/失败都要给明确反馈（成功提示或弹窗内错误文案），不要静默
+
+**历史**：2026-08-17 添加订阅反馈丢失修复（`TextLoadHubPage` addRepoDialog `_awaitingAdd` + `onReposChanged` 确认 + 失败重开弹窗）。
+
+### ⚠️ 载文失败必须复位 readOnly，错误文案不得进练习区
+
+**问题**：`prepare_for_text_load` 置 `read_only=true` 后，失败路径曾只转发信号不复位——TypingPage 输入区锁死，且恢复分支见文本非空就 `handleRetypeRequest`，把「加载失败」提示当成练习文本建会话。
+
+**正确做法**：
+- 失败统一走 `typing_adapter.handleLoadFailed()`（复位 readOnly + 清光标缓存），bridge 各失败信号槽都调它
+- QML 侧失败只写 `loadErrorMessage`（通知 + 恢复分支守卫），**不把错误文案塞进 UpperPane**；`onActiveChanged` 恢复条件必须排除 `loadErrorMessage` 非空
+- 新增失败信号 → 同步补复位调用，别漏
+
+**历史**：2026-08-17 修复（`handleLoadFailed` + `loadErrorMessage` 守卫）。
+
+### ⚠️ WindowShortcut 优先于 item 按键分发，同名 Keys 分支会成死代码
+
+**问题**：Ctrl+R/O/U/P/D/E 曾同时存在三层实现：`Shortcut{context: WindowShortcut}`（TypingPage）、`handleKeyPressEvent`、`LowerPane.Keys.onPressed`。QShortcutMap 的 shortcut-override **优先于** item 按键分发，后两层同名分支实际不可达，且已漂移（LowerPane 版 Ctrl+R 缺 `wenlaiLoading` 守卫）。
+
+**正确做法**：窗口级快捷键只留 `Shortcut` 层（`enabled: typingPage.active`）；Keys/handleKeyPressEvent 只保留未被 Shortcut 声明的键（F2/F3/F4、Ctrl+L/V）；新增快捷键 → 先确认是否已被 Shortcut 声明，不要写同键第二份。
+
+**历史**：2026-08-17 清理（三层合一，死分支删除，测试改为断言「不得出现」）。
+
+### ⚠️ 设置区块组件模式：模型/对话框/Connections 自包含，主页只编排
+
+**问题**：SettingsPage 曾 1335 行，5 个区块的状态、模型、对话框、信号处理全挤在主页；拆组件时若只搬 UI 不搬 Connections，回调里引用的 `wenlaiLoginButton` 等 id 会全部失效。
+
+**正确做法**（`src/qml/settings/` 已按此落地）：
+- 每个区块组件自包含：ListModel、对话框、`Connections`、`Component.onCompleted` 初始化——主页不残留该区块的任何状态
+- 主页只做 section 编排（`WenlaiSection {}` 一行），共享的 `SettingSectionHeader`/`EmptyState` 组件化
+- 同步信号（onConfigChanged 回写）也必须在子组件内消费，主页 Connections 只留自己区块的信号
+
+**历史**：2026-08-18 SettingsPage 拆分（1335 → ~500 行）。
 
 ---
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Property, QObject, Signal, Slot
 from PySide6.QtQuick import QQuickTextDocument
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from .adapters.update_adapter import UpdateAdapter
     from .adapters.ziti_adapter import ZitiAdapter
 
-from .text_load_coordinator import TextLoadCoordinator
+from .text_load_coordinator import TextLoadCoordinator, TextSessionRequest
 
 
 class _FederationSegmentAdapter:
@@ -113,6 +113,8 @@ class Bridge(QObject):
     textLoaded = Signal(str, int, str)  # (text_content, text_id, source_label)
     textLoadFailed = Signal(str)
     textLoadingChanged = Signal()
+    localTextContentsLoaded = Signal(list)
+    localTextContentsLoadFailed = Signal(str)
     cursorPosChanged = Signal(int)
     specialPlatformConfirmed = Signal(bool)
     backspaceChanged = Signal()
@@ -131,6 +133,7 @@ class Bridge(QObject):
     reposChanged = Signal(list)  # list of repo summary dicts
     reposLoadFailed = Signal(str)
     reposLoadingChanged = Signal()
+    repoManifestPreviewed = Signal(object)
     registryFederatedEntriesLoaded = Signal(list)  # list of entry dicts
     registryFederatedEntriesLoadFailed = Signal(str)
     registryFederatedEntriesLoadingChanged = Signal()
@@ -405,6 +408,12 @@ class Bridge(QObject):
         self._text_adapter.textLoaded.connect(self._on_standard_text_loaded)
         self._text_adapter.textLoadFailed.connect(self._on_standard_text_load_failed)
         self._text_adapter.textLoadingChanged.connect(self.textLoadingChanged.emit)
+        self._text_adapter.localTextContentsLoaded.connect(
+            self.localTextContentsLoaded.emit
+        )
+        self._text_adapter.localTextContentsLoadFailed.connect(
+            self.localTextContentsLoadFailed.emit
+        )
 
     def _on_standard_text_loaded(
         self, text: str, text_id: int, source_label: str
@@ -433,6 +442,10 @@ class Bridge(QObject):
         if self._registry_adapter:
             self._registry_adapter.reposChanged.connect(self.reposChanged.emit)
             self._registry_adapter.reposLoadFailed.connect(self.reposLoadFailed.emit)
+            if hasattr(self._registry_adapter, "repoManifestPreviewed"):
+                self._registry_adapter.repoManifestPreviewed.connect(
+                    self.repoManifestPreviewed.emit
+                )
             self._registry_adapter.reposLoadingChanged.connect(
                 self.reposLoadingChanged.emit
             )
@@ -563,20 +576,48 @@ class Bridge(QObject):
         self._font_adapter.fontRemoved.connect(self.fontRemoved.emit)
 
     def _on_trainer_segment_loaded(self, payload: dict) -> None:
+        segment_index = payload.get("index")
+        if not self._coordinator.is_current_request(
+            "trainer",
+            str(payload.get("trainerId", "") or ""),
+            int(segment_index) if segment_index else None,
+        ):
+            return
+        self._coordinator.complete_request()
         self._coordinator.on_trainer_segment_loaded(payload, self)
         self._restore_pending_progress()
         self._update_progress_current_slice()
 
     def _on_trainer_segment_load_failed(self, message: str) -> None:
+        if (
+            self._coordinator.request_state != "active"
+            or self._coordinator.current_request_source != "trainer"
+        ):
+            return
+        self._coordinator.fail_request()
         self._pending_restored_progress = None
         self.trainerSegmentLoadFailed.emit(message)
 
     def _on_local_article_segment_loaded(self, payload: dict) -> None:
+        segment_index = payload.get("index")
+        if not self._coordinator.is_current_request(
+            "local",
+            str(payload.get("articleId", "") or ""),
+            int(segment_index) if segment_index else None,
+        ):
+            return
+        self._coordinator.complete_request()
         self._coordinator.on_local_article_segment_loaded(payload, self)
         self._restore_pending_progress()
         self._update_progress_current_slice()
 
     def _on_local_article_segment_load_failed(self, message: str) -> None:
+        if (
+            self._coordinator.request_state != "active"
+            or self._coordinator.current_request_source != "local"
+        ):
+            return
+        self._coordinator.fail_request()
         self._pending_restored_progress = None
         self.localArticleSegmentLoadFailed.emit(message)
 
@@ -972,6 +1013,11 @@ class Bridge(QObject):
     def handleLoadedText(self, quickDoc: QQuickTextDocument, text: str = "") -> None:
         self._typing_adapter.handleLoadedText(quickDoc, text)
 
+    @Slot()
+    def handleTextLoadFailed(self) -> None:
+        """Release the loading lock without committing an error as practice text."""
+        self._typing_adapter.handleLoadFailed()
+
     @Slot(str)
     def setTextTitle(self, title: str) -> None:
         """设置当前文本标题（用于上传）。"""
@@ -999,6 +1045,7 @@ class Bridge(QObject):
         """
         if not text:
             return
+        self._coordinator.invalidate_request()
         # 确保退出之前可能的分片模式
         if self._typing_adapter.is_slice_mode():
             self.exitSliceMode()
@@ -1028,6 +1075,7 @@ class Bridge(QObject):
     def requestLoadText(self, source_key: str) -> None:
         if self._typing_adapter.is_slice_mode():
             return
+        self._coordinator.invalidate_request()
         self._clear_wenlai_active()
         self._clear_local_article_active()
         self._clear_trainer_active()
@@ -1041,6 +1089,7 @@ class Bridge(QObject):
         # 确保退出之前可能的分片模式
         if self._typing_adapter.is_slice_mode():
             self.exitSliceMode()
+        self._coordinator.invalidate_request()
         self._clear_wenlai_active()
         self._clear_local_article_active()
         self._clear_trainer_active()
@@ -1116,10 +1165,29 @@ class Bridge(QObject):
             weights=weights if weights else None,
         )
 
-    @Slot(str, result=str)
-    def getLocalTextContent(self, source_key: str) -> str:
-        """同步读取本地文本内容，供载文 Dialog 离线预览。"""
-        return self._text_adapter.get_local_text_content(source_key)
+    @Slot(list)
+    def requestLocalTextContents(self, source_keys: list) -> None:
+        """异步批量读取本地文本预览内容。"""
+        self._text_adapter.requestLocalTextContents(source_keys)
+
+    @Slot("QVariantMap")
+    def queueTextSession(self, request: dict) -> None:
+        """按来源意图转发分片载文请求，避免 QML 携带具体 slot 名。"""
+        if not isinstance(request, dict):
+            return
+        source = str(request.get("source", "") or "")
+        identifier = str(request.get("identifier", "") or "")
+        segment_index = int(request.get("segmentIndex", 1) or 1)
+        segment_size = int(request.get("segmentSize", 0) or 0)
+        if not identifier or segment_size <= 0:
+            self.textLoadFailed.emit("载文请求参数无效")
+            return
+        if source == "local":
+            self.loadLocalArticleSegment(identifier, segment_index, segment_size)
+        elif source == "trainer":
+            self.loadTrainerSegment(identifier, segment_index, segment_size)
+        else:
+            self.textLoadFailed.emit(f"不支持的载文来源: {source}")
 
     @Slot(str, str, str, int, int, int, int, str)
     def loadFederatedEntrySegment(
@@ -1220,19 +1288,24 @@ class Bridge(QObject):
         self.sliceModeChanged.emit()
         self.textLoaded.emit(result.content, -1, title_label)
 
-    @Slot(str, str, str, str)
+    @Slot(str, str, str, str, "QVariantMap")
     def loadFederatedInlineEntry(
         self,
         authority: str,
         entryId: str,
         revisionId: str,
         title: str,
+        sliceOptions: dict | None = None,
     ) -> None:
         """从联邦聚合加载 inline 内容（规则/脚本/桥接源，快照优先）。
 
         同步主线程读取快照/拉取内容 + 直发 textLoaded，镜像 loadFullText
         链路：不再经 worker 线程 + textContentLoaded 间接回传（规避信号丢失
         导致的"一直加载动画"与跨线程对象生命周期问题）。
+
+        ``sliceOptions``（可选）：``slice_size`` > 0 时按用户分片设置本地切分
+        （镜像 custom 的 setupSliceMode），进度键固定
+        ``ott:{authority}:{entry_id}@{revision_id}``；空/缺省为全文载入。
         """
         if not self._registry_adapter:
             return
@@ -1257,7 +1330,42 @@ class Bridge(QObject):
             self.textLoadFailed.emit("条目无内容")
             return
 
-        # 与 loadFullText 一致：主线程同步建立会话 + 直发 textLoaded
+        display_title = title or detail.get("title", "") or "联邦文本"
+        opts = dict(sliceOptions) if sliceOptions else {}
+        slice_size = int(opts.get("slice_size", 0) or 0)
+
+        if slice_size > 0:
+            # 分片路径：inline 内容本地切分。criteria 由 QML 经 setSliceCriteria
+            # 写入 pending_slice_params（与 segmented 路径同一通道）。
+            if self._typing_adapter.is_slice_mode():
+                self.exitSliceMode()
+            self._clear_wenlai_active()
+            self._clear_local_article_active()
+            self._clear_trainer_active()
+            self._typing_adapter.prepare_for_text_load()
+            self._clear_text_id()
+            progress_id = f"{authority}:{entryId}@{revisionId}"
+            self._progress_key_override = _compute_progress_key("ott", progress_id)
+            p = self._coordinator.pending_slice_params
+            self.setupSliceMode(
+                content,
+                slice_size,
+                max(int(opts.get("start_slice", 1) or 1), 1),
+                float(p.get("key_stroke_min", 0.0) or 0.0),
+                int(p.get("speed_min", 0) or 0),
+                int(p.get("accuracy_min", 0) or 0),
+                int(p.get("pass_count_min", 1) or 1),
+                str(p.get("on_fail_action", "none") or "none"),
+                bool(p.get("auto_decrease_enabled", False)),
+                float(p.get("key_stroke_decrease", 0.0) or 0.0),
+                int(p.get("speed_decrease", 0) or 0),
+                int(p.get("accuracy_decrease", 0) or 0),
+                str(opts.get("restored_progress", "") or ""),
+                display_title,
+            )
+            return
+
+        # 全文路径：与 loadFullText 一致，主线程同步建立会话 + 直发 textLoaded
         if self._typing_adapter.is_slice_mode():
             self.exitSliceMode()
         self._clear_local_article_active()
@@ -1265,7 +1373,6 @@ class Bridge(QObject):
         self._typing_adapter.prepare_for_text_load()
         self._clear_text_id()
         self._typing_adapter.setup_custom_session("federated")
-        display_title = title or detail.get("title", "") or "联邦文本"
         self._typing_adapter.setTextTitle(display_title)
         self.windowTitleChanged.emit()
         self.textLoaded.emit(content, -1, display_title)
@@ -1276,13 +1383,13 @@ class Bridge(QObject):
         Bridge 自持的线程池助手（原 LeaderboardAdapter.submit_to_thread_pool
         已随 typetype-server 耦合移除，ADR-013）。
         """
-        from ..workers.base_worker import BaseWorker
+        from ..workers.base_worker import BaseWorker, start_worker
         from PySide6.QtCore import QThreadPool
 
         worker = BaseWorker(task=fn, error_prefix="操作失败")
         worker.signals.succeeded.connect(on_result)
         worker.signals.failed.connect(on_error)
-        QThreadPool.globalInstance().start(worker)
+        start_worker(QThreadPool.globalInstance(), worker)
 
     def _make_ott_segment_provider(
         self,
@@ -1383,108 +1490,146 @@ class Bridge(QObject):
             if 1 <= saved_slice <= saved_total:
                 segmentIndex = saved_slice
 
-        if self._typing_adapter.is_slice_mode():
-            self.exitSliceMode()
-        self._clear_wenlai_active()
-        self._clear_trainer_active()
-        self._typing_adapter.prepare_for_text_load()
-        self._clear_text_id()
+        self._coordinator.prepare_for_local_article_load(self)
+        self._coordinator.begin_request("local", articleId, segmentIndex, segmentSize)
 
-        # 全文乱序：通过 TextSessionUseCase.shuffle_all_virtual 统一处理
+        request = self._coordinator.active_request
+        if request is None:
+            return
         full_shuffle = self._coordinator.pending_slice_params.pop("full_shuffle", False)
-
-        file_path = self._local_article_adapter.resolve_article_path(articleId)
-        if file_path:
-            from pathlib import Path
-
-            stat = Path(file_path).stat()
-            version = f"{stat.st_size}:{stat.st_mtime}"
-            title = self._local_article_adapter.get_article_title(articleId)
-            from src.backend.models.dto.text_session import TextKind
-
-            result = self._text_adapter.startFileTextSession(
-                file_path=file_path,
-                kind=TextKind.LOCAL_ARTICLE,
-                identifier=articleId,
-                title=title,
-                version=version,
-                slice_size=segmentSize,
-                start_slice=segmentIndex,
+        saved_progress = self._pending_restored_progress
+        shuffle_seed = None
+        if full_shuffle:
+            shuffle_seed = (
+                saved_progress.get("shuffle_seed") if saved_progress else None
             )
-            if result is None:
-                return
-
-            # 全文乱序：通过 UseCase 统一处理（小文本全量 shuffle，大文本 Feistel）
-            # 保留 _pending_restored_progress 以便后续 _restore_pending_progress 使用
-            saved_progress = self._pending_restored_progress
-            if full_shuffle:
+            if shuffle_seed is None:
                 import random
 
-                saved_seed = None
-                if saved_progress:
-                    saved_seed = saved_progress.get("shuffle_seed")
-                if saved_seed is None:
-                    saved_seed = random.randint(0, 2**31 - 1)
-                usecase = self._text_adapter.text_session_usecase
-                if usecase:
-                    shuffled_usecase = usecase.shuffle_all_virtual(saved_seed)
-                    self._text_adapter._text_session_usecase = shuffled_usecase
-                    result = shuffled_usecase.get_segment(segmentIndex, segmentSize)
-                self._current_shuffle_seed = saved_seed
-                if saved_progress:
-                    saved_progress["shuffle_seed"] = saved_seed
-                self._progress_key_override = _compute_progress_key(
-                    "local_article", articleId
-                )
+                shuffle_seed = random.randint(0, 2**31 - 1)
 
-            # 设置分片模式（自动推进、重打、指标等依赖此状态）
-            p = self._coordinator.pending_slice_params
-            title_label = title
-            if result.total > 1:
-                title_label = (
-                    f"{title} {result.index}/{result.total}"
-                    if title
-                    else f"{result.index}/{result.total}"
+        def build_session() -> tuple[str, Any, Any, str, int | None]:
+            file_path = self._local_article_adapter.resolve_article_path(articleId)
+            if not file_path:
+                return "legacy", None, None, "", None
+
+            try:
+                from pathlib import Path
+
+                stat = Path(file_path).stat()
+                title = self._local_article_adapter.get_article_title(articleId)
+                from src.backend.models.dto.text_session import TextKind
+
+                built = self._text_adapter.buildFileTextSession(
+                    file_path=file_path,
+                    kind=TextKind.LOCAL_ARTICLE,
+                    identifier=articleId,
+                    title=title,
+                    version=f"{stat.st_size}:{stat.st_mtime}",
+                    slice_size=segmentSize,
+                    start_slice=segmentIndex,
                 )
-            self._typing_adapter.setTextTitle(title_label)
-            self.windowTitleChanged.emit()
-            self._coordinator._cache_current_content(result.content)
-            self._coordinator.source_slice_backend = "local_article"
-            self._coordinator.source_slice_article_id = articleId
-            self._coordinator.source_slice_segment_size = segmentSize
-            self._coordinator._visited_slices.clear()
-            self._typing_adapter.setup_sourced_slice_mode(
-                result.index,
-                result.total,
-                slice_size=segmentSize,
-                on_fail_action=p["on_fail_action"],
-                key_stroke_min=p["key_stroke_min"],
-                speed_min=p["speed_min"],
-                accuracy_min=p["accuracy_min"],
-                pass_count_min=p["pass_count_min"],
-                reset_counts=True,
-                auto_decrease_enabled=p.get("auto_decrease_enabled", False),
-                key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
-                speed_decrease=p.get("speed_decrease", 0),
-                accuracy_decrease=p.get("accuracy_decrease", 0),
-            )
-            # 恢复进度（达标次数 + per-slice 指标）
-            self._pending_restored_progress = saved_progress
-            self._restore_pending_progress()
-            self._update_progress_current_slice()
-            self.sliceModeChanged.emit()
-            self.textLoaded.emit(result.content, -1, title_label)
-        else:
+                if built is None:
+                    return "failed", None, None, "", None
+                usecase, result = built
+                if shuffle_seed is not None:
+                    usecase = usecase.shuffle_all_virtual(shuffle_seed)
+                    result = usecase.get_segment(segmentIndex, segmentSize)
+                return "file", usecase, result, title, shuffle_seed
+            except OSError:
+                raise
+
+        self._submit_to_thread_pool(
+            build_session,
+            lambda built: self._on_local_file_session_built(
+                request, articleId, segmentSize, built
+            ),
+            lambda message: self._on_local_file_session_failed(request, message),
+        )
+
+    def _on_local_file_session_built(
+        self,
+        request: TextSessionRequest,
+        article_id: str,
+        segment_size: int,
+        built: tuple[str, Any, Any, str, int | None],
+    ) -> None:
+        """仅将仍属于当前意图的后台文件会话挂接到打字状态。"""
+        if not self._coordinator.is_active_request(request):
+            return
+        mode, usecase, result, title, shuffle_seed = built
+        if mode == "legacy":
             self._typing_adapter.setup_local_article_session()
             self._coordinator.source_slice_backend = None
-            self._coordinator.source_slice_article_id = articleId
+            self._coordinator.source_slice_article_id = article_id
             self._coordinator._visited_slices.clear()
-            self._coordinator.source_slice_segment_size = segmentSize
+            self._coordinator.source_slice_segment_size = segment_size
             self._local_article_adapter.loadLocalArticleSegment(
-                articleId,
-                segmentIndex,
-                segmentSize,
+                article_id,
+                request.segment_index,
+                segment_size,
             )
+            return
+        if mode != "file" or usecase is None or result is None:
+            self._coordinator.fail_request()
+            self.textLoadFailed.emit("无法加载本地长文")
+            return
+
+        saved_progress = self._pending_restored_progress
+        if shuffle_seed is not None:
+            self._current_shuffle_seed = shuffle_seed
+            if saved_progress:
+                saved_progress["shuffle_seed"] = shuffle_seed
+            self._progress_key_override = _compute_progress_key(
+                "local_article", article_id
+            )
+
+        self._text_adapter.attachTextSession(usecase, segment_size)
+        p = self._coordinator.pending_slice_params
+        title_label = title
+        if result.total > 1:
+            title_label = (
+                f"{title} {result.index}/{result.total}"
+                if title
+                else f"{result.index}/{result.total}"
+            )
+        self._typing_adapter.setTextTitle(title_label)
+        self.windowTitleChanged.emit()
+        self._coordinator._cache_current_content(result.content)
+        self._coordinator.source_slice_backend = "local_article"
+        self._coordinator.source_slice_article_id = article_id
+        self._coordinator.source_slice_segment_size = segment_size
+        self._coordinator._visited_slices.clear()
+        self._typing_adapter.setup_sourced_slice_mode(
+            result.index,
+            result.total,
+            slice_size=segment_size,
+            on_fail_action=p["on_fail_action"],
+            key_stroke_min=p["key_stroke_min"],
+            speed_min=p["speed_min"],
+            accuracy_min=p["accuracy_min"],
+            pass_count_min=p["pass_count_min"],
+            reset_counts=True,
+            auto_decrease_enabled=p.get("auto_decrease_enabled", False),
+            key_stroke_decrease=p.get("key_stroke_decrease", 0.0),
+            speed_decrease=p.get("speed_decrease", 0),
+            accuracy_decrease=p.get("accuracy_decrease", 0),
+        )
+        self._pending_restored_progress = saved_progress
+        self._restore_pending_progress()
+        self._update_progress_current_slice()
+        self.sliceModeChanged.emit()
+        self.textLoaded.emit(result.content, -1, title_label)
+        self._coordinator.complete_request()
+
+    def _on_local_file_session_failed(
+        self, request: TextSessionRequest, message: str
+    ) -> None:
+        if not self._coordinator.is_active_request(request):
+            return
+        self._coordinator.fail_request()
+        self._pending_restored_progress = None
+        self.localArticleSegmentLoadFailed.emit(message)
 
     @Slot()
     def loadTrainers(self) -> None:
@@ -1506,7 +1651,7 @@ class Bridge(QObject):
         groupSize: int,
     ) -> None:
         """加载练单器指定分组。"""
-        if not self._trainer_adapter or self._trainer_adapter.trainer_loading:
+        if not self._trainer_adapter:
             return
 
         # 入口页已通过 prepareSliceProgressRestore 设置了待恢复进度，使用保存的分片索引
@@ -1517,6 +1662,7 @@ class Bridge(QObject):
                 segmentIndex = saved_slice
 
         self._prepare_for_trainer_load()
+        self._coordinator.begin_request("trainer", trainerId, segmentIndex, groupSize)
         self._coordinator.source_slice_trainer_id = trainerId
         self._coordinator.source_slice_group_size = groupSize
         self._coordinator._visited_slices.clear()
@@ -1550,6 +1696,12 @@ class Bridge(QObject):
             return
         if self._coordinator.source_slice_backend != "trainer":
             self._prepare_for_trainer_load()
+        self._coordinator.begin_request(
+            "trainer",
+            self._coordinator.source_slice_trainer_id,
+            self._typing_adapter.slice_index,
+            self._coordinator.source_slice_group_size,
+        )
         self._trainer_adapter.loadCurrentTrainerSegment()
 
     @Slot()
@@ -1558,6 +1710,15 @@ class Bridge(QObject):
             return
         if self._coordinator.source_slice_backend != "trainer":
             self._prepare_for_trainer_load()
+        current = self._typing_adapter.slice_index
+        total = self._typing_adapter.slice_total
+        next_index = (current % total) + 1 if total > 0 else 1
+        self._coordinator.begin_request(
+            "trainer",
+            self._coordinator.source_slice_trainer_id,
+            next_index,
+            self._coordinator.source_slice_group_size,
+        )
         self._trainer_adapter.loadNextTrainerSegment()
 
     @Slot()
@@ -1566,6 +1727,12 @@ class Bridge(QObject):
             return
         if self._coordinator.source_slice_backend != "trainer":
             self._prepare_for_trainer_load()
+        self._coordinator.begin_request(
+            "trainer",
+            self._coordinator.source_slice_trainer_id,
+            max(1, self._typing_adapter.slice_index - 1),
+            self._coordinator.source_slice_group_size,
+        )
         self._trainer_adapter.loadPreviousTrainerSegment()
 
     @Slot()
@@ -2581,6 +2748,7 @@ class Bridge(QObject):
     def requestAiText(self) -> None:
         """请求 AI 生成文本。"""
         if self._ai_text_adapter:
+            self._typing_adapter.prepare_for_text_load()
             self._ai_text_adapter.requestAiText()
 
     @Property(bool, notify=aiTextLoadingChanged)

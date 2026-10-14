@@ -1,5 +1,5 @@
 # RuntimeConfig 配置速查
-<!-- 状态: active | 最后验证: 2026-08-13 -->
+<!-- 状态: active | 最后验证: 2026-08-19 -->
 
 > 配置文件位于用户配置目录中的 `config.json`（schema_version=2，ADR-013）。首次启动时由 dataclass 默认值自动生成。macOS 用户配置目录为 `~/Library/Application Support/TypeType/`，Linux 为 `~/.config/typetype/`。
 
@@ -11,7 +11,7 @@
 | `default_text_source_key` | `str` | `builtin_demo` | 默认本地文本来源 key |
 | `typing_history_max_records` | `int` | `2000` | 打字历史最多保留条数 |
 | `blocked_content_hashes` | `list[str]` | `[]` | 被撤销的内容 hash 屏蔽集（2.7/7.2 落地，撤销列表自动维护） |
-| `text_sources` | `dict[str, TextSourceEntry]` | `{}` | 文本来源配置表（**仅本地文件**） |
+| `text_sources` | `dict[str, TextSourceEntry]` | 新配置默认五组；已有 v2 配置保留用户选择 | 文本来源配置表（**仅本地文件**） |
 | `ott` | `dict` | 见下 | OTT 运行时参数（由旧 `registry` 段收纳） |
 | `update` | `dict` | 见下 | OTA 更新检查配置 |
 | `source_repos` | `list` | 内置离线源 + 官方默认仓 | OTT Repo 源仓库订阅列表 |
@@ -20,7 +20,7 @@
 | `text_session` | `dict` | 见下 | 载文会话配置 |
 | `ui` | `dict` | 见下 | UI 主题与外观配置 |
 
-> **v2 已删除字段**（v1 → v2 迁移时丢弃）：`base_url`、`api_timeout`、`registry` 段（含 `registry.primary_url` / `registry.mirror_url`）、`text_sources` 中的 server/registry 条目与 `loader`/`leaderboard_mode`/`source_type`/`has_ranking` 字段、`font_config.json`（合并进 `ui.reader_font_path` 后文件退役）。
+> **v2 已删除字段**（v1 → v2 迁移时丢弃）：`base_url`、`api_timeout`、`registry` 段（含 `registry.primary_url` / `registry.mirror_url`）、`text_sources` 中的 server/registry 条目与 `loader`/`leaderboard_mode`/`source_type`/`has_ranking` 字段、`font_config.json`（合并进 `ui.reader_font_path` 后文件退役）。干净 v2 配置允许 `text_sources: {}` 表示暂不配置本地来源；只有新配置、迁移配置或损坏的非对象字段会补入内置默认来源。
 
 ## TextSourceEntry 字段（v2：仅本地文件）
 
@@ -51,6 +51,8 @@
 | `ott.cache_ttl_seconds` | `int` | `3600` | rule/script 缓存 TTL（秒） |
 | `ott.max_content_bytes` | `int` | `1048576` | 单条目内容上限（1 MB，federation 传入沙箱） |
 | `ott.scripts_enabled` | `bool` | 非 Windows 为 `true` | L3 ott-script 沙箱开关（Windows 默认禁用，无 Landlock 沙箱） |
+| `ott.route_mirrors` | `list[str]` | `[]` | 智能路由的全局 HTTP(S) 镜像/代理前缀；按实时探测结果参与 OTT 与 OTA 候选排序，不写死域名 |
+| `ott.route_probe_ttl_seconds` | `int` | `300` | 智能路由探测结果缓存时间；TTL 内复用排序，避免每次请求重复探测 |
 
 ## update 子字段（OTA 更新检查，ADR-014 决策 6）
 

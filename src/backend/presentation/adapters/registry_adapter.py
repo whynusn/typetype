@@ -18,6 +18,7 @@ from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 
 from ...application.exception_handler import GlobalExceptionHandler
 from ...utils.logger import log_info, log_warning
+from ...workers.base_worker import WorkerReleaseProxy, retain_worker
 
 if TYPE_CHECKING:
     from ...config.runtime_config import RuntimeConfig
@@ -40,6 +41,7 @@ class RegistryAdapter(QObject):
     reposChanged = Signal(list)  # list of repo summary dicts
     reposLoadFailed = Signal(str)
     reposLoadingChanged = Signal()
+    repoManifestPreviewed = Signal(object)
 
     entriesLoaded = Signal(list)  # list of entry dicts
     entriesLoadFailed = Signal(str)
@@ -66,6 +68,7 @@ class RegistryAdapter(QObject):
         self._catalog = catalog
         self._thread_pool = QThreadPool.globalInstance()
         self._repos_loading = False
+        self._repos_cache: list[dict] = []
         self._entries_loading = False
         self._entries_revalidating = False
         self._refreshing_repo = ""
@@ -82,6 +85,7 @@ class RegistryAdapter(QObject):
         # Python wrapper（及其 WorkerSignals QObject）若被 GC，跨线程排队
         # 信号可能丢失（成功清标记的 lambda 不再执行 → 动画永转，实测）。
         self._active_workers: set["BaseWorker"] = set()
+        self._release_proxies: dict[int, WorkerReleaseProxy] = {}
         # 手动刷新与后台 revalidate 各自独立硬超时：单发 QTimer 互不干扰，
         # 避免「源级刷新成功后，残留的 revalidate 定时器到点误报超时」。
         self._refresh_timer = QTimer(self)
@@ -97,21 +101,33 @@ class RegistryAdapter(QObject):
 
     @Slot(result=list)
     def getRepos(self) -> list[dict]:
-        """返回所有订阅的摘要（同步，manifest 优先走缓存）。"""
-        try:
-            return self._federation.list_repos()
-        except Exception as e:
-            log_warning(f"[RegistryAdapter] getRepos 失败: {e}")
-            return []
+        """返回最近一次后台加载的订阅摘要，不在 UI 调用栈执行网络。"""
+        return list(self._repos_cache)
 
     @Slot(str, result="QVariantMap")
     def previewRepoManifest(self, url: str) -> dict:
-        """预览 manifest（不订阅）：供添加订阅弹窗识别仓库/目录。"""
-        try:
-            return self._federation.preview_manifest(url)
-        except Exception as e:
-            log_warning(f"[RegistryAdapter] 预览 manifest 失败: {e}")
-            return {"url": url, "error": "预览失败"}
+        """预览 manifest（不订阅），结果通过 repoManifestPreviewed 异步返回。"""
+        url = (url or "").strip().rstrip("/")
+        if not url:
+            self.repoManifestPreviewed.emit({"url": url, "error": "订阅地址不能为空"})
+            return {"url": url, "pending": False, "error": "订阅地址不能为空"}
+
+        from ...workers.base_worker import BaseWorker
+
+        worker = BaseWorker(
+            task=lambda: self._federation.preview_manifest(url),
+            error_prefix="预览失败",
+        )
+        worker.signals.succeeded.connect(
+            lambda result: self.repoManifestPreviewed.emit(result)
+        )
+        worker.signals.failed.connect(
+            lambda message: self.repoManifestPreviewed.emit(
+                {"url": url, "error": message}
+            )
+        )
+        self._start_worker(worker)
+        return {"url": url, "pending": True}
 
     @Slot(str)
     def addRepo(self, url: str) -> None:
@@ -253,6 +269,7 @@ class RegistryAdapter(QObject):
 
     def _on_repos_loaded(self, repos: list[dict]) -> None:
         self._set_repos_loading(False)
+        self._repos_cache = list(repos)
         self.reposChanged.emit(repos)
 
     def _on_repos_load_failed(self, message: str) -> None:
@@ -347,11 +364,15 @@ class RegistryAdapter(QObject):
         """持有引用地启动 worker；finished 后释放（跨线程信号交付完毕）。"""
         worker.setAutoDelete(False)
         self._active_workers.add(worker)
-        worker.signals.finished.connect(lambda done=worker: self._release_worker(done))
+        proxy = WorkerReleaseProxy(self, worker, self._release_worker)
+        self._release_proxies[id(worker)] = proxy
+        worker.signals.finished.connect(proxy.release)
+        retain_worker(worker)
         self._thread_pool.start(worker)
 
     def _release_worker(self, worker: "BaseWorker") -> None:
         self._active_workers.discard(worker)
+        self._release_proxies.pop(id(worker), None)
 
     def _next_refresh_seq(self) -> int:
         """并发刷新序号：晚完成的前一次刷新不得清除新一轮刷新的标记。"""
