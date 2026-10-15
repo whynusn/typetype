@@ -480,7 +480,7 @@ def run_scenario_isolated(path: Path, repo_root: Path, timeout: int = 180) -> di
     import subprocess
     import tempfile
 
-    from .env import create_isolated_home
+    from .env import create_isolated_home, isolated_env
 
     tmpdir = tempfile.mkdtemp(prefix="ui-probe-scn-", dir=str(Path.home()))
     # 每个场景一份独立 HOME：app 模式会写配置与打字历史，共用会让场景互相
@@ -489,11 +489,13 @@ def run_scenario_isolated(path: Path, repo_root: Path, timeout: int = 180) -> di
     scenario_home = create_isolated_home(Path(tmpdir))
     out = Path(tmpdir) / "report.json"
     try:
-        env = dict(os.environ)
+        # 必须连 HOME/XDG_* 一起给：只设 UI_PROBE_HOME 的话，子进程的
+        # enter_sandbox() 复用该目录却不套覆盖，桌面会话预置的 XDG_DATA_HOME
+        # 会指回用户真实目录，打字历史直接写进真实数据。
+        env = isolated_env(scenario_home)
         env["PYTHONPATH"] = os.pathsep.join(
             [str(repo_root / "tools"), env.get("PYTHONPATH", "")]
         ).strip(os.pathsep)
-        env["UI_PROBE_HOME"] = str(scenario_home)
         proc = subprocess.run(
             [
                 sys.executable,

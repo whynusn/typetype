@@ -18,6 +18,7 @@ if str(TOOLS_DIR) not in sys.path:
 from ui_probe.env import (  # noqa: E402
     HOME_ENV,
     HOME_PREFIX,
+    enter_sandbox,
     isolated_env,
 )
 
@@ -67,3 +68,66 @@ def test_isolated_env_redirects_every_xdg_dir(tmp_path):
     assert env[HOME_ENV] == str(home)
     # 不能污染调用者自己的环境
     assert os.environ.get("XDG_CONFIG_HOME") != str(home / ".config")
+
+
+def test_enter_sandbox_reuse_still_redirects_xdg(monkeypatch, tmp_path):
+    """复用调用方给的沙箱时，也必须把 HOME/XDG_* 一起改写过去。
+
+    曾经的漏洞：`run_scenario_isolated()` 只给子进程设了 ``UI_PROBE_HOME``
+    标记，`enter_sandbox()` 见到标记就直接返回、不套覆盖——子进程于是带着
+    桌面会话预置的 `XDG_DATA_HOME` 跑，把打字历史一路写进**用户真实数据**
+    （本机实测往真实 `typing_history.json` 追加了 18 条，而所有隔离门禁
+    都是绿的：报告里的 home 字段确实指向沙箱）。
+    """
+    home = tmp_path / "probe-home"
+    home.mkdir()
+    real = tmp_path / "real-user"
+    (real / ".config").mkdir(parents=True)
+
+    monkeypatch.setenv(HOME_ENV, str(home))
+    monkeypatch.setenv("HOME", str(real))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(real / ".config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(real / ".local" / "share"))
+
+    assert enter_sandbox() == home
+
+    assert os.environ["HOME"] == str(home)
+    assert os.environ["XDG_CONFIG_HOME"] == str(home / ".config")
+    assert os.environ["XDG_DATA_HOME"] == str(home / ".local" / "share")
+    assert os.environ["XDG_CACHE_HOME"] == str(home / ".cache")
+    assert os.environ["XDG_STATE_HOME"] == str(home / ".local" / "state")
+    assert os.environ["QML_DISABLE_DISK_CACHE"] == "1"
+
+
+def test_scenario_subprocess_env_is_sandboxed(monkeypatch):
+    """跑场景的子进程拿到的 env 必须整套指向沙箱，不能只有标记。"""
+    import subprocess as sp
+
+    from ui_probe import scenario as scenario_mod
+
+    captured: dict = {}
+
+    class _FakeProc:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def fake_run(cmd, **kwargs):
+        # 收尾清理也会走 subprocess.run（挪到回收站），只认场景那一次
+        if any(str(part).endswith("ui_probe.scenario") for part in cmd[:4]):
+            captured.update(kwargs)
+        return _FakeProc()
+
+    monkeypatch.setattr(sp, "run", fake_run)
+    scenario_mod.run_scenario_isolated(
+        REPO_ROOT / "tools" / "ui_probe" / "scenarios" / "typing-basic.yaml",
+        REPO_ROOT,
+    )
+
+    env = captured["env"]
+    home = Path(env[HOME_ENV])
+    assert home.name.startswith(PROBE_PREFIX), home
+    assert env["HOME"] == str(home)
+    assert env["XDG_CONFIG_HOME"] == str(home / ".config")
+    assert env["XDG_DATA_HOME"] == str(home / ".local" / "share")
+    assert env["QML_DISABLE_DISK_CACHE"] == "1"

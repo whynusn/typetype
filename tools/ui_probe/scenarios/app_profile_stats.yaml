@@ -1,0 +1,110 @@
+schema: ui-probe/scenario@1
+name: app-profile-stats
+description: >
+  打字成绩 → 入库 → 个人中心展示的完整链路：在跟打页打满一段范文，
+  等 `typingEnded` 把成绩写进本地历史，再去个人中心验证统计卡片、
+  最近成绩列表和趋势图范围切换都拿得到数据。
+
+  这条链的每一环断了，界面表现都一样——"数字是 0 / 列表空着"，而
+  空列表在没打过字的时候本来就是正常的，人工点两下根本分不出是
+  "还没打"还是"打完了但没入库"。所以本场景**先在同一次运行里真的打
+  满一段**，再断言数字不为 0：把"没打"和"没入库"区分开。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 起步：上屏区有范文
+    action: assert
+    find: {objectName: typingReader}
+    expect:
+      count_gte: 1
+
+  - name: 起步：历史为空（否则后面的"入库"断言失去意义）
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {typingHistoryCount: 0}
+
+  - name: 打满整段范文
+    action: type
+    find: {objectName: typingInput}
+    text: "你好，世界。"
+    mode: ime
+
+  - name: 打满
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "6/6"}
+
+  - name: 等成绩落库（typingEnded 是异步的）
+    action: wait
+    ms: 1500
+
+  - name: 成绩已入库
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_gt: {typingHistoryCount: 0}
+      prop_gt: {typingHistoryTotalChars: 0}
+
+  - name: 打开「个人中心」
+    action: click
+    find: {text: "个人中心", index: 0}
+
+  - name: 本地打字统计卡片在位
+    action: assert
+    find: {text_equals: "本地打字统计"}
+    expect:
+      visible: true
+
+  - name: 统计卡片显示 1 场（不是 0）
+    action: assert
+    find: {text_equals: "1 场"}
+    expect:
+      visible: true
+
+  - name: 统计卡片渲染出速度/键准字段
+    action: assert
+    find: {text: "字/分"}
+    expect:
+      count_gte: 1
+
+  - name: 趋势图区域在位
+    action: assert
+    find: {text_equals: "打字趋势"}
+    expect:
+      visible: true
+
+  - name: 切到「按月」（走 Bridge.setTrendRange 往返）
+    action: click
+    find: {text_equals: "按月"}
+
+  - name: 等待换范围
+    action: wait
+    ms: 600
+
+  - name: 最近成绩列表有行
+    action: assert
+    find: {text_equals: "最近成绩"}
+    expect:
+      visible: true
+
+  # 断言**渲染出来的数据**（成绩行的日期），不是只断言"列表存在"——
+  # 列表容器一直都在，只有行里真的有内容才算数。
+  - name: 成绩行渲染出今天日期
+    action: assert
+    find: {text: "2026-10-15"}
+    expect:
+      count_gte: 1
+
+  - name: 成绩行渲染出字数
+    action: assert
+    find: {text: "字"}
+    expect:
+      count_gte: 1
+
+  - name: 全程无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

@@ -92,7 +92,7 @@
 | **"前端冒烟"** | 运行 `uv run python -m ui_probe.smoke --report ui_report.json`（PYTHONPATH=tools），汇总加载失败/绑定环/警告 |
 | **"前端快照"** | 运行 `python -m ui_probe.snapshot --target <qml> [--pretty]`，读结构化对象树（type/几何/文本/属性）判断界面实况 |
 | **"真机验收"** | 运行 `python -m ui_probe.app_run --out app_report.json`，真实客户端离屏启动 + 窗口快照 + QML 消息捕获（默认只写一次性隔离 HOME，加 `--no-isolate` 才碰真实数据） |
-| **"跑场景"** | 运行 `python -m ui_probe.scenario --all --out scenarios.json`（或 `--scenario <file>`），用 YAML 场景驱动真实客户端/隔离组件走核心流程（11 条 / 131 步） |
+| **"跑场景"** | 运行 `python -m ui_probe.scenario --all --out scenarios.json`（或 `--scenario <file>`），用 YAML 场景驱动真实客户端/隔离组件走核心流程（12 条 / 152 步） |
 | **"一键验收"** | 运行 `python -m ui_probe.suite --out ui_report.json`，分层跑冒烟/快照/真机/场景/静态规则并汇总判定 |
 | **"记录决策"** | 在 `docs/decisions/` 创建 ADR |
 | **"更新 CHANGELOG"** | 检查 git 提交，追加版本条目 |
@@ -242,6 +242,29 @@ function _notify(level, text, duration) {
 
 **历史**：2026-10-15 由 ui_probe 场景验收发现，规则已固化为静态门禁
 （`tools/ui_probe/lint.py` + `tests/ui_probe/test_scenario.py`）。
+
+### ⚠️ 「隔离标记存在」不等于「环境已改写」
+
+**问题**：`tools/ui_probe/env.py` 用 `UI_PROBE_HOME` 标记"本进程已在沙箱内"。
+但标记只是标记——如果只把它设进子进程 env，而没有同时改写 `HOME` 与四个
+`XDG_*`，子进程依然读得到桌面会话预置的 `XDG_DATA_HOME`，照样往用户真实目录写。
+
+真实事故：`enter_sandbox()` 的复用分支见到标记就直接返回、不套覆盖，
+而 `run_scenario_isolated()` 恰好只设了标记——app 场景全在污染真实数据，
+而所有隔离门禁都是绿的（报告里的 home 字段确实指向沙箱，只是没被用上）。
+
+**正确做法**：复用分支与新建分支必须走同一套 `apply_env_overrides()`；
+派生进程环境一律用 `isolated_env(home)`，不要手工挑几个变量设。
+
+```python
+# 错：只给标记
+env["UI_PROBE_HOME"] = str(home)
+# 对：整套覆盖（HOME + 四个 XDG + 关 QML 磁盘缓存 + 标记）
+env = isolated_env(home)
+```
+
+**历史**：2026-10-15 第二次修复，回归门禁
+`tests/ui_probe/test_isolation.py`（含"子进程 env 内容"断言）。
 
 ### ⚠️ QML 绑定的依赖不能经由 `.pragma library` 的函数指针读取
 

@@ -14,6 +14,7 @@
 
 ### Added
 
+- **前端验收场景库扩到 12 条 / 152 步（ADR-015）**：新增 `app-profile-stats`（打满范文 → `typingEnded` 落库 → 个人中心统计卡片/趋势范围切换/最近成绩列表拿到真数据，把"还没打过字"和"打完了但没入库"区分开）与重写 `app-weak-chars`（先在跟打页打一段带错字的文本造出字频记录，再验排序切换的异步往返）。同时暴露并修复一条此前一直被掩盖的隔离漏洞
 - **前端验收工具 P1.2（ADR-015）：场景 DSL + 离屏交互 + 一键套件**：`tools/ui_probe/scenario.py` 执行 YAML 声明式场景（`wait/assert/click/type/key/call/set/snapshot/pump`），可驱动**真实客户端**（复用 `bootstrap()`）或隔离组件，产出 `ui-probe/scenario@1`；选择器与 DSL 只引用 a11y 语义（objectName/类型/文本/索引路径），不 import 任何 typetype 或 RinUI 类型——AI agent 可直接写场景、可评审可 diff。核心流程场景库（`scenarios/`：启动自检/打字统计/重打/书籍组件）随全量 pytest 必跑。离屏交互方面 PySide6 未绑 `QTest` 的 QQuickItem 重载，改由 `interact.py` 直接注入 `QKeyEvent` 与 `QInputMethodEvent`（中文上屏走输入法提交路径），QML 函数经 `QMetaObject.invokeMethod` 调用。`ui_probe/suite.py` 一键跑完冒烟/快照/真机/场景/静态规则，汇总成 `ui_report.json`（含 PASS/FAIL 判定）。配套三条防"永远绿灯"的措施：场景引擎 `--selfcheck`（合成必失败场景验证会报红）、汇总判定喂脏数据测判决、每个 app 场景跑独立子进程（真实客户端状态不串）
 - **QML 静态验收规则**：`tools/ui_probe/lint.py` 拦 `Connections` 内引用 `Window.window` 这类 Item 附加属性——类型合法、qmllint 抓不到，但运行时每次信号分发报一条警告（实测一轮打字刷 986 条）
 - **QML 静态验收规则**：`tools/ui_probe/lint.py` 拦 `Connections` 内引用 `Window.window` 这类 Item 附加属性——类型合法、qmllint 抓不到，但运行时每次信号分发报一条警告（实测一轮打字刷 986 条）：`tools/ui_probe/snapshot.py` 结构化对象树快照（`ui-probe/snapshot@1`：type/objectName/path/几何/可见性/文本/属性，全量 33 目标 12597 节点门禁）；`tools/ui_probe/app_run.py` **真机验收**（`ui-probe/app-run@1`）——复用 `main.bootstrap()` 起真实客户端（真 Bridge/真配置/真数据/真异步 worker），离屏跑一段事件循环后快照窗口树并捕获 QML 消息。`main.py` 启动序列相应抽为 `bootstrap()/shutdown()`（行为不变，但自动化可复用同一条真实启动路径而不被 `app.exec()` 阻塞）
@@ -35,6 +36,7 @@
 
 ### Fixed
 
+- **真机隔离其实一直没生效（场景子进程只拿到了标记）**：`run_scenario_isolated()` 给子进程只设了 `UI_PROBE_HOME` 标记，而 `enter_sandbox()` 见到标记就直接返回、**不套 HOME/XDG 覆盖**——子进程于是带着桌面会话预置的 `XDG_DATA_HOME` 跑真实客户端，每次验收都往用户真实的 `typing_history.json` / `char_stats.db` 里写数据（本机实测今天 16:00–19:00 被追加了 18 条成绩记录，而所有隔离门禁都是绿的：报告里的 home 字段确实指向沙箱）。现在 `enter_sandbox()` 复用外部沙箱时也一律套上四个 XDG 覆盖，`run_scenario_isolated()` 改用 `isolated_env()` 整套下发；新增两道回归门禁（复用分支的 env 改写 + 子进程 env 内容），`tests/ui_probe/test_isolation.py` 扩到 5 项
 - **自定义文本敲完后「载入跟打」不亮（场景验收发现）**：`readyForLoad` 绑定里的 `canLoad()` 对 custom 来源走 `SrcBehav.customTextLen()`，而那是 `.pragma library` JS 文件里一个模块级 `var` 存的函数指针——QML 的绑定依赖跟踪穿不过这层间接，于是绑定抓不到 `contentText` 的依赖：粘贴/敲完文本后按钮**仍然是灰的**，只有切走再切回来（扰动 `currentSource`）才刷新。改为 hub 上的 QML 只读属性 `customTextLength`（直接读 `textLoadPanel.contentLength`），并删掉这条已成死代码的 JS 间接层
 - **切回跟打页后快捷键失灵（场景验收发现）**：从别的页面切回时焦点仍停在导航项上，而 F2/F3/F4 挂在页面的 `Keys.onPressed`——焦点不在本页子树，事件到不了，用户必须先在输入区点一下才能用快捷键。`LowerPane` 新增 `focusInput()`，`TypingPage.onActiveChanged` 激活时（callLater，等布局稳定）把焦点交回输入区
 - **练单器（词库）点选无反应（场景验收发现）**：`onTrainersLoaded` 绕过统一列表整形直接把 bridge 原始数据塞给 `trainerItems`，列表项缺 `title/subtitle/raw` 三件套——切换来源即刷 17 条「raw is undefined」警告，且 ListModel 不为 undefined 成员建 role，后续 `selectListItem` 取到的 raw 为空：状态栏显示「已选择：未选择文本」，按 732/740 行还会跟着报 `Unable to assign [undefined] to bool`。改为与其它来源一致走 `_syncToCurrentList(trainers)`

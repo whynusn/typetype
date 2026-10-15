@@ -11,11 +11,37 @@ description: >
   2. 切回之后列表条目不能消失（"先 clear 再等回灌"的写法一旦回灌迟到，
      列表就长期空白——异步往返最常见的失败形态）。
 
-  另外注意：起步就断言了"不是空态"，否则后面所有断言都能在空列表上
-  照样通过，整条场景形同虚设。
+  另外：起步先在跟打页打一段错字，把字频记录造出来。**没有这一步，
+  后面所有断言都能在空列表上照样通过**——空态本来就是"还没打过字"
+  的正常样子，整条场景会变成一条永远绿的假场景。
 mode: app
 wait_ms: 1500
 steps:
+  - name: 起步：上屏区有范文
+    action: assert
+    find: {objectName: typingReader}
+    expect:
+      count_gte: 1
+
+  # 先造数据：打满 6 个字（最后一个字必须打对——完成判定要求末字正确，
+  # 否则不算打完，typingEnded 不触发，字频也不会落库）。其中一个字故意打错，
+  # 这样薄弱字列表里才有"错得多的字"。
+  - name: 打一段带错字的文本（造字频记录）
+    action: type
+    find: {objectName: typingInput}
+    text: "你错，世界。"
+    mode: ime
+
+  - name: 错字已计入统计
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "6/6"}
+
+  - name: 等字频落库（typingEnded 之后才写）
+    action: wait
+    ms: 1500
+
   - name: 打开「薄弱字」页
     action: click
     find: {text: "薄弱字", index: 0}
@@ -28,10 +54,9 @@ steps:
 
   - name: 等异步查询回来（worker + 防抖，不是同步的）
     action: wait
-    ms: 1200
+    ms: 1500
 
   # 起步门槛：库里得真有数据。否则下面每一条断言都能在空列表上通过。
-  # （实测隔离 HOME 下也有 10 条——启动预热写进 char_stats.db 的高频字。）
   - name: 不是空态
     action: assert
     find: {text_equals: "暂无薄弱字记录，开始打字练习吧！"}

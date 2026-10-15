@@ -90,9 +90,16 @@ def enter_sandbox(base: Path | None = None) -> Path:
     已在沙箱内（``UI_PROBE_HOME`` 有效）时直接复用——那表示**调用方**持有它的
     生命周期，由调用方负责删除，本过程不越权清理（否则父还会用就被删了）。
     自己创建的则登记到 ``_OWNED``，进程退出前清理干净。
+
+    复用也一样要**套上 XDG 覆盖**：光设 ``UI_PROBE_HOME`` 而不管
+    ``HOME``/``XDG_*`` 等于没隔离——桌面会话预置的 `XDG_CONFIG_HOME`/
+    `XDG_DATA_HOME` 会被 Qt 与 platformdirs 优先读取，验收就一路写进用户
+    真实数据（本机实测：场景子进程把打字历史追加进了真实的
+    `typing_history.json`，而且一直没人发现）。
     """
     existing = os.environ.get(HOME_ENV)
     if existing and Path(existing).is_dir():
+        apply_env_overrides(os.environ, Path(existing))
         return Path(existing)
     home = create_isolated_home(base)
     apply_env_overrides(os.environ, home)
