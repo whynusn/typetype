@@ -37,7 +37,7 @@ from PySide6.QtGui import QInputMethodEvent, QKeyEvent, QMouseEvent
 from PySide6.QtQuick import QQuickItem, QQuickWindow
 from PySide6.QtWidgets import QApplication
 
-from .selector import Selector, describe_node, resolve_one
+from .selector import Selector, describe_node, has_prop, resolve_one
 
 _QT_KEY_PREFIXES = ("Key_",)
 
@@ -155,13 +155,66 @@ class Driver:
 
     # ---------- 交互 ----------
 
+    def scroll_into_view(self, obj: QQuickItem, margin: float = 8.0) -> bool:
+        """必要时把目标滚进视口（返回是否真的滚动了）。
+
+        踩坑：设置页这类内容是 Flickable，目标在折叠区外时 `mapToScene` 给出的
+        坐标落在窗口之外（或被裁掉），鼠标事件根本到不了它——开关点了没反应，
+        看起来像"功能坏了"，其实是"没点到"。真机用户会先滚一下，自动化也得会。
+        """
+        flickable = None
+        node = obj.parentItem()
+        while node is not None:
+            if has_prop(node, "contentY") and has_prop(node, "contentHeight"):
+                flickable = node
+                break
+            node = node.parentItem()
+        if flickable is None or not isinstance(flickable, QQuickItem):
+            return False
+
+        content_item = flickable.property("contentItem")
+        if not isinstance(content_item, QQuickItem):
+            return False
+
+        view_h = float(flickable.height() or 0)
+        if view_h <= 0:
+            return False
+        top = obj.mapToItem(content_item, QPointF(0, 0)).y()
+        content_y = float(flickable.property("contentY") or 0)
+        content_h = float(flickable.property("contentHeight") or 0)
+
+        if top >= content_y and top + obj.height() <= content_y + view_h:
+            return False  # 本来就在视口里
+
+        if top < content_y:
+            target = top - margin
+        else:
+            target = top + obj.height() - view_h + margin
+        target = max(0.0, min(target, max(0.0, content_h - view_h)))
+        flickable.setProperty("contentY", target)
+        self.pump(80)  # 让惯性/动画落地后再取坐标
+        return True
+
     def click(self, selector: Selector) -> dict:
         obj, info = self.locate(selector)
         target: QObject = self.window if self.window is not None else obj
         if isinstance(obj, QQuickItem):
             obj.forceActiveFocus()
+            self.scroll_into_view(obj)
             local = QPointF(obj.width() / 2, obj.height() / 2)
             scene = obj.mapToScene(local)
+            if self.window is not None:
+                # 坐标还在窗口外就别点了——静默点空比报错更坑（看着像功能坏了）
+                if not (
+                    0 <= scene.x() <= self.window.width()
+                    and 0 <= scene.y() <= self.window.height()
+                ):
+                    raise LookupError(
+                        f"目标不在视口内，点击会落空：{info.get('type')} "
+                        f"{info.get('objectName') or ''} scene=({scene.x():.0f},"
+                        f"{scene.y():.0f}) window={self.window.width():.0f}x"
+                        f"{self.window.height():.0f}"
+                    )
             for qtype in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease):
                 event = QMouseEvent(
                     qtype,

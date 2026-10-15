@@ -125,8 +125,8 @@ tools/ui_probe/
 ├── selector.py           # 语义定位（objectName / 类型 / 文本 / 索引路径）
 ├── interact.py           # 离屏交互原语（pump / click / type / key / call / set）
 ├── scenario.py           # 场景 DSL 执行引擎 + CLI（ui-probe/scenario@1）
-├── scenarios/*.yaml      # typetype 核心流程场景库（6 条 / 54 步：启动、导航、
-│                         #   载文来源切换、打字统计、重打、组件级输入）
+├── scenarios/*.yaml      # typetype 核心流程场景库（9 条 / 93 步：启动、导航、
+│                         #   载文来源切换、载文主链路、快捷键、设置交互…）
 ├── lint.py               # QML 静态规则（补 qmllint 抓不到的运行时噪声）
 ├── suite.py              # 一键验收：分层子进程运行，产出 ui_report.json
 └── smoke.py              # 冒烟运行器 CLI（含 --selfcheck-loop）
@@ -137,6 +137,8 @@ QML 绑定环与警告，产出结构化 JSON（AI agent 消费接口）。四�
 `smoke`（mock bridge，快）、`snapshot`（对象树/几何/属性快照）、`app_run`
 （**真实客户端**：真 Bridge/真配置/真数据，抓 mock 保真度覆盖不到的真实问题）、
 `scenario`（**声明式交互**：YAML 场景驱动真实客户端或隔离组件，验证流程语义）。
+点击类原语自带"滚进视口"处理（Flickable 内的目标若不滚动，鼠标事件会落空，
+表现得像功能坏了）。
 
 场景 DSL 只引用 a11y 语义（objectName / 文本 / 角色 / 索引路径），不 import
 任何 typetype 或 RinUI 类型——AI agent 可直接编写与评审；为让关键节点可稳定

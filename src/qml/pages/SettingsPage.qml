@@ -289,6 +289,9 @@ FluentPage {
 
             Switch {
                 id: zitiEnabledSwitch
+                // 命名关键交互节点：页面里同源 Switch 有多个（AI/键盘/…），
+                // 自动化验收靠 objectName 才指得准，只按类型+顺序会点到别的开关
+                objectName: "zitiEnabledSwitch"
                 checked: appBridge ? appBridge.zitiEnabled : false
                 onCheckedChanged: {
                     if (appBridge && !syncingZitiControls)

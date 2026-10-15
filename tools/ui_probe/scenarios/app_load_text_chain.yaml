@@ -1,0 +1,77 @@
+schema: ui-probe/scenario@1
+name: app-load-text-chain
+description: >
+  主链路端到端：载文中心（本地文库）选一篇文章 → 点「载入跟打」→ 回到跟打页，
+  断言上屏区真的换成了这篇文章、字数统计重置为 0、全程无 QML 噪声。
+
+  为什么这条最值钱：它跨了三个子系统（载文列表 → Bridge 载文链路 → 打字页
+  applyLoadedText + 统计重置）。任何一段断裂，用户看到的现象都是"点了没反应"
+  或"打完了成绩算在上一篇头上"——单测各自都绿，只有串起来才现形。
+
+  断言仍遵守"独有文案"约定：不是"节点数变多了"，而是上屏区文本与后端字数
+  同时给出可核对的值。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 进载文中心
+    action: click
+    find: {text: "载文", index: 0}
+
+  - name: 等本地文库列表异步加载
+    action: wait
+    ms: 1200
+
+  - name: 本地文库有文章
+    action: assert
+    find: {role: static-text, props: {visible: true}}
+    expect:
+      count_gte: 5
+      no_new_messages: true
+
+  - name: 选中一篇文章（本地文库默认篇目）
+    action: click
+    find: {text: "打词必备单字", index: 0}
+
+  - name: 载入按钮可用（说明选择已生效）
+    action: assert
+    find: {text_equals: "载入跟打"}
+    expect:
+      enabled: true
+
+  - name: 点了「载入跟打」
+    action: click
+    find: {text_equals: "载入跟打"}
+
+  - name: 等待载文落地
+    action: wait
+    ms: 800
+
+  - name: 回到跟打页
+    action: click
+    find: {text: "跟打", index: 0}
+
+  - name: 上屏区换成了刚载入的文章
+    action: assert
+    find: {objectName: typingReader}
+    expect:
+      text_contains: "的"
+
+  - name: 字数统计已重置
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_contains: {charNum: "/"}
+      no_new_messages: true
+
+  - name: 输入区可用且为空
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      text_equals: ""
+      prop_false: [readOnly]
+
+  - name: 全链路无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

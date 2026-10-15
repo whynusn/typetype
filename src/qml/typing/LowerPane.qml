@@ -20,6 +20,16 @@ QQC.Pane {
     // 信号：通知 Bridge 焦点变化
     signal lowerPaneFocusChanged(bool hasFocus)
 
+    // 把键盘焦点交回输入区。
+    //
+    // 为什么要显式做：从别的页面切回跟打页时，焦点仍停在导航项上，而
+    // F2/F3/F4 这类快捷键挂在页面的 Keys.onPressed 上——焦点不在本页子树里，
+    // 事件就到不了，用户看到的是"快捷键失灵"（必须先在输入区点一下才有效）。
+    // 场景验收实测：切回后不点输入区直接按 F3，重打不生效。
+    function focusInput() {
+        if (!textArea.readOnly && textArea.enabled) textArea.forceActiveFocus()
+    }
+
     background: Rectangle {
         color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.cardColor : Rin.Utils.fallbackSurfaceColor
         border.color: Rin.Theme.currentTheme ? Rin.Theme.currentTheme.colors.dividerBorderColor : Rin.Utils.fallbackSecondaryTextColor

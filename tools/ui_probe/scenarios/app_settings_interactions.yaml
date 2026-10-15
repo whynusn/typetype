@@ -1,0 +1,89 @@
+schema: ui-probe/scenario@1
+name: app-settings-interactions
+description: >
+  设置页关键交互：字提示开关（Switch → Bridge → 配置写回 → 再同步回 UI 的
+  完整往返）、阅读字体管理对话框（open → 渲染 → Escape 关闭）。
+
+  为什么盯开关：Switch 的 `checked` 与 Bridge 属性是**双向**的——用户点一下
+  走 checked → setZitiEnabled → 信号回来重设 checked。这条环一旦写成同步赋值
+  就是绑定环（加载期抓得到），写反了则是"点了会跳回去"（只在交互时现形）。
+  对话框同理：延迟实例化的组件，第一次 open 才求值，静态加载看不见。
+
+  销毁性操作（清空打字历史、删除字体）一律不碰——验收不该拿用户数据练手。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 进设置页
+    action: click
+    find: {text: "设置", index: 0}
+
+  - name: 字提示开关在位
+    action: assert
+    find: {text_equals: "字提示方案"}
+    expect:
+      visible: true
+
+  # 指认开关必须用 objectName：设置页里有好几个同型 Switch（AI / 键盘 / …），
+  # 按类型+顺序找会点到别的开关上（实测第一次点中了 AI 区块的开关，
+  # 断言"Bridge 没变化"才把这件事抖出来）。
+  - name: 初始为关闭
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_false: [zitiEnabled]
+
+  - name: 打开字提示（Switch → Bridge 往返）
+    action: click
+    find: {objectName: zitiEnabledSwitch}
+
+  - name: Bridge 已收到（开关不是自嗨）
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_true: [zitiEnabled]
+      no_new_messages: true
+
+  - name: 切回关闭
+    action: click
+    find: {objectName: zitiEnabledSwitch}
+
+  - name: Bridge 同步回关闭态
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_false: [zitiEnabled]
+      no_new_messages: true
+
+  - name: 打开阅读字体管理对话框
+    action: click
+    find: {text_equals: "管理", index: 0}
+
+  - name: 等待对话框渲染
+    action: wait
+    ms: 500
+
+  - name: 对话框标题在位
+    action: assert
+    find: {text_equals: "管理阅读字体"}
+    expect:
+      visible: true
+
+  - name: 开对话框无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
+
+  - name: Escape 关闭对话框
+    action: key
+    key: Escape
+
+  - name: 等待关闭动画收尾
+    action: wait
+    ms: 400
+
+  - name: 关闭未引入噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

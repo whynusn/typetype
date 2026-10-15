@@ -35,6 +35,7 @@
 
 ### Fixed
 
+- **切回跟打页后快捷键失灵（场景验收发现）**：从别的页面切回时焦点仍停在导航项上，而 F2/F3/F4 挂在页面的 `Keys.onPressed`——焦点不在本页子树，事件到不了，用户必须先在输入区点一下才能用快捷键。`LowerPane` 新增 `focusInput()`，`TypingPage.onActiveChanged` 激活时（callLater，等布局稳定）把焦点交回输入区
 - **练单器（词库）点选无反应（场景验收发现）**：`onTrainersLoaded` 绕过统一列表整形直接把 bridge 原始数据塞给 `trainerItems`，列表项缺 `title/subtitle/raw` 三件套——切换来源即刷 17 条「raw is undefined」警告，且 ListModel 不为 undefined 成员建 role，后续 `selectListItem` 取到的 raw 为空：状态栏显示「已选择：未选择文本」，按 732/740 行还会跟着报 `Unable to assign [undefined] to bool`。改为与其它来源一致走 `_syncToCurrentList(trainers)`
 - **退出时线程未停导致的崩溃（真机验收发现）**：RinUI `ThemeListener` 是 `QThread` + `while True` 轮询，退出路径只有 `terminate()`；只要没显式调 `clean_up()`，进程退出时 Qt 会以 `qFatal("QThread: Destroyed while thread is still running")` 终止（实测创建过 RinUIWindow 后**每次正常退出都崩**，部分场景 SIGABRT）。改为可中断轮询 + `requestInterruption()/quit()/wait(3000)`，`start_listener` 注册 `atexit` 兜底，`clean_up()` 幂等；`main.shutdown()` 也显式调用一次
 - **Connections 里引用 Window.window 的运行时刷屏**：`Connections` 不是 `Item`，`Window.window` 无从解析，运行时每次信号分发报一条 TypeError——打字一轮累积 986 条。页面内收敛出统一的通知辅助函数，`TypingPage.qml` 3 处 + `TextLoadHubPage.qml` 1 处修掉，并沉淀为静态规则防止复发

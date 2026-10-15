@@ -92,7 +92,7 @@
 | **"前端冒烟"** | 运行 `uv run python -m ui_probe.smoke --report ui_report.json`（PYTHONPATH=tools），汇总加载失败/绑定环/警告 |
 | **"前端快照"** | 运行 `python -m ui_probe.snapshot --target <qml> [--pretty]`，读结构化对象树（type/几何/文本/属性）判断界面实况 |
 | **"真机验收"** | 运行 `python -m ui_probe.app_run --out app_report.json`，真实客户端离屏启动 + 窗口快照 + QML 消息捕获（默认只写一次性隔离 HOME，加 `--no-isolate` 才碰真实数据） |
-| **"跑场景"** | 运行 `python -m ui_probe.scenario --all --out scenarios.json`（或 `--scenario <file>`），用 YAML 场景驱动真实客户端/隔离组件走核心流程 |
+| **"跑场景"** | 运行 `python -m ui_probe.scenario --all --out scenarios.json`（或 `--scenario <file>`），用 YAML 场景驱动真实客户端/隔离组件走核心流程（9 条 / 93 步） |
 | **"一键验收"** | 运行 `python -m ui_probe.suite --out ui_report.json`，分层跑冒烟/快照/真机/场景/静态规则并汇总判定 |
 | **"记录决策"** | 在 `docs/decisions/` 创建 ADR |
 | **"更新 CHANGELOG"** | 检查 git 提交，追加版本条目 |

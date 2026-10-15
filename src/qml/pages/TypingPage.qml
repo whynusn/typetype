@@ -548,6 +548,9 @@ Item {
 
     onActiveChanged: {
         if (active) {
+            // 切回本页就把焦点交回输入区：否则 F2/F3/F4 全靠"先点一下输入区"
+            // 才生效。用 callLater——页面刚激活时输入区可能还没完成布局/启用。
+            Qt.callLater(lowerPane.focusInput);
             typingPage.syncSliceStatus();
             typingPage.syncSliceCriteria();
             if (appBridge && !appBridge.sliceMode && firstActivation) {

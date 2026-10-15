@@ -1,0 +1,86 @@
+schema: ui-probe/scenario@1
+name: app-typing-shortcuts
+description: >
+  打字页快捷键链路：F4/Ctrl+L 乱序、F2 分片设置（跳载文中心的自定义页签）、
+  F3 重打。快捷键走的是**键盘事件分发**（Keys.onPressed / Shortcut），
+  这跟"点按钮"不是同一条路——按钮坏了点不动，快捷键坏了键盘没反应，
+  各自都可能单独断。
+
+  另有一条硬要求：F2 跳转依赖 NavigationView 的**页面实例缓存**
+  （按 URL 缓存、重复 push 不会重放 properties，所以要先写回 initialSource
+  再 push）。这个取巧逻辑一旦漂移，F2 就会跳到上一次的页签——断言里用
+  「自定义」页签的独有文案盯住它。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 起步：上屏区有范文
+    action: assert
+    find: {objectName: typingReader}
+    expect:
+      count_gte: 1
+
+  - name: F4 乱序
+    action: key
+    key: F4
+
+  - name: 乱序后统计仍为 0 起
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_contains: {charNum: "0/"}
+      no_new_messages: true
+
+  - name: 打两个字
+    action: type
+    find: {objectName: typingInput}
+    text: "你好"
+    mode: ime
+
+  - name: 统计推进
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "2/6"}
+
+  - name: F2 打开分片设置（应落在载文中心「自定义」页签）
+    action: key
+    key: F2
+
+  - name: 等待页面切换
+    action: wait
+    ms: 600
+
+  - name: 落在自定义页签（不是上一次的页签）
+    action: assert
+    find: {text_equals: "文本内容"}
+    expect:
+      visible: true
+
+  - name: 跳转无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
+
+  - name: 回跟打页
+    action: click
+    find: {text: "跟打", index: 0}
+
+  # 关键：这里**不**点输入区就直接按 F3。焦点若停在导航项上，页面的
+  # Keys.onPressed 收不到事件，重打就成了"必须先在输入区点一下才有效"。
+  - name: 切回后直接按 F3 就能重打（焦点已自动回到输入区）
+    action: key
+    key: F3
+
+  - name: 输入区已清空
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      text_equals: ""
+
+  - name: 统计归零
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "0/6"}
+      no_new_messages: true
