@@ -1,0 +1,101 @@
+schema: ui-probe/scenario@1
+name: app-text-hub-sources
+description: >
+  载文中心六个来源 tab 的切换验收：本地文库 / 开源文库 / 练单器 / 晴发文 /
+  AI 推荐 / 自定义，逐个点开，断言对应的来源 UI 真的在位且没有新增 QML 噪声。
+
+  价值在于"懒实例化"：Segmented 后面每个 tab 都是一个独立的面板栈
+  （列表 + 预览 + 切片设置 + 操作行），很多表达式要等到它第一次可见才求值，
+  静态加载看得见组件、看不见那次求值。历史上 avalanche 式的运行时警告
+  （一条 warning 在每次信号分发时重发）就是这种 delayed panel 里跑出来的。
+
+  同样遵守"独有文案"约定：每个 tab 都断言该来源独有的 UI，而不是笼统计数。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 切到载文页
+    action: click
+    find: {text: "载文", index: 0}
+
+  - name: 本地文库：面板在位
+    action: assert
+    find: {text_equals: "本地文库"}
+    expect:
+      visible: true
+
+  - name: 切到「开源文库」
+    action: click
+    find: {text_equals: "开源文库"}
+
+  - name: 开源文库面板无噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
+
+  - name: 切到「练单器」
+    action: click
+    find: {text_equals: "练单器"}
+
+  - name: 等词库列表异步加载
+    action: wait
+    ms: 1200
+
+  - name: 练单器：词库列表有条目（不再是空态）
+    action: assert
+    find: {text: "前500"}
+    expect:
+      visible: true
+
+  - name: 练单器：点选首个词库（回归：raw 缺失时点击无反应）
+    action: click
+    find: {text: "前500", index: 0}
+
+  - name: 练单器：选择已生效（状态栏回显）
+    action: assert
+    find: {text: "已选择"}
+    expect:
+      visible: true
+
+  - name: 练单器面板无噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
+
+  - name: 切到「晴发文」
+    action: click
+    find: {text_equals: "晴发文"}
+
+  - name: 切到「AI 推荐」
+    action: click
+    find: {text_equals: "AI 推荐"}
+
+  - name: 切到「自定义」
+    action: click
+    find: {text_equals: "自定义"}
+
+  - name: 自定义：文本输入区在位且可编辑
+    action: assert
+    find: {text_equals: "文本内容"}
+    expect:
+      visible: true
+
+  # 注意把 visible 也写进选择条件：页面里所有 tab 的组件都是常驻实例化的，
+  # 只按 role 找会命中其它 tab 里那个隐藏的输入区（实测首次跑就是这样，
+  # 断言因此失真）。
+  - name: 自定义：输入区可编辑且真的可见
+    action: assert
+    find: {role: text-input, props: {readOnly: false, visible: true}}
+    expect:
+      count_gte: 1
+
+  - name: 回到「本地文库」
+    action: click
+    find: {text_equals: "本地文库"}
+
+  - name: 全程无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

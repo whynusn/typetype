@@ -1083,7 +1083,11 @@ FluentPage {
         }
         function onTrainersLoaded(trainers) {
             if (root.active && root.currentSource === "trainer") {
-                root.trainerItems = trainers || []
+                // 必须走统一整形：原样塞 bridge 原始数据时，列表项没有
+                // title/subtitle/raw 三件套——ListModel.append 遇到 undefined
+                // 成员会警告且不建 role，导致后续 itemClicked 取到的 raw 为空，
+                // 词库点了没反应（实测切到练单器即刷 17 条 warning）。
+                root._syncToCurrentList(trainers)
                 root.trainerListError = ""
             }
         }

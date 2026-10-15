@@ -76,6 +76,10 @@ pytest 插件形态（仓库内 `tools/ui_probe/`，`tests/ui_probe/` 提供 pyt
 > - **静态规则**（`lint.py`）：`Connections` 内引用 `Window.window` 这类 Item 附加属性——类型检查合法，qmllint 抓不到，运行时每次信号分发报一次（实测一轮打字 **986 条**警告）。规则进 pytest 门禁后，顺手修掉 `TypingPage.qml`（3 处）与 `TextLoadHubPage.qml`（1 处）。
 > - **真机沙箱必须连 XDG 一起隔离**（`env.py`）：只设 `HOME` **隔离不住**——桌面会话普遍预置 `XDG_CONFIG_HOME`/`XDG_DATA_HOME`，Qt 与 platformdirs 优先读它们，验收会直接把打字历史写进用户真实目录（本机实测污染了 `~/.local/share/typetype/typing_history.json` 与 `typing_totals.json`）。现在四个 XDG 目录全部指向一次性 HOME，并顺带关闭 QML 磁盘缓存（每次运行几十个文件，还可能拿陈旧缓存掩盖编译错误）；回归门禁见 `tests/ui_probe/test_isolation.py`。
 
+> 场景库扩容补记（2026-10-15，6 条场景 / 54 步）：
+> - **场景书写的两条"防假绿"约定**（都是踩出来的）：① 每个导航/切换步骤必须断言目标**独有文案**，不能用笼统的节点计数——点击没生效时，上一页的残留内容照样让计数断言通过；② 每步紧跟 `no_new_messages`，把噪声定位到具体那一次交互，而不是最后只留一句"有 37 条警告"。选择器还要小心**常驻实例化的隐藏面板**：各 tab 的组件一直活着，只按 role 找会命中别的 tab 里隐藏的同类节点（`visible` 写进 `props` 过滤）。
+> - **扩容当天就抓到一个静态层完全看不见的真实缺陷**：载文中心练单器列表 bypass 了统一整形，列表项缺 `raw` → 切换来源刷 17 条「raw is undefined」、点选词库实际无效（状态栏停在「已选择：未选择文本」）。静态加载（smoke/snapshot）与人工 review 都没看见——它只在**页面实例化之后的数据到达时刻**才付代价。这印证了 P1.2 的核心假设：静态层再全，也代替不了“真的点一遍”。该场景现在锁死了这条回归（手动 revert 验证确实会报红）。
+
 ### 6. 场景 DSL 约束
 
 YAML 声明式（`load / click / type / wait / assert / screenshot`），**只引用 a11y 语义**（objectName / 文本 / role），不 import 任何 typetype 或 RinUI 类型——这是通用性与 AI 可编写性的关键。场景文件即文档，可评审、可 diff。

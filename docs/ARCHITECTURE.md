@@ -125,7 +125,8 @@ tools/ui_probe/
 ├── selector.py           # 语义定位（objectName / 类型 / 文本 / 索引路径）
 ├── interact.py           # 离屏交互原语（pump / click / type / key / call / set）
 ├── scenario.py           # 场景 DSL 执行引擎 + CLI（ui-probe/scenario@1）
-├── scenarios/*.yaml      # typetype 核心流程场景库（启动/载文/打字/重打…）
+├── scenarios/*.yaml      # typetype 核心流程场景库（6 条 / 54 步：启动、导航、
+│                         #   载文来源切换、打字统计、重打、组件级输入）
 ├── lint.py               # QML 静态规则（补 qmllint 抓不到的运行时噪声）
 ├── suite.py              # 一键验收：分层子进程运行，产出 ui_report.json
 └── smoke.py              # 冒烟运行器 CLI（含 --selfcheck-loop）

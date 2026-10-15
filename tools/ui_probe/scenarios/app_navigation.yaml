@@ -1,0 +1,95 @@
+schema: ui-probe/scenario@1
+name: app-navigation
+description: >
+  全页面导航验收——依次点开主导航的五个页面（载文 / 薄弱字 / 个人中心 /
+  设置 / 跟打），每跳转一次就用**该页独有文案**证明页真的切过去了，并断言
+  没有新增 QML 消息。
+
+  为什么单独立一条：静态加载（smoke/snapshot）只看得见"组件能不能 load"，
+  看不见"页面被实例化之后才开始跑的那部分"——异步补图、延迟绑定、只在某个
+  信号到达后才成立的表达式。这些都只在真正跳转时才付代价，也是最容易冒出
+  运行时警告的地方（典型的：Connections 里引用 Window.window，每次信号
+  分发报一条，打字一轮能刷上千条）。
+
+  两个"防假绿"约定：
+  1. 每跳一轮都断言目标页的**独有文案**（不是笼统的"节点数够多"）——
+     否则点击根本没生效，计数断言也会因为上一页的残留内容照样通过。
+  2. 每段导航后立刻 `no_new_messages`，把噪声精确定位到某一次跳转上，
+     而不是最后汇总时只剩一句"有 37 条警告"。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 打开「载文」页
+    action: click
+    find: {text: "载文", index: 0}
+
+  - name: 载文页：出现来源 tab
+    action: assert
+    find: {text_equals: "本地文库"}
+    expect:
+      visible: true
+
+  - name: 载文页：开源文库 tab 在位
+    action: assert
+    find: {text_equals: "开源文库"}
+    expect:
+      visible: true
+
+  - name: 跳转未引入 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
+
+  - name: 打开「薄弱字」页
+    action: click
+    find: {text: "薄弱字", index: 0}
+
+  - name: 薄弱字页：排序方式在位
+    action: assert
+    find: {text_equals: "排序方式"}
+    expect:
+      visible: true
+
+  - name: 打开「个人中心」页
+    action: click
+    find: {text: "个人中心", index: 0}
+
+  - name: 个人中心：本地打字统计卡片在位
+    action: assert
+    find: {text_equals: "本地打字统计"}
+    expect:
+      visible: true
+
+  - name: 打开「设置」页
+    action: click
+    find: {text: "设置", index: 0}
+
+  - name: 设置页：关于与更新区块在位
+    action: assert
+    find: {text_equals: "关于与更新"}
+    expect:
+      visible: true
+
+  - name: 设置页：主题选项在位
+    action: assert
+    find: {text_equals: "跟随系统"}
+    expect:
+      visible: true
+
+  - name: 回到「跟打」页
+    action: click
+    find: {text: "跟打", index: 0}
+
+  - name: 输入区仍可用
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      enabled: true
+      prop_false: [readOnly]
+
+  - name: 全程无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
