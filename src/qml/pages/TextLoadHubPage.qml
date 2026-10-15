@@ -223,12 +223,11 @@ FluentPage {
         }
     }
 
-    // 注册 custom 来源的字数 getter（供 canLoadImpl 在 JS 中判读）
-    Component.onCompleted: {
-        SrcBehav.registerCustomTextLenGetter(function () {
-            return textLoadPanel ? textLoadPanel.contentText.trim().length : 0
-        })
-    }
+    // 自定义来源的字数。**必须是 QML 属性而不是 JS 回调**：canLoad() 一旦
+    // 经由 .pragma library 里的函数指针读字数，readyForLoad 的绑定就抓不到
+    // 对 contentText 的依赖——粘贴完文本「载入跟打」仍是灰的，只有切走再切回来
+    // （扰动 currentSource）才会刷新。回归场景：app-slice-progression。
+    readonly property int customTextLength: textLoadPanel ? textLoadPanel.contentLength : 0
 
     function continueLastProgress() {
         if (currentSource === "custom") {
@@ -485,7 +484,7 @@ FluentPage {
     function canLoad() {
         if (!appBridge) return false
         // custom 来源字数校验（依赖 textLoadPanel，留在 hub）
-        if (currentSource === "custom") return SrcBehav.customTextLen() > 0
+        if (currentSource === "custom") return customTextLength > 0
         // local / trainer / repos 选中即可载文（repos 不依赖预览内容）
         return selectedItem !== null
     }

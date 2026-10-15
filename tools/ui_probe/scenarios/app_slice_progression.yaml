@@ -1,0 +1,149 @@
+schema: ui-probe/scenario@1
+name: app-slice-progression
+description: >
+  分片载文的完整推进链路：自定义文本 → 每段 10 字切成 4 段 → 载入跟打 →
+  打第一段 → 推进到第二段。
+
+  这是**跨四个子系统**的一条链（载文页 / Bridge / 打字引擎 / 会话上下文），
+  而且每一环失败的表现都是"看起来还在打字"：切片没生效就退化成全文模式
+  （字数从 0/40 起而不是 0/10），推进没生效就停在旧段内容上但索引照涨。
+  所以这里对**段索引 + 上屏区实际内容**两边都下断言——索引对了但内容没换，
+  同样算失败。四段文本刻意用互不相同的字（数字 / 天干 / 地支 / 五行），
+  任何一段错位都会被文本断言抓住。
+
+  两条刻意留下的边界：
+  1. 只打 9 个字就推进。合成输入没有真实击键与速度，打满第 10 个字会被
+     达标判定判 fail 并触发自动重打（统计清零、输入区清空）——那是**正确
+     行为**，但它会让"推进"这一步失去意义，所以本场景只验推进本身。
+  2. 「载入跟打」必须在敲完文本后**立刻**可点，不能靠切 tab 才亮（见下方
+     回归守卫）。
+mode: app
+wait_ms: 1500
+steps:
+  - name: F2 打开分片设置（落在载文中心「自定义」页签）
+    action: key
+    key: F2
+
+  - name: 等待页面切换
+    action: wait
+    ms: 700
+
+  - name: 落在自定义页签
+    action: assert
+    find: {text_equals: "文本内容"}
+    expect:
+      visible: true
+
+  - name: 点进自定义输入区
+    action: click
+    find: {objectName: customTextInput}
+
+  - name: 敲进 40 字（四段各 10 字，互不相同）
+    action: type
+    find: {objectName: customTextInput}
+    text: "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥金木水火土风雨雷"
+    mode: ime
+    expect:
+      prop_equals: {length: 40}
+
+  # 回归守卫：readyForLoad 曾因 canLoad() 经由 .pragma library 里的函数指针
+  # 读自定义字数，绑定抓不到 contentText 依赖——敲完文本「载入跟打」仍是灰的，
+  # 只有切走再切回来（扰动 currentSource）才亮。这里必须**敲完直接断言可点**。
+  - name: 敲完文本「载入跟打」立刻可点（不是切个 tab 才亮）
+    action: assert
+    find: {text_equals: "载入跟打"}
+    expect:
+      enabled: true
+
+  - name: 每段字数设为 10
+    action: set
+    find: {objectName: sliceSizeSpin}
+    props: {value: 10}
+
+  - name: 载入跟打
+    action: click
+    find: {text_equals: "载入跟打"}
+
+  - name: 等待会话建立
+    action: wait
+    ms: 1200
+
+  - name: 分片模式已生效
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {sliceMode: true}
+      no_new_messages: true
+
+  - name: 切成 4 段
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {totalSliceCount: 4}
+
+  - name: 停在第一段（段号从 1 起）
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {sliceIndex: 1}
+
+  - name: 本段 10 字（不是全文 40 字——切片没生效时这里是 0/40）
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "0/10"}
+
+  - name: 上屏区是第一段内容
+    action: assert
+    find: {objectName: typingReader}
+    expect:
+      text_equals: "一二三四五六七八九十"
+
+  # 只打 9 个：打满会被达标判定判 fail 并自动重打（统计清零、输入区清空）
+  - name: 打 9 个字
+    action: type
+    find: {objectName: typingInput}
+    text: "一二三四五六七八九"
+    mode: ime
+    expect:
+      text_equals: "一二三四五六七八九"
+
+  - name: 统计推进到 9/10
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "9/10"}
+
+  - name: 推进到下一段
+    action: call
+    find: {context: appBridge}
+    method: loadNextSlice
+
+  - name: 等待换片
+    action: wait
+    ms: 700
+
+  - name: 段号前进到 2
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {sliceIndex: 2}
+
+  # 段号对了但内容没换，同样是坏的——两边都断言。
+  - name: 上屏区换成第二段内容
+    action: assert
+    find: {objectName: typingReader}
+    expect:
+      text_equals: "甲乙丙丁戊己庚辛壬癸"
+
+  - name: 新段统计归零、输入区清空
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "0/10"}
+
+  - name: 全程无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

@@ -92,7 +92,7 @@
 | **"前端冒烟"** | 运行 `uv run python -m ui_probe.smoke --report ui_report.json`（PYTHONPATH=tools），汇总加载失败/绑定环/警告 |
 | **"前端快照"** | 运行 `python -m ui_probe.snapshot --target <qml> [--pretty]`，读结构化对象树（type/几何/文本/属性）判断界面实况 |
 | **"真机验收"** | 运行 `python -m ui_probe.app_run --out app_report.json`，真实客户端离屏启动 + 窗口快照 + QML 消息捕获（默认只写一次性隔离 HOME，加 `--no-isolate` 才碰真实数据） |
-| **"跑场景"** | 运行 `python -m ui_probe.scenario --all --out scenarios.json`（或 `--scenario <file>`），用 YAML 场景驱动真实客户端/隔离组件走核心流程（9 条 / 93 步） |
+| **"跑场景"** | 运行 `python -m ui_probe.scenario --all --out scenarios.json`（或 `--scenario <file>`），用 YAML 场景驱动真实客户端/隔离组件走核心流程（11 条 / 131 步） |
 | **"一键验收"** | 运行 `python -m ui_probe.suite --out ui_report.json`，分层跑冒烟/快照/真机/场景/静态规则并汇总判定 |
 | **"记录决策"** | 在 `docs/decisions/` 创建 ADR |
 | **"更新 CHANGELOG"** | 检查 git 提交，追加版本条目 |
@@ -242,6 +242,31 @@ function _notify(level, text, duration) {
 
 **历史**：2026-10-15 由 ui_probe 场景验收发现，规则已固化为静态门禁
 （`tools/ui_probe/lint.py` + `tests/ui_probe/test_scenario.py`）。
+
+### ⚠️ QML 绑定的依赖不能经由 `.pragma library` 的函数指针读取
+
+**问题**：把一个回调存进 `.pragma library` JS 文件的模块级 `var`，再让某个属性的绑定
+通过它间接读 QML 属性——绑定求值时读不到那个 QML 属性，依赖表是空的，之后它怎么变
+都不会重新求值。载文中心曾是这个形状：
+
+```qml
+property bool readyForLoad: canLoad() && ...          // 绑定
+function canLoad() { return SrcBehav.customTextLen() > 0 }   // 间接一层
+// TextSourceBehaviors.js（.pragma library）：customTextLen() → _customTextLenFn()
+```
+
+结果：自定义文本敲完 40 字，「载入跟打」按钮**依然是灰的**，只有切走再切回来（扰动
+`currentSource`）才刷新。看着像"按钮逻辑写错了"，其实是绑定没订阅上。
+
+**正确做法**：让绑定链上的每一环都直接读 QML 属性，不要绕 JS 库的函数指针：
+
+```qml
+readonly property int customTextLength: textLoadPanel ? textLoadPanel.contentLength : 0
+function canLoad() { if (currentSource === "custom") return customTextLength > 0 ... }
+```
+
+**历史**：2026-10-15 由 `app-slice-progression` 场景发现并修复，该场景在"敲完文本立刻
+断言按钮可点"处锁死回归。
 
 ### ⚠️ 隔离 HOME 时不要忘了 XDG_*
 

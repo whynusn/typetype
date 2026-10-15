@@ -70,6 +70,7 @@ Frame {
 
             SpinBox {
                 id: sliceSizeSpin
+                objectName: "sliceSizeSpin"
                 Layout.preferredWidth: 128
                 Layout.preferredHeight: 34
                 from: 1

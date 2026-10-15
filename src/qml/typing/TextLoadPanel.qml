@@ -66,6 +66,7 @@ Item {
                     Layout.fillWidth: true; Layout.fillHeight: true
                     TextArea {
                         id: contentTextArea
+                        objectName: "customTextInput"  // 验收场景与辅助技术稳定指认（同页有多个输入区）
                         placeholderText: qsTr("在此输入或粘贴文本...")
                         wrapMode: TextArea.Wrap
                         selectByMouse: true

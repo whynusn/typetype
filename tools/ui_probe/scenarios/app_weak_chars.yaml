@@ -1,0 +1,105 @@
+schema: ui-probe/scenario@1
+name: app-weak-chars
+description: >
+  薄弱字页：排序方式切换（错误率 / 错误次数 / 加权评分）走的是
+  QML ComboBox → Bridge.loadWeakChars → 后台 worker 查库 → 信号回灌
+  ListModel 的**异步往返**。这条链上任一环断了，界面表现都是"列表没变"
+  ——跟"库里本来就没数据"长得一模一样，人工点两下分辨不出来。
+
+  所以这里断言的是**切换的可见后果**：
+  1. 加权模式要冒出三个权重下拉（证明 currentIndex 变化确实被处理了）；
+  2. 切回之后列表条目不能消失（"先 clear 再等回灌"的写法一旦回灌迟到，
+     列表就长期空白——异步往返最常见的失败形态）。
+
+  另外注意：起步就断言了"不是空态"，否则后面所有断言都能在空列表上
+  照样通过，整条场景形同虚设。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 打开「薄弱字」页
+    action: click
+    find: {text: "薄弱字", index: 0}
+
+  - name: 排序方式在位
+    action: assert
+    find: {text_equals: "排序方式"}
+    expect:
+      visible: true
+
+  - name: 等异步查询回来（worker + 防抖，不是同步的）
+    action: wait
+    ms: 1200
+
+  # 起步门槛：库里得真有数据。否则下面每一条断言都能在空列表上通过。
+  # （实测隔离 HOME 下也有 10 条——启动预热写进 char_stats.db 的高频字。）
+  - name: 不是空态
+    action: assert
+    find: {text_equals: "暂无薄弱字记录，开始打字练习吧！"}
+    expect:
+      visible: false
+
+  - name: 渲染出薄弱字条目
+    action: assert
+    find: {text: "已打"}
+    expect:
+      count_gte: 5
+
+  - name: 条目带错误率字段
+    action: assert
+    find: {text: "错误率:"}
+    expect:
+      count_gte: 5
+
+  - name: 切到「加权评分」：权重面板应出现
+    action: set
+    find: {type: ComboBox, props: {visible: true}, index: 0}
+    props: {currentIndex: 2}
+
+  - name: 等待回灌
+    action: wait
+    ms: 800
+
+  - name: 三个权重下拉出现（对端效果）
+    action: assert
+    find: {text_equals: "出现频率"}
+    expect:
+      visible: true
+
+  - name: 切换排序后条目未被清空
+    action: assert
+    find: {text: "已打"}
+    expect:
+      count_gte: 5
+
+  - name: 切换未引入 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
+
+  - name: 切回「按错误率」：权重面板应收起
+    action: set
+    find: {type: ComboBox, props: {visible: true}, index: 0}
+    props: {currentIndex: 0}
+
+  - name: 等待回灌
+    action: wait
+    ms: 800
+
+  - name: 权重面板已收起（visible=false，不是"找不到"）
+    action: assert
+    find: {text_equals: "出现频率"}
+    expect:
+      visible: false
+
+  - name: 切回后条目仍在
+    action: assert
+    find: {text: "已打"}
+    expect:
+      count_gte: 5
+
+  - name: 全程无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

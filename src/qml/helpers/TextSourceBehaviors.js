@@ -123,17 +123,6 @@ function startPreview(bridge, sourceKey, id) {
     return false
 }
 
-// 统一判断「载入跟打」按钮是否可点亮
-// local/trainer 本地读取不依赖预览内容（canLoad 在 hub 中被调用时不传 previewContent）
-function canLoadButton(sourceKey, selectedItem, previewContent) {
-    if (!selectedItem) return false
-    switch (sourceKey) {
-    case "custom":  return customTextLen() > 0
-    default:        return true  // local / trainer 选中即可
-    }
-}
-
-
 /* =========================================================================
  * 公共辅助（纯变换）
  * ========================================================================= */
@@ -218,12 +207,6 @@ function progressKeyAndId(sourceKey, item, previewContent, customText) {
     }
     return { key: "", identifier: "" }
 }
-
-// custom 来源字数校验：custom 没有统一的 selectedItem，这里暴露给 hub 注入
-var _customTextLenFn = null
-function registerCustomTextLenGetter(fn) { _customTextLenFn = fn }
-function customTextLen() { return _customTextLenFn ? _customTextLenFn() : 0 }
-
 
 /* =========================================================================
  * 列表同步分派 —— syncItems(sourceKey, rawData) → { items, statusMessage }
