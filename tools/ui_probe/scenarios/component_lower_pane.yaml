@@ -1,0 +1,47 @@
+schema: ui-probe/scenario@1
+name: component-lower-pane
+description: >
+  组件级交互：离屏单独加载 LowerPane（mock bridge），用输入法提交打几个字，
+  验证输入区自身的行为（文本落地、可编辑性）不依赖真机主窗口。
+  与 app 模式互补——组件回归定位更准，真机回归覆盖更全。
+mode: component
+target: src/qml/typing/LowerPane.qml
+root_width: 900
+root_height: 400
+wait_ms: 200
+steps:
+  - name: 输入区可编辑
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      prop_false: [readOnly]
+
+  - name: 输入文字
+    action: type
+    find: {objectName: typingInput}
+    text: "测试输入"
+    mode: ime
+
+  - name: 文本落到输入区
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      text_equals: "测试输入"
+
+  - name: 逐字符按键路径同样可用
+    action: type
+    find: {objectName: typingInput}
+    text: "ABC"
+    mode: key
+
+  - name: 按键路径文本累加
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      text_contains: "ABC"
+
+  - name: 组件交互无 QML 噪声
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      no_new_messages: true

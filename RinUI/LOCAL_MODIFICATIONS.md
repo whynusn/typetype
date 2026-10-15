@@ -370,13 +370,59 @@ Icon {
 
 ---
 
+## 7. ThemeListener 线程协作式退出（2026-10-15）
+
+**文件**: `RinUI/core/theme.py`
+
+**问题**: `ThemeListener` 是 `QThread`，`run()` 里 `while True` 轮询 `darkdetect.theme()`，
+`stop()` 只用 `terminate()`。只要调用方没显式走到 `clean_up()`（正常退出路径并不会），
+进程退出时 Qt 销毁这个仍在运行的 QThread 会直接
+`qFatal("QThread: Destroyed while thread is still running")`。
+
+实测：由 typetype 前端验收 harness（真实客户端离屏启动再 shutdown）暴露，**每次退出必现**，
+部分场景直接 SIGABRT。此前 fail 在退出期，常规日志与断言都看不见，属静默崩溃。
+
+**修改**:
+
+```python
+def run(self):
+    last_theme = darkdetect.theme()
+    while not self.isInterruptionRequested():
+        current_theme = darkdetect.theme()
+        if current_theme != last_theme:
+            last_theme = current_theme
+            self.themeChanged.emit(current_theme)
+        # 分段 sleep：退出请求能在 ~0.1s 内响应，不用干等满一轮
+        for _ in range(10):
+            if self.isInterruptionRequested():
+                break
+            time.sleep(0.1)
+
+def stop(self):
+    """请求线程退出并等待（幂等）。"""
+    if not self.isRunning():
+        return
+    self.requestInterruption()
+    self.quit()
+    self.wait(3000)
+```
+
+- `start_listener()` 里注册 `atexit.register(self.clean_up)` 作为兜底
+- `clean_up()` 改为幂等（先摘下 listener 再停）：显式调用与 atexit 可能同时发生
+- typetype 侧 `main.shutdown()` 显式调用 `theme_manager.clean_up()`
+
+**验证**: `QThread: Destroyed` 零出现，退出码 0；typetype 真机验收把「shutdown 阶段的 Qt 消息」
+纳入了报告与门禁（退出期消息 handler 已失效，需从子进程 stderr 兜底解析才能看见）。
+
+---
+
 ## 📊 修改统计
 
 | 维度 | 数值 |
 | :--- | :--- |
-| 修改项数 | 6 大类（含复数修改） |
-| 涉及文件 | 5 个（ContextMenu, NavigationView, FluentPage, NavigationBar, Icon） |
-| 修改行数 | ~50-100 行（不含注释） |
+| 修改项数 | 7 大类（含复数修改） |
+| 涉及文件 | 6 个（ContextMenu, NavigationView, FluentPage, NavigationBar, Icon, core/theme） |
+| 修改行数 | ~70-130 行（不含注释） |
 | 性能改善 | 页面切换延迟 -150ms，ComboBox 首次打开 -100ms |
 | 首次整理日期 | 2026-04-27 |
 

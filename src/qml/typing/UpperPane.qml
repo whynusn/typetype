@@ -54,6 +54,8 @@ QQC.Pane {
 
         QQC.TextArea {
             id: textArea
+            // 同 LowerPane：命名上屏区，供自动化验收稳定指认
+            objectName: "typingReader"
             readOnly: true
             wrapMode: QQC.TextArea.Wrap
             textFormat: TextEdit.PlainText   // PlainText 避免 RichText 转换导致 toPlainText() 异常

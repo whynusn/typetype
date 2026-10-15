@@ -39,6 +39,10 @@ QQC.Pane {
 
         QQC.TextArea {
             id: textArea
+            // 命名关键交互节点：自动化验收（tools/ui_probe）靠 objectName 稳定
+            // 指认输入区——本项目 QML 习惯不设 objectName，靠类型/位置定位在
+            // 打完锁定等状态切换后会失配（readOnly 一变角色就变了）。
+            objectName: "typingInput"
             wrapMode: TextEdit.Wrap
             font.pixelSize: 14
             verticalAlignment: TextInput.AlignTop // 文字靠上

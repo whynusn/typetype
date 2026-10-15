@@ -99,6 +99,14 @@ FluentPage {
         if (active) loadCurrentSource()
     }
 
+    // 通知走页面级函数：Connections 不是 Item，在其作用域里写 Window.window
+    // 会让 Qt 对**每次**信号分发报一次警告（静态看合法，只有真机跑才显形）
+    function _notifySuccess(message, duration) {
+        if (Window.window && Window.window.appNotificationManager)
+            Window.window.appNotificationManager.show(
+                Severity.Success, "", message, duration)
+    }
+
     function loadCurrentSource() {
         if (!appBridge) return
         // 开源文库先同步加载 per-source 健康状态（零网络），再分派列表
@@ -883,9 +891,7 @@ FluentPage {
                 if (!addRepoDialog._awaitingAdd) return
                 addRepoDialog._awaitingAdd = false
                 root.statusMessage = qsTr("订阅添加成功")
-                if (Window.window && Window.window.appNotificationManager)
-                    Window.window.appNotificationManager.show(
-                        Severity.Success, "", qsTr("订阅添加成功"), 1800)
+                root._notifySuccess(qsTr("订阅添加成功"), 1800)
             }
             function onRepoManifestPreviewed(result) {
                 root.repoManifestPreviewLoading = false

@@ -43,6 +43,9 @@ class OffscreenHarness:
 
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = Path(repo_root).resolve()
+        # QML 磁盘缓存写 $XDG_CACHE_HOME/<程序名>/qmlcache（一次几十个文件）：
+        # 既拖慢，还可能拿陈旧缓存绕过真实的编译错误。验收要确定性，一律关。
+        os.environ.setdefault("QML_DISABLE_DISK_CACHE", "1")
 
         # RinUI 是仓内 vendored 包，harness 作为库被导入时调用方未必把
         # 仓库根挂在 sys.path 上——自包含：自己补上。

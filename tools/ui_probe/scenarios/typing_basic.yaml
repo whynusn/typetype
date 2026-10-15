@@ -1,0 +1,52 @@
+schema: ui-probe/scenario@1
+name: typing-basic
+description: >
+  核心流程：载文 → 打字 → 统计更新 → 打完锁定。
+  走输入法提交（ime）这条真实路径，验证 Bridge 往返：
+  输入区的字符要变成后端的字数与进度；打完全文后后端进入只读态
+  （有意设计——防止继续输入污染成绩，重打走 F3）。
+  这是 typetype 的主链路，任何一环断了用户就"打了个寂寞"。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 起步状态为 0 字
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "0/6"}
+
+  - name: 打入全部范文
+    action: type
+    find: {objectName: typingInput}
+    text: "你好，世界。"
+    mode: ime
+
+  - name: 文本落到输入区
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      text_equals: "你好，世界。"
+
+  - name: 字数统计跟上
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "6/6"}
+
+  - name: 进度条满格
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_gt: {typingProgress: 0.99}
+
+  - name: 打完锁定输入区
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_true: [textReadOnly]
+
+  - name: 打字全程无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

@@ -1,0 +1,42 @@
+schema: ui-probe/scenario@1
+name: app-startup
+description: >
+  真机启动自检——真实客户端（真 Bridge / 真配置 / 真数据）离屏起来后，
+  主界面应当已经载好范文、输入区可编辑且为空、启动过程不产生任何 QML 噪声。
+  这是最基础的一条门禁：启动即带噪的客户端，后面所有交互都不可信。
+
+  指认节点优先用 objectName（typingReader / typingInput）——这是本项目为
+  可验收性专门给关键交互节点命的名，比类型+位置稳定得多。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 窗口标题非空
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_contains: {windowTitle: TypeType}
+
+  - name: 上屏区已载范文
+    action: assert
+    find: {objectName: typingReader}
+    expect:
+      text_contains: "你好"
+
+  - name: 输入区存在且可编辑
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      prop_false: [readOnly]
+      enabled: true
+
+  - name: 输入区初始为空
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      text_equals: ""
+
+  - name: 启动无 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

@@ -116,21 +116,39 @@ tools/ui_probe/
 ├── mock_bridge.py        # 由 API 面生成 mock bridge QML（保真默认值）
 ├── fixtures.py           # 独立加载属性注入（$listmodel / $qml / 原语）
 ├── fixtures.json         # 各目标孤立加载所需的注入声明
-├── message_capture.py    # qInstallMessageHandler 消息捕获（卸载恢复前一个 handler）
+├── message_capture.py    # qInstallMessageHandler 消息捕获（覆盖 bootstrap 前后两个窗口）
+├── env.py                # 真机沙箱：HOME + XDG_* + QML 磁盘缓存隔离
 ├── loader.py             # 离屏环境装配 + 组件加载（组件与实例同生命周期）
-├── report.py             # 冒烟结构化报告（ui-probe/report@1）
+├── report.py             # 结构化报告聚合（ui-probe/report@1）
 ├── snapshot.py           # 结构化对象树快照 + CLI（ui-probe/snapshot@1）
 ├── app_run.py            # 真机验收：真实客户端离屏启动 + 快照（ui-probe/app-run@1）
+├── selector.py           # 语义定位（objectName / 类型 / 文本 / 索引路径）
+├── interact.py           # 离屏交互原语（pump / click / type / key / call / set）
+├── scenario.py           # 场景 DSL 执行引擎 + CLI（ui-probe/scenario@1）
+├── scenarios/*.yaml      # typetype 核心流程场景库（启动/载文/打字/重打…）
+├── lint.py               # QML 静态规则（补 qmllint 抓不到的运行时噪声）
+├── suite.py              # 一键验收：分层子进程运行，产出 ui_report.json
 └── smoke.py              # 冒烟运行器 CLI（含 --selfcheck-loop）
 ```
 
 离屏加载 `src/qml/` 全部页面/组件，抓加载错误（如 RinUI 模块外未解析类型）、
-QML 绑定环与警告，产出结构化 JSON（AI agent 消费接口）。三个视角互补：
+QML 绑定环与警告，产出结构化 JSON（AI agent 消费接口）。四个视角互补：
 `smoke`（mock bridge，快）、`snapshot`（对象树/几何/属性快照）、`app_run`
-（**真实客户端**：真 Bridge/真配置/真数据，抓 mock 保真度覆盖不到的真实问题）。
+（**真实客户端**：真 Bridge/真配置/真数据，抓 mock 保真度覆盖不到的真实问题）、
+`scenario`（**声明式交互**：YAML 场景驱动真实客户端或隔离组件，验证流程语义）。
+
+场景 DSL 只引用 a11y 语义（objectName / 文本 / 角色 / 索引路径），不 import
+任何 typetype 或 RinUI 类型——AI agent 可直接编写与评审；为让关键节点可稳定
+指认，`UpperPane`/`LowerPane` 的 TextArea 带 `objectName`（`textScreen` /
+`typingInput`）。
+
 pytest 入口在 `tests/ui_probe/`，均以**子进程**方式运行（Qt 初始化不污染
 主测试进程退出期）。`main.py` 的启动序列抽为 `bootstrap()/shutdown()`，
-供自动化复用同一条真实启动路径。详细设计与分期见 [ADR-015](../decisions/015-ui-acceptance-harness.md)。
+供自动化复用同一条真实启动路径。真机一律跑在一次性沙箱里：**桌面会话预置的
+XDG_CONFIG_HOME/XDG_DATA_HOME 会让"只改 HOME"的隔离形同虚设**，必须有
+`env.py` 把四个 XDG 目录全部重定向，否则验收会写脏用户真实的打字历史
+（`tests/ui_probe/test_isolation.py` 守这条线）。
+详细设计与分期见 [ADR-015](../decisions/015-ui-acceptance-harness.md)。
 
 ### 载文入口
 

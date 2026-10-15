@@ -141,11 +141,18 @@ def bootstrap(argv: list[str] | None = None) -> AppRuntime:
 
 
 def shutdown(runtime: AppRuntime) -> None:
-    """事件循环结束后的清理（worker flush / 连接池关闭 / 键盘监听停止）。"""
+    """事件循环结束后的清理（worker flush / 连接池关闭 / 键盘监听停止 / 主题线程停止）。
+
+    主题监听线程必须在**这里**显式停：它跑的是轮询循环，若在退出期仍活着，
+    Qt 销毁 QThread 时会直接 qFatal 导致进程 SIGABRT（实测每次必现）。
+    """
     runtime.services.char_stats.flush()
     runtime.providers.federation.close()
     if runtime.adapters.key_listener:
         runtime.adapters.key_listener.stop()
+    theme_manager = getattr(runtime.window, "theme_manager", None)
+    if theme_manager is not None:
+        theme_manager.clean_up()
 
 
 def main():

@@ -1,3 +1,4 @@
+import atexit
 import ctypes
 import platform
 import sys
@@ -58,22 +59,38 @@ class WINDOWCOMPOSITIONATTRIBDATA(ctypes.Structure):
 class ThemeListener(QThread):
     """
     监听系统颜色模式
+
+    【本地修改 7】原实现是 ``while True`` 死循环 + ``stop()`` 用 ``terminate()``。
+    只要没人显式调用 ``clean_up()``，退出时这个仍在运行的 QThread 会被销毁，
+    Qt 直接 ``qFatal("QThread: Destroyed while thread is still running")``，
+    进程 **SIGABRT**（实测：创建过 RinUIWindow 的进程每次正常退出必崩）。
+    改为协作式退出：可中断的轮询 + ``quit()/wait()``，并在 ``start_listener``
+    里注册 ``atexit`` 兜底。
     """
 
     themeChanged = Signal(str)
 
     def run(self):
         last_theme = darkdetect.theme()
-        while True:
+        while not self.isInterruptionRequested():
             current_theme = darkdetect.theme()
             if current_theme != last_theme:
                 last_theme = current_theme
                 self.themeChanged.emit(current_theme)
                 print(f"Theme changed: {current_theme}")
-            time.sleep(1)
+            # 分段 sleep：退出请求能在 ~0.1s 内响应，不用干等满一轮
+            for _ in range(10):
+                if self.isInterruptionRequested():
+                    break
+                time.sleep(0.1)
 
     def stop(self):
-        self.terminate()
+        """请求线程退出并等待（幂等）。"""
+        if not self.isRunning():
+            return
+        self.requestInterruption()
+        self.quit()
+        self.wait(3000)
 
 
 class ThemeManager(QObject):
@@ -99,13 +116,17 @@ class ThemeManager(QObject):
     def clean_up(self):
         """
         清理资源并停止主题监听。
+
+        【本地修改 7】幂等（先摘下 listener 再停）：atexit 与调用方显式调用
+        可能同时发生，重复 stop 无意义；且退出期必须真正把线程停下来，
+        否则 Qt 在销毁仍在运行的 QThread 时直接 qFatal → SIGABRT。
         """
-        if self.listener:
-            AppUIConfig.save_config()
-            print("Save config.")
-            self.listener.stop()
-            self.listener.wait()  # 等待线程结束
-            print("Theme listener stopped.")
+        listener = self.listener
+        self.listener = None
+        if listener is None:
+            return
+        AppUIConfig.save_config()
+        listener.stop()
 
     def __new__(cls, *args, **kwargs):
         """
@@ -142,6 +163,9 @@ class ThemeManager(QObject):
         self.listener = ThemeListener()
         self.listener.themeChanged.connect(self._handle_system_theme)
         self.listener.start()
+        # 【本地修改 7】兜底：进程退出前一定停掉监听线程。调用方（main.shutdown）
+        # 也会显式调用 clean_up()，两条路都指向同一个幂等方法。
+        atexit.register(self.clean_up)
 
     def set_window(self, window):  # 绑定窗口句柄
         hwnd = int(window.winId())

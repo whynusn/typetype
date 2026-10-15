@@ -1,8 +1,8 @@
 # ADR-015: 前端验收自动化工具（UI Acceptance Harness，AI-agent 亲和）
 
-<!-- 状态: accepted | 决策日期: 2026-10-14 | 最后验证: 2026-10-14 -->
+<!-- 状态: accepted | 决策日期: 2026-10-14 | 最后验证: 2026-10-15 -->
 
-> 实施状态（2026-10-14，P0）：**决策 1-6 已接受，P0 冒烟层已落地**。`tools/ui_probe/`（离屏加载器 + 消息捕获 + ast 解析 bridge API 的 mock bridge 自动生成 + fixtures 属性注入 + 结构化报告）+ `tests/ui_probe/`（pytest 冒烟，含检测器自检）已进入全量测试；CI 经既有 `multi-platform-tests.yml` 覆盖。P1-P3 见「分期」。
+> 实施状态（2026-10-15，P0-P1 完成）：**决策 1-6 已接受，P0 冒烟层 / P1.1 快照 / P1.2 场景 DSL / P1.3 真机验收全部落地**。`tools/ui_probe/`（离屏加载器 + 消息捕获 + ast 解析 bridge API 的 mock bridge 自动生成 + fixtures 属性注入 + 结构化快照 + 真机验收 + 场景 DSL + 静态规则 + 一键套件）+ `tests/ui_probe/`（pytest 门禁，含四处检测器自检）已进入全量测试；CI 经既有 `multi-platform-tests.yml` 覆盖。P2-P3 见「分期」。
 
 > 本 ADR 与 [ADR-013](./013-converge-to-three-repo-model.md)（三仓模型）、[ADR-014](./014-ota-update-check-and-mirror-download.md)（OTA）正交，独立评审与排期。核心结论：**自研一套寄居 typetype 仓、按通用核心设计的前端验收 harness——离屏/整机双轨驱动、声明式场景、结构化断言为主黄金像素基线为辅、`ui_report.json` 作为 AI agent 的唯一反馈接口**。
 
@@ -67,6 +67,15 @@ pytest 插件形态（仓库内 `tools/ui_probe/`，`tests/ui_probe/` 提供 pyt
 > - **真机验收**（`tools/ui_probe/app_run.py`，`ui-probe/app-run@1`）：复用 `main.bootstrap()` 起真实客户端（真 Bridge/真配置/真数据/真 worker），跑一段事件循环后快照窗口树并捕获 QML 消息。为此把 `main.py` 的启动序列抽成 `bootstrap()/shutdown()`（可测性重构，行为不变）——自动化拿到 engine/window 句柄而不会被 `app.exec()` 阻塞。测试用临时 HOME 隔离真实用户配置（注意：真机启动会往 HOME 拷字体数 MB，不能放小 tmpfs）。
 > - **真机首日即抓到两个真实缺陷**（mock 冒烟抓不到）：① 无 keyring 后端的机器上 `create_infra` 抛 `NoKeyringError` 导致**客户端完全起不来**——凭据是可选能力，改为优雅降级；② 已拔出/换过 USB 口的键盘设备以 ERROR 刷屏（可恢复场景），按 errno 降级为带提示的 WARNING。
 
+> P1.2 落地补记（2026-10-15）：
+> - **场景引擎**（`tools/ui_probe/scenario.py`，`ui-probe/scenario@1`）：YAML 声明式场景（`wait / assert / click / type / key / call / set / snapshot / pump`），可跑 `app`（真实客户端，复用 `bootstrap()`）或 `component`（隔离组件 + mock bridge）两种模式。选择器只认 a11y 语义（`objectName`/类型/文本/索引路径），不 import 任何 typetype 或 RinUI 类型——为此给 `UpperPane`/`LowerPane` 的 TextArea 补了 `objectName`（`textScreen` / `typingInput`），——这是 harness 反哺产品代码的第一步。
+> - **离屏交互**：PySide6 没绑 `QTest` 的 QQuickItem 重载，只能自己注入事件。两条路径都验证可用：`QKeyEvent`（`KeyPress`/`KeyRelease`）与 `QInputMethodEvent`（输入法 commit——中文上屏必需）。调用 QML 函数必须走 `QMetaObject.invokeMethod` + `Q_ARG("QVariant", v)` / `Q_RETURN_ARG(QVariant, ret)`（**类型名要给字符串**），Python 的 `@Slot` 则直接取 Python 属性以免丢失原生返回类型。
+> - **消息捕获的盲区（最危险的假阴性）**：App 启动时 `install_qt_message_handler()` 会顶掉 harness 的 Qt handler——**之前"0 警告"的报告是假的**。修法：`install()` 保存前一个 handler，`bootstrap()` 之后 `reinstall()` 夺回并转发；bootstrap 期间的窗口用 Python `logging` sink 兜底；进程退出期的 Qt 消息（此时 handler 已卸载）从子进程 stderr 兜底解析（抓住了 `QThread: Destroyed while thread is still running`）。
+> - **每个 app 模式场景跑独立子进程**：进程内起第二个真实客户端会串状态；`run_scenario_isolated` 的子进程必须带 `--no-isolate`（否则无限递归 fork，实测挂死）。
+> - **防"永远绿灯"**：`--selfcheck` 合成必然失败的场景，断言引擎确实报失败；汇总判定 `build_ui_report()` 做成纯函数，测试喂脏数据验证它会判 FAIL。
+> - **静态规则**（`lint.py`）：`Connections` 内引用 `Window.window` 这类 Item 附加属性——类型检查合法，qmllint 抓不到，运行时每次信号分发报一次（实测一轮打字 **986 条**警告）。规则进 pytest 门禁后，顺手修掉 `TypingPage.qml`（3 处）与 `TextLoadHubPage.qml`（1 处）。
+> - **真机沙箱必须连 XDG 一起隔离**（`env.py`）：只设 `HOME` **隔离不住**——桌面会话普遍预置 `XDG_CONFIG_HOME`/`XDG_DATA_HOME`，Qt 与 platformdirs 优先读它们，验收会直接把打字历史写进用户真实目录（本机实测污染了 `~/.local/share/typetype/typing_history.json` 与 `typing_totals.json`）。现在四个 XDG 目录全部指向一次性 HOME，并顺带关闭 QML 磁盘缓存（每次运行几十个文件，还可能拿陈旧缓存掩盖编译错误）；回归门禁见 `tests/ui_probe/test_isolation.py`。
+
 ### 6. 场景 DSL 约束
 
 YAML 声明式（`load / click / type / wait / assert / screenshot`），**只引用 a11y 语义**（objectName / 文本 / role），不 import 任何 typetype 或 RinUI 类型——这是通用性与 AI 可编写性的关键。场景文件即文档，可评审、可 diff。
@@ -78,7 +87,7 @@ YAML 声明式（`load / click / type / wait / assert / screenshot`），**只�
 | P0 | 冒烟：离屏加载全部页面/组件 + 消息捕获（加载错误/绑定环/qWarning）+ mock bridge 自动生成（ast 解析 bridge API + 保真默认值）+ fixtures 属性注入 + pytest/CI 接入（子进程隔离） | ✅ 已落地 |
 | P1.1 | **结构化快照**（`ui-probe/snapshot@1`）：QQuickItem 树 + 属性/几何/可见性，全量目标快照门禁 | ✅ 已落地 |
 | P1.3 | **真机验收**（`ui-probe/app-run@1`）：真实客户端（真 Bridge/真配置/真数据）离屏启动 + 窗口快照 + 消息捕获 | ✅ 已落地 |
-| P1.2 | 场景 DSL v0 + 离屏交互（Qt 事件注入）+ typetype 核心流程场景 + `ui_report.json` v1 | 进行中 |
+| P1.2 | 场景 DSL v0 + 离屏交互（Qt 事件注入）+ typetype 核心流程场景 + `ui_report.json` v1 | ✅ 已落地 |
 | P2 | 重轨 E2E：封装 CU 协议 → xvfb + 虚拟键鼠 + grim，CU 标准流程固化为场景，黄金基线库 | 计划 |
 | P3 | 通用化：核心抽独立包/仓 + 文档发布，typetype 只留场景库 | 计划 |
 

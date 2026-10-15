@@ -357,6 +357,15 @@ Item {
                 Severity.Error, title, message, -1, { showCopy: true })
     }
 
+    // 通知必须走页面级函数，不能在 Connections 的信号处理器里直接写
+    // Window.window：Connections 不是 Item，附加属性无从解析，Qt 会对
+    // **每一次**信号分发报一次警告（实测一轮打字刷 900+ 条同类警告）。
+    function _notifySuccess(message, duration) {
+        if (Window.window && Window.window.appNotificationManager)
+            Window.window.appNotificationManager.show(
+                Severity.Success, "", message, duration)
+    }
+
     // 光标/字体状态变化需要守卫，防止页面切换后旧事件干扰
     Connections {
         target: appBridge
@@ -431,9 +440,7 @@ Item {
             } else {
                 // 正常模式：复制成绩，不弹结束窗
                 appBridge.copyScoreMessage();
-                if (Window.window && Window.window.appNotificationManager)
-                    Window.window.appNotificationManager.show(
-                        Severity.Success, "", qsTr("成绩已复制到剪贴板"), 1600)
+                typingPage._notifySuccess(qsTr("成绩已复制到剪贴板"), 1600)
             }
         }
     }
@@ -514,9 +521,7 @@ Item {
             var footer = "-----第" + seg + "段-TypeType";
             var output = firstLine + "\n" + text + "\n" + footer;
             appBridge.copyToClipboard(output);
-            if (Window.window && Window.window.appNotificationManager)
-                Window.window.appNotificationManager.show(
-                    Severity.Success, "", qsTr("发文格式已复制到剪贴板"), 1600)
+            typingPage._notifySuccess(qsTr("发文格式已复制到剪贴板"), 1600)
         }
     }
 

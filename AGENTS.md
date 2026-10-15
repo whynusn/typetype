@@ -91,7 +91,9 @@
 | **"检查文档"** | 运行 `scripts/verify-framework.sh`，汇总结果 |
 | **"前端冒烟"** | 运行 `uv run python -m ui_probe.smoke --report ui_report.json`（PYTHONPATH=tools），汇总加载失败/绑定环/警告 |
 | **"前端快照"** | 运行 `python -m ui_probe.snapshot --target <qml> [--pretty]`，读结构化对象树（type/几何/文本/属性）判断界面实况 |
-| **"真机验收"** | 运行 `python -m ui_probe.app_run --out app_report.json`，真实客户端离屏启动 + 窗口快照 + QML 消息捕获 |
+| **"真机验收"** | 运行 `python -m ui_probe.app_run --out app_report.json`，真实客户端离屏启动 + 窗口快照 + QML 消息捕获（默认只写一次性隔离 HOME，加 `--no-isolate` 才碰真实数据） |
+| **"跑场景"** | 运行 `python -m ui_probe.scenario --all --out scenarios.json`（或 `--scenario <file>`），用 YAML 场景驱动真实客户端/隔离组件走核心流程 |
+| **"一键验收"** | 运行 `python -m ui_probe.suite --out ui_report.json`，分层跑冒烟/快照/真机/场景/静态规则并汇总判定 |
 | **"记录决策"** | 在 `docs/decisions/` 创建 ADR |
 | **"更新 CHANGELOG"** | 检查 git 提交，追加版本条目 |
 
@@ -177,8 +179,10 @@
 - 优先覆盖用例层与核心逻辑，不依赖真实 UI
 - 对网络错误、超时、解析异常必须有测试
 - 新增文本来源时补充：`LoadTextUseCase` 测试 + `GlobalExceptionHandler` 测试 + service/integration 测试
-- **前端验收分层**（ADR-015）：`tests/ui_probe/` 三个视角——`smoke` 离屏冒烟（mock bridge：加载错误/绑定环/警告）、`snapshot` 结构化对象树快照（几何/文本/属性断言）、`app_run` **真机验收**（真实客户端离屏启动，抓 mock 保真度覆盖不到的真实问题）。全部子进程隔离、随全量 pytest 必跑
+- **前端验收分层**（ADR-015）：`tests/ui_probe/` 四个视角——`smoke` 离屏冒烟（mock bridge：加载错误/绑定环/警告）、`snapshot` 结构化对象树快照（几何/文本/属性断言）、`app_run` **真机验收**（真实客户端离屏启动，抓 mock 保真度覆盖不到的真实问题）、`scenario` **声明式交互**（YAML 场景驱动核心流程，.assert 走 a11y 语义）。全部子进程隔离、随全量 pytest 必跑
 - 前端改动后先跑 `uv run pytest tests/ui_probe/ -q`；新增依赖父级状态的组件须在 `tools/ui_probe/fixtures.json` 补注入声明；改 `main.py` 启动序列时保持 `bootstrap()/shutdown()` 拆分（自动化复用于真机验收）
+- **真机必须走沙箱**：真机类探针一律经 `ui_probe.env.enter_sandbox()`——隔离 HOME 时**必须连四个 `XDG_*` 一起重定向**（桌面会话普遍预置它们，只改 HOME 等于没隔离，会写脏用户真实的打字历史）；谁创建 HOME 谁负责清理，父进程传下来的不要越权删
+- 新增 QML 静态检查规则放 `tools/ui_probe/lint.py`（补 qmllint 抓不到、但运行时刷屏的写法，如 `Connections` 里引用 `Window.window`）
 
 ---
 
@@ -217,6 +221,48 @@ uv run ruff format --check .
 ## 8. 已知陷阱（编码实践类）
 
 > **分类说明**：架构设计类陷阱见 [ARCHITECTURE.md § 已知陷阱](./docs/ARCHITECTURE.md#已知陷阱)。新增陷阱时：编码实践类写在这里，架构设计类写在 ARCHITECTURE.md。
+
+### ⚠️ QML 的 Connections 里不能引用 Window.window 等 Item 附加属性
+
+**问题**：`Connections { onXxx: { if (Window.window && Window.window.appNotificationManager) ... } }`
+类型检查完全合法（qmllint 抓不到），但 `Connections` 不是 `Item`，词法作用域里没有
+`Window` 附加属性——运行时**每次信号分发**都报一条 `TypeError: Cannot read property
+'xxx' of null`。实测一轮打字刷出 986 条同位置警告。
+
+**正确做法**：页面内收敛一个辅助函数，函数体在 Item 作用域内解析：
+
+```qml
+// 页面根 Item 内定义（此时 Window.window 可解析）
+function _notify(level, text, duration) {
+    if (Window.window && Window.window.appNotificationManager)
+        Window.window.appNotificationManager.show(level, "", text, duration)
+}
+// Connections 里只调 _notify(...)
+```
+
+**历史**：2026-10-15 由 ui_probe 场景验收发现，规则已固化为静态门禁
+（`tools/ui_probe/lint.py` + `tests/ui_probe/test_scenario.py`）。
+
+### ⚠️ 隔离 HOME 时不要忘了 XDG_*
+
+**问题**：测试/自动化里 `HOME=临时目录` 并不隔离用户数据。桌面会话普遍导出
+`XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_CACHE_HOME`，Qt 与 platformdirs 优先读它们，
+于是配置文件、打字历史、字频库照旧写进用户真实目录（本机实测污染过
+`~/.local/share/typetype/typing_history.json`）。
+
+**正确做法**：一起重定向四个目录，并顺手关掉 QML 磁盘缓存（否则一次运行吐几十个
+`.qmlc`，还可能用陈旧缓存掩盖真实的编译错误）：
+
+```python
+env["HOME"] = str(home)
+env["XDG_CONFIG_HOME"] = str(home / ".config")
+env["XDG_DATA_HOME"] = str(home / ".local" / "share")
+env["XDG_CACHE_HOME"] = str(home / ".cache")
+env["XDG_STATE_HOME"] = str(home / ".local" / "state")
+env["QML_DISABLE_DISK_CACHE"] = "1"
+```
+
+**历史**：2026-10-15 修复，回归门禁见 `tests/ui_probe/test_isolation.py`。
 
 ### ⚠️ TypingService.clear() 不要清零 char_count 和 wrong_char_count
 

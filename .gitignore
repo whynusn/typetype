@@ -100,3 +100,6 @@ ppt-swiss/
 # Local tool data / temporary harness scripts
 .codegraph/
 scripts/_ui_screenshot.py
+
+# 沙箱/桌面环境的回收站残留（勿入库）
+.Trash-*/

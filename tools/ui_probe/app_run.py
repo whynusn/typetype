@@ -7,6 +7,9 @@
 
 产物 schema ``ui-probe/app-run@1``：窗口对象树快照 + 捕获到的 QML 消息 +
 汇总计数。与 mock 冒烟互补，同为 AI agent 的结构化消费接口。
+
+**默认隔离真机的数据目录**（见 `env.py`）：桌面会话预置的 XDG_* 会让"只改
+HOME"的隔离形同虚设，配置与打字历史会直接写进用户真实目录。
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QEventLoop
 
+from .env import dispose_owned_homes, enter_sandbox
 from .message_capture import MessageCollector
 from .snapshot import SnapshotOptions, snapshot_node
 
@@ -31,17 +35,31 @@ def run_app_probe(
     wait_ms: int = 1500,
     platform: str = "offscreen",
     max_nodes: int = 6000,
+    isolated: bool = True,
 ) -> dict:
-    """启动真实 app，跑一段事件循环，返回快照报告。"""
+    """启动真实 app，跑一段事件循环，返回快照报告。
+
+    isolated=True（默认）时先把自己隔离进临时 HOME + XDG_*，不碰用户数据。
+    """
     repo_root = Path(repo_root).resolve()
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
 
+    # 必须早于 import main：bootstrap 期间就会解析配置/数据目录
+    sandbox_home = enter_sandbox() if isolated else None
+
     from main import bootstrap, shutdown  # noqa: PLC0415  （需 repo_root 在 sys.path 上）
 
     started = time.monotonic()
-    with MessageCollector() as collector:
+    collector = MessageCollector()
+    # 覆盖窗口一（bootstrap 期）：app 会顶掉 Qt handler，靠 logging sink 捞
+    collector.install()
+    collector.attach_log_sink()
+    try:
         runtime = bootstrap(argv=[sys.argv[0], "-platform", platform])
+        # 覆盖窗口二（bootstrap 之后）：夺回 Qt handler 并转发给 app 的 handler
+        collector.detach_log_sink()
+        collector.reinstall()
 
         # 让异步链路跑一会：定时器、worker（载文/统计/字体）、延迟绑定等都
         # 在事件循环里完成——快照太早会拍到"还没长出来"的界面。
@@ -64,7 +82,19 @@ def run_app_probe(
             "height": float(root_window.height()),
             "visible": bool(root_window.isVisible()),
         }
-        messages = collector.messages
+        messages = list(collector.messages)
+        before_shutdown = len(messages)
+        # 退出期同样纳入验收：实测真机在 shutdown 阶段会抛
+        # "QThread: Destroyed while thread is still running"——只拍快照不看
+        # 退出，这条真实缺陷就永远抓不到。
+        shutdown(runtime)
+        messages = list(collector.messages)
+        shutdown_messages = messages[before_shutdown:]
+    finally:
+        collector.uninstall()
+
+    def count(items, predicate) -> int:
+        return sum(1 for m in items if predicate(m))
 
     payload = {
         "schema": APP_RUN_SCHEMA,
@@ -72,6 +102,11 @@ def run_app_probe(
         "platform": platform,
         "wait_ms": wait_ms,
         "window": window_info,
+        # 透明性：真机模式必须跑在一次性 HOME 里，否则会写脏用户真实数据
+        "isolation": {
+            "isolated": isolated,
+            "home": str(sandbox_home) if sandbox_home else None,
+        },
         "tree": tree,
         "messages": [
             {
@@ -85,12 +120,17 @@ def run_app_probe(
         ],
         "summary": {
             "duration_ms": int((time.monotonic() - started) * 1000),
-            "errors": sum(1 for m in messages if m.severity in ("critical", "fatal")),
-            "warnings": sum(1 for m in messages if m.severity == "warning"),
-            "binding_loops": sum(1 for m in messages if "Binding loop" in m.message),
+            "errors": count(messages, lambda m: m.severity in ("critical", "fatal")),
+            "warnings": count(messages, lambda m: m.severity == "warning"),
+            "binding_loops": count(messages, lambda m: "Binding loop" in m.message),
+            "errors_during_shutdown": count(
+                shutdown_messages, lambda m: m.severity in ("critical", "fatal")
+            ),
+            "warnings_during_shutdown": count(
+                shutdown_messages, lambda m: m.severity == "warning"
+            ),
         },
     }
-    shutdown(runtime)
     return payload
 
 
@@ -105,12 +145,18 @@ def main(argv: list[str] | None = None) -> int:
         "--platform", default="offscreen", help="Qt 平台插件（默认 offscreen）"
     )
     parser.add_argument("--pretty", action="store_true", help="缩进输出（默认紧凑）")
+    parser.add_argument(
+        "--no-isolate",
+        action="store_true",
+        help="不隔离 HOME/XDG_*（直接读写真实用户配置与打字数据，仅供排查真实数据问题时用）",
+    )
     args = parser.parse_args(argv)
 
     payload = run_app_probe(
         Path(args.repo_root).resolve(),
         wait_ms=args.wait_ms,
         platform=args.platform,
+        isolated=not args.no_isolate,
     )
     text = json.dumps(
         payload,
@@ -128,7 +174,10 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(text)
 
-    # 与 main.py 一致：直接退出，避免 Qt/worker 静态析构期的崩溃
+    # 与 main.py 一致：硬退出绕开 Qt/worker 静态析构期的崩溃。
+    # 代价是 atexit 不跑——沙箱 HOME 必须自己先收拾干净，否则每次验收都
+    # 在 ~/ 下留一个跑过真机的目录。
+    dispose_owned_homes()
     sys.stdout.flush()
     os._exit(1 if payload["summary"]["errors"] else 0)
 

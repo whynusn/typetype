@@ -1,0 +1,38 @@
+schema: ui-probe/scenario@1
+name: typing-retype
+description: >
+  重打链路：打几个字 → F3 重打 → 输入区清空、统计归零。
+  F3 走的是 TypingPage 的 Keys.onPressed（快捷键分发），
+  这条断了说明键盘分发链路有问题，不只是功能缺失。
+mode: app
+wait_ms: 1500
+steps:
+  - name: 先打一部分
+    action: type
+    find: {objectName: typingInput}
+    text: "你好"
+    mode: ime
+    expect:
+      text_equals: "你好"
+
+  - name: 统计已推进
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "2/6"}
+
+  - name: F3 重打
+    action: key
+    key: F3
+
+  - name: 输入区已清空
+    action: assert
+    find: {objectName: typingInput}
+    expect:
+      text_equals: ""
+
+  - name: 统计归零
+    action: assert
+    find: {context: appBridge}
+    expect:
+      prop_equals: {charNum: "0/6"}
