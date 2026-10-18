@@ -901,8 +901,6 @@ class TestBridgeSpecialPlatform:
         assert wenlai_adapter.clear_count == clear_count_before_segment
         assert bridge.textId == 0
         assert session.source_mode.name == "SLICE"
-        assert session.upload_status.name == "NA"
-        assert session.can_submit_score() is False
         assert loaded_segments == [payload]
         assert loaded_texts[-1] == ("片段内容", -1, "长文 2/5")
         assert typing_adapter.text_title == "长文 2/5"
@@ -932,8 +930,6 @@ class TestBridgeSpecialPlatform:
         )
 
         assert bridge.textId == 0
-        assert session.upload_status.name == "NA"
-        assert session.can_submit_score() is False
 
     def test_standard_local_load_resets_text_id(self):
         """普通本地载文后 text_id 归零（text_id 回查已移除，状态恒 NA）。"""
@@ -952,7 +948,6 @@ class TestBridgeSpecialPlatform:
 
         assert bridge.textId == 0
         assert session.source_mode.name == "LOCAL"
-        assert session.upload_status.name == "NA"
 
     def test_request_load_text_invalidates_pending_local_article_results(self):
         typing_adapter, text_adapter, char_stats_adapter = self._create_mock_services()
@@ -1257,8 +1252,6 @@ class TestBridgeSpecialPlatform:
         assert local_article_adapter.clear_count == 1
         assert bridge.textId == 0
         assert session.source_mode.name == "SLICE"
-        assert session.upload_status.name == "NA"
-        assert session.can_submit_score() is False
         assert session.on_fail_action == "retype"
         assert loaded_segments == [payload]
         assert loaded_texts[-1] == ("天地玄黄", -1, "前500 2/25")

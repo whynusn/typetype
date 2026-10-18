@@ -132,7 +132,7 @@
 
 ### 架构约束
 
-**绑定规则**：Presentation 禁止依赖 Integration/Infrastructure 与 Domain 实体/存储；允许直连纯业务服务（`TypingService`/`CharStatsService`，见 [ARCHITECTURE.md 依赖规则](../docs/ARCHITECTURE.md#依赖规则)）。Bridge 不得直接访问 `SessionContext` 或持有 Integration 对象，状态访问一律经对应 Adapter 代理。
+**绑定规则**：Presentation 禁止依赖 Integration/Infrastructure 与 Domain 实体/存储；允许直连纯业务服务（`TypingService`/`CharStatsService`，见 [ARCHITECTURE.md 依赖规则](./docs/ARCHITECTURE.md#依赖规则)）。Bridge 不得直接访问 `SessionContext` 或持有 Integration 对象，状态访问一律经对应 Adapter 代理。
 
 **决策规则**：
 - 有编排逻辑 → 必须走 UseCase

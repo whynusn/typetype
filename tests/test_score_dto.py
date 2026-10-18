@@ -1,53 +1,7 @@
 """成绩 DTO 测试。"""
 
-from src.backend.models.dto.score_dto import HistoryRecordDTO, ScoreSummaryDTO
+from src.backend.models.dto.score_dto import ScoreSummaryDTO
 from src.backend.models.entity.session_stat import SessionStat
-
-
-class TestHistoryRecordDTO:
-    """测试历史记录 DTO 转换"""
-
-    def test_from_score_data_and_to_dict(self):
-        """应可从领域对象转换为 QML 兼容字典"""
-        score = SessionStat(
-            time=60.0,
-            key_stroke_count=300,
-            char_count=240,
-            wrong_char_count=10,
-            date="2024-01-01 00:00:00",
-        )
-
-        dto = HistoryRecordDTO.from_score_data(score)
-        result = dto.to_dict()
-
-        assert list(result.keys()) == [
-            "speed",
-            "keyStroke",
-            "codeLength",
-            "wrongNum",
-            "correctionCount",
-            "backspaceCount",
-            "keyAccuracy",
-            "wordTypingRate",
-            "biaoDingCount",
-            "charNum",
-            "time",
-            "date",
-        ]
-        assert result == {
-            "speed": 240.0,
-            "keyStroke": 5.0,
-            "codeLength": 1.25,
-            "wrongNum": 10,
-            "correctionCount": 0,
-            "backspaceCount": 0,
-            "keyAccuracy": 100.0,
-            "charNum": 240,
-            "time": 60.0,
-            "date": "2024-01-01 00:00:00",
-            "wordTypingRate": 0.0,
-            "biaoDingCount": 0,
-        }
 
 
 class TestScoreSummaryDTO:

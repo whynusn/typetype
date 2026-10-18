@@ -93,7 +93,7 @@ steps:
   # 列表容器一直都在，只有行里真的有内容才算数。
   - name: 成绩行渲染出今天日期
     action: assert
-    find: {text: "2026-10-15"}
+    find: {text: "{{today}}"}
     expect:
       count_gte: 1
 

@@ -44,6 +44,7 @@ import argparse
 import json
 import sys
 import time
+from datetime import date
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -456,7 +457,13 @@ class ScenarioRunner:
 
 
 def run_scenario_file(path: Path, repo_root: Path) -> dict:
-    spec = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    # `{{today}}` 占位符替换为运行当天日期（ISO），避免场景里硬编码日期过期
+    raw = (
+        Path(path)
+        .read_text(encoding="utf-8")
+        .replace("{{today}}", date.today().isoformat())
+    )
+    spec = yaml.safe_load(raw)
     if spec.get("schema") not in (None, SCENARIO_SCHEMA):
         raise ScenarioError(
             f"{path}: 场景 schema 应为 {SCENARIO_SCHEMA}，实际 {spec.get('schema')!r}"

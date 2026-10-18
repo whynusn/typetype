@@ -33,9 +33,3 @@ class NoopCharStatsRepository:
 
     def get_all(self) -> list[CharStat]:
         return []
-
-    def get_all_dirty(self) -> list[CharStat]:
-        return []
-
-    def mark_synced(self, chars: list[str], synced_at: str) -> None:
-        pass

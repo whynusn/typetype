@@ -1,6 +1,6 @@
 [project]
 name = "typetype"
-version = "0.1.0"
+version = "0.4.5"
 description = "Cross-platform Chinese typing practice app built with PySide6 and QML"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -22,85 +22,13 @@ dependencies = [
     "qasync>=0.28.0",
 ]
 
-[project.optional-dependencies]
-# 💡 Kafka 是可选依赖，用于异步成绩提交的高吞吐场景
-# 安装方式：uv sync --extra kafka
-kafka = [
-    "confluent-kafka>=2.3.0",
-]
-
 [dependency-groups]
 dev = [
     "jsonschema>=4.0",
     "pytest>=9.0.3",
     "pytest-qt>=4.4.0",
+    "pyyaml>=6.0",
     "ruff>=0.15.12",
-]
-
-[tool.pyside6-project]
-files = [
-    "main.py",
-    "src/qml/Main.qml",
-    "src/qml/components/AppText.qml",
-    "src/qml/pages/AllTimeLeaderboard.qml",
-    "src/qml/pages/DailyLeaderboard.qml",
-    "src/qml/pages/ProfilePage.qml",
-    "src/qml/pages/SettingsPage.qml",
-    "src/qml/pages/TypingPage.qml",
-    "src/qml/pages/WeakCharsPage.qml",
-    "src/qml/pages/WeeklyLeaderboard.qml",
-    "src/qml/typing/EndDialog.qml",
-    "src/qml/typing/HistoryArea.qml",
-    "src/qml/typing/LowerPane.qml",
-    "src/qml/typing/ScoreArea.qml",
-    "src/qml/typing/ToolLine.qml",
-    "src/qml/typing/UpperPane.qml",
-    "src/backend/application/exception_handler.py",
-    "src/backend/application/gateways/score_gateway.py",
-    "src/backend/application/gateways/text_source_gateway.py",
-    "src/backend/application/usecases/load_text_usecase.py",
-    "src/backend/config/__init__.py",
-    "src/backend/config/app_paths.py",
-    "src/backend/config/runtime_config.py",
-    "src/backend/config/text_source_config.py",
-    "src/backend/domain/services/auth_service.py",
-    "src/backend/domain/services/char_stats_service.py",
-    "src/backend/domain/services/typing_service.py",
-    "src/backend/infrastructure/api_client.py",
-    "src/backend/infrastructure/network_errors.py",
-    "src/backend/integration/api_client_auth_provider.py",
-    "src/backend/integration/global_key_listener.py",
-    "src/backend/integration/key_listener_factory.py",
-    "src/backend/integration/mac_key_listener.py",
-    "src/backend/integration/qt_async_executor.py",
-    "src/backend/integration/qt_local_text_loader.py",
-    "src/backend/integration/remote_text_provider.py",
-    "src/backend/integration/sqlite_char_stats_repository.py",
-    "src/backend/integration/system_identifier.py",
-    "src/backend/models/dto/auth_dto.py",
-    "src/backend/models/dto/score_dto.py",
-    "src/backend/models/dto/text_catalog_item.py",
-    "src/backend/models/entity/char_stat.py",
-    "src/backend/models/entity/session_stat.py",
-    "src/backend/ports/async_executor.py",
-    "src/backend/ports/auth_provider.py",
-    "src/backend/ports/char_stats_repository.py",
-    "src/backend/ports/clipboard.py",
-    "src/backend/ports/key_codes.py",
-    "src/backend/ports/local_text_loader.py",
-    "src/backend/ports/text_provider.py",
-    "src/backend/presentation/bridge.py",
-    "src/backend/presentation/adapters/auth_adapter.py",
-    "src/backend/presentation/adapters/char_stats_adapter.py",
-    "src/backend/presentation/adapters/text_adapter.py",
-    "src/backend/presentation/adapters/typing_adapter.py",
-    "src/backend/security/crypt.py",
-    "src/backend/security/secure_storage.py",
-    "src/backend/utils/logger.py",
-    "src/backend/workers/base_worker.py",
-    "src/backend/workers/session_stat_worker.py",
-    "src/backend/workers/text_load_worker.py",
-    "src/backend/workers/weak_chars_query_worker.py",
 ]
 
 [tool.ruff]

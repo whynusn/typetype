@@ -165,24 +165,6 @@ class SqliteCharStatsRepository:
             ).fetchall()
         return [self._row_to_stat(row) for row in rows]
 
-    def get_all_dirty(self) -> list[CharStat]:
-        with sqlite3.connect(self._db_path) as conn:
-            rows = conn.execute(
-                "SELECT char, char_count, error_char_count, total_ms, min_ms, max_ms, last_seen "
-                "FROM char_stats WHERE is_dirty = 1"
-            ).fetchall()
-        return [self._row_to_stat(row) for row in rows]
-
-    def mark_synced(self, chars: list[str], synced_at: str) -> None:
-        if not chars:
-            return
-        placeholders = ",".join("?" for _ in chars)
-        with sqlite3.connect(self._db_path) as conn:
-            conn.execute(
-                f"UPDATE char_stats SET is_dirty = 0, last_synced_at = ? WHERE char IN ({placeholders})",
-                [synced_at, *chars],
-            )
-
     @staticmethod
     def _row_to_stat(row: tuple) -> CharStat:
         return CharStat(
