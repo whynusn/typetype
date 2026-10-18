@@ -3,7 +3,6 @@
 from src.backend.application.session_context import (
     SessionPhase,
     SourceMode,
-    UploadStatus,
     TypingSessionContext,
 )
 
@@ -18,7 +17,6 @@ class TestSessionPhaseTransitions:
         ctx = TypingSessionContext()
         assert ctx.phase == SessionPhase.IDLE
         assert ctx.source_mode is None
-        assert ctx.upload_status == UploadStatus.NA
 
     def test_setup_network_goes_to_ready(self):
         ctx = TypingSessionContext()
@@ -59,126 +57,30 @@ class TestSessionPhaseTransitions:
         assert ctx.phase == SessionPhase.READY
 
 
-class TestUploadStatusDerivation:
-    def test_initial_state_na(self):
-        ctx = TypingSessionContext()
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_network_session_na(self):
-        ctx = TypingSessionContext()
-        ctx.setup_network_session(text_id=42, source_key="jisubei")
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_local_session_with_text_id_na(self):
-        ctx = TypingSessionContext()
-        ctx.setup_local_session(source_key="local", text_id=10)
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_local_session_without_text_id_na(self):
-        ctx = TypingSessionContext()
-        ctx.setup_local_session(source_key="local")
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_custom_session_na(self):
-        ctx = TypingSessionContext()
-        ctx.setup_custom_session(source_key="custom")
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_clipboard_session_na(self):
-        ctx = TypingSessionContext()
-        ctx.setup_clipboard_session()
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_slice_session_na(self):
-        ctx = TypingSessionContext()
-        _setup_slice(ctx, total=5)
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_shuffle_session_na(self):
-        ctx = TypingSessionContext()
-        ctx.setup_shuffle_session()
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_wenlai_session_na(self):
-        ctx = TypingSessionContext()
-        ctx.setup_wenlai_session()
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_local_article_session_na(self):
+class TestSourceModes:
+    def test_local_article_session(self):
         ctx = TypingSessionContext()
         ctx.setup_local_article_session()
         assert ctx.source_mode == SourceMode.LOCAL_ARTICLE
-        assert ctx.upload_status == UploadStatus.NA
-        assert ctx.can_submit_score() is False
 
-    def test_trainer_session_na(self):
+    def test_trainer_session(self):
         ctx = TypingSessionContext()
         ctx.setup_trainer_session()
         assert ctx.source_mode == SourceMode.TRAINER
-        assert ctx.upload_status == UploadStatus.NA
-        assert ctx.can_submit_score() is False
 
 
 class TestSetTextId:
-    def test_set_text_id_keeps_status_na(self):
+    def test_set_text_id(self):
         ctx = TypingSessionContext()
         ctx.setup_local_session(source_key="local")
-        assert ctx.upload_status == UploadStatus.NA
-
         ctx.set_text_id(42)
-        assert ctx.upload_status == UploadStatus.NA
         assert ctx.text_id == 42
 
-    def test_set_text_id_none_keeps_status_na(self):
+    def test_set_text_id_none(self):
         ctx = TypingSessionContext()
-        ctx.setup_local_session(source_key="local")
+        ctx.setup_local_session(source_key="local", text_id=10)
         ctx.set_text_id(None)
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_slice_session_set_text_id_na(self):
-        ctx = TypingSessionContext()
-        _setup_slice(ctx, total=3)
-        ctx.set_text_id(42)
-        assert ctx.upload_status == UploadStatus.NA
-
-
-class TestCanSubmitScore:
-    def test_can_submit_score_always_false(self):
-        ctx = TypingSessionContext()
-        ctx.setup_network_session(text_id=42, source_key="jisubei")
-        assert ctx.can_submit_score() is False
-
-    def test_pending_cannot_submit(self):
-        ctx = TypingSessionContext()
-        ctx.setup_local_session(source_key="local")
-        assert ctx.can_submit_score() is False
-
-    def test_na_cannot_submit(self):
-        ctx = TypingSessionContext()
-        _setup_slice(ctx, total=5)
-        assert ctx.can_submit_score() is False
-
-    def test_ineligible_cannot_submit(self):
-        ctx = TypingSessionContext()
-        ctx.setup_local_session(source_key="local")
-        ctx.set_text_id(None)
-        assert ctx.can_submit_score() is False
-
-
-class TestEligibilityReason:
-    def test_reason_always_no_submission(self):
-        """成绩上传已移除，资格原因固定为不提交。"""
-        ctx = TypingSessionContext()
-        _setup_slice(ctx, total=5)
-        assert ctx.get_eligibility_reason() == "成绩不提交排行榜"
-
-        ctx2 = TypingSessionContext()
-        ctx2.setup_network_session(text_id=42, source_key="jisubei")
-        assert ctx2.get_eligibility_reason() == "成绩不提交排行榜"
-
-        ctx3 = TypingSessionContext()
-        ctx3.setup_clipboard_session()
-        assert ctx3.get_eligibility_reason() == "成绩不提交排行榜"
+        assert ctx.text_id is None
 
 
 class TestAdvanceSlice:
@@ -199,24 +101,6 @@ class TestAdvanceSlice:
         ctx._slice_index = 2
         ctx.advance_slice()
         assert ctx.slice_index == 2  # 不变
-
-
-class TestSubscriptions:
-    def test_no_upload_status_notification(self):
-        """成绩上传已移除：upload_status 恒为 NA，无订阅回调。"""
-        ctx = TypingSessionContext()
-
-        ctx.setup_local_session(source_key="local")
-        assert ctx.upload_status == UploadStatus.NA
-
-        ctx.set_text_id(42)
-        assert ctx.upload_status == UploadStatus.NA
-
-    def test_eligibility_reason_constant(self):
-        ctx = TypingSessionContext()
-
-        ctx.setup_network_session(text_id=42, source_key="jisubei")
-        assert ctx.get_eligibility_reason() == "成绩不提交排行榜"
 
 
 class TestSliceMode:

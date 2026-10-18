@@ -71,22 +71,6 @@ class TestSqliteCharStatsRepository:
         repo, path = self._create_repo()
         assert repo.get_all() == []
 
-    def test_get_all_dirty(self):
-        repo, path = self._create_repo()
-        repo.save(CharStat(char="A", char_count=1))
-        repo.save(CharStat(char="B", char_count=2))
-        dirty = repo.get_all_dirty()
-        assert len(dirty) == 2
-
-    def test_mark_synced(self):
-        repo, path = self._create_repo()
-        repo.save(CharStat(char="A", char_count=1))
-        repo.save(CharStat(char="B", char_count=2))
-        repo.mark_synced(["A"], "2026-03-19 12:00:00")
-        dirty = repo.get_all_dirty()
-        assert len(dirty) == 1
-        assert dirty[0].char == "B"
-
     def test_get_nonexistent(self):
         repo, path = self._create_repo()
         assert repo.get("Z") is None
@@ -99,5 +83,3 @@ class TestNoopCharStatsRepository:
         assert repo.get("A") is None
         repo.save(CharStat(char="A", char_count=1))
         assert repo.get_all() == []
-        assert repo.get_all_dirty() == []
-        repo.mark_synced(["A"], "2026-03-19 12:00:00")

@@ -53,11 +53,3 @@ class CharStatsRepository(Protocol):
     def get_all(self) -> list[CharStat]:
         """获取全部字符统计。"""
         ...
-
-    def get_all_dirty(self) -> list[CharStat]:
-        """获取所有待同步的字符统计（is_dirty=1）。"""
-        ...
-
-    def mark_synced(self, chars: list[str], synced_at: str) -> None:
-        """标记字符为已同步。"""
-        ...

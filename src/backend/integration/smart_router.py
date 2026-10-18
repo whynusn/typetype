@@ -35,7 +35,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ..utils.logger import log_info, log_warning
+from ..utils.logger import log_warning
 from .ott_normalization import redact_url, to_jsdelivr_url
 
 if TYPE_CHECKING:
@@ -263,14 +263,3 @@ class SmartRouteSelector:
     @staticmethod
     def _backoff(failures: int) -> float:
         return min(_COOLDOWN_CAP_S, _COOLDOWN_BASE_S * (2 ** min(failures - 1, 4)))
-
-
-def log_route_choice(url: str, candidates: list[str]) -> None:
-    """日志辅助：输出最终选路顺序（供刷新排查）。"""
-    if len(candidates) > 1:
-        log_info(
-            "[SmartRouter] 选路: "
-            + " → ".join(redact_url(c) for c in candidates[:3])
-            + (" …" if len(candidates) > 3 else "")
-            + f" （{url}）"
-        )

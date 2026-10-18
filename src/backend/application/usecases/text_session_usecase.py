@@ -128,17 +128,6 @@ class TextSessionUseCase:
         content = self._provider.get_segment(start, slice_size)
         return SegmentResult(content=content, index=clamped, total=total)
 
-    def shuffle_segment(self, content: str, seed: int | None = None) -> str:
-        """对给定文本做局部乱序。"""
-        import random
-
-        if not content:
-            return ""
-        chars = list(content)
-        rng = random.Random(seed) if seed is not None else random.Random()
-        rng.shuffle(chars)
-        return "".join(chars)
-
     def shuffle_all_virtual(self, seed: int) -> "TextSessionUseCase":
         """全文虚拟乱序：小文本全量 shuffle，大文本用 Feistel permutation。
 

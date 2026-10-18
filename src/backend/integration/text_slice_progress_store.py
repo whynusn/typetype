@@ -41,13 +41,6 @@ class TextSliceProgressStore:
         entry = self.load().get(_text_hash(text))
         return entry if isinstance(entry, dict) else None
 
-    def delete_progress(self, text: str) -> None:
-        data = self.load()
-        key = _text_hash(text)
-        if key in data:
-            del data[key]
-            self.save(data)
-
     def delete_by_hash_key(self, hash_key: str) -> None:
         """直接按 JSON 中的 hash key 删除（不经二次 hash）。"""
         data = self.load()

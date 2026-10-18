@@ -152,7 +152,7 @@ pytest 入口在 `tests/ui_probe/`，均以**子进程**方式运行（Qt 初始
 XDG_CONFIG_HOME/XDG_DATA_HOME 会让"只改 HOME"的隔离形同虚设**，必须有
 `env.py` 把四个 XDG 目录全部重定向，否则验收会写脏用户真实的打字历史
 （`tests/ui_probe/test_isolation.py` 守这条线）。
-详细设计与分期见 [ADR-015](../decisions/015-ui-acceptance-harness.md)。
+详细设计与分期见 [ADR-015](./decisions/015-ui-acceptance-harness.md)。
 
 ### 载文入口
 

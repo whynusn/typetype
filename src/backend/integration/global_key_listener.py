@@ -31,8 +31,6 @@ class GlobalKeyListener(QObject):
     keyPressed = Signal(int, str)  # (按键码, 设备名)
 
     SETTINGS_KEY = "key_listener/device_paths"
-    STRICT_SCAN = "strict"
-    PERMISSIVE_SCAN = "permissive"
 
     def __init__(self):
         super().__init__()

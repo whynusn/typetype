@@ -53,11 +53,6 @@ class TextSourceConfig:
     def get_source(self, key: str) -> TextSourceEntry | None:
         return self.sources.get(key)
 
-    def get_default_source(self) -> TextSourceEntry | None:
-        if self.default_key:
-            return self.sources.get(self.default_key)
-        return None
-
     def get_source_options(self) -> list[dict[str, str | bool]]:
         return [
             {"key": source.key, "label": source.label, "isLocal": source.is_local}

@@ -7,8 +7,6 @@
 
 不负责：
 - 网络请求（text_id 回查已随 typetype-server 耦合移除，ADR-013）
-- 成绩提交资格推导（成绩上传已移除；`UploadStatus` 保留枚举以兼容旧引用，
-  状态恒为 NA）
 - Qt 信号（由 TypingAdapter 桥接）
 - 打字统计逻辑（由 TypingService 负责）
 """
@@ -38,13 +36,6 @@ class SourceMode(Enum):
     TRAINER = auto()
 
 
-class UploadStatus(Enum):
-    CONFIRMED = auto()
-    PENDING = auto()
-    INELIGIBLE = auto()
-    NA = auto()
-
-
 class TypingSessionContext:
     """打字会话状态机。"""
 
@@ -52,9 +43,7 @@ class TypingSessionContext:
         # 基础会话状态
         self._phase: SessionPhase = SessionPhase.IDLE
         self._source_mode: SourceMode | None = None
-        self._upload_status: UploadStatus = UploadStatus.NA
         self._text_id: int | None = None
-        self._text_id_resolved: bool = True
         self._slice_index: int = 0
         self._slice_total: int = 0
         self._slice_size: int = 0
@@ -89,11 +78,6 @@ class TypingSessionContext:
         return self._source_mode
 
     @property
-    def upload_status(self) -> UploadStatus:
-        # 成绩上传已移除：状态恒为 NA（保留枚举兼容旧引用）
-        return self._upload_status
-
-    @property
     def text_id(self) -> int | None:
         return self._text_id
 
@@ -109,13 +93,6 @@ class TypingSessionContext:
     def slice_text(self) -> str:
         return self._slice_text
 
-    def can_submit_score(self) -> bool:
-        # 成绩提交已随 typetype-server 耦合移除
-        return False
-
-    def get_eligibility_reason(self) -> str:
-        return "成绩不提交排行榜"
-
     # === 设置接口 ===
 
     def setup_network_session(self, text_id: int, source_key: str) -> None:
@@ -126,13 +103,11 @@ class TypingSessionContext:
     def setup_local_session(self, source_key: str, text_id: int | None = None) -> None:
         self._source_mode = SourceMode.LOCAL
         self._text_id = text_id
-        self._text_id_resolved = text_id is not None
         self._phase = SessionPhase.READY
 
     def setup_custom_session(self, source_key: str) -> None:
         self._source_mode = SourceMode.CUSTOM
         self._text_id = None
-        self._text_id_resolved = False
         self._phase = SessionPhase.READY
 
     def setup_clipboard_session(self) -> None:
@@ -148,19 +123,16 @@ class TypingSessionContext:
     def setup_wenlai_session(self) -> None:
         self._source_mode = SourceMode.WENLAI
         self._text_id = None
-        self._text_id_resolved = True
         self._phase = SessionPhase.READY
 
     def setup_local_article_session(self) -> None:
         self._source_mode = SourceMode.LOCAL_ARTICLE
         self._text_id = None
-        self._text_id_resolved = True
         self._phase = SessionPhase.READY
 
     def setup_trainer_session(self) -> None:
         self._source_mode = SourceMode.TRAINER
         self._text_id = None
-        self._text_id_resolved = True
         self._phase = SessionPhase.READY
 
     # === 分片载文 ===
@@ -212,7 +184,6 @@ class TypingSessionContext:
         self._slice_text = ""
         self._slice_size = slice_size
         self._text_id = None
-        self._text_id_resolved = True
         self._phase = SessionPhase.READY
 
     def setup_slice_mode(
@@ -563,9 +534,7 @@ class TypingSessionContext:
     def reset(self) -> None:
         self._phase = SessionPhase.IDLE
         self._source_mode = None
-        self._upload_status = UploadStatus.NA
         self._text_id = None
-        self._text_id_resolved = True
         self._slice_index = 0
         self._slice_total = 0
 
@@ -573,7 +542,6 @@ class TypingSessionContext:
 
     def set_text_id(self, text_id: int | None) -> None:
         self._text_id = text_id
-        self._text_id_resolved = True
 
     def set_slice_index(self, idx: int) -> None:
         """直接设置当前片索引（用于无尽循环模式）。"""
