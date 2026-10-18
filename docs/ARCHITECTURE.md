@@ -452,6 +452,7 @@ Directory（可选，发现层）                ← 未来 Phase 2+
 | `RegistryAdapter` | `presentation/adapters/registry_adapter.py` | 订阅管理 + 条目聚合 + 源级刷新/健康状态的 Qt 适配层（Worker 异步） |
 | `RepoEntriesPanel` | `components/RepoEntriesPanel.qml` | 载文中心「开源文库」标签的联邦条目列表面板（源组卡片 + 选中即载入） |
 | `RepoConfigDialog` | `components/RepoConfigDialog.qml` | 订阅源管理弹窗（启用/信任/删除 + 元数据/不兼容原因） |
+| `SubscriptionsDialog` | `components/SubscriptionsDialog.qml` | 「我的订阅」订阅级列表（含无条目组的订阅） |
 | `SourceInfoDialog` | `components/SourceInfoDialog.qml` | 源详情弹窗（tier/健康/刷新频率覆盖） |
 
 ### 订阅数据流
@@ -499,6 +500,7 @@ src/backend/presentation/adapters/
 src/backend/config/container.py             # + manifest_cache, federation, registry_adapter
 src/qml/components/RepoEntriesPanel.qml      # 开源文库条目列表面板（组头卡片 + 手风琴 + 源级刷新）
 src/qml/components/RepoConfigDialog.qml      # 订阅源管理弹窗（启用/信任/删除，取代独立管理页）
+src/qml/components/SubscriptionsDialog.qml   # 「我的订阅」订阅级列表
 src/qml/components/SourceInfoDialog.qml      # 源详情弹窗（tier/健康状态/刷新频率覆盖）
 src/qml/components/InstantSourcePanel.qml    # 即时源面板骨架（晴发文/AI 共用）
 src/qml/components/WenlaiSourcePanel.qml     # 晴发文即时源面板（薄壳，继承 InstantSourcePanel）

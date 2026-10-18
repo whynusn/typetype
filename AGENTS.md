@@ -170,7 +170,7 @@
   - `components/InstantSourcePanel.qml` — 即时源面板骨架（晴发文/AI 共用：图标/标题/描述/内容插槽/errorText/主操作行）
   - `helpers/SourceBadges.js` — trust 徽章与 tier 标签的文案/配色单一事实源（`.pragma library`，配色经参数传 Theme 颜色，JS 库不直接依赖 RinUI 单例）
   - `settings/` 目录 — SettingsPage 拆分出的区块组件（`WenlaiSection`/`AiSection`/`KeyboardDevicesSection`/`FontManagerDialog`），每个区块自包含模型、对话框与 Connections，主页只做 section 编排
-- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部 RinUI `Segmented` 切换 6 个来源 tab（本地文库/开源文库/练单器/晴发文/AI 推荐/自定义）；各来源共享同一组分片/达标组件，不再分散为多个独立入口页。开源文库 tab 按订阅源分组展示联邦聚合条目（`RepoEntriesPanel`，选中即载入；源组头可展开/收起/刷新/管理），订阅管理收敛到源组头弹窗 `RepoConfigDialog`（独立管理页 `ReposManagementPage` 已删除）
+- 所有载文场景统一在 `TextLoadHubPage.qml` 中通过顶部 RinUI `Segmented` 切换 6 个来源 tab（本地文库/开源文库/练单器/晴发文/AI 推荐/自定义）；各来源共享同一组分片/达标组件，不再分散为多个独立入口页。开源文库 tab 按订阅源分组展示联邦聚合条目（`RepoEntriesPanel`，选中即载入；源组头可展开/收起/刷新/管理），订阅管理 = 列表头「我的订阅」`SubscriptionsDialog`（订阅级列表，含无条目组的禁用/待信任/失败/空源订阅）+ 单订阅弹窗 `RepoConfigDialog`；组头只留一个「源详情」入口，订阅级操作经 `SourceInfoDialog`「管理所属订阅」进入（2026-10-18）
 
 ---
 

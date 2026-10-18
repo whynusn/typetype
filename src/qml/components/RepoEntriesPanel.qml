@@ -44,7 +44,8 @@ Frame {
     signal entryClicked(var entry)      // 点击条目，透传原始条目对象
     signal entryActivated(var entry)    // 双击条目：选中并直接载入跟打
     signal refreshRequested()           // 顶部刷新 / 错误态重试
-    signal addRepoRequested()           // 「添加订阅」按钮
+    signal addRepoRequested()           // 「添加订阅」按钮（空态）
+    signal subscriptionsRequested()     // 「我的订阅」：订阅级列表（含无条目的订阅）
     signal refreshSourceRequested(string authority)  // 源（authority）级刷新请求
     signal sourceInfoRequested(string authority)    // 打开源详情弹窗
     signal manageRepoRequested(string repoId, string url)  // 进入该源所属订阅源管理
@@ -288,12 +289,14 @@ Frame {
 
             Item { Layout.fillWidth: true }
 
+            // 订阅级入口：待信任 / 失败 / 已禁用 / 空源的订阅没有条目组，
+            // 只能在这里看到和管理（添加订阅也在其中）
             Button {
-                objectName: "repoAddButton"
-                text: qsTr("添加订阅")
-                icon.name: "ic_fluent_add_20_regular"
+                objectName: "repoSubscriptionsButton"
+                text: qsTr("我的订阅")
+                icon.name: "ic_fluent_settings_20_regular"
                 flat: true
-                onClicked: root.addRepoRequested()
+                onClicked: root.subscriptionsRequested()
             }
 
             ToolButton {
@@ -705,24 +708,16 @@ Frame {
                                     }
                                 }
 
-                                // 源详情（类型/健康/调度覆盖）
+                                // 源详情（类型/健康/调度覆盖 + 所属订阅管理）：组头只留一个
+                                // 详情入口，订阅级操作从详情弹窗「管理订阅」进入
                                 ToolButton {
+                                    objectName: "repoGroupInfoButton"
                                     Layout.preferredWidth: 28
                                     Layout.preferredHeight: 28
                                     icon.name: "ic_fluent_info_20_regular"
                                     flat: true
                                     onClicked: root.sourceInfoRequested(groupDelegate.groupData.key)
-                                    ToolTip { text: qsTr("源详情"); visible: parent.hovered }
-                                }
-
-                                // 管理该源所属订阅源（进入配置弹窗）
-                                ToolButton {
-                                    Layout.preferredWidth: 28
-                                    Layout.preferredHeight: 28
-                                    icon.name: "ic_fluent_settings_20_regular"
-                                    flat: true
-                                    onClicked: root.manageRepoRequested(groupDelegate.groupData.repoId, groupDelegate.groupData.url)
-                                    ToolTip { text: qsTr("管理该源所属订阅源"); visible: parent.hovered }
+                                    ToolTip { text: qsTr("源详情与订阅管理"); visible: parent.hovered }
                                 }
                             }
                         }
@@ -1093,10 +1088,19 @@ Frame {
                     horizontalAlignment: Text.AlignHCenter
                 }
 
-                Button {
+                RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    text: qsTr("添加订阅")
-                    onClicked: root.addRepoRequested()
+                    spacing: 8
+                    Button {
+                        text: qsTr("添加订阅")
+                        onClicked: root.addRepoRequested()
+                    }
+                    // 有订阅但全部禁用 / 待信任 / 拉取失败时，空态也要能进管理
+                    Button {
+                        text: qsTr("我的订阅")
+                        flat: true
+                        onClicked: root.subscriptionsRequested()
+                    }
                 }
             }
 
