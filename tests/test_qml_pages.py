@@ -133,6 +133,12 @@ def test_text_load_hub_uses_expected_bridge_contract():
     assert "confirmRepoTrust" in config_refs and "confirmRepoTrust" in BRIDGE_SLOTS
     assert "rejectRepoTrust" in config_refs and "rejectRepoTrust" in BRIDGE_SLOTS
     assert "getRepos" in config_refs and "getRepos" in BRIDGE_SLOTS
+    # 「我的订阅」订阅级列表：无条目组的订阅（禁用/待信任/失败/空源）也可管理
+    subs_qml = QML_DIR / "components/SubscriptionsDialog.qml"
+    subs_refs = _get_qml_refs(subs_qml.read_text(encoding="utf-8"))
+    assert "getRepos" in subs_refs and "refreshRepos" in subs_refs
+    assert "setRepoEnabled" in subs_refs
+    assert "SubscriptionsDialog" in qml_source
     assert "SliceCriteriaPanel" in qml_source
     assert "TextInfoCard" in qml_source
     assert (

@@ -38,6 +38,7 @@
 |------|------|
 | `components/RepoEntriesPanel.qml` | 开源文库条目列表面板（组头卡片 + 手风琴 + 源级刷新/详情/管理 + 搜索去抖 + 错误重试；`entryClicked`/`refreshSourceRequested`/`sourceInfoRequested`/`manageRepoRequested` 信号） |
 | `components/RepoConfigDialog.qml` | 订阅源管理弹窗（启用/信任/删除；`_syncingSwitch` 守卫防回写白调） |
+| `components/SubscriptionsDialog.qml` | 「我的订阅」订阅级列表（健康状态 + 启用开关 + 管理入口；无条目组的订阅也可见） |
 | `components/SourceInfoDialog.qml` | 源详情弹窗（tier/健康状态/刷新频率覆盖；`sourceStatusChanged` 实时回流） |
 | `components/InstantSourcePanel.qml` | 即时源面板骨架（图标/标题/描述/内容插槽/errorText/主操作行；晴发文与 AI 共用） |
 | `components/WenlaiSourcePanel.qml` | 晴发文即时源面板（薄壳：登录状态行 + 配置摘要卡） |

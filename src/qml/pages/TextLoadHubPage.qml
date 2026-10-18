@@ -614,6 +614,7 @@ FluentPage {
                 onRefreshRequested: { if (appBridge) appBridge.refreshFederatedAll() }
                 onRefreshSourceRequested: function(authority) { if (appBridge) appBridge.refreshFederatedSource(authority) }
                 onAddRepoRequested: addRepoDialog.open()
+                onSubscriptionsRequested: subscriptionsDialog.open()
                 onSourceInfoRequested: function(authority) {
                     var entry = null
                     for (var i = 0; i < root.federatedEntries.length; i++) {
@@ -862,6 +863,22 @@ FluentPage {
     // 源详情弹窗（类型/健康状态/刷新频率覆盖）
     SourceInfoDialog {
         id: sourceInfoDialog
+        onManageRepoRequested: function(repoId, url) {
+            repoConfigDialog.repoId = repoId
+            repoConfigDialog.repoUrl = url
+            repoConfigDialog.open()
+        }
+    }
+
+    // 我的订阅：订阅级列表（含无条目组的订阅），每行进 RepoConfigDialog
+    SubscriptionsDialog {
+        id: subscriptionsDialog
+        onManageRequested: function(repoId, url) {
+            repoConfigDialog.repoId = repoId
+            repoConfigDialog.repoUrl = url
+            repoConfigDialog.open()
+        }
+        onAddRequested: addRepoDialog.open()
     }
 
     // 添加订阅（开源文库「添加订阅」入口）

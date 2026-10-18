@@ -24,6 +24,8 @@ Dialog {
     property var _overrides: ({})
     property bool _syncingOverride: false
 
+    signal manageRepoRequested(string repoId, string url)
+
     title: qsTr("源详情")
     modal: true
     standardButtons: Dialog.Close
@@ -304,13 +306,30 @@ Dialog {
 
         Item { Layout.fillHeight: true }
 
-        Button {
+        RowLayout {
             Layout.alignment: Qt.AlignHCenter
-            text: qsTr("立即刷新该源")
-            icon.name: "ic_fluent_arrow_sync_20_regular"
-            flat: true
-            onClicked: {
-                if (appBridge) appBridge.refreshFederatedSource(root.authority)
+            spacing: 8
+
+            Button {
+                text: qsTr("立即刷新该源")
+                icon.name: "ic_fluent_arrow_sync_20_regular"
+                flat: true
+                onClicked: {
+                    if (appBridge) appBridge.refreshFederatedSource(root.authority)
+                }
+            }
+
+            // 订阅级操作（启用/信任/删除）统一在 RepoConfigDialog
+            Button {
+                objectName: "sourceInfoManageRepoButton"
+                visible: root.repoUrl.length > 0
+                text: qsTr("管理所属订阅")
+                icon.name: "ic_fluent_settings_20_regular"
+                flat: true
+                onClicked: {
+                    root.manageRepoRequested(root.repoId, root.repoUrl)
+                    root.close()
+                }
             }
         }
     }

@@ -1,0 +1,67 @@
+schema: ui-probe/scenario@1
+name: app-open-library-subscriptions
+description: >
+  「我的订阅」订阅级列表验收：没有条目组的订阅（已禁用、清单拉取失败）
+  在开源文库列表里看不到组头，必须能在「我的订阅」里看到状态并管理。
+  播种：内置离线仓库（正常）+ 一个已禁用订阅 + 一个指向不存在文件的订阅
+  （拉取失败）。全部 file://，不走网络。
+mode: app
+wait_ms: 800
+seed:
+  config:
+    source_repos:
+      - {url: "{{builtin_repo_url}}", enabled: true}
+      - {url: "file:///nonexistent-typetype/disabled/ott-repo.json", enabled: false}
+      - {url: "file:///nonexistent-typetype/broken/ott-repo.json", enabled: true}
+steps:
+  - name: 切到载文页
+    action: click
+    find: {text: "载文", index: 0}
+
+  - name: 切到「开源文库」
+    action: click
+    find: {text_equals: "开源文库"}
+
+  - name: 正常订阅的源分组出现
+    action: wait
+    until:
+      find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 10000
+
+  - name: 打开「我的订阅」
+    action: click
+    find: {objectName: repoSubscriptionsButton}
+
+  - name: 三个订阅全部列出（含无条目组的）
+    action: wait
+    until:
+      find: {objectName: subscriptionRow}
+      expect: {count: 3}
+    timeout_ms: 8000
+
+  - name: 已禁用订阅显示「已禁用」
+    action: assert
+    find: {objectName: subscriptionRow, props: {url: "file:///nonexistent-typetype/disabled/ott-repo.json"}}
+    expect:
+      prop_equals: {statusText: "已禁用", statusLevel: "muted"}
+
+  - name: 拉取失败的订阅显示失败原因
+    action: assert
+    find: {objectName: subscriptionRow, props: {url: "file:///nonexistent-typetype/broken/ott-repo.json"}}
+    timeout_ms: 5000
+    expect:
+      prop_contains: {statusText: "失败"}
+      prop_equals: {statusLevel: "critical"}
+
+  - name: 正常订阅显示源数
+    action: assert
+    find: {objectName: subscriptionRow, props: {url: "{{builtin_repo_url}}"}}
+    expect:
+      prop_contains: {statusText: "个源"}
+      prop_equals: {statusLevel: "ok"}
+
+  - name: 全程无新增 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true
