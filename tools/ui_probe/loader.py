@@ -120,7 +120,7 @@ class OffscreenHarness:
         fixture 解析失败记为加载错误——静默降级会掩盖隔离问题。
         """
         try:
-            target = str(Path(qml_path).relative_to(self.repo_root))
+            target = Path(qml_path).relative_to(self.repo_root).as_posix()
         except ValueError:
             # 仓库外路径（自检/临时组件）：退回绝对路径，仍可加载
             target = str(Path(qml_path))

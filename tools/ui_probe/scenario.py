@@ -520,6 +520,8 @@ def run_scenario_isolated(path: Path, repo_root: Path, timeout: int = 180) -> di
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             cwd=str(repo_root),
             env=env,
@@ -553,7 +555,7 @@ def run_scenario_isolated(path: Path, repo_root: Path, timeout: int = 180) -> di
             "name": Path(path).stem,
             "mode": "unknown",
             "target": "",
-            "setup_error": f"子进程无报告产出（exit={proc.returncode}）：{proc.stderr[-500:]}",
+            "setup_error": f"子进程无报告产出（exit={proc.returncode}）：{proc.stderr[-1500:]}",
             "steps": [],
             "messages": [],
             "summary": {

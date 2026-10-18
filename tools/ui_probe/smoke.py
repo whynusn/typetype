@@ -66,7 +66,7 @@ def run_smoke(
     """执行冒烟，返回（报告, 原始结果）。"""
     repo_root = Path(repo_root).resolve()
     targets = discover_targets(repo_root)
-    target_rels = {str(p.relative_to(repo_root)) for p in targets}
+    target_rels = {p.relative_to(repo_root).as_posix() for p in targets}
 
     if fixtures_path is None:
         fixtures_path = repo_root / DEFAULT_FIXTURES_RELPATH
@@ -84,7 +84,7 @@ def run_smoke(
     results: list[LoadResult] = []
     try:
         for path in targets:
-            rel = str(path.relative_to(repo_root))
+            rel = path.relative_to(repo_root).as_posix()
             specs = fixtures_for_target(fixtures, rel)
             result = harness.load(path, fixture_specs=specs)
             results.append(result)

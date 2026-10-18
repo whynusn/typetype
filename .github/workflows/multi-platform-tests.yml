@@ -34,6 +34,9 @@ jobs:
         run: uv pip install pytest
 
       - name: 运行测试
+        env:
+          # 子进程段错误时打印 Python 栈，便于定位原生崩溃
+          PYTHONFAULTHANDLER: '1'
         run: uv run --with pytest-github-actions-annotate-failures pytest --verbose
 
   test-windows:
@@ -60,6 +63,9 @@ jobs:
         run: uv pip install pytest
 
       - name: 运行测试
+        env:
+          # 子进程段错误时打印 Python 栈，便于定位原生崩溃
+          PYTHONFAULTHANDLER: '1'
         run: uv run --with pytest-github-actions-annotate-failures pytest --verbose
 
   test-macos:
@@ -86,4 +92,7 @@ jobs:
         run: uv pip install pytest
 
       - name: 运行测试
+        env:
+          # 子进程段错误时打印 Python 栈，便于定位原生崩溃
+          PYTHONFAULTHANDLER: '1'
         run: uv run --with pytest-github-actions-annotate-failures pytest --verbose

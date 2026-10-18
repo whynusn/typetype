@@ -179,7 +179,7 @@ def snapshot_target(
     options = options or SnapshotOptions()
     qml_path = Path(qml_path)
     try:
-        target = str(qml_path.relative_to(harness.repo_root))
+        target = qml_path.relative_to(harness.repo_root).as_posix()
     except ValueError:
         target = str(qml_path)
 
