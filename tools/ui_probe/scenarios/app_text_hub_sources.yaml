@@ -37,12 +37,9 @@ steps:
     action: click
     find: {text_equals: "练单器"}
 
-  - name: 等词库列表异步加载
-    action: wait
-    ms: 1200
-
   - name: 练单器：词库列表有条目（不再是空态）
     action: assert
+    timeout_ms: 4800
     find: {text: "前500"}
     expect:
       visible: true

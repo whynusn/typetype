@@ -274,6 +274,7 @@ Frame {
             Item { Layout.fillWidth: true }
 
             Button {
+                objectName: "repoAddButton"
                 text: qsTr("添加订阅")
                 icon.name: "ic_fluent_add_20_regular"
                 flat: true
@@ -281,6 +282,7 @@ Frame {
             }
 
             ToolButton {
+                objectName: "repoRefreshAll"
                 Layout.preferredWidth: 28
                 Layout.preferredHeight: 28
                 icon.name: "ic_fluent_arrow_sync_20_regular"
@@ -414,6 +416,11 @@ Frame {
                         // ================= 组头：订阅源卡片 =================
                         Rectangle {
                             id: headerRect
+                            // 验收锚点（ui-probe 场景按 objectName + groupKey 定位，
+                            // 不依赖文案）：组头 / 展开态
+                            objectName: "repoGroupHeader"
+                            readonly property string groupKey: groupDelegate.groupData.key
+                            readonly property bool groupExpanded: groupDelegate.expanded
                             width: parent.width
                             height: 46
                             radius: 6
@@ -553,6 +560,7 @@ Frame {
                                                            Theme.currentTheme.colors.systemCautionColor.b, 0.18)
                                             Text {
                                                 id: failText
+                                                objectName: "repoGroupFailed"
                                                 anchors.centerIn: parent
                                                 text: qsTr("刷新失败 · 显示缓存")
                                                 typography: Typography.Caption
@@ -648,6 +656,8 @@ Frame {
                                     Layout.preferredHeight: 28
 
                                     ToolButton {
+                                        objectName: "repoGroupRefresh"
+                                        readonly property string groupKey: groupDelegate.groupData.key
                                         anchors.fill: parent
                                         icon.name: "ic_fluent_arrow_sync_20_regular"
                                         flat: true
@@ -745,6 +755,8 @@ Frame {
                                 // ---- 历史行：随机源「显示更早 N 条」入口 / 展开后「收起历史」 ----
                                 Rectangle {
                                     id: historyRow
+                                    objectName: "repoHistoryToggle"
+                                    readonly property string groupKey: groupDelegate.groupData.key
                                     width: parent.width
                                     height: 36
                                     visible: groupDelegate.showHistoryRow || groupDelegate.showHistoryCollapseRow
@@ -812,6 +824,9 @@ Frame {
 
                                 Rectangle {
                                     id: rowRoot
+                                    objectName: "repoEntryRow"
+                                    readonly property string entryId: model.entry.entry_id || ""
+                                    readonly property string groupKey: groupDelegate.groupData.key
                                     width: parent.width
                                     // 行高由内部布局 implicit 尺寸驱动（布局容器计算可靠）
                                     height: rowLayout.implicitHeight + 12

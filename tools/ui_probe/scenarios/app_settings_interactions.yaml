@@ -58,12 +58,9 @@ steps:
     action: click
     find: {text_equals: "管理", index: 0}
 
-  - name: 等待对话框渲染
-    action: wait
-    ms: 500
-
   - name: 对话框标题在位
     action: assert
+    timeout_ms: 3000
     find: {text_equals: "管理阅读字体"}
     expect:
       visible: true

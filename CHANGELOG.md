@@ -20,8 +20,16 @@
 - OTT 脚本缓存 `ttl=0` 在时钟粒度粗的平台上可能误判为未过期
 - ui-probe：相对路径统一 POSIX 分隔符、子进程输出按 UTF-8 解码、忽略离屏平台字体提示
 
+### Added
+- ADR-016：源仓库与前端验收机制的架构收敛（评估结论与分阶段计划）
+- ui-probe：`wait.until` / `assert.timeout_ms` 轮询断言（`no_new_messages` 只判一次，不被轮询吞掉）；场景自检覆盖轮询超时
+- ui-probe：真机场景 `seed` 数据播种（`config.json` / `config:`、`data:` 语义根）与 `{{repo_root}}`、`{{builtin_repo_url}}` 占位符
+- ui-probe：开源文库交互场景 `app_open_library`（订阅内置离线仓库：分组、展开/收起、不串组、选中、源级刷新）
+- 开源文库关键控件增加 objectName 验收锚点（无行为变化）
+
 ### Changed
 - CI：测试失败以 PR annotation 显示；多平台测试开启 `PYTHONFAULTHANDLER`
+- ui-probe：既有场景的"固定等待 + 一次性断言"改为轮询断言
 
 ### Added
 
