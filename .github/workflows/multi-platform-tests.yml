@@ -34,7 +34,7 @@ jobs:
         run: uv pip install pytest
 
       - name: 运行测试
-        run: uv run pytest --verbose
+        run: uv run --with pytest-github-actions-annotate-failures pytest --verbose
 
   test-windows:
     name: 测试 - Windows
@@ -60,7 +60,7 @@ jobs:
         run: uv pip install pytest
 
       - name: 运行测试
-        run: uv run pytest --verbose
+        run: uv run --with pytest-github-actions-annotate-failures pytest --verbose
 
   test-macos:
     name: 测试 - macOS
@@ -86,4 +86,4 @@ jobs:
         run: uv pip install pytest
 
       - name: 运行测试
-        run: uv run pytest --verbose
+        run: uv run --with pytest-github-actions-annotate-failures pytest --verbose
