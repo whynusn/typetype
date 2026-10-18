@@ -16,6 +16,7 @@
 - Windows：启动时 stdout/stderr 切 UTF-8，修复 RinUI emoji 日志在 cp1252/GBK 控制台下抛 `UnicodeEncodeError` 导致启动失败
 - Windows：自选阅读字体 URL 拼接错误（`file://D:\...`），改为规范的 `file:///` 形式
 - macOS/Windows：Qt Quick Controls 统一 Fusion 样式，原生样式不支持 `background` 自定义
+- macOS：非 cocoa 平台（offscreen 等）跳过原生标题栏处理，修复 winId 被当作 NSView 解引用导致的段错误
 - OTT 脚本缓存 `ttl=0` 在时钟粒度粗的平台上可能误判为未过期
 - ui-probe：相对路径统一 POSIX 分隔符、子进程输出按 UTF-8 解码、忽略离屏平台字体提示
 

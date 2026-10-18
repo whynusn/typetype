@@ -122,6 +122,11 @@ class RinUIWindow:
         """Apply macOS native titlebar tweaks for custom title content."""
         if sys.platform != "darwin":
             return
+        # 非 cocoa 平台（如 offscreen/minimal）的 winId 不是 NSView 指针，
+        # 交给 objc 解引用会直接段错误
+        if QApplication.platformName() != "cocoa":
+            self._disable_native_mac_frame()
+            return
 
         try:
             import AppKit
