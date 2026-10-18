@@ -600,6 +600,16 @@ FluentPage {
                     root.previewContent = entry.content || entry.preview || ""
                     root.checkProgress()
                 }
+                // 双击 = 选中 + 载入跟打（与右栏「载入跟打」同一路径与前置校验）
+                onEntryActivated: function(entry) {
+                    root.selectedItem = entry
+                    root.previewContent = entry.content || entry.preview || ""
+                    root.checkProgress()
+                    Qt.callLater(function() {
+                        if (root.readyForLoad && !root.federatedContentLoading)
+                            root.loadSelectedItem()
+                    })
+                }
                 // 总刷新 = 全部源强制换新；源组头刷新 = 该源（authority）换新
                 onRefreshRequested: { if (appBridge) appBridge.refreshFederatedAll() }
                 onRefreshSourceRequested: function(authority) { if (appBridge) appBridge.refreshFederatedSource(authority) }
@@ -801,7 +811,9 @@ FluentPage {
                         Button {
                             Layout.preferredHeight: 34
                             text: qsTr("刷新")
+                            // 开源文库左栏自带「刷新全部」与源级刷新，右栏不再重复
                             visible: SrcBehav.capabilities[root.currentSource].supportsRefresh
+                                     && root.currentSource !== "repos"
                             enabled: !root.currentSourceLoading()
                             onClicked: {
                                 if (!appBridge) return

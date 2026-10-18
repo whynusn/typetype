@@ -115,9 +115,72 @@ class SnapshotCatalogService:
 
         不触发任何物化/刷新；进入 tab 先展示已存快照，后台由
         RefreshScheduler / 手动刷新换新，避免每次进入都白屏等网络。
+
+        生命周期过滤（2026-10-18 review）：视图 = 快照 ∩ 当前订阅状态——
+        已禁用订阅的快照隐藏（保留，重新启用即恢复）；屏蔽清单命中的条目
+        隐藏；已不在配置中的订阅留下的孤儿快照直接清理。
         """
         now = time.time()
-        return [self._decorate(snap, now) for snap in self._store.list_all()]
+        snaps = self._store.list_all()
+        self._purge_unsubscribed(snaps)
+        return [self._decorate(snap, now) for snap in snaps if self._is_visible(snap)]
+
+    # ------------------------------------------------------------------
+    # 订阅生命周期过滤
+    # ------------------------------------------------------------------
+
+    def _repo_states(self) -> dict[str, tuple[bool, str]] | None:
+        """配置中的订阅 url → (enabled, trust_state)；无配置时 None（不过滤）。"""
+        if self._runtime_config is None:
+            return None
+        repos = getattr(
+            getattr(self._runtime_config, "source_repos", None), "repos", None
+        )
+        if not isinstance(repos, list):
+            return None
+        return {
+            r.url.rstrip("/"): (bool(r.enabled), str(getattr(r, "trust_state", "")))
+            for r in repos
+            if r.url
+        }
+
+    def _blocked_hashes(self) -> set[str]:
+        raw = getattr(self._runtime_config, "blocked_content_hashes", None)
+        if not isinstance(raw, list):
+            return set()
+        return {h for h in raw if isinstance(h, str) and h}
+
+    def _is_visible(self, snap: dict) -> bool:
+        if snap.get("content_hash") and snap.get("content_hash") in (
+            self._blocked_hashes()
+        ):
+            return False
+        states = self._repo_states()
+        repo_url = str(snap.get("_repo_url") or "").rstrip("/")
+        if states is None or not repo_url:
+            return True  # 旧快照缺归属：保守显示
+        enabled, trust_state = states.get(repo_url, (False, ""))
+        if not enabled:
+            return False
+        # L3 脚本源只在仓库 verified 时参与聚合；撤销信任后其快照同样隐藏
+        if snap.get("_source_type") == "ott-script" and trust_state != "verified":
+            return False
+        return True
+
+    def _purge_unsubscribed(self, snaps: list[dict]) -> None:
+        """清理已不在配置中的订阅留下的快照（删订阅时漏清 / 旧版本残留）。"""
+        states = self._repo_states()
+        if states is None:
+            return
+        doomed = {
+            str(s.get("_authority", ""))
+            for s in snaps
+            if s.get("_repo_url") and str(s.get("_repo_url")).rstrip("/") not in states
+        }
+        for authority in doomed - {""}:
+            self._store.clear_authority(authority)
+        if doomed:
+            snaps[:] = [s for s in snaps if s.get("_authority") not in doomed]
 
     def list_source_statuses(self) -> dict[str, dict]:
         """返回 per-authority 健康状态（零网络；未配置 store 时为空）。"""
@@ -146,13 +209,15 @@ class SnapshotCatalogService:
             refresh_policy=policy.to_dict(),
         )
 
-    def _record_source_failed(self, authority: str, now: float) -> None:
+    def _record_source_failed(
+        self, authority: str, now: float, message: str = "网络不可达或源不可用"
+    ) -> None:
         if self._status_store is None:
             return
         self._status_store.update(
             authority,
             state="failed",
-            message="网络不可达或源不可用",
+            message=message,
             checked_at=now,
         )
 
@@ -169,6 +234,7 @@ class SnapshotCatalogService:
         """
         now = now if now is not None else time.time()
         authorities = self._federation.list_authorities()
+        self._purge_dropped_sources(authorities)
         if not force:
             snapshots = self._snapshots_by_authority()
             authorities = [a for a in authorities if self._is_due(a, snapshots, now)]
@@ -181,6 +247,27 @@ class SnapshotCatalogService:
                 failed.append(authority)
         self._last_refresh_ok, self._last_refresh_failed = ok, failed
         return self.list_cached()
+
+    def _purge_dropped_sources(self, authorities: list[str]) -> None:
+        """清理上游 manifest 已移除的源的快照。
+
+        只在该订阅本次确实解析出了其他源时判定（manifest 拉取失败时订阅下
+        一个源都没有，不能据此误删）。
+        """
+        current = set(authorities)
+        live_repo_urls = {
+            str(u).rstrip("/")
+            for u in self._federation.authority_repo_urls().values()
+            if u
+        }
+        for authority, snaps in self._snapshots_by_authority().items():
+            if not authority or authority in current:
+                continue
+            repo_url = str(snaps[0].get("_repo_url") or "").rstrip("/")
+            if repo_url and repo_url in live_repo_urls:
+                self._store.clear_authority(authority)
+                if self._status_store is not None:
+                    self._status_store.remove(authority)
 
     def _snapshots_by_authority(self) -> dict[str, list[dict]]:
         grouped: dict[str, list[dict]] = {}
@@ -228,7 +315,12 @@ class SnapshotCatalogService:
         """物化单源并落盘；返回是否成功。失败保留旧快照并记失败状态。"""
         entries = self._federation.materialize(authority)
         if entries is None:
-            self._record_source_failed(authority, now)
+            message = (
+                "网络不可达或源不可用"
+                if authority in self._federation.list_authorities()
+                else "该源已不在启用的订阅中（订阅已禁用、未信任或上游已移除）"
+            )
+            self._record_source_failed(authority, now, message)
             return False
         live_ids: set[str] = set()
         for e in entries:
@@ -319,6 +411,8 @@ class SnapshotCatalogService:
         不重复打网络）。rule/script/bridge 快照含 content，快照命中零重抽。
         """
         snap = self._store.get(authority, entry_id)
+        if snap is not None and not self._is_visible(snap):
+            return None  # 已屏蔽 / 订阅已禁用：不可载入
         if snap is not None and snap.get("content"):
             return snap
         return self._federation.get_entry(authority, entry_id)
@@ -347,10 +441,42 @@ class SnapshotCatalogService:
         self._last_refresh_ok, self._last_refresh_failed = ok, failed
         return self.list_cached()
 
-    def remove_repo(self, repo_id: str) -> None:
-        """删除订阅时清理该 repo 下全部 authority 的快照残留。"""
-        for authority in self._federation.authorities_of_repo(repo_id):
+    def refresh_repo_url(self, url: str, now: float | None = None) -> list[dict]:
+        """按订阅 url 物化（添加 / 重新启用 / 确认信任后立即出现条目）。"""
+        url = (url or "").rstrip("/")
+        now = now if now is not None else time.time()
+        ok: list[str] = []
+        failed: list[str] = []
+        for authority, repo_url in self._federation.authority_repo_urls().items():
+            if str(repo_url).rstrip("/") != url:
+                continue
+            (ok if self._materialize_authority(authority, now) else failed).append(
+                authority
+            )
+        self._last_refresh_ok, self._last_refresh_failed = ok, failed
+        return self.list_cached()
+
+    def remove_repo(self, repo_id: str, repo_url: str = "") -> None:
+        """删除订阅时清理该 repo 下全部 authority 的快照残留。
+
+        以快照自身的归属字段为准（_repo_id / _repo_url），不依赖联邦当前
+        构建的客户端——后者只含**已启用**订阅，先禁用再删除时会反查为空，
+        留下删不掉的僵尸组（2026-10-18 review）。
+        """
+        repo_url = (repo_url or "").rstrip("/")
+        doomed = (
+            set(self._federation.authorities_of_repo(repo_id)) if repo_id else set()
+        )
+        for authority, snaps in self._snapshots_by_authority().items():
+            first = snaps[0]
+            if (repo_id and first.get("_repo_id") == repo_id) or (
+                repo_url and str(first.get("_repo_url") or "").rstrip("/") == repo_url
+            ):
+                doomed.add(authority)
+        for authority in doomed - {""}:
             self._store.clear_authority(authority)
+            if self._status_store is not None:
+                self._status_store.remove(authority)
 
     # ------------------------------------------------------------------
     # 调度

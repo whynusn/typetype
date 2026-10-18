@@ -76,6 +76,15 @@ class SourceStatusStore:
             return result
         return result
 
+    def remove(self, authority: str) -> None:
+        """删除该源的状态记录（源随订阅删除 / 上游移除时清理）。"""
+        if not authority:
+            return
+        try:
+            self._path(authority).unlink(missing_ok=True)
+        except OSError:
+            pass
+
     @staticmethod
     def _empty_status(authority: str) -> dict[str, Any]:
         return {

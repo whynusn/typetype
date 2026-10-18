@@ -145,6 +145,8 @@ class RegistryAdapter(QObject):
             self._runtime_config.add_source_repo(url)
             log_info(f"[RegistryAdapter] 添加订阅: {url}")
             self.refreshRepos()
+            # 添加即物化：不让用户看到「添加成功」却找不到新源
+            self._materialize_repo_async(url)
         except Exception as e:
             self.reposLoadFailed.emit(
                 f"添加订阅失败：{GlobalExceptionHandler.handle(e)}"
@@ -169,8 +171,9 @@ class RegistryAdapter(QObject):
             )
             if removed:
                 self._manifest_cache.clear_cache(url)
-                if repo_id and self._catalog is not None:
-                    self._catalog.remove_repo(repo_id)
+                if self._catalog is not None:
+                    # 按快照归属清理（禁用后再删除时 repo_id 反查为空也能清干净）
+                    self._catalog.remove_repo(repo_id, url)
                 # 条目视图同步：删除后立即重发当前快照列表（该源条目已清）
                 if self._catalog is not None:
                     try:
@@ -192,6 +195,10 @@ class RegistryAdapter(QObject):
             if self._runtime_config is not None:
                 self._runtime_config.set_source_repo_enabled(url, enabled)
             self.refreshRepos()
+            if enabled:
+                self._materialize_repo_async(url)
+            else:
+                self._emit_cached_entries()  # 禁用即从视图隐藏（快照保留）
         except Exception as e:
             self.reposLoadFailed.emit(
                 f"更新订阅失败：{GlobalExceptionHandler.handle(e)}"
@@ -206,6 +213,7 @@ class RegistryAdapter(QObject):
                 self._runtime_config.confirm_source_repo_trust(url)
             log_info(f"[RegistryAdapter] 确认信任订阅: {url}")
             self.refreshRepos()
+            self._materialize_repo_async(url)  # 信任后 L3 脚本源才参与聚合
         except Exception as e:
             self.reposLoadFailed.emit(
                 f"确认信任失败：{GlobalExceptionHandler.handle(e)}"
@@ -220,10 +228,37 @@ class RegistryAdapter(QObject):
                 self._runtime_config.reject_source_repo_trust(url)
             log_info(f"[RegistryAdapter] 拒绝信任订阅: {url}")
             self.refreshRepos()
+            self._emit_cached_entries()  # 脚本源快照随信任撤销隐藏
         except Exception as e:
             self.reposLoadFailed.emit(
                 f"拒绝信任失败：{GlobalExceptionHandler.handle(e)}"
             )
+
+    def _emit_cached_entries(self) -> None:
+        if self._catalog is None:
+            return
+        try:
+            self.entriesLoaded.emit(self._catalog.list_cached())
+        except Exception as e:
+            log_warning(f"[RegistryAdapter] 读取快照失败: {e}")
+
+    def _materialize_repo_async(self, url: str) -> None:
+        """后台物化单个订阅并原地更新列表（不置列表级 loading）。"""
+        if self._catalog is None or not url:
+            return
+        catalog = self._catalog
+
+        from ...workers.base_worker import BaseWorker
+
+        worker = BaseWorker(
+            task=lambda: catalog.refresh_repo_url(url),
+            error_prefix="物化订阅失败",
+        )
+        worker.signals.succeeded.connect(self.entriesLoaded.emit)
+        worker.signals.failed.connect(
+            lambda message: log_warning(f"[RegistryAdapter] {message}")
+        )
+        self._start_worker(worker)
 
     @Slot(str)
     def refreshRepo(self, url: str) -> None:
