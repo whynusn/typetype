@@ -288,7 +288,9 @@ Item {
         id: userFontLoader
         source: {
             if (!appBridge || !appBridge.readerFontPath) return "";
-            return "file://" + appBridge.readerFontPath;
+            // Windows 路径（D:\\...）直接拼 "file://" 会被解析成非法 URL，统一转 file:/// 形式
+            var p = appBridge.readerFontPath.replace(/\\/g, "/");
+            return (p.charAt(0) === "/" ? "file://" : "file:///") + p;
         }
     }
 

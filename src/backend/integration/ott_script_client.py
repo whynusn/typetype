@@ -318,7 +318,8 @@ class ScriptCache:
             mtime = path.stat().st_mtime
         except OSError:
             return True
-        return (time.time() - mtime) > ttl_seconds
+        # >=：ttl=0 表示“总是刷新”；Windows 时钟粒度粗，刚写入的文件 age 可能恰为 0
+        return (time.time() - mtime) >= ttl_seconds
 
 
 def _is_owner(path: Path) -> bool:

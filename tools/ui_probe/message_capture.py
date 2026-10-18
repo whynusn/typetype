@@ -59,7 +59,11 @@ class CapturedMessage:
 
 
 # 离屏平台缺系统字体别名时 Qt 的性能提示（macOS offscreen 必现），与被测 QML 无关
-_BENIGN_PREFIXES = ("Populating font family aliases took",)
+_BENIGN_PREFIXES = (
+    "Populating font family aliases took",
+    # Windows offscreen 平台走 freetype 字体库，PySide6 wheel 不带 lib/fonts
+    "QFontDatabase: Cannot find font directory",
+)
 
 
 # ---- 退出期兜底 ----

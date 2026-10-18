@@ -56,6 +56,8 @@ def _run_module(args: list[str], home: Path, timeout: int = 600):
         [sys.executable, "-m", "ui_probe.scenario", *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=timeout,
         cwd=str(REPO_ROOT),
         env=child_env(home),
@@ -80,6 +82,8 @@ def app_run_report(probe_home):
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=str(REPO_ROOT),
         env=child_env(probe_home),
     )

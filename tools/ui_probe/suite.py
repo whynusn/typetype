@@ -50,6 +50,8 @@ def _run_stage(name: str, repo_root: Path, workdir: Path) -> dict | None:
         [sys.executable, *_STAGES[name], str(out), "--repo-root", str(repo_root)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=900,
         cwd=str(repo_root),
         env=env,

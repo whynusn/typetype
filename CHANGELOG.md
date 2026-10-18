@@ -12,6 +12,16 @@
 
 ## [Unreleased] - In Development
 
+### Fixed
+- Windows：启动时 stdout/stderr 切 UTF-8，修复 RinUI emoji 日志在 cp1252/GBK 控制台下抛 `UnicodeEncodeError` 导致启动失败
+- Windows：自选阅读字体 URL 拼接错误（`file://D:\...`），改为规范的 `file:///` 形式
+- macOS/Windows：Qt Quick Controls 统一 Fusion 样式，原生样式不支持 `background` 自定义
+- OTT 脚本缓存 `ttl=0` 在时钟粒度粗的平台上可能误判为未过期
+- ui-probe：相对路径统一 POSIX 分隔符、子进程输出按 UTF-8 解码、忽略离屏平台字体提示
+
+### Changed
+- CI：测试失败以 PR annotation 显示；多平台测试开启 `PYTHONFAULTHANDLER`
+
 ### Added
 
 - **前端验收场景库扩到 12 条 / 152 步（ADR-015）**：新增 `app-profile-stats`（打满范文 → `typingEnded` 落库 → 个人中心统计卡片/趋势范围切换/最近成绩列表拿到真数据，把"还没打过字"和"打完了但没入库"区分开）与重写 `app-weak-chars`（先在跟打页打一段带错字的文本造出字频记录，再验排序切换的异步往返）。同时暴露并修复一条此前一直被掩盖的隔离漏洞

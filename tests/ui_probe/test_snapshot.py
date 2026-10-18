@@ -39,6 +39,8 @@ def snapshot_report(tmp_path_factory):
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=REPO_ROOT,
         env=env,
     )
@@ -53,7 +55,9 @@ def snapshot_report(tmp_path_factory):
 
 def test_snapshot_covers_all_targets(snapshot_report):
     """快照覆盖面与冒烟一致：漏一个目标就少一条断言链路。"""
-    expected = {str(p.relative_to(REPO_ROOT)) for p in discover_targets(REPO_ROOT)}
+    expected = {
+        p.relative_to(REPO_ROOT).as_posix() for p in discover_targets(REPO_ROOT)
+    }
     got = {t["target"] for t in snapshot_report["targets"]}
     assert not expected - got, f"未快照的目标: {sorted(expected - got)}"
 

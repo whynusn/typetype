@@ -47,6 +47,8 @@ def _run_ui_probe(*args: str) -> subprocess.CompletedProcess:
         [sys.executable, "-m", "ui_probe.smoke", "--repo-root", str(REPO_ROOT), *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=REPO_ROOT,
         env=env,
     )
@@ -71,8 +73,9 @@ def test_discovery_covers_all_qml_files(smoke_report):
     加载失败/绑定环类回归随之失去被抓的机会。
     """
     expected = {
-        str(p.relative_to(REPO_ROOT)) for p in (REPO_ROOT / "src/qml").rglob("*.qml")
-    } - {str(p.relative_to(REPO_ROOT)) for p in _singleton_files(REPO_ROOT)}
+        p.relative_to(REPO_ROOT).as_posix()
+        for p in (REPO_ROOT / "src/qml").rglob("*.qml")
+    } - {p.relative_to(REPO_ROOT).as_posix() for p in _singleton_files(REPO_ROOT)}
     discovered = {t["target"] for t in smoke_report.targets}
     missing = expected - discovered
     assert not missing, f"以下 QML 文件未被冒烟覆盖: {sorted(missing)}"
