@@ -91,3 +91,35 @@ def setup_app_font(app: QApplication) -> None:
         families = QFontDatabase.applicationFontFamilies(font_id)
         if families:
             app.setFont(QFont(families[0]))
+
+
+def ensure_utf8_stdio() -> None:
+    """把 stdout/stderr 切到 UTF-8（errors="replace"）。
+
+    Windows 控制台/管道默认 cp1252/GBK，RinUI 启动时 ``print("✨ ...")``
+    会直接抛 UnicodeEncodeError 中断启动。无控制台（Nuitka GUI）时流为 None，跳过。
+    """
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
+def setup_quick_controls_style() -> None:
+    """统一 Qt Quick Controls 样式为 Fusion（须在 QML 引擎创建前调用）。
+
+    Qt 6 默认在 macOS/Windows 用原生样式，原生样式不支持自定义
+    ``background`` 等属性（QML 里大量覆盖，会刷警告且外观失效）；Linux 默认即 Fusion。
+    用户显式设置 ``QT_QUICK_CONTROLS_STYLE`` 时尊重之。
+    """
+    if os.environ.get("QT_QUICK_CONTROLS_STYLE"):
+        return
+    from PySide6.QtQuickControls2 import QQuickStyle
+
+    QQuickStyle.setStyle("Fusion")

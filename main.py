@@ -17,7 +17,12 @@ from src.backend.config.container import (
     create_use_cases,
     ensure_app_initialized,
 )
-from src.backend.config.font_setup import install_rinui_darkdetect_patch, setup_app_font
+from src.backend.config.font_setup import (
+    ensure_utf8_stdio,
+    install_rinui_darkdetect_patch,
+    setup_app_font,
+    setup_quick_controls_style,
+)
 from src.backend.config.runtime_config import RuntimeConfig
 from src.backend.presentation.bridge import Bridge
 from src.backend.utils.logger import (
@@ -25,6 +30,8 @@ from src.backend.utils.logger import (
     is_debug_enabled,
     log_debug,
 )
+
+ensure_utf8_stdio()
 
 # 在 ThemeManager 实例化之前修补 RinUI darkdetect 检测
 install_rinui_darkdetect_patch()
@@ -59,6 +66,7 @@ def bootstrap(argv: list[str] | None = None) -> AppRuntime:
         argv if argv is not None else sys.argv
     )
     setup_app_font(app)
+    setup_quick_controls_style()
 
     runtime_config = RuntimeConfig.load_from_file()
 

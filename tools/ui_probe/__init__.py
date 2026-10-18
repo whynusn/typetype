@@ -10,4 +10,14 @@
 - ``smoke`` P0 冒烟运行器（CLI + pytest 入口）
 """
 
+import sys as _sys
+
+# Windows 管道默认 cp1252/GBK：子进程里 RinUI 的 emoji print 会崩，统一 UTF-8
+for _stream in (_sys.stdout, _sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
+
 __version__ = "0.1.0"
