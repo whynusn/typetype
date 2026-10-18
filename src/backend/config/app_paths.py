@@ -158,6 +158,10 @@ def slice_metrics_prefs_path() -> Path:
     return user_data_dir() / "slice_metrics_prefs.json"
 
 
+def open_library_view_state_path() -> Path:
+    return user_data_dir() / "open_library_view_state.json"
+
+
 def text_slice_progress_path() -> Path:
     return user_data_dir() / "text_slice_progress.json"
 
