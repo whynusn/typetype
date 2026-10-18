@@ -4,9 +4,14 @@
 - load_entry：快照命中直接返回（不重新执行规则/脚本），miss 兜底 federation
 - 调度：scheduled_tick 只刷新 interval 模式到期源（on_demand 仅手动）
 - 用户 per-source 覆盖（config.source_refresh_overrides）> 推断
-- captured_at 语义（2026-08-14 修正）：表示「最近一次内容落盘」——后台
-  revalidate（非 force）对内容未变的快照跳过 save（指纹相同），不虚刷
-  freshness；手动刷新（force / refresh_source）无条件更新
+- captured_at 语义（2026-08-14 修正）：表示「最近一次内容变化」；
+  last_checked_at 表示「最近一次检查成功」。内容未变只推进后者。
+- 缓存收敛（ADR-016 B1）：条目只在快照层持久化；联邦层无状态抓取。
+  "何时该抓"只在本层判定（``_is_due``）：
+    * 无快照 / 上次失败 → 抓
+    * on_demand → 只在手动刷新时抓（进入文库不换新随机源）
+    * interval → 上次检查 + interval 到期
+    * static → 上次检查 + ``ott.cache_ttl_seconds`` 到期（后台复查上游变化）
 """
 
 from __future__ import annotations
@@ -19,6 +24,8 @@ from typing import TYPE_CHECKING
 from ...integration.entry_snapshot_store import EntrySnapshotStore
 from ...integration.refresh_policy import (
     MODE_INTERVAL,
+    MODE_ON_DEMAND,
+    MODE_STATIC,
     RefreshPolicy,
     infer_policy,
     source_type_of,
@@ -83,13 +90,6 @@ class SnapshotCatalogService:
     @property
     def last_refresh_failed(self) -> list[str]:
         return list(self._last_refresh_failed)
-
-    def _sync_refresh_stats(self) -> None:
-        """透传 federation 最近一次物化的成功/失败 authority 统计。"""
-        self._last_refresh_ok = list(getattr(self._federation, "_last_list_ok", ()))
-        self._last_refresh_failed = list(
-            getattr(self._federation, "_last_list_failed", ())
-        )
 
     # ------------------------------------------------------------------
     # 策略解析（用户覆盖 > 推断）
@@ -156,40 +156,91 @@ class SnapshotCatalogService:
             checked_at=now,
         )
 
-    def refresh_and_list_all(self, force: bool = False) -> list[dict]:
-        """物化 → 逐条写快照 → prune → 返回**当前全部已存快照**（视图 = 存储）。
+    def refresh_and_list_all(
+        self, force: bool = False, now: float | None = None
+    ) -> list[dict]:
+        """物化到期源 → 落盘 → 返回**当前全部已存快照**（视图 = 存储）。
 
-        物化只负责更新存储（保存新快照 / prune 超限）；返回视图永远等于
-        当前已落盘快照集合——**部分源本次物化失败（网络超时等）不使视图
-        收缩**：失败源保留旧快照并标记 stale（可刷新），仍可载入。
-        视图只随存储变化（过期/prune/手动 force 换新），不随单次物化成败波动。
+        force=True（手动总刷新）：全部源重新物化。
+        force=False（进入文库的后台 revalidate）：只物化 ``_is_due`` 的源。
 
-        force=True（手动总刷新）：绕过各源条目/文件缓存，全部重新物化；
-        **内容/归属未变的快照保留原 captured_at，仅写 last_checked_at=now**
-        （不再把「刚检查」伪装成「刚更新」）。
-        force=False（后台 revalidate）：仅 TTL 过期源重抓，内容未变的
-        快照跳过 save 保留原 captured_at——缓存命中条目不虚刷 freshness
-        徽章/相对时间（回归：曾对所有返回条目无条件 save(captured_at=now)）。
+        部分源失败不使视图收缩：失败源保留旧快照，仍可载入。
+        内容未变的快照保留原 captured_at，只推进 last_checked_at（不虚刷）。
         """
-        entries = self._federation.list_all_entries(force=force) or []
-        now = time.time()
-        live_ids: dict[str, set[str]] = {}
-        entries_by_authority: dict[str, list[dict]] = {}
+        now = now if now is not None else time.time()
+        authorities = self._federation.list_authorities()
+        if not force:
+            snapshots = self._snapshots_by_authority()
+            authorities = [a for a in authorities if self._is_due(a, snapshots, now)]
+        ok: list[str] = []
+        failed: list[str] = []
+        for authority in authorities:
+            if self._materialize_authority(authority, now):
+                ok.append(authority)
+            else:
+                failed.append(authority)
+        self._last_refresh_ok, self._last_refresh_failed = ok, failed
+        return self.list_cached()
+
+    def _snapshots_by_authority(self) -> dict[str, list[dict]]:
+        grouped: dict[str, list[dict]] = {}
+        for snap in self._store.list_all():
+            grouped.setdefault(str(snap.get("_authority", "")), []).append(snap)
+        return grouped
+
+    def _is_due(
+        self, authority: str, snapshots: dict[str, list[dict]], now: float
+    ) -> bool:
+        """后台 revalidate 是否该物化该源（策略判定的唯一位置）。"""
+        snaps = snapshots.get(authority) or []
+        if not snaps:
+            return True
+        status = (
+            self._status_store.get(authority) if self._status_store is not None else {}
+        )
+        if status.get("state") == "failed":
+            return True
+        policy_entry = dict(snaps[0])
+        policy_entry["_authority"] = authority
+        policy = self._policy_for(policy_entry)
+        if policy.mode == MODE_ON_DEMAND:
+            return False
+        checked = status.get("last_checked_at")
+        if not isinstance(checked, (int, float)):
+            checked = max(
+                float(s.get("last_checked_at") or s.get("captured_at") or 0.0)
+                for s in snaps
+            )
+        if policy.mode == MODE_INTERVAL:
+            interval = policy.interval_seconds
+        elif policy.mode == MODE_STATIC:
+            interval = self._static_recheck_seconds()
+        else:  # pragma: no cover - RefreshPolicy 只有三种模式
+            return False
+        return checked + max(0, interval) <= now
+
+    def _static_recheck_seconds(self) -> int:
+        if self._runtime_config is None:
+            return 3600
+        return int(getattr(self._runtime_config.ott, "cache_ttl_seconds", 3600))
+
+    def _materialize_authority(self, authority: str, now: float) -> bool:
+        """物化单源并落盘；返回是否成功。失败保留旧快照并记失败状态。"""
+        entries = self._federation.materialize(authority)
+        if entries is None:
+            self._record_source_failed(authority, now)
+            return False
+        live_ids: set[str] = set()
         for e in entries:
             if not isinstance(e, dict):
                 continue
-            e.setdefault("_authority", e.get("authority", ""))
-            authority = e.get("_authority", "")
-            if authority:
-                live_ids.setdefault(authority, set()).add(e.get("entry_id"))
-                entries_by_authority.setdefault(authority, []).append(e)
+            e.setdefault("_authority", authority)
+            entry_id = str(e.get("entry_id", ""))
+            if entry_id:
+                live_ids.add(entry_id)
             policy = self._policy_for(e)
             fingerprint = _content_fingerprint(e)
-            existing = self._store.get(authority, str(e.get("entry_id", "")))
-            if not force and self._snapshot_unchanged(e, authority, existing):
-                # 后台 revalidate：内容与归属均未变 → 保留原 captured_at
-                # （freshness 不被虚刷）
-                continue
+            existing = self._store.get(authority, entry_id)
             captured_at = self._next_captured_at(
                 e, authority, existing, fingerprint, now
             )
@@ -198,20 +249,11 @@ class SnapshotCatalogService:
                 captured_at=captured_at,
                 policy=policy,
                 fingerprint=fingerprint,
-                # force 是用户显式「检查」，检查成功时间可推进；
-                # 后台路径无法区分缓存命中，保留旧检查时间。
-                last_checked_at=now if force else None,
+                last_checked_at=now,
             )
-        for authority, ids in live_ids.items():
-            self._store.prune_stale(authority, ids, self._max_per_source)
-        self._sync_refresh_stats()
-        for authority in self._last_refresh_ok:
-            self._record_source_ok(
-                authority, entries_by_authority.get(authority, []), now
-            )
-        for authority in self._last_refresh_failed:
-            self._record_source_failed(authority, now)
-        return self.list_cached()
+        self._store.prune_stale(authority, live_ids, self._max_per_source)
+        self._record_source_ok(authority, entries, now)
+        return True
 
     def _next_captured_at(
         self,
@@ -282,42 +324,12 @@ class SnapshotCatalogService:
         return self._federation.get_entry(authority, entry_id)
 
     def refresh_source(self, authority: str, now: float | None = None) -> None:
-        """单源强制刷新（random 换新）：只重新物化该 authority 并落盘。
-
-        经 federation.refresh_source 单源换新（绕过该源条目/文件缓存），
-        不再先全量列所有源再过滤（旧实现会无谓重物化其他源）。
-        单源刷新是 force 语义（确实重新检查了）：**内容/归属未变 → 保留
-        原 captured_at，仅写 last_checked_at=now**；内容变化才推进
-        captured_at。修复「静态源点刷新，内容没变却显示刚刚」。
-        """
+        """单源强制刷新（手动；随机源换新）：只物化该 authority 并落盘。"""
         now = now if now is not None else time.time()
-        entries = self._federation.refresh_source(authority) or []
-        live_ids: set[str] = set()
-        for e in entries:
-            if not isinstance(e, dict):
-                continue
-            entry_id = str(e.get("entry_id", ""))
-            if entry_id:
-                live_ids.add(e.get("entry_id"))
-            policy = self._policy_for(e)
-            fingerprint = _content_fingerprint(e)
-            existing = self._store.get(authority, entry_id)
-            captured_at = self._next_captured_at(
-                e, authority, existing, fingerprint, now
-            )
-            self._store.save(
-                e,
-                captured_at=captured_at,
-                policy=policy,
-                fingerprint=fingerprint,
-                last_checked_at=now,
-            )
-        self._store.prune_stale(authority, live_ids, self._max_per_source)
-        self._sync_refresh_stats()
-        if authority in self._last_refresh_ok:
-            self._record_source_ok(authority, entries, now)
-        if authority in self._last_refresh_failed:
-            self._record_source_failed(authority, now)
+        if self._materialize_authority(authority, now):
+            self._last_refresh_ok, self._last_refresh_failed = [authority], []
+        else:
+            self._last_refresh_ok, self._last_refresh_failed = [], [authority]
 
     def refresh_repo(self, repo_id: str, now: float | None = None) -> list[dict]:
         """订阅源（repo）级强制刷新：只重新物化该 repo 下的全部 authority。

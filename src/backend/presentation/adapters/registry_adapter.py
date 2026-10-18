@@ -704,7 +704,7 @@ class RegistryAdapter(QObject):
                     "failed": list(self._catalog.last_refresh_failed),
                 }
             return {
-                "entries": self._federation.list_all_entries(force=True),
+                "entries": self._federation.list_all_entries(),
                 "ok": list(self._federation._last_list_ok),
                 "failed": list(self._federation._last_list_failed),
             }

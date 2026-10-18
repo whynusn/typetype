@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -17,7 +16,6 @@ from src.backend.config.runtime_config import (
 )
 from src.backend.integration import ott_rule_interpreter as interpreter_module
 from src.backend.integration.ott_federation_provider import (
-    _EntryCache,
     OttFederationProvider,
     _RuleClient,
     _ScriptClient,
@@ -345,7 +343,12 @@ def test_clients_reused_within_signature(tmp_path):
     assert third == {}
 
 
-def test_rule_entries_cached_within_ttl(tmp_path):
+def test_federation_is_stateless_each_list_materializes(tmp_path):
+    """ADR-016 B1：联邦层无条目缓存——每次物化都真的执行规则。
+
+    "何时该抓"只由 SnapshotCatalogService 判定（快照是唯一持久缓存），
+    联邦层若再叠一层 TTL，手动刷新/后台复查就会被它悄悄吞掉。
+    """
     provider = _federation_with_rule(tmp_path)
     with patch.object(
         OttRuleInterpreter,
@@ -354,55 +357,30 @@ def test_rule_entries_cached_within_ttl(tmp_path):
     ) as mock_list:
         entries1 = provider.list_all_entries()
         entries2 = provider.list_all_entries()
-    assert mock_list.call_count == 1
+    assert mock_list.call_count == 2
     assert len(entries1) == 1
     assert len(entries2) == 1
 
 
-def test_entry_cache_expires_after_ttl():
-    cache = _EntryCache(ttl_seconds=1)
-    cache.set("k", [{"entry_id": "e1"}])
-    assert cache.get("k") is not None
-    cache._items["k"] = (time.time() - 2, [{"entry_id": "e1"}])
-    assert cache.get("k") is None
-
-
-def test_entry_cache_force_skips_ttl():
-    """force=True 无视 TTL 直接视为 miss（手动刷新语义）。"""
-    cache = _EntryCache(ttl_seconds=3600)
-    cache.set("k", [{"entry_id": "e1"}])
-    assert cache.get("k") is not None
-    assert cache.get("k", force=True) is None
-    # force 后条目被移除，后续普通 get 也是 miss
-    assert cache.get("k") is None
-
-
-def test_list_all_entries_force_skips_entry_cache(tmp_path):
-    """总刷新 force=True 必须绕过 rule 条目内存缓存，重新执行规则。"""
+def test_materialize_distinguishes_failure_from_empty(tmp_path):
+    """materialize：None = 源不可用；[] = 成功但 0 条；未知 authority → None。"""
     provider = _federation_with_rule(tmp_path)
-    entry = {"entry_id": "e1", "title": "T", "content": "C"}
-    with patch.object(
-        OttRuleInterpreter,
-        "list_entries",
-        return_value=[entry],
-    ) as mock_list:
-        provider.list_all_entries()  # 首次：物化 + 写缓存
-        provider.list_all_entries()  # TTL 内命中缓存
-        assert mock_list.call_count == 1
-        provider.list_all_entries(force=True)  # force：绕过缓存重执行
-        assert mock_list.call_count == 2
+    authority = "rule:rule-test.example.org:sample-rule"
+    with patch.object(OttRuleInterpreter, "list_entries", return_value=None):
+        assert provider.materialize(authority) is None
+    with patch.object(OttRuleInterpreter, "list_entries", return_value=[]):
+        assert provider.materialize(authority) == []
+    assert provider.materialize("rule:nope") is None
+    assert provider.list_authorities() == [authority]
 
 
-def test_rule_client_list_entries_force_bypasses_cache():
-    """_RuleClient.list_entries(force=True) 缓存命中仍重执行（单源刷新路径）。"""
+def test_rule_client_has_no_cache():
+    """_RuleClient 每次 list_entries 都执行解释器（无 TTL / force 语义）。"""
     interp = MagicMock(spec=OttRuleInterpreter)
     interp.list_entries.return_value = [{"entry_id": "e1"}]
-    cache = _EntryCache(ttl_seconds=3600)
-    client = _RuleClient(rule_id="r1", rule={}, interpreter=interp, entry_cache=cache)
+    client = _RuleClient(rule_id="r1", rule={}, interpreter=interp)
     client.list_entries()
-    client.list_entries()  # TTL 内命中缓存
-    assert interp.list_entries.call_count == 1
-    client.list_entries(force=True)
+    client.list_entries()
     assert interp.list_entries.call_count == 2
 
 
@@ -447,8 +425,6 @@ def test_refresh_source_only_materializes_target_authority(tmp_path):
         "list_entries",
         return_value=[entry],
     ) as mock_list:
-        provider.list_all_entries()
-        mock_list.call_count = 0  # 缓存已命中（provider 级 _EntryCache）
         refreshed = provider.refresh_source(authority)
     assert mock_list.call_count == 1
     assert len(refreshed) == 1

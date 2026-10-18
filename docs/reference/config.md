@@ -48,7 +48,7 @@
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `ott.cache_ttl_seconds` | `int` | `3600` | rule/script 缓存 TTL（秒） |
+| `ott.cache_ttl_seconds` | `int` | `3600` | 静态源（ott-instance）后台复查间隔（秒）；随机源只在手动刷新时换新 |
 | `ott.max_content_bytes` | `int` | `1048576` | 单条目内容上限（1 MB，federation 传入沙箱） |
 | `ott.scripts_enabled` | `bool` | 非 Windows 为 `true` | L3 ott-script 沙箱开关（Windows 默认禁用，无 Landlock 沙箱） |
 | `ott.route_mirrors` | `list[str]` | `[]` | 智能路由的全局 HTTP(S) 镜像/代理前缀；按实时探测结果参与 OTT 与 OTA 候选排序，不写死域名 |
