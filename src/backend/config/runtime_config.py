@@ -119,7 +119,7 @@ def _default_scripts_enabled() -> bool:
 class OttConfig:
     """OTT 运行时参数（ADR-013 决策 4：由旧 registry 段收纳而来）。
 
-    - cache_ttl_seconds：rule/script 缓存 TTL
+    - cache_ttl_seconds：静态源后台复查间隔（ADR-016 B1；原 rule/script 条目缓存 TTL）
     - max_content_bytes：单条目内容上限（federation 传入沙箱）
     - scripts_enabled：L3 ott-script 沙箱开关
     - route_mirrors：智能路由的通用镜像/代理前缀列表（前缀 + 完整 URL，

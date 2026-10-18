@@ -14,18 +14,35 @@ from src.backend.integration.refresh_policy import (
 
 
 class _FakeFederation:
+    """联邦层契约替身（ADR-016 B1）：list_authorities + materialize。
+
+    ``failing``：这些 authority 的物化返回 None（源不可用）。
+    """
+
     def __init__(self, entries):
         self._entries = entries
         self.get_entry_calls = []
         self.last_fetch = None
-        self.list_all_calls = 0
+        self.materialize_calls: list[str] = []
+        self.failing: set[str] = set()
 
-    def list_all_entries(self, force=False):
-        self.list_all_calls += 1
-        return list(self._entries)
+    def list_authorities(self):
+        seen: list[str] = []
+        for e in self._entries:
+            a = e.get("_authority", "")
+            if a and a not in seen:
+                seen.append(a)
+        return seen + [a for a in sorted(self.failing) if a not in seen]
 
-    def refresh_source(self, authority, force=True):
-        return [e for e in self._entries if e.get("_authority") == authority]
+    def materialize(self, authority):
+        self.materialize_calls.append(authority)
+        if authority in self.failing:
+            return None
+        return [dict(e) for e in self._entries if e.get("_authority") == authority]
+
+    @property
+    def list_all_calls(self):
+        return len(self.materialize_calls)
 
     def get_entry(self, authority, entry_id):
         self.get_entry_calls.append((authority, entry_id))
@@ -117,8 +134,8 @@ def test_refresh_source_only_materializes_own_authority(tmp_path) -> None:
         _entry(authority="auth-b", entry_id="b1"),
     ]
     svc.refresh_source("auth-a")
-    # 单源刷新走 federation.refresh_source，不触碰全量 list_all_entries
-    assert federation.list_all_calls == 0
+    # 单源刷新只物化目标 authority
+    assert federation.materialize_calls == ["auth-a"]
     assert svc.load_entry("auth-a", "a1") is not None
     assert svc.load_entry("auth-b", "b1") is None
 
@@ -277,11 +294,11 @@ def test_revalidate_updates_captured_at_when_content_changed(
 
     monkeypatch.setattr(scs.time, "time", lambda: 1000.0)
     svc, federation = _svc(tmp_path, [_entry(content="hello")])
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
 
     monkeypatch.setattr(scs.time, "time", lambda: 2000.0)
     federation._entries = [_entry(content="world")]  # 内容变化
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
     snap = svc._store.get("auth", "e1")
     assert snap["content"] == "world"
     assert snap["captured_at"] == 2000.0  # 内容变 → 更新
@@ -364,14 +381,14 @@ def test_revalidate_legacy_snapshot_without_fingerprint_updates_once(
     svc = SnapshotCatalogService(_FakeFederation([_entry()]), store, None)
 
     # 非 force revalidate：旧快照无指纹 → 视为已变，补写指纹 + 更新 captured_at
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
     snap = store.get("auth", "e1")
     assert snap is not None
     assert snap["captured_at"] != 111.0
     assert snap.get("snap_fingerprint")
 
     # 之后内容未变 → 不再更新
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
     assert store.get("auth", "e1")["captured_at"] == snap["captured_at"]
 
 
@@ -390,14 +407,14 @@ def test_revalidate_backfills_missing_repo_id_without_touching_captured_at(
     # 旧构建物化：条目无 _repo_id（存量快照）
     legacy = _entry(authority="auth", entry_id="e1", content="hello")
     svc, federation = _svc(tmp_path, [legacy])
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
     assert svc._store.get("auth", "e1").get("_repo_id") is None
 
     # 新构建 revalidate：federation 注入 _repo_id（内容不变）
     monkeypatch.setattr(scs.time, "time", lambda: 2000.0)
     decorated = dict(legacy, _repo_id="repo-1", _repo_name="Repo One")
     federation._entries = [decorated]
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
 
     snap = svc._store.get("auth", "e1")
     assert snap["_repo_id"] == "repo-1"  # 归属字段已补写
@@ -405,13 +422,13 @@ def test_revalidate_backfills_missing_repo_id_without_touching_captured_at(
 
     # 再次 revalidate：内容与归属均一致 → 不再写
     monkeypatch.setattr(scs.time, "time", lambda: 3000.0)
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
     assert svc._store.get("auth", "e1")["captured_at"] == 1000.0
 
     # manifest 调整 max_entries（归属元数据变化）→ 仍需补写（卡片上限展示更新）
     monkeypatch.setattr(scs.time, "time", lambda: 4000.0)
     federation._entries = [dict(decorated, _repo_max_entries=5)]
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
     snap = svc._store.get("auth", "e1")
     assert snap["_repo_max_entries"] == 5
     assert snap["captured_at"] == 1000.0  # 仅元数据变化 → 仍不虚刷 freshness
@@ -467,23 +484,21 @@ def test_remove_repo_clears_snapshots_of_its_authorities(tmp_path) -> None:
     assert svc.load_entry("auth-a", "a1") is None
 
 
-def test_catalog_syncs_refresh_stats_from_federation(tmp_path):
-    """catalog 透传 federation 的物化统计（last_refresh_ok/failed），
+def test_catalog_tracks_refresh_stats(tmp_path):
+    """catalog 自己统计物化成败（last_refresh_ok/failed），不读联邦私有字段，
     供 adapter 区分「刷新成功」与「失败回退缓存快照」。"""
-    fed = _FakeFederation([_entry()])
-    fed._last_list_ok = ["auth-a"]
-    fed._last_list_failed = ["auth-b"]
+    fed = _FakeFederation([_entry(authority="auth-a")])
+    fed.failing = {"auth-b"}
     store = EntrySnapshotStore(tmp_path)
     svc = SnapshotCatalogService(fed, store, None)
 
-    svc.refresh_and_list_all()
+    svc.refresh_and_list_all(force=True)
     assert svc.last_refresh_ok == ["auth-a"]
     assert svc.last_refresh_failed == ["auth-b"]
 
-    fed._last_list_ok = ["auth-b"]
-    fed._last_list_failed = ["auth-a"]
-    svc.refresh_source("auth-b")
-    assert svc.last_refresh_ok == ["auth-b"]
+    fed.failing = {"auth-a"}
+    svc.refresh_source("auth-a")
+    assert svc.last_refresh_ok == []
     assert svc.last_refresh_failed == ["auth-a"]
 
 
@@ -496,16 +511,13 @@ def test_refresh_source_persists_source_status(tmp_path) -> None:
     status_store = SourceStatusStore(tmp_path / "status")
     svc = SnapshotCatalogService(fed, store, None, status_store=status_store)
 
-    fed._last_list_ok = ["auth"]
-    fed._last_list_failed = []
     svc.refresh_source("auth")
     status = status_store.get("auth")
     assert status["state"] == "ok"
     assert status["source_type"] == "ott-rule"
     assert status["last_success_at"] is not None
 
-    fed._last_list_ok = []
-    fed._last_list_failed = ["auth"]
+    fed.failing = {"auth"}
     svc.refresh_source("auth")
     assert status_store.get("auth")["state"] == "failed"
     assert status_store.get("auth")["consecutive_failures"] == 1
@@ -514,3 +526,65 @@ def test_refresh_source_persists_source_status(tmp_path) -> None:
 def test_list_source_statuses_empty_without_store(tmp_path) -> None:
     svc, _ = _svc(tmp_path, [_entry()])
     assert svc.list_source_statuses() == {}
+
+
+# ----------------------------------------------------------------------
+# ADR-016 B1：后台 revalidate 的门控只在 catalog（_is_due）
+# ----------------------------------------------------------------------
+
+
+def test_revalidate_skips_on_demand_source_with_snapshot(tmp_path) -> None:
+    """随机源（on_demand）已有快照：进入文库不换新，只在手动刷新时物化。"""
+    svc, fed = _svc(tmp_path, [_entry(source_type="ott-rule")])
+    svc.refresh_and_list_all()  # 无快照 → 物化
+    assert fed.materialize_calls == ["auth"]
+    fed._entries = [_entry(source_type="ott-rule", content="new")]
+    svc.refresh_and_list_all()  # 后台 revalidate：on_demand 不动
+    assert fed.materialize_calls == ["auth"]
+    assert svc.load_entry("auth", "e1")["content"] == "hello"
+    svc.refresh_source("auth")  # 手动刷新：换新
+    assert svc.load_entry("auth", "e1")["content"] == "new"
+
+
+def test_revalidate_rechecks_static_source_after_ttl(tmp_path, monkeypatch) -> None:
+    """静态源（ott-instance）按 ott.cache_ttl_seconds 后台复查上游变化。"""
+    import types
+
+    import src.backend.application.services.snapshot_catalog_service as scs
+
+    config = types.SimpleNamespace(
+        ott=types.SimpleNamespace(cache_ttl_seconds=100),
+        get_source_refresh_override=lambda authority: None,
+    )
+    monkeypatch.setattr(scs.time, "time", lambda: 1000.0)
+    svc, fed = _svc(
+        tmp_path, [_entry(source_type="ott-instance")], runtime_config=config
+    )
+    svc.refresh_and_list_all()
+    assert len(fed.materialize_calls) == 1
+    monkeypatch.setattr(scs.time, "time", lambda: 1050.0)
+    svc.refresh_and_list_all()  # TTL 内：不复查
+    assert len(fed.materialize_calls) == 1
+    monkeypatch.setattr(scs.time, "time", lambda: 1101.0)
+    svc.refresh_and_list_all()  # TTL 到期：复查
+    assert len(fed.materialize_calls) == 2
+
+
+def test_revalidate_retries_failed_source(tmp_path) -> None:
+    """上次失败的源（即使是 on_demand）后台 revalidate 会重试。"""
+    from src.backend.integration.source_status_store import SourceStatusStore
+
+    fed = _FakeFederation([_entry(source_type="ott-rule")])
+    status_store = SourceStatusStore(tmp_path / "status")
+    svc = SnapshotCatalogService(
+        fed, EntrySnapshotStore(tmp_path), None, status_store=status_store
+    )
+    svc.refresh_and_list_all()
+    fed.failing = {"auth"}
+    svc.refresh_source("auth")
+    assert status_store.get("auth")["state"] == "failed"
+    fed.failing = set()
+    calls = len(fed.materialize_calls)
+    svc.refresh_and_list_all()
+    assert len(fed.materialize_calls) == calls + 1
+    assert status_store.get("auth")["state"] == "ok"

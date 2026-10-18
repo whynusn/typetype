@@ -19,6 +19,7 @@
 - macOS：非 cocoa 平台（offscreen 等）跳过原生标题栏处理，修复 winId 被当作 NSView 解引用导致的段错误
 - OTT 脚本缓存 `ttl=0` 在时钟粒度粗的平台上可能误判为未过期
 - ui-probe：相对路径统一 POSIX 分隔符、子进程输出按 UTF-8 解码、忽略离屏平台字体提示
+- 进入开源文库时，随机源在条目缓存 TTL 过期后被后台 revalidate 悄悄换新（与"随机源仅手动刷新"的设计不符）
 
 ### Added
 - ADR-016：源仓库与前端验收机制的架构收敛（评估结论与分阶段计划）
@@ -30,6 +31,8 @@
 ### Changed
 - CI：测试失败以 PR annotation 显示；多平台测试开启 `PYTHONFAULTHANDLER`
 - ui-probe：既有场景的"固定等待 + 一次性断言"改为轮询断言
+- 开源文库缓存收敛（ADR-016 B1）：联邦层移除条目内存缓存（`_EntryCache`）与列表 `force` 语义，变为无状态物化（`list_authorities` / `materialize`）；条目只在快照层持久化，"何时该抓"只由 `SnapshotCatalogService._is_due` 判定——无快照/上次失败 → 抓，随机源（on_demand）只在手动刷新时换新，interval 源按间隔，静态源按 `ott.cache_ttl_seconds` 后台复查
+- catalog 自行统计物化成败，不再读取联邦私有字段；后台复查是真实检查，同样推进 `last_checked_at`
 
 ### Added
 
