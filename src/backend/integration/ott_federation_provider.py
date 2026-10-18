@@ -1034,6 +1034,11 @@ class OttFederationProvider:
             a for a, m in self._authority_meta.items() if m.get("repo_id") == repo_id
         ]
 
+    def authority_repo_urls(self) -> dict[str, str]:
+        """authority → 所属订阅 url（只含当前已启用、已成功解析的源）。"""
+        self._build_clients()
+        return {a: str(m.get("repo_url", "")) for a, m in self._authority_meta.items()}
+
     def repo_id_of_url(self, url: str) -> str:
         """订阅 url → repo_id（删除订阅时定位其快照归属）。"""
         self._build_clients()

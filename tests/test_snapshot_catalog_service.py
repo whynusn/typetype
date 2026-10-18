@@ -36,9 +36,19 @@ class _FakeFederation:
 
     def materialize(self, authority):
         self.materialize_calls.append(authority)
-        if authority in self.failing:
+        if authority in self.failing or authority not in self.list_authorities():
             return None
         return [dict(e) for e in self._entries if e.get("_authority") == authority]
+
+    def authority_repo_urls(self):
+        return {
+            e.get("_authority", ""): e.get("_repo_url", "")
+            for e in self._entries
+            if e.get("_authority") and e.get("_authority") not in self.failing
+        }
+
+    def authorities_of_repo(self, repo_id):
+        return []
 
     @property
     def list_all_calls(self):
@@ -588,3 +598,140 @@ def test_revalidate_retries_failed_source(tmp_path) -> None:
     svc.refresh_and_list_all()
     assert len(fed.materialize_calls) == calls + 1
     assert status_store.get("auth")["state"] == "ok"
+
+
+# ----------------------------------------------------------------------
+# 订阅生命周期（2026-10-18 review）：视图 = 快照 ∩ 当前订阅状态
+# ----------------------------------------------------------------------
+
+REPO_A = "https://a.example/ott-repo.json"
+REPO_B = "https://b.example/ott-repo.json"
+
+
+def _repo_cfg(repos, blocked=None):
+    import types
+
+    return types.SimpleNamespace(
+        source_repos=types.SimpleNamespace(
+            repos=[
+                types.SimpleNamespace(url=u, enabled=en, trust_state=ts)
+                for u, en, ts in repos
+            ]
+        ),
+        blocked_content_hashes=list(blocked or []),
+        ott=types.SimpleNamespace(cache_ttl_seconds=3600),
+        get_source_refresh_override=lambda authority: None,
+    )
+
+
+def _owned(authority, repo_url, entry_id="e1", **kw):
+    e = _entry(authority=authority, entry_id=entry_id, **kw)
+    e["_repo_url"] = repo_url
+    e["_repo_id"] = repo_url.split("/")[2]
+    return e
+
+
+def test_disabled_repo_hidden_but_kept_and_restored(tmp_path) -> None:
+    cfg = _repo_cfg([(REPO_A, True, "verified"), (REPO_B, True, "verified")])
+    svc, _ = _svc(tmp_path, [_owned("auth-a", REPO_A), _owned("auth-b", REPO_B)], cfg)
+    svc.refresh_and_list_all(force=True)
+    assert {e["_authority"] for e in svc.list_cached()} == {"auth-a", "auth-b"}
+
+    cfg.source_repos.repos[0].enabled = False
+    assert {e["_authority"] for e in svc.list_cached()} == {"auth-b"}
+    assert svc.load_entry("auth-a", "e1") is None  # 禁用后不可载入
+
+    cfg.source_repos.repos[0].enabled = True  # 快照保留：重新启用即恢复
+    assert {e["_authority"] for e in svc.list_cached()} == {"auth-a", "auth-b"}
+
+
+def test_remove_disabled_repo_clears_snapshots(tmp_path) -> None:
+    """回归：先禁用再删除，联邦反查不到 repo_id，也必须按快照归属清干净。"""
+    cfg = _repo_cfg([(REPO_A, True, "verified")])
+    svc, _ = _svc(tmp_path, [_owned("auth-a", REPO_A)], cfg)
+    svc.refresh_and_list_all(force=True)
+    cfg.source_repos.repos[0].enabled = False
+    svc.remove_repo("", REPO_A)  # federation 已反查不到 repo_id
+    assert svc._store.list_all() == []
+
+
+def test_unsubscribed_orphans_are_purged(tmp_path) -> None:
+    """配置里已没有的订阅留下的快照（旧版本漏清的僵尸组）读取时自动清理。"""
+    cfg = _repo_cfg([(REPO_A, True, "verified"), (REPO_B, True, "verified")])
+    svc, _ = _svc(tmp_path, [_owned("auth-a", REPO_A), _owned("auth-b", REPO_B)], cfg)
+    svc.refresh_and_list_all(force=True)
+    cfg.source_repos.repos.pop(1)
+    assert {e["_authority"] for e in svc.list_cached()} == {"auth-a"}
+    assert {s["_authority"] for s in svc._store.list_all()} == {"auth-a"}
+
+
+def test_upstream_dropped_source_is_purged(tmp_path) -> None:
+    """订阅仍在、但上游 manifest 移除了某个源 → 其快照清理。"""
+    cfg = _repo_cfg([(REPO_A, True, "verified")])
+    svc, fed = _svc(
+        tmp_path,
+        [_owned("auth-a", REPO_A), _owned("auth-a2", REPO_A, entry_id="x")],
+        cfg,
+    )
+    svc.refresh_and_list_all(force=True)
+    fed._entries = [_owned("auth-a", REPO_A)]  # 上游删了 auth-a2
+    svc.refresh_and_list_all(force=True)
+    assert {e["_authority"] for e in svc.list_cached()} == {"auth-a"}
+
+
+def test_manifest_failure_does_not_purge(tmp_path) -> None:
+    """manifest 拉取失败（订阅下一个源都没解析出来）不能误删快照。"""
+    cfg = _repo_cfg([(REPO_A, True, "verified")])
+    svc, fed = _svc(tmp_path, [_owned("auth-a", REPO_A)], cfg)
+    svc.refresh_and_list_all(force=True)
+    fed._entries = []  # 整个订阅暂时解析不出来
+    svc.refresh_and_list_all(force=True)
+    assert {e["_authority"] for e in svc.list_cached()} == {"auth-a"}
+
+
+def test_blocked_content_hidden_and_not_loadable(tmp_path) -> None:
+    cfg = _repo_cfg([(REPO_A, True, "verified")])
+    svc, _ = _svc(tmp_path, [_owned("auth-a", REPO_A, content="bad")], cfg)
+    svc._federation._entries[0]["content_hash"] = "sha256:bad"
+    svc.refresh_and_list_all(force=True)
+    assert len(svc.list_cached()) == 1
+    cfg.blocked_content_hashes.append("sha256:bad")  # 屏蔽在落盘之后
+    assert svc.list_cached() == []
+    assert svc.load_entry("auth-a", "e1") is None
+
+
+def test_untrusted_script_snapshots_hidden(tmp_path) -> None:
+    cfg = _repo_cfg([(REPO_A, True, "verified")])
+    svc, _ = _svc(
+        tmp_path,
+        [
+            _owned("script-a", REPO_A, source_type="ott-script"),
+            _owned("rule-a", REPO_A, entry_id="r1"),
+        ],
+        cfg,
+    )
+    svc.refresh_and_list_all(force=True)
+    cfg.source_repos.repos[0].trust_state = "unverified"  # 拒绝/撤销信任
+    assert {e["_authority"] for e in svc.list_cached()} == {"rule-a"}
+
+
+def test_refresh_repo_url_materializes_only_that_repo(tmp_path) -> None:
+    """添加 / 重新启用订阅后立即物化该订阅（不等下次进入文库）。"""
+    cfg = _repo_cfg([(REPO_A, True, "verified"), (REPO_B, True, "verified")])
+    svc, fed = _svc(tmp_path, [_owned("auth-a", REPO_A), _owned("auth-b", REPO_B)], cfg)
+    svc.refresh_repo_url(REPO_B + "/")
+    assert fed.materialize_calls == ["auth-b"]
+    assert {e["_authority"] for e in svc.list_cached()} == {"auth-b"}
+
+
+def test_unknown_authority_failure_message(tmp_path) -> None:
+    """源已不在启用订阅中时，失败原因不再误报为「网络不可达」。"""
+    from src.backend.integration.source_status_store import SourceStatusStore
+
+    fed = _FakeFederation([])
+    status = SourceStatusStore(tmp_path / "status")
+    svc = SnapshotCatalogService(
+        fed, EntrySnapshotStore(tmp_path), None, status_store=status
+    )
+    svc.refresh_source("gone")
+    assert "不在启用的订阅中" in status.get("gone")["message"]

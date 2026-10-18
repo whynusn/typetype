@@ -296,7 +296,38 @@ def test_remove_repo_clears_snapshots_of_its_authorities():
     federation.repo_id_of_url.assert_called_once_with(
         "https://example.com/ott-repo.json"
     )
-    catalog.remove_repo.assert_called_once_with("repo-1")
+    # 同时传 url：按快照归属兜底清理（先禁用再删除时 repo_id 反查为空）
+    catalog.remove_repo.assert_called_once_with(
+        "repo-1", "https://example.com/ott-repo.json"
+    )
+
+
+def test_set_repo_enabled_rematerializes_or_hides():
+    """启用 → 后台物化该订阅；禁用 → 立即重发快照视图（隐藏该订阅）。"""
+    catalog = MagicMock()
+    catalog.list_cached.return_value = []
+    adapter, _ = _build_adapter(catalog=catalog)
+    adapter._runtime_config = MagicMock()
+    started = []
+    adapter._materialize_repo_async = lambda url: started.append(url)
+    emitted = []
+    adapter.entriesLoaded.connect(lambda entries: emitted.append(entries))
+
+    adapter.setRepoEnabled("https://example.com/ott-repo.json", True)
+    assert started == ["https://example.com/ott-repo.json"]
+
+    adapter.setRepoEnabled("https://example.com/ott-repo.json", False)
+    assert emitted == [[]]
+
+
+def test_add_repo_materializes_immediately():
+    """添加订阅后立即物化，不让「添加成功」后列表里找不到新源。"""
+    adapter, _ = _build_adapter(catalog=MagicMock())
+    adapter._runtime_config = MagicMock()
+    started = []
+    adapter._materialize_repo_async = lambda url: started.append(url)
+    adapter.addRepo("https://example.com/ott-repo.json/")
+    assert started == ["https://example.com/ott-repo.json"]
 
 
 # ----------------------------------------------------------------------

@@ -99,6 +99,48 @@ steps:
     expect:
       prop_false: [groupExpanded]
 
+  - name: 收起状态下搜索
+    action: set
+    find: {objectName: repoSearchField}
+    props: {text: "唐诗"}
+
+  - name: 搜索命中的组自动展开（命中不被藏在收起的组里）
+    action: assert
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      prop_true: [groupExpanded]
+
+  - name: 只剩命中条目
+    action: assert
+    find: {objectName: repoEntryRow, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      count: 1
+
+  - name: 搜索态下仍可手动收起
+    action: click
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+
+  - name: 手动收起生效
+    action: assert
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      prop_false: [groupExpanded]
+
+  - name: 清空搜索回到用户原有的收起态
+    action: set
+    find: {objectName: repoSearchField}
+    props: {text: ""}
+
+  - name: 清空后组仍收起、条目恢复 3 条
+    action: assert
+    find: {objectName: repoEntryRow, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      count: 3
+
   - name: 全程无新增 QML 噪声
     action: assert
     find: {context: appBridge}

@@ -42,6 +42,7 @@ Frame {
 
     // ---- 输出 ----
     signal entryClicked(var entry)      // 点击条目，透传原始条目对象
+    signal entryActivated(var entry)    // 双击条目：选中并直接载入跟打
     signal refreshRequested()           // 顶部刷新 / 错误态重试
     signal addRepoRequested()           // 「添加订阅」按钮
     signal refreshSourceRequested(string authority)  // 源（authority）级刷新请求
@@ -53,6 +54,11 @@ Frame {
     property bool _filterSyncing: false  // ComboBox 模型重建去重守卫
     // 组展开状态（key = authority；**缺省收起**：undefined/false = 收起，true = 展开）
     property var _expanded: ({})
+    // 搜索态下的手动收起（key = authority）：有搜索词时命中组**自动展开**
+    // （否则命中藏在收起的组里，只看到一排组头），用户仍可逐组收起；
+    // 搜索词变化即清空，回到「全部命中组展开」。
+    property var _searchCollapsed: ({})
+    readonly property bool _searchActive: searchField.text.trim().length > 0
     // 随机源历史展开状态（key = authority；缺省只显示最新一条）
     property var _showHistory: ({})
     // 展开/历史切换版本号：QML 无法追踪 var 字典的内部变化，每次切换递增，
@@ -126,8 +132,17 @@ Frame {
     // Behavior 负责平滑动画；_innerVersion 是 QML var 字典的内部变化
     // 通知机制（字典键赋值不触发属性通知）。
     function toggleGroup(key) {
-        root._expanded[key] = !(root._expanded[key] === true)
+        if (root._searchActive)
+            root._searchCollapsed[key] = !(root._searchCollapsed[key] === true)
+        else
+            root._expanded[key] = !(root._expanded[key] === true)
         root._innerVersion++
+    }
+
+    // 组的有效展开态：搜索时命中组默认展开，否则按用户记录（缺省收起）
+    function isGroupExpanded(key) {
+        if (root._searchActive) return root._searchCollapsed[key] !== true
+        return root._expanded[key] === true
     }
 
     // 随机源历史：默认只显示最新一条；切换后内层行模型重算
@@ -324,12 +339,16 @@ Frame {
 
             TextField {
                 id: searchField
+                objectName: "repoSearchField"
                 Layout.fillWidth: true
                 Layout.preferredHeight: 30
                 placeholderText: qsTr("搜索标题或预览")
                 // 去抖：rebuild 是全量清空+重建（Column+Repeater 全量实例化），
                 // 键击级直接重建在长列表下开销大，200ms 合并连续输入
-                onTextChanged: searchDebounce.restart()
+                onTextChanged: {
+                    root._searchCollapsed = ({})
+                    searchDebounce.restart()
+                }
 
                 Timer {
                     id: searchDebounce
@@ -382,7 +401,8 @@ Frame {
                         // 展开状态（缺省收起）。绑定引用 _innerVersion：
                         // toggleGroup 递增后本绑定重算，驱动内容区高度动画。
                         readonly property bool expanded: root._innerVersion >= 0
-                                                         && root._expanded[groupDelegate.groupData.key] === true
+                                                         && root._searchActive !== undefined
+                                                         && root.isGroupExpanded(groupDelegate.groupData.key)
 
                         // 历史行可见性：随机源默认只显示最新一条、且组内确有
                         // 更早条目时，在组内列表底部显示「显示更早 N 条」入口
@@ -981,6 +1001,7 @@ Frame {
                                         cursorShape: Qt.PointingHandCursor
                                         hoverEnabled: true
                                         onClicked: root.entryClicked(model.entry)
+                                        onDoubleClicked: root.entryActivated(model.entry)
                                     }
 
                                     // 选中指示条（左竖条，仿本地文库 Indicator）
