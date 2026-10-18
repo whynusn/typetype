@@ -58,6 +58,10 @@ class CapturedMessage:
     line: int
 
 
+# 离屏平台缺系统字体别名时 Qt 的性能提示（macOS offscreen 必现），与被测 QML 无关
+_BENIGN_PREFIXES = ("Populating font family aliases took",)
+
+
 # ---- 退出期兜底 ----
 #
 # 有些 Qt 消息在**进程退出期**才发出（典型：QThread 销毁时仍在运行 →
@@ -127,6 +131,8 @@ class MessageCollector:
     # ---------- 采集 ----------
 
     def _record(self, severity: str, category: str, message: str, file: str, line: int):
+        if message.startswith(_BENIGN_PREFIXES):
+            return
         self.messages.append(
             CapturedMessage(
                 severity=severity,

@@ -63,6 +63,10 @@ class OffscreenHarness:
         else:
             self.app = QApplication.instance()
 
+        from src.backend.config.font_setup import setup_quick_controls_style
+
+        setup_quick_controls_style()
+
         from RinUI import RinUIWindow
 
         self._rin_window = RinUIWindow()
