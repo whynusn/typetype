@@ -28,20 +28,9 @@ steps:
       find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
     timeout_ms: 10000
 
-  - name: 分组默认收起
+  - name: 只有一个源时默认展开（多源默认收起，见模型单测）
     action: assert
     find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
-    expect:
-      prop_false: [groupExpanded]
-
-  - name: 点组头展开
-    action: click
-    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
-
-  - name: 展开态生效
-    action: assert
-    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
-    timeout_ms: 2000
     expect:
       prop_true: [groupExpanded]
 
@@ -134,7 +123,18 @@ steps:
     find: {objectName: repoSearchField}
     props: {text: ""}
 
-  - name: 清空后组仍收起、条目恢复 3 条
+  - name: 清空后回到搜索前的收起态
+    action: assert
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      prop_false: [groupExpanded]
+
+  - name: 再次展开
+    action: click
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+
+  - name: 条目恢复 3 条（收起的组不实例化行，展开时增量插回）
     action: assert
     find: {objectName: repoEntryRow, props: {groupKey: typetype-builtin-static}}
     timeout_ms: 2000

@@ -7,21 +7,23 @@ import "../helpers/SourceBadges.js" as Badges
 /**
  * 开源文库条目列表面板（联邦聚合条目的统一展示）。
  *
- * - 按订阅源（repo）动态分组：条目物化时注入 _repo_id（federation
- *   `_decorate_with_repo_meta`），条目属于哪个订阅源就归入哪个源组——
- *   纯动态归属，不硬编码。组头 = 展开/收起 + 源名 + 条目数（x / 上限）+
- *   源级刷新（动画只在组头播放一份）+ 管理按钮
- * - 组头可展开/收起（_expanded 状态；**默认收起**；展开/收起带高度
- *   动画——每组是「组头卡片 + 高度动画内容区 + 内层 ListView」结构）
- * - 组内条目为**连续无间隔列表**，样式与本地文库一致（RinUI
- *   ListViewDelegate：subtle 背景 + 悬停高亮 + 选中指示条，无独立卡片边框），
- *   与组头的矩形卡片形成层级区分
- * - 随机源（rule/script/bridge）默认只显示最新一条；组内列表底部提供
- *   「显示更早 N 条」行展开历史（快照保留最近 N 条，历史可重载重打；
- *   历史入口在列表底部而非组头按钮，更符合连续列表直觉）
- * - 来源筛选（RinUI ComboBox）+ 标题/预览搜索（作用于条目，空组不渲染）
+ * 分组 / 筛选 / 搜索 / 展开状态全部在 Python 侧的 OpenLibraryListModel
+ * （appBridge.openLibraryModel）：本面板只把 entries 喂给模型，再用**单个
+ * ListView** 渲染扁平行（header / entry / history）。
+ *
+ * - 虚拟化：只实例化可视区内的行。旧结构「Column + Repeater 全量实例化每组
+ *   每条」在条目多时首屏成本线性增长（2026-10-18 review P2）。
+ * - 增量：展开/收起、历史切换由模型对该组做行插入/删除，其余 delegate 不动。
+ * - 展开状态：用户切换过的组会记住（持久化）；没切换过的组——只有一个源
+ *   时展开，多个源时收起；搜索时命中组自动展开，仍可逐组收起。
+ * - 组头精简：源名 + 条目数 + 刷新 + 详情；订阅名只在多个订阅并存时显示，
+ *   信任徽章只在待确认/验证失败时显示，tier 与上限细节进源详情弹窗。
+ * - 随机源（rule/script/bridge）默认只显示最新一条，组尾「显示更早 N 条」。
  * - 状态叠加：加载中 / 错误(重试) / 空（引导添加订阅）/ 无匹配
  * - 选中高亮由父级通过 selectedEntry 驱动（entry_id + authority 相等判定）
+ *
+ * ⚠️ delegate 用 Loader 切三种行组件，组件必须声明为 Loader 的直接子项
+ * （否则加载项看不到 delegate 的 model 上下文，见 AGENTS.md 陷阱）。
  */
 Frame {
     id: root
@@ -51,20 +53,9 @@ Frame {
     signal manageRepoRequested(string repoId, string url)  // 进入该源所属订阅源管理
 
     // ---- 内部 ----
-    property string selectedSourceLabel: ""
+    readonly property var olModel: appBridge ? appBridge.openLibraryModel : null
     property bool _filterSyncing: false  // ComboBox 模型重建去重守卫
-    // 组展开状态（key = authority；**缺省收起**：undefined/false = 收起，true = 展开）
-    property var _expanded: ({})
-    // 搜索态下的手动收起（key = authority）：有搜索词时命中组**自动展开**
-    // （否则命中藏在收起的组里，只看到一排组头），用户仍可逐组收起；
-    // 搜索词变化即清空，回到「全部命中组展开」。
-    property var _searchCollapsed: ({})
-    readonly property bool _searchActive: searchField.text.trim().length > 0
-    // 随机源历史展开状态（key = authority；缺省只显示最新一条）
-    property var _showHistory: ({})
-    // 展开/历史切换版本号：QML 无法追踪 var 字典的内部变化，每次切换递增，
-    // 驱动外层 delegate 的 expanded 绑定与内层行模型重算（见 toggleGroup）
-    property int _innerVersion: 0
+
 
     Layout.fillHeight: true
     Layout.fillWidth: true
@@ -72,14 +63,6 @@ Frame {
     radius: 6
     hoverable: false
     padding: 8
-
-    // 组名回退：_source_label（manifest source.label 注入）缺失时用条目
-    // source_label 原文。展示名一律来自上游 manifest 声明——这里不硬编码
-    // 任何中文映射（曾把 source_label 硬映射成「一言/极速杯/英文名言/
-    // 今日诗词」，存量快照缺字段时会把同一订阅源拆成多个假源组）。
-    function sourceDisplayName(entry) {
-        return entry.source_label || qsTr("开源文本")
-    }
 
     // 列表预览：inline 全文（rule/script/bridge）优先，instance 用 preview 摘要
     function entryPreview(entry) {
@@ -97,162 +80,62 @@ Frame {
             && (root.selectedEntry.authority || "") === (entry.authority || "")
     }
 
-    // 组刷新动画判定：该组（authority）正在被刷新 → 组头播放一份动画。
-    // 优先使用并发集合；单值属性作为旧绑定回退。
-    function _isRefreshingGroup(group) {
-        if (!group) return false
-        var key = group.key || ""
+    // 组刷新动画判定：并发集合优先；单值属性作为旧绑定回退
+    function _isRefreshingKey(key) {
         if (root.refreshingSources.length > 0)
             return root.refreshingSources.indexOf(key) !== -1
         return root.refreshingSource.length > 0 && root.refreshingSource === key
     }
 
     // 源健康状态（sourceStatuses 映射；不存在 = 尚未有手动刷新结果）
-    function _groupStatus(group) {
-        if (!group || !(group.key in root.sourceStatuses)) return null
-        return root.sourceStatuses[group.key]
+    function _statusOf(key) {
+        return (key in root.sourceStatuses) ? root.sourceStatuses[key] : null
     }
 
-    // trust/tier 徽章文案与配色统一走 helpers/SourceBadges.js（单一事实源）
-
-    function _matches(entry, text) {
-        var haystack = (entry.title || "") + " " +
-                       (entry._source_label || entry.source_label || "") + " " +
-                       (entry.category || "") + " " +
-                       ((entry.tags || []).join(" ")) + " " +
-                       root.entryPreview(entry)
-        return haystack.toLowerCase().indexOf(text) !== -1
+    // 先落地尚在去抖中的搜索词：否则「清空搜索后立刻点组头」会把切换记到
+    // 搜索态里，随后去抖触发、搜索态清空，这次点击就丢了
+    function _flushSearch() {
+        if (searchDebounce.running) {
+            searchDebounce.stop()
+            if (root.olModel) root.olModel.setSearch(searchField.text)
+        }
     }
 
-    function isOnDemandSource(type) {
-        return type === "ott-rule" || type === "ott-script" || type === "ott-bridge"
-    }
-
-    // 组头展开/收起切换（缺省收起）。注意：只翻转状态 + 递增版本号，
-    // **不再重建外层模型**——delegate 的 expanded 绑定与内容区高度
-    // Behavior 负责平滑动画；_innerVersion 是 QML var 字典的内部变化
-    // 通知机制（字典键赋值不触发属性通知）。
     function toggleGroup(key) {
-        if (root._searchActive)
-            root._searchCollapsed[key] = !(root._searchCollapsed[key] === true)
-        else
-            root._expanded[key] = !(root._expanded[key] === true)
-        root._innerVersion++
+        root._flushSearch()
+        if (root.olModel) root.olModel.toggleGroup(key)
     }
+    function toggleHistory(key) { if (root.olModel) root.olModel.toggleHistory(key) }
 
-    // 组的有效展开态：搜索时命中组默认展开，否则按用户记录（缺省收起）
-    function isGroupExpanded(key) {
-        if (root._searchActive) return root._searchCollapsed[key] !== true
-        return root._expanded[key] === true
-    }
-
-    // 随机源历史：默认只显示最新一条；切换后内层行模型重算
-    // （历史入口是组内列表底部的「显示更早 N 条」行）
-    function toggleHistory(key) {
-        root._showHistory[key] = !(root._showHistory[key] === true)
-        root._innerVersion++
-    }
-
-    // 填充某个组的内层 ListModel（只存条目行；普通源全部条目，随机源
-    // 默认仅最新一条——历史由组 delegate 底部的独立「显示更早 N 条」行
-    // 承载，见 groupDelegate.showHistoryRow）。
-    //
-    // ⚠️ 不用 JS 数组当模型：实测本环境（Qt 6.10.2/PySide6）JS 数组作为
-    // ListView model 时 delegate 里 model.<role> 全部解析为 undefined
-    // （数组整体暴露而非元素对象），ListModel 的 role 访问正常——统一
-    // 走 ListModel。
-    // 调用方：组 delegate 的 Component.onCompleted 与 root._innerVersion
-    // 变化（Connections onInnerVersionChanged，toggleGroup/toggleHistory
-    // 递增版本号驱动）。
-    function fillInnerModel(m, group) {
-        m.clear()
-        if (!group) return
-        var entries = group.entries || []
-        var showAll = !group.onDemand || root._showHistory[group.key] === true
-        for (var j = 0; j < entries.length; j++) {
-            if (!showAll && j > 0) break
-            m.append({ entry: entries[j] })
-        }
-    }
-
-    // 按源（authority）动态分组重建外层模型：每组一行（组头 + 展开内容）。
-    // 筛选/搜索作用于条目，空组不渲染。
-    //
-    // 分组语义（2026-08-15）：列表精度到**每一条规则/源**（authority 级，
-    // federation 注入 _source_label/_source_type）；订阅源（repo）只作
-    // 标识显示在组头副标题（_repo_name），本身不出现在列表中。
-    //
-    // 两遍构建：旧实现单遍遍历 entries，组头在遇到组内第一条时插入、
-    // 后续同组条目 append 到模型末尾——当同组条目在 entries 中不连续
-    // （随机源多次物化、新旧条目按 captured_at 交错）时，后到的条目会
-    // 被追加到别的组头之后（实测 jisubei 的条目跑到「英文名言」组下）。
-    // 先收集有序组 + 组内条目，再按组顺序整组输出，保证组内条目连续。
-    function rebuild() {
-        listModel.clear()
-        var t = searchField.text.trim().toLowerCase()
-        var filterLabel = root.selectedSourceLabel
-        var groups = []      // 有序组列表（按第一条目出现顺序）
-        var groupAt = {}     // group key -> groups 数组下标
-        for (var i = 0; i < root.entries.length; i++) {
-            var e = root.entries[i]
-            var entryLabel = e._source_label || e.source_label || ""
-            if (filterLabel.length > 0 && entryLabel !== filterLabel) continue
-            if (t.length > 0 && !root._matches(e, t)) continue
-            // 动态分组键：源（authority）级——每条规则/源一个组
-            var key = e._authority || e.authority || ""
-            if (groupAt[key] === undefined) {
-                groupAt[key] = groups.length
-                groups.push({
-                    key: key,
-                    name: e._source_label || e.source_label || root.sourceDisplayName(e),
-                    // 所属订阅源标识（repo 名；缺失回退 URL 原文，再回退 key）
-                    subtitle: e._repo_name || e._repo_url || key,
-                    repoId: e._repo_id || "",
-                    sourceType: e._source_type || "",
-                    trustState: e._repo_trust_state || "",
-                    onDemand: root.isOnDemandSource(e._source_type || ""),
-                    url: e._repo_url || "",
-                    maxEntries: e._repo_max_entries || 0,
-                    entries: []
-                })
-            }
-            groups[groupAt[key]].entries.push(e)
-        }
-        for (var g = 0; g < groups.length; g++) {
-            groups[g].count = groups[g].entries.length   // 组头计数（N / M 条）
-            listModel.append({ group: groups[g] })
-        }
-    }
-
-    // 重建来源筛选模型，保留之前选中的 label（不存在则回退「全部来源」）
+    // 来源筛选模型跟随 olModel.sourceLabels；保留之前选中的 label
     function rebuildSourceFilter() {
         var prev = (sourceFilterCombo.currentIndex > 0 && sourceFilterCombo.currentIndex < sourceFilterModel.count)
                    ? sourceFilterModel.get(sourceFilterCombo.currentIndex).label : ""
+        var labels = root.olModel ? root.olModel.sourceLabels : []
         root._filterSyncing = true
         sourceFilterModel.clear()
         sourceFilterModel.append({ label: qsTr("全部来源") })
-        var seen = {}
-        for (var i = 0; i < root.entries.length; i++) {
-            var label = root.entries[i]._source_label || root.entries[i].source_label || ""
-            if (label.length > 0 && !seen[label]) {
-                seen[label] = true
-                sourceFilterModel.append({ label: label })
-            }
-        }
         var idx = 0
-        if (prev.length > 0) {
-            for (var j = 1; j < sourceFilterModel.count; j++) {
-                if (sourceFilterModel.get(j).label === prev) { idx = j; break }
-            }
+        for (var i = 0; i < labels.length; i++) {
+            sourceFilterModel.append({ label: labels[i] })
+            if (labels[i] === prev) idx = i + 1
         }
         sourceFilterCombo.currentIndex = idx
         root._filterSyncing = false
-        root.selectedSourceLabel = (idx > 0) ? prev : ""
-        root.rebuild()
     }
 
-    onEntriesChanged: Qt.callLater(rebuildSourceFilter)
-    Component.onCompleted: rebuildSourceFilter()
+    function _pushEntries() {
+        if (root.olModel) root.olModel.setEntries(root.entries)
+    }
+
+    onEntriesChanged: Qt.callLater(_pushEntries)
+    Component.onCompleted: { _pushEntries(); rebuildSourceFilter() }
+
+    Connections {
+        target: root.olModel
+        function onSourceLabelsChanged() { root.rebuildSourceFilter() }
+    }
+
 
     ColumnLayout {
         anchors.fill: parent
@@ -334,9 +217,9 @@ Frame {
                     // textRole/valueRole 下 onActivated 不触发，统一走 currentIndex；
                     // 模型重建期间（_filterSyncing）不响应，防止重复重建
                     if (root._filterSyncing) return
-                    root.selectedSourceLabel = (currentIndex > 0 && currentIndex < sourceFilterModel.count)
-                                               ? sourceFilterModel.get(currentIndex).label : ""
-                    root.rebuild()
+                    if (root.olModel)
+                        root.olModel.setSourceFilter((currentIndex > 0 && currentIndex < sourceFilterModel.count)
+                                                     ? sourceFilterModel.get(currentIndex).label : "")
                 }
             }
 
@@ -346,17 +229,15 @@ Frame {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 30
                 placeholderText: qsTr("搜索标题或预览")
-                // 去抖：rebuild 是全量清空+重建（Column+Repeater 全量实例化），
-                // 键击级直接重建在长列表下开销大，200ms 合并连续输入
+                // 去抖：搜索变化 = 模型整表 reset，200ms 合并连续输入
                 onTextChanged: {
-                    root._searchCollapsed = ({})
                     searchDebounce.restart()
                 }
 
                 Timer {
                     id: searchDebounce
                     interval: 200
-                    onTriggered: root.rebuild()
+                    onTriggered: if (root.olModel) root.olModel.setSearch(searchField.text)
                 }
             }
         }
@@ -371,87 +252,281 @@ Frame {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-
-            QQC.ScrollView {
-                id: listScroll
+            ListView {
+                id: groupList
+                objectName: "repoGroupList"
                 anchors.fill: parent
                 clip: true
-                visible: !root.loading && root.errorText.length === 0 && listModel.count > 0
+                model: root.olModel
+                spacing: 0
+                reuseItems: false
+                boundsBehavior: Flickable.StopAtBounds
+                visible: !root.loading && root.errorText.length === 0 && count > 0
+                QQC.ScrollBar.vertical: QQC.ScrollBar { policy: QQC.ScrollBar.AsNeeded }
 
-                // ⚠️ 根本方案：组列表同样不用 ListView（delegate 复用/高度计算
-                // 时序/虚拟化重建等隐式行为）——Column + Repeater 全量实例化，
-                // 组高度 = 组头 + 内容区高度，由 Column 布局器排布，可靠。
-                Column {
-                    id: groupsColumn
-                    width: parent.width
-                    height: implicitHeight      // 显式几何高度（Flickable 滚动依赖）
-                    spacing: 8                  // 组（卡片）之间留间隔
+                // 展开/收起：后续行位移平滑（插入行不做 opacity 入场——
+                // 动画未跑完前行 opacity=0，被 ui-probe 与辅助功能视为不可见）
+                displaced: Transition {
+                    NumberAnimation { property: "y"
+                        duration: Utils.animationDuration(Utils.animationSpeed); easing.type: Easing.OutQuint }
+                }
 
-                    Repeater {
-                        model: ListModel { id: listModel }
+                delegate: Loader {
+                    id: rowLoader
+                    width: groupList.width
+                    // header 行之间留组间距（第一组除外）
+                    readonly property real topGap: (model.kind === "header" && index > 0) ? 8 : 0
+                    height: item ? item.height : 0
+                    sourceComponent: model.kind === "header" ? headerComp
+                                   : model.kind === "entry" ? entryComp
+                                   : historyComp
 
-                        // ============ 组 delegate：组头卡片 + 动画内容区 ============
-                        delegate: Item {
-                            id: groupDelegate
-                            width: groupsColumn.width
-                            height: headerRect.height + contentClip.height
+                    // ================= 组头 =================
+                    Component {
+                        id: headerComp
 
-                        // 承接外层模型行数据：内层 ListView 自身也有 model 属性，
-                        // 在其属性绑定里裸引用 model 会解析到自身（undefined）——
-                        // 统一经本属性 + id 访问，避免 QML 名称遮蔽坑。
-                        readonly property var groupData: model.group
+                        Item {
+                            width: rowLoader.width
+                            height: rowLoader.topGap + headerRect.height
 
-                        // 展开状态（缺省收起）。绑定引用 _innerVersion：
-                        // toggleGroup 递增后本绑定重算，驱动内容区高度动画。
-                        readonly property bool expanded: root._innerVersion >= 0
-                                                         && root._searchActive !== undefined
-                                                         && root.isGroupExpanded(groupDelegate.groupData.key)
+                            Rectangle {
+                                id: headerRect
+                                // 验收锚点（ui-probe 场景按 objectName + groupKey 定位）
+                                objectName: "repoGroupHeader"
+                                readonly property string groupKey: model.groupKey
+                                readonly property bool groupExpanded: model.expanded
+                                readonly property var status: root._statusOf(model.groupKey)
+                                readonly property bool refreshing: root._isRefreshingKey(model.groupKey)
+                                y: rowLoader.topGap
+                                width: parent.width
+                                height: model.subtitle.length > 0 || (status !== null && status.state === "failed") ? 46 : 38
+                                radius: 6
+                                color: headerHover.containsMouse
+                                       ? Theme.currentTheme.colors.subtleSecondaryColor
+                                       : Theme.currentTheme.colors.controlColor
+                                border.color: Theme.currentTheme.colors.cardBorderColor
+                                border.width: 1
+                                Behavior on color {
+                                    ColorAnimation {
+                                        duration: Utils.animationDuration(Utils.appearanceSpeed)
+                                        easing.type: Easing.OutQuad
+                                    }
+                                }
 
-                        // 历史行可见性：随机源默认只显示最新一条、且组内确有
-                        // 更早条目时，在组内列表底部显示「显示更早 N 条」入口
-                        // （点击展开全部历史快照，可重载重打）。绑定引用
-                        // _innerVersion：toggleHistory 递增后重算。
-                        readonly property bool showHistoryRow: root._innerVersion >= 0
-                            && groupDelegate.groupData.onDemand
-                            && root._showHistory[groupDelegate.groupData.key] !== true
-                            && groupDelegate.groupData.entries.length > 1
+                                // 整行点击 = 展开/收起（按钮子项位于其上方优先响应）
+                                MouseArea {
+                                    id: headerHover
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    hoverEnabled: true
+                                    onClicked: root.toggleGroup(model.groupKey)
+                                }
 
-                        // 历史已展开时的「收起历史」入口（与上面互斥，保证可逆）
-                        readonly property bool showHistoryCollapseRow: root._innerVersion >= 0
-                            && groupDelegate.groupData.onDemand
-                            && root._showHistory[groupDelegate.groupData.key] === true
+                                RowLayout {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.leftMargin: 10
+                                    anchors.rightMargin: 8
+                                    spacing: 8
 
-                        // 组内行模型（ListModel；role 访问可靠——JS 数组模型
-                        // 在本环境 role 全 undefined，见 fillInnerModel 注释）
-                        ListModel { id: innerModel }
+                                    IconWidget {
+                                        Layout.preferredWidth: 16
+                                        Layout.preferredHeight: 16
+                                        icon: "ic_fluent_chevron_right_20_regular"
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        transform: Rotation {
+                                            angle: headerRect.groupExpanded ? 90 : 0
+                                            origin.x: 8
+                                            origin.y: 8
+                                            Behavior on angle {
+                                                NumberAnimation {
+                                                    duration: Utils.animationDuration(Utils.animationSpeed)
+                                                    easing.type: Easing.OutQuint
+                                                }
+                                            }
+                                        }
+                                    }
 
-                        // 初始填充 + 版本号变化（toggleGroup/toggleHistory）时重建。
-                        // ⚠️ 下划线属性 _innerVersion 的变化信号名保留下划线（_innerVersionChanged），
-                        // QML 规范化信号处理器名：on_InnerVersionChanged
-                        Component.onCompleted: root.fillInnerModel(innerModel, groupDelegate.groupData)
-                        Connections {
-                            target: root
-                            function on_InnerVersionChanged() {
-                                root.fillInnerModel(innerModel, groupDelegate.groupData)
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
+                                        spacing: 0
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 6
+
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                text: model.name
+                                                typography: Typography.BodyStrong
+                                                color: Theme.currentTheme.colors.textColor
+                                                wrapMode: Text.NoWrap
+                                                elide: Text.ElideRight
+                                                HoverHandler { id: groupNameHover }
+                                                ToolTip {
+                                                    text: model.subtitle.length > 0
+                                                          ? model.name + " · " + model.subtitle : model.name
+                                                    visible: groupNameHover.hovered
+                                                }
+                                            }
+
+                                            // 信任徽章只在需要注意时出现（待确认 / 验证失败）
+                                            Rectangle {
+                                                visible: model.trustState === "pending" || model.trustState === "failed"
+                                                Layout.preferredWidth: trustBadgeText.implicitWidth + 8
+                                                Layout.preferredHeight: 16
+                                                radius: 8
+                                                readonly property color trustColor:
+                                                    Badges.trustColor(model.trustState, Theme.currentTheme.colors)
+                                                color: Qt.rgba(trustColor.r, trustColor.g, trustColor.b, 0.16)
+                                                Text {
+                                                    id: trustBadgeText
+                                                    anchors.centerIn: parent
+                                                    text: Badges.trustLabel(model.trustState)
+                                                    typography: Typography.Caption
+                                                    color: parent.trustColor
+                                                }
+                                            }
+                                        }
+
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            spacing: 6
+                                            visible: model.subtitle.length > 0
+                                                     || (headerRect.status !== null && headerRect.status.state === "failed")
+
+                                            // 所属订阅：仅在多个订阅并存时显示（模型给空串即隐藏）
+                                            Text {
+                                                Layout.fillWidth: true
+                                                Layout.minimumWidth: 0
+                                                visible: model.subtitle.length > 0
+                                                text: model.subtitle
+                                                typography: Typography.Caption
+                                                color: Theme.currentTheme.colors.textSecondaryColor
+                                                wrapMode: Text.NoWrap
+                                                elide: Text.ElideRight
+                                            }
+
+                                            // 源级健康芯片：失败时明确「正在显示缓存」，不盖整列表
+                                            Rectangle {
+                                                visible: headerRect.status !== null && headerRect.status.state === "failed"
+                                                Layout.preferredHeight: 16
+                                                Layout.preferredWidth: failText.implicitWidth + 10
+                                                radius: 8
+                                                color: Qt.rgba(Theme.currentTheme.colors.systemCautionColor.r,
+                                                               Theme.currentTheme.colors.systemCautionColor.g,
+                                                               Theme.currentTheme.colors.systemCautionColor.b, 0.18)
+                                                Text {
+                                                    id: failText
+                                                    objectName: "repoGroupFailed"
+                                                    anchors.centerIn: parent
+                                                    text: qsTr("刷新失败 · 显示缓存")
+                                                    typography: Typography.Caption
+                                                    color: Theme.currentTheme.colors.systemCautionColor
+                                                }
+                                                ToolTip {
+                                                    text: (headerRect.status && headerRect.status.message)
+                                                          ? headerRect.status.message : qsTr("上次刷新失败，正在显示缓存快照")
+                                                    visible: failHover.hovered
+                                                }
+                                                HoverHandler { id: failHover }
+                                            }
+                                            Item { Layout.fillWidth: model.subtitle.length === 0 }
+                                        }
+                                    }
+
+                                    // 条目数：只在接近/超过仓库声明上限时带出上限（琥珀/红）
+                                    Text {
+                                        visible: root.width >= 300
+                                        readonly property int cnt: model.count
+                                        readonly property int maxN: model.maxEntries
+                                        readonly property bool nearMax: maxN > 0 && cnt / maxN >= 0.8
+                                        text: nearMax ? qsTr("%1 / %2 条").arg(cnt).arg(maxN) : qsTr("%1 条").arg(cnt)
+                                        typography: Typography.Caption
+                                        wrapMode: Text.NoWrap
+                                        color: maxN > 0 && cnt > maxN ? Theme.currentTheme.colors.systemCriticalColor
+                                               : nearMax ? Theme.currentTheme.colors.systemCautionColor
+                                               : Theme.currentTheme.colors.textSecondaryColor
+                                        HoverHandler { id: countHover }
+                                        ToolTip {
+                                            text: parent.maxN > 0
+                                                  ? qsTr("当前缓存 %1 条，仓库声明上限 %2 条").arg(parent.cnt).arg(parent.maxN)
+                                                  : qsTr("当前缓存 %1 条").arg(parent.cnt)
+                                            visible: countHover.hovered
+                                        }
+                                    }
+
+                                    // 源级刷新：按钮与 BusyIndicator 叠放（opacity 切换），不闪跳
+                                    Item {
+                                        Layout.preferredWidth: 28
+                                        Layout.preferredHeight: 28
+
+                                        ToolButton {
+                                            objectName: "repoGroupRefresh"
+                                            readonly property string groupKey: model.groupKey
+                                            anchors.fill: parent
+                                            icon.name: "ic_fluent_arrow_sync_20_regular"
+                                            flat: true
+                                            opacity: headerRect.refreshing ? 0 : 1
+                                            enabled: !headerRect.refreshing && !root.loading
+                                            Behavior on opacity {
+                                                NumberAnimation {
+                                                    duration: Utils.animationDuration(Utils.animationSpeedFaster)
+                                                }
+                                            }
+                                            onClicked: root.refreshSourceRequested(model.groupKey)
+                                            ToolTip {
+                                                text: model.sourceType === "ott-instance"
+                                                      ? qsTr("检查更新（内容未变不刷新时间）")
+                                                      : qsTr("刷新该源")
+                                                visible: parent.hovered
+                                            }
+                                        }
+                                        BusyIndicator {
+                                            anchors.centerIn: parent
+                                            width: 16
+                                            height: 16
+                                            running: headerRect.refreshing
+                                            visible: running
+                                        }
+                                    }
+
+                                    // 源详情（类型/健康/调度覆盖 + 所属订阅管理）
+                                    ToolButton {
+                                        objectName: "repoGroupInfoButton"
+                                        Layout.preferredWidth: 28
+                                        Layout.preferredHeight: 28
+                                        icon.name: "ic_fluent_info_20_regular"
+                                        flat: true
+                                        onClicked: root.sourceInfoRequested(model.groupKey)
+                                        ToolTip { text: qsTr("源详情与订阅管理"); visible: parent.hovered }
+                                    }
+                                }
                             }
                         }
+                    }
 
-                        // ================= 组头：订阅源卡片 =================
+                    // ================= 条目行（自绘，仿本地文库 ListViewDelegate 样式） =================
+                    Component {
+                        id: entryComp
+
                         Rectangle {
-                            id: headerRect
-                            // 验收锚点（ui-probe 场景按 objectName + groupKey 定位，
-                            // 不依赖文案）：组头 / 展开态
-                            objectName: "repoGroupHeader"
-                            readonly property string groupKey: groupDelegate.groupData.key
-                            readonly property bool groupExpanded: groupDelegate.expanded
-                            width: parent.width
-                            height: 46
-                            radius: 6
-                            color: headerHover.containsMouse
+                            id: rowRoot
+                            objectName: "repoEntryRow"
+                            readonly property var entry: model.entry
+                            readonly property string entryId: model.entryId
+                            readonly property string groupKey: model.groupKey
+                            readonly property bool rowSelected: root._isSelected(rowRoot.entry)
+                            width: rowLoader.width
+                            height: rowLayout.implicitHeight + 12
+                            color: (rowMouse.containsMouse && !rowRoot.rowSelected)
                                    ? Theme.currentTheme.colors.subtleSecondaryColor
-                                   : Theme.currentTheme.colors.controlColor
-                            border.color: Theme.currentTheme.colors.cardBorderColor
-                            border.width: 1
+                                   : (rowRoot.rowSelected
+                                      ? Theme.currentTheme.colors.subtleTertiaryColor
+                                      : "transparent")
                             Behavior on color {
                                 ColorAnimation {
                                     duration: Utils.animationDuration(Utils.appearanceSpeed)
@@ -459,560 +534,206 @@ Frame {
                                 }
                             }
 
-                            // 整行点击 = 展开/收起（按钮子项位于其上方优先响应）
-                            MouseArea {
-                                id: headerHover
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                hoverEnabled: true
-                                onClicked: root.toggleGroup(groupDelegate.groupData.key)
-                            }
-
                             RowLayout {
+                                id: rowLayout
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.verticalCenter: parent.verticalCenter
-                                anchors.leftMargin: 10
-                                anchors.rightMargin: 8
+                                anchors.leftMargin: 18
+                                anchors.rightMargin: 14
                                 spacing: 8
-
-                                // 展开指示：chevron 旋转动画（RinUI Expander 同款）
-                                IconWidget {
-                                    Layout.preferredWidth: 16
-                                    Layout.preferredHeight: 16
-                                    icon: "ic_fluent_chevron_right_20_regular"
-                                    color: Theme.currentTheme.colors.textSecondaryColor
-                                    transform: Rotation {
-                                        id: chevronRot
-                                        angle: groupDelegate.expanded ? 90 : 0
-                                        origin.x: 8
-                                        origin.y: 8
-                                        Behavior on angle {
-                                            NumberAnimation {
-                                                duration: Utils.animationDuration(Utils.animationSpeed)
-                                                easing.type: Easing.OutQuint
-                                            }
-                                        }
-                                    }
-                                }
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
-                                    spacing: 0
+                                    spacing: 2
 
-                                    RowLayout {
+                                    Text {
                                         Layout.fillWidth: true
-                                        spacing: 6
-
-                                        Text {
-                                            Layout.fillWidth: true
-                                            Layout.minimumWidth: 0
-                                            text: groupDelegate.groupData.name
-                                            typography: Typography.BodyStrong
-                                            color: Theme.currentTheme.colors.textColor
-                                            wrapMode: Text.NoWrap
-                                            elide: Text.ElideRight
-                                            HoverHandler { id: groupNameHover }
-                                            ToolTip {
-                                                text: groupDelegate.groupData.name
-                                                visible: groupNameHover.hovered
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            visible: Badges.tierShort(groupDelegate.groupData.sourceType).length > 0
-                                            Layout.preferredWidth: tierBadgeText.implicitWidth + 8
-                                            Layout.preferredHeight: 16
-                                            radius: 8
-                                            color: Theme.currentTheme.colors.controlColor
-                                            Text {
-                                                id: tierBadgeText
-                                                anchors.centerIn: parent
-                                                text: Badges.tierShort(groupDelegate.groupData.sourceType)
-                                                typography: Typography.Caption
-                                                color: Theme.currentTheme.colors.textAccentColor
-                                            }
-                                        }
-
-                                        Rectangle {
-                                            visible: Badges.trustLabel(groupDelegate.groupData.trustState).length > 0
-                                            Layout.preferredWidth: trustBadgeText.implicitWidth + 8
-                                            Layout.preferredHeight: 16
-                                            radius: 8
-                                            readonly property color trustColor:
-                                                Badges.trustColor(groupDelegate.groupData.trustState, Theme.currentTheme.colors)
-                                            color: Qt.rgba(trustColor.r, trustColor.g, trustColor.b, 0.16)
-                                            Text {
-                                                id: trustBadgeText
-                                                anchors.centerIn: parent
-                                                text: Badges.trustLabel(groupDelegate.groupData.trustState)
-                                                typography: Typography.Caption
-                                                color: parent.trustColor
-                                            }
+                                        Layout.minimumWidth: 0
+                                        typography: Typography.Body
+                                        text: rowRoot.entry.title || rowRoot.entry.entry_id || ""
+                                        color: Theme.currentTheme.colors.textColor
+                                        wrapMode: Text.NoWrap
+                                        elide: Text.ElideRight
+                                        HoverHandler { id: entryTitleHover }
+                                        ToolTip {
+                                            text: rowRoot.entry.title || rowRoot.entry.entry_id || ""
+                                            visible: entryTitleHover.hovered
                                         }
                                     }
 
-                                    RowLayout {
+                                    Text {
                                         Layout.fillWidth: true
-                                        spacing: 6
+                                        typography: Typography.Caption
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        text: root.entryPreview(rowRoot.entry)
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                        visible: text.length > 0
+                                    }
+                                }
 
-                                        Text {
-                                            Layout.fillWidth: true
-                                            Layout.minimumWidth: 0
-                                            text: groupDelegate.groupData.subtitle
-                                            typography: Typography.Caption
-                                            color: Theme.currentTheme.colors.textSecondaryColor
-                                            wrapMode: Text.NoWrap
-                                            elide: Text.ElideRight
-                                            HoverHandler { id: subtitleHover }
-                                            ToolTip {
-                                                text: groupDelegate.groupData.subtitle
-                                                visible: subtitleHover.hovered
-                                            }
-                                        }
+                                ColumnLayout {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    Layout.minimumWidth: 0
+                                    Layout.maximumWidth: 132
+                                    Layout.preferredWidth: 112
+                                    spacing: 3
 
-                                        // 源级健康芯片：失败时明确「正在显示缓存」，不盖整列表
+                                    RowLayout {
+                                        Layout.alignment: Qt.AlignRight
+                                        spacing: 4
+
                                         Rectangle {
-                                            readonly property var status: root._groupStatus(groupDelegate.groupData)
-                                            visible: status !== null && status.state === "failed"
-                                            Layout.preferredHeight: 16
-                                            Layout.preferredWidth: failText.implicitWidth + 10
-                                            radius: 8
+                                            visible: rowRoot.entry.content_mode === "segmented"
+                                            Layout.preferredWidth: segBadgeText.implicitWidth + 10
+                                            Layout.preferredHeight: 18
+                                            radius: 9
                                             color: Qt.rgba(Theme.currentTheme.colors.systemCautionColor.r,
                                                            Theme.currentTheme.colors.systemCautionColor.g,
-                                                           Theme.currentTheme.colors.systemCautionColor.b, 0.18)
+                                                           Theme.currentTheme.colors.systemCautionColor.b, 0.16)
                                             Text {
-                                                id: failText
-                                                objectName: "repoGroupFailed"
+                                                id: segBadgeText
                                                 anchors.centerIn: parent
-                                                text: qsTr("刷新失败 · 显示缓存")
+                                                text: qsTr("分段")
                                                 typography: Typography.Caption
                                                 color: Theme.currentTheme.colors.systemCautionColor
                                             }
-                                            ToolTip {
-                                                text: (parent.status && parent.status.message)
-                                                      ? parent.status.message : qsTr("上次刷新失败，正在显示缓存快照")
-                                                visible: failMouse.hovered
+                                        }
+
+                                        // 新鲜度（on_demand 随机 / stale 可刷新 / fresh 最新）
+                                        Rectangle {
+                                            readonly property string fr: rowRoot.entry.freshness || ""
+                                            visible: fr !== ""
+                                            Layout.preferredWidth: freshBadgeText.implicitWidth + 12
+                                            Layout.preferredHeight: 18
+                                            radius: 9
+                                            readonly property color freshColor:
+                                                fr === "on_demand" ? Theme.currentTheme.colors.primaryColor
+                                                : fr === "stale" ? Theme.currentTheme.colors.systemCautionColor
+                                                : Theme.currentTheme.colors.systemSuccessColor
+                                            color: Qt.rgba(freshColor.r, freshColor.g, freshColor.b, 0.16)
+                                            Text {
+                                                id: freshBadgeText
+                                                anchors.centerIn: parent
+                                                text: parent.fr === "on_demand" ? qsTr("随机")
+                                                      : parent.fr === "stale" ? qsTr("可刷新")
+                                                      : qsTr("最新")
+                                                typography: Typography.Caption
+                                                color: parent.freshColor
                                             }
-                                            HoverHandler { id: failMouse }
+                                            HoverHandler { id: freshHover }
+                                            ToolTip {
+                                                text: parent.fr === "on_demand"
+                                                      ? qsTr("每次返回随机内容，可在源组头点刷新抽新")
+                                                      : parent.fr === "stale"
+                                                        ? qsTr("内容已过期，可在源组头点刷新获取最新")
+                                                        : qsTr("内容为最新")
+                                                visible: freshHover.hovered
+                                            }
                                         }
                                     }
-                                }
-
-                                // 文本计数 + 上限进度：manifest 声明 max_entries 时
-                                // 显示「N / M 条」+ 细进度条（接近上限转琥珀、满格绿）；
-                                // 未声明（M=0 = 无上限）只显示当前数。
-                                // 注意：M 是仓库声明的条目保留上限，而 N 是当前该源已缓存的快照数。
-                                ColumnLayout {
-                                    visible: root.width >= 300
-                                    spacing: 2
-                                    Layout.alignment: Qt.AlignVCenter
-                                    Layout.minimumWidth: 0
-                                    Layout.preferredWidth: 88
 
                                     Text {
+                                        Layout.fillWidth: true
+                                        Layout.minimumWidth: 0
                                         Layout.alignment: Qt.AlignRight
+                                        visible: text.length > 0
                                         text: {
-                                            var count = groupDelegate.groupData.count
-                                            var maxEntries = groupDelegate.groupData.maxEntries
-                                            var s = qsTr("%1 条").arg(count)
-                                            if (maxEntries > 0) {
-                                                if (count > maxEntries)
-                                                    s = qsTr("%1 条（超上限 %2）").arg(count).arg(maxEntries)
-                                                else
-                                                    s = qsTr("%1 / %2 条").arg(count).arg(maxEntries)
-                                            }
-                                            return s
+                                            var suffix = ""
+                                            if (rowRoot.entry.checked_without_change === true)
+                                                suffix = " · " + qsTr("刚检查，内容无变化")
+                                            else if (rowRoot.entry.last_fetched_relative)
+                                                suffix = " · " + qsTr("内容 %1").arg(rowRoot.entry.last_fetched_relative)
+                                            var count = root._charCount(rowRoot.entry)
+                                            return count > 0 ? (count + " 字" + suffix) : suffix
                                         }
-                                        wrapMode: Text.NoWrap
                                         typography: Typography.Caption
-                                        color: groupDelegate.groupData.maxEntries > 0
-                                               && groupDelegate.groupData.count / groupDelegate.groupData.maxEntries >= 0.8
-                                               && groupDelegate.groupData.count > groupDelegate.groupData.maxEntries
-                                               ? Theme.currentTheme.colors.systemCriticalColor
-                                               : (groupDelegate.groupData.maxEntries > 0
-                                                  && groupDelegate.groupData.count / groupDelegate.groupData.maxEntries >= 0.8
-                                                  ? Theme.currentTheme.colors.systemCautionColor
-                                                  : Theme.currentTheme.colors.textSecondaryColor)
-
-                                        HoverHandler { id: countHover }
-                                        ToolTip {
-                                            text: groupDelegate.groupData.maxEntries > 0
-                                                  ? qsTr("当前缓存 %1 条，仓库声明上限 %2 条").arg(groupDelegate.groupData.count).arg(groupDelegate.groupData.maxEntries)
-                                                  : qsTr("当前缓存 %1 条").arg(groupDelegate.groupData.count)
-                                            visible: countHover.hovered
-                                        }
-                                    }
-
-                                    // 上限进度条（仅声明上限时显示）
-                                    Rectangle {
-                                        visible: groupDelegate.groupData.maxEntries > 0
-                                        Layout.alignment: Qt.AlignRight
-                                        Layout.preferredWidth: 52
-                                        Layout.preferredHeight: 3
-                                        radius: 1.5
-                                        color: Theme.currentTheme.colors.controlColor
-
-                                        Rectangle {
-                                            readonly property real ratio: groupDelegate.groupData.maxEntries > 0
-                                                ? Math.min(1, groupDelegate.groupData.count / groupDelegate.groupData.maxEntries)
-                                                : 0
-                                            width: parent.width * ratio
-                                            height: parent.height
-                                            radius: 1.5
-                                            color: groupDelegate.groupData.maxEntries > 0
-                                                   && groupDelegate.groupData.count > groupDelegate.groupData.maxEntries
-                                                   ? Theme.currentTheme.colors.systemCriticalColor
-                                                   : (ratio >= 1
-                                                      ? Theme.currentTheme.colors.systemSuccessColor
-                                                      : (ratio >= 0.8
-                                                         ? Theme.currentTheme.colors.systemCautionColor
-                                                         : Theme.currentTheme.colors.primaryColor))
-                                        }
-                                    }
-                                }
-
-                                // 源级刷新：一个源无论多少文本，动画只在组头播放一份；
-                                // 按钮与 BusyIndicator 叠放（opacity 切换），不闪跳
-                                Item {
-                                    Layout.preferredWidth: 28
-                                    Layout.preferredHeight: 28
-
-                                    ToolButton {
-                                        objectName: "repoGroupRefresh"
-                                        readonly property string groupKey: groupDelegate.groupData.key
-                                        anchors.fill: parent
-                                        icon.name: "ic_fluent_arrow_sync_20_regular"
-                                        flat: true
-                                        opacity: root._isRefreshingGroup(groupDelegate.groupData) ? 0 : 1
-                                        enabled: !root._isRefreshingGroup(groupDelegate.groupData) && !root.loading
-                                        Behavior on opacity {
-                                            NumberAnimation {
-                                                duration: Utils.animationDuration(Utils.animationSpeedFaster)
-                                            }
-                                        }
-                                        onClicked: root.refreshSourceRequested(groupDelegate.groupData.key)
-                                        ToolTip {
-                                            text: groupDelegate.groupData.sourceType === "ott-instance"
-                                                  ? qsTr("检查更新（内容未变不刷新时间）")
-                                                  : qsTr("刷新该源")
-                                            visible: parent.hovered
-                                        }
-                                    }
-                                    BusyIndicator {
-                                        anchors.centerIn: parent
-                                        width: 16
-                                        height: 16
-                                        running: root._isRefreshingGroup(groupDelegate.groupData)
-                                        visible: running
-                                    }
-                                }
-
-                                // 源详情（类型/健康/调度覆盖 + 所属订阅管理）：组头只留一个
-                                // 详情入口，订阅级操作从详情弹窗「管理订阅」进入
-                                ToolButton {
-                                    objectName: "repoGroupInfoButton"
-                                    Layout.preferredWidth: 28
-                                    Layout.preferredHeight: 28
-                                    icon.name: "ic_fluent_info_20_regular"
-                                    flat: true
-                                    onClicked: root.sourceInfoRequested(groupDelegate.groupData.key)
-                                    ToolTip { text: qsTr("源详情与订阅管理"); visible: parent.hovered }
-                                }
-                            }
-                        }
-
-                        // ================= 内容区：高度动画 =================
-                        // ⚠️ 根本布局方案（2026-08-16 重构）：组内条目**不用嵌套
-                        // ListView + Loader + ListViewDelegate**（该组合踩遍 implicit
-                        // 死锁 / Loader 不报尺寸导致行高塌缩 / ListView.view attached
-                        // property 不可用等坑，用户连续三次报重叠）——改用
-                        // **Column + Repeater 全量实例化**（每源条目数有限），行高度
-                        // 全部由布局容器（RowLayout/ColumnLayout/Column）的 implicit
-                        // 尺寸驱动，这是 QML 唯一可靠的高度计算机制：无 delegate
-                        // 实例化时机、无 Loader 透传、无 attached property 依赖。
-                        Rectangle {
-                            id: contentClip
-                            // ⚠️ 必须显式定位到组头下方：Item 内子项默认堆叠在
-                            // (0,0)，不设 y 会与 headerRect 重叠（内容区盖住组头，
-                            // 实测 2026-08-16：展开后条目渲染在组头位置上）。
-                            // ⚠️ 必须显式透明背景：Rectangle 默认 color 是纯白
-                            // #FFFFFF，展开时白色矩形盖在列表区上（暗色主题下
-                            // 尤其刺眼，实测 2026-08-16 用户截图 100% 纯白块）。
-                            y: headerRect.height
-                            width: parent.width
-                            color: "transparent"
-                            clip: true
-                            // 展开：完整显示条目列内容高度；收起：0。Behavior 平滑过渡
-                            // （Column 的 implicitHeight 由布局器计算，可靠）
-                            height: groupDelegate.expanded ? innerColumn.height : 0
-                            opacity: groupDelegate.expanded ? 1 : 0
-
-                            Behavior on opacity {
-                                NumberAnimation {
-                                    duration: Utils.animationDuration(Utils.appearanceSpeed)
-                                    easing.type: Easing.OutQuad
-                                }
-                            }
-
-                            // ---- 条目列：连续无间隔（spacing 0） ----
-                            Column {
-                                id: innerColumn
-                                width: parent.width
-                                spacing: 0
-
-                                // 条目行（Repeater 全量实例化；模型只含 entry 行）
-                                Repeater {
-                                    model: innerModel
-                                    delegate: entryRowComp
-                                }
-
-                                // ---- 历史行：随机源「显示更早 N 条」入口 / 展开后「收起历史」 ----
-                                Rectangle {
-                                    id: historyRow
-                                    objectName: "repoHistoryToggle"
-                                    readonly property string groupKey: groupDelegate.groupData.key
-                                    width: parent.width
-                                    height: 36
-                                    visible: groupDelegate.showHistoryRow || groupDelegate.showHistoryCollapseRow
-                                    readonly property bool collapseMode: groupDelegate.showHistoryCollapseRow
-                                    color: historyMouse.containsMouse
-                                           ? Theme.currentTheme.colors.subtleSecondaryColor
-                                           : "transparent"
-                                    Behavior on color {
-                                        ColorAnimation {
-                                            duration: Utils.animationDuration(Utils.appearanceSpeed)
-                                            easing.type: Easing.OutQuad
-                                        }
-                                    }
-
-                                    // 与列表的分隔细线（两种模式都保留：入口行位于最新条目下，
-                                    // 收起行位于全部历史条目下）
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.top: parent.top
-                                        anchors.leftMargin: 18
-                                        anchors.rightMargin: 18
-                                        height: 1
-                                        color: Theme.currentTheme.colors.cardBorderColor
-                                    }
-
-                                    RowLayout {
-                                        anchors.centerIn: parent
-                                        spacing: 6
-
-                                        Text {
-                                            text: historyRow.collapseMode
-                                                  ? qsTr("收起历史")
-                                                  : qsTr("显示更早 %1 条").arg(groupDelegate.groupData.entries.length - 1)
-                                            typography: Typography.Caption
-                                            color: Theme.currentTheme.colors.primaryColor
-                                        }
-
-                                        IconWidget {
-                                            Layout.preferredWidth: 12
-                                            Layout.preferredHeight: 12
-                                            icon: historyRow.collapseMode
-                                                  ? "ic_fluent_chevron_up_20_regular"
-                                                  : "ic_fluent_chevron_down_20_regular"
-                                            color: Theme.currentTheme.colors.primaryColor
-                                        }
-                                    }
-
-                                    MouseArea {
-                                        id: historyMouse
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        hoverEnabled: true
-                                        onClicked: root.toggleHistory(groupDelegate.groupData.key)
+                                        color: Theme.currentTheme.colors.textSecondaryColor
+                                        wrapMode: Text.NoWrap
+                                        elide: Text.ElideLeft
                                     }
                                 }
                             }
 
-                            // ============ 条目行组件（自绘，仿本地文库 ListViewDelegate 样式） ============
-                            // ⚠️ 不复用 ListViewDelegate：其内部依赖 ListView.view attached
-                            // property（本结构无 ListView）；自绘行高度 = 内部布局 implicit
-                            // 尺寸 + padding，完全由布局器计算，杜绝行高塌缩。
-                            Component {
-                                id: entryRowComp
+                            MouseArea {
+                                id: rowMouse
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: root.entryClicked(rowRoot.entry)
+                                onDoubleClicked: root.entryActivated(rowRoot.entry)
+                            }
 
-                                Rectangle {
-                                    id: rowRoot
-                                    objectName: "repoEntryRow"
-                                    readonly property string entryId: model.entry.entry_id || ""
-                                    readonly property string groupKey: groupDelegate.groupData.key
-                                    width: parent.width
-                                    // 行高由内部布局 implicit 尺寸驱动（布局容器计算可靠）
-                                    height: rowLayout.implicitHeight + 12
-
-                                    readonly property bool rowSelected: root._isSelected(model.entry)
-
-                                    color: (rowMouse.containsMouse && !rowRoot.rowSelected)
-                                           ? Theme.currentTheme.colors.subtleSecondaryColor
-                                           : (rowRoot.rowSelected
-                                              ? Theme.currentTheme.colors.subtleTertiaryColor
-                                              : "transparent")
-                                    Behavior on color {
-                                        ColorAnimation {
-                                            duration: Utils.animationDuration(Utils.appearanceSpeed)
-                                            easing.type: Easing.OutQuad
-                                        }
-                                    }
-
-                                    RowLayout {
-                                        id: rowLayout
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        anchors.leftMargin: 18
-                                        anchors.rightMargin: 14
-                                        spacing: 8
-
-                                        // 左：标题 + 2 行预览
-                                        ColumnLayout {
-                                            Layout.fillWidth: true
-                                            spacing: 2
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                Layout.minimumWidth: 0
-                                                typography: Typography.Body
-                                                text: model.entry.title || model.entry.entry_id || ""
-                                                color: Theme.currentTheme.colors.textColor
-                                                wrapMode: Text.NoWrap
-                                                elide: Text.ElideRight
-                                                HoverHandler { id: entryTitleHover }
-                                                ToolTip {
-                                                    text: model.entry.title || model.entry.entry_id || ""
-                                                    visible: entryTitleHover.hovered
-                                                }
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                typography: Typography.Caption
-                                                color: Theme.currentTheme.colors.textSecondaryColor
-                                                text: root.entryPreview(model.entry)
-                                                wrapMode: Text.Wrap
-                                                maximumLineCount: 2
-                                                elide: Text.ElideRight
-                                                visible: text.length > 0
-                                            }
-                                        }
-
-                                        // 右：徽章列（分段/新鲜度）+ 字数
-                                        ColumnLayout {
-                                            Layout.alignment: Qt.AlignVCenter
-                                            Layout.minimumWidth: 0
-                                            Layout.maximumWidth: 132
-                                            Layout.preferredWidth: 112
-                                            spacing: 3
-
-                                            RowLayout {
-                                                Layout.alignment: Qt.AlignRight
-                                                spacing: 4
-
-                                                // 分段徽章
-                                                Rectangle {
-                                                    visible: model.entry.content_mode === "segmented"
-                                                    Layout.preferredWidth: segBadgeText.implicitWidth + 10
-                                                    Layout.preferredHeight: 18
-                                                    radius: 9
-                                                    color: Qt.rgba(Theme.currentTheme.colors.systemCautionColor.r,
-                                                                   Theme.currentTheme.colors.systemCautionColor.g,
-                                                                   Theme.currentTheme.colors.systemCautionColor.b, 0.16)
-                                                    Text {
-                                                        id: segBadgeText
-                                                        anchors.centerIn: parent
-                                                        text: qsTr("分段")
-                                                        typography: Typography.Caption
-                                                        color: Theme.currentTheme.colors.systemCautionColor
-                                                    }
-                                                }
-
-                                                // 新鲜度状态标签（on_demand 随机 / stale 可刷新 / fresh 最新）
-                                                Rectangle {
-                                                    visible: model.entry.freshness !== undefined
-                                                             && model.entry.freshness !== ""
-                                                    Layout.preferredWidth: freshBadgeText.implicitWidth + 12
-                                                    Layout.preferredHeight: 18
-                                                    radius: 9
-                                                    readonly property color freshColor:
-                                                        model.entry.freshness === "on_demand"
-                                                            ? Theme.currentTheme.colors.primaryColor
-                                                            : model.entry.freshness === "stale"
-                                                              ? Theme.currentTheme.colors.systemCautionColor
-                                                              : Theme.currentTheme.colors.systemSuccessColor
-                                                    // 只给背景降透明度，文本保持全不透明（否则标签字看不清）
-                                                    color: Qt.rgba(freshColor.r, freshColor.g, freshColor.b, 0.16)
-                                                    Text {
-                                                        id: freshBadgeText
-                                                        anchors.centerIn: parent
-                                                        text: model.entry.freshness === "on_demand" ? qsTr("随机")
-                                                              : model.entry.freshness === "stale" ? qsTr("可刷新")
-                                                              : qsTr("最新")
-                                                        typography: Typography.Caption
-                                                        color: parent.freshColor
-                                                    }
-                                                    HoverHandler { id: freshHover }
-                                                    ToolTip {
-                                                        text: model.entry.freshness === "on_demand"
-                                                              ? qsTr("每次返回随机内容，可在源组头点刷新抽新")
-                                                              : model.entry.freshness === "stale"
-                                                                ? qsTr("内容已过期，可在源组头点刷新获取最新")
-                                                                : qsTr("内容为最新")
-                                                        visible: freshHover.hovered
-                                                    }
-                                                }
-                                            }
-
-                                            Text {
-                                                Layout.fillWidth: true
-                                                Layout.minimumWidth: 0
-                                                Layout.alignment: Qt.AlignRight
-                                                visible: text.length > 0
-                                                text: {
-                                                    var suffix = ""
-                                                    if (model.entry.checked_without_change === true)
-                                                        suffix = " · " + qsTr("刚检查，内容无变化")
-                                                    else if (model.entry.last_fetched_relative)
-                                                        suffix = " · " + qsTr("内容 %1").arg(model.entry.last_fetched_relative)
-                                                    var count = root._charCount(model.entry)
-                                                    return count > 0 ? (count + " 字" + suffix) : suffix
-                                                }
-                                                typography: Typography.Caption
-                                                color: Theme.currentTheme.colors.textSecondaryColor
-                                                wrapMode: Text.NoWrap
-                                                elide: Text.ElideLeft
-                                            }
-                                        }
-                                    }
-
-                                    // 整行点击（RowLayout 纯布局不接收鼠标，事件穿透到此）
-                                    MouseArea {
-                                        id: rowMouse
-                                        anchors.fill: parent
-                                        cursorShape: Qt.PointingHandCursor
-                                        hoverEnabled: true
-                                        onClicked: root.entryClicked(model.entry)
-                                        onDoubleClicked: root.entryActivated(model.entry)
-                                    }
-
-                                    // 选中指示条（左竖条，仿本地文库 Indicator）
-                                    Rectangle {
-                                        anchors.left: parent.left
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        width: 3
-                                        height: parent.height - 14
-                                        radius: 1.5
-                                        color: Theme.currentTheme.colors.primaryColor
-                                        visible: rowRoot.rowSelected
-                                    }
-                                }
+                            // 选中指示条（左竖条，仿本地文库 Indicator）
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: 3
+                                height: parent.height - 14
+                                radius: 1.5
+                                color: Theme.currentTheme.colors.primaryColor
+                                visible: rowRoot.rowSelected
                             }
                         }
                     }
+
+                    // ================= 历史行：「显示更早 N 条」/「收起历史」 =================
+                    Component {
+                        id: historyComp
+
+                        Rectangle {
+                            id: historyRow
+                            objectName: "repoHistoryToggle"
+                            readonly property string groupKey: model.groupKey
+                            readonly property bool collapseMode: model.historyExpanded
+                            width: rowLoader.width
+                            height: 36
+                            color: historyMouse.containsMouse
+                                   ? Theme.currentTheme.colors.subtleSecondaryColor
+                                   : "transparent"
+
+                            Rectangle {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.leftMargin: 18
+                                anchors.rightMargin: 18
+                                height: 1
+                                color: Theme.currentTheme.colors.cardBorderColor
+                            }
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 6
+
+                                Text {
+                                    text: historyRow.collapseMode
+                                          ? qsTr("收起历史")
+                                          : qsTr("显示更早 %1 条").arg(model.historyCount)
+                                    typography: Typography.Caption
+                                    color: Theme.currentTheme.colors.primaryColor
+                                }
+
+                                IconWidget {
+                                    Layout.preferredWidth: 12
+                                    Layout.preferredHeight: 12
+                                    icon: historyRow.collapseMode
+                                          ? "ic_fluent_chevron_up_20_regular"
+                                          : "ic_fluent_chevron_down_20_regular"
+                                    color: Theme.currentTheme.colors.primaryColor
+                                }
+                            }
+
+                            MouseArea {
+                                id: historyMouse
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                hoverEnabled: true
+                                onClicked: root.toggleHistory(model.groupKey)
+                            }
+                        }
                     }
                 }
             }
@@ -1067,7 +788,7 @@ Frame {
                 width: parent.width - 32
                 spacing: 10
                 visible: !root.loading && root.errorText.length === 0
-                         && listModel.count === 0 && root.entries.length === 0
+                         && root.entries.length === 0
 
                 Text {
                     Layout.fillWidth: true
@@ -1113,7 +834,7 @@ Frame {
                 text: qsTr("无匹配条目")
                 horizontalAlignment: Text.AlignHCenter
                 visible: !root.loading && root.errorText.length === 0
-                         && listModel.count === 0 && root.entries.length > 0
+                         && groupList.count === 0 && root.entries.length > 0
             }
         }
     }

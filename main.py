@@ -83,13 +83,21 @@ def bootstrap(argv: list[str] | None = None) -> AppRuntime:
     )
 
     from src.backend.config.app_paths import (
+        open_library_view_state_path,
         slice_metrics_prefs_path,
         text_slice_progress_path,
     )
     from src.backend.integration.slice_metrics_prefs_store import SliceMetricsPrefsStore
     from src.backend.integration.text_slice_progress_store import TextSliceProgressStore
 
+    from src.backend.integration.open_library_view_state_store import (
+        OpenLibraryViewStateStore,
+    )
+
     slice_metrics_store = SliceMetricsPrefsStore(slice_metrics_prefs_path())
+    open_library_view_state_store = OpenLibraryViewStateStore(
+        open_library_view_state_path()
+    )
     text_slice_progress_store = TextSliceProgressStore(text_slice_progress_path())
 
     bridge = Bridge(
@@ -111,6 +119,7 @@ def bootstrap(argv: list[str] | None = None) -> AppRuntime:
         text_slice_progress_store=text_slice_progress_store,
         ott_segment_provider_cls=adapters.ott_segment_provider_cls,
         update_adapter=adapters.update,
+        open_library_view_state_store=open_library_view_state_store,
     )
 
     # ADR-014：QApplication 就绪后按配置触发一次后台自动更新检查（失败静默）。

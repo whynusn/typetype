@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from .adapters.update_adapter import UpdateAdapter
     from .adapters.ziti_adapter import ZitiAdapter
 
+from .models.open_library_model import ExpandedStateStore, OpenLibraryListModel
 from .text_load_coordinator import TextLoadCoordinator, TextSessionRequest
 
 
@@ -220,8 +221,13 @@ class Bridge(QObject):
         text_slice_progress_store: "TextSliceProgressStore | None" = None,
         ott_segment_provider_cls: "type | None" = None,
         update_adapter: "UpdateAdapter | None" = None,
+        open_library_view_state_store: "ExpandedStateStore | None" = None,
     ):
         super().__init__()
+        # 开源文库分组列表模型（扁平行 + 虚拟化 + 展开状态持久化）
+        self._open_library_model = OpenLibraryListModel(
+            open_library_view_state_store, parent=self
+        )
         self._typing_adapter = typing_adapter
         self._text_adapter = text_adapter
         self._char_stats_adapter = char_stats_adapter
@@ -687,6 +693,11 @@ class Bridge(QObject):
         if self._update_adapter:
             self._update_adapter.dismiss()
         self.updateStatusChanged.emit("")
+
+    @Property(QObject, constant=True)
+    def openLibraryModel(self) -> QObject:  # noqa: N802
+        """开源文库分组列表模型（RepoEntriesPanel 的 ListView model）。"""
+        return self._open_library_model
 
     @Property(str, constant=True)
     def currentVersion(self) -> str:

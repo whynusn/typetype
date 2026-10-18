@@ -2,7 +2,7 @@
 
 <!-- 状态: accepted | 决策日期: 2026-10-18 | 最后验证: 2026-10-18 -->
 
-> 实施状态（2026-10-18）：**阶段 A（验收能力补齐）已完成**（PR #53）——`wait.until` / `assert.timeout_ms` 轮询、`seed` 数据播种、`{{builtin_repo_url}}` 占位符、开源文库 objectName 锚点与 `app_open_library` 交互场景已落地；既有场景的"固定等待 + 一次性断言"已改为轮询断言。阶段 B1（缓存收敛）已在 `refactor/source-cache-collapse` 分支落地：联邦层无状态、门控只在 catalog `_is_due`；B2–B7 未开始。
+> 实施状态（2026-10-18）：**阶段 A（验收能力补齐）已完成**（PR #53）——`wait.until` / `assert.timeout_ms` 轮询、`seed` 数据播种、`{{builtin_repo_url}}` 占位符、开源文库 objectName 锚点与 `app_open_library` 交互场景已落地；既有场景的"固定等待 + 一次性断言"已改为轮询断言。阶段 B1（缓存收敛）已在 `refactor/source-cache-collapse` 分支落地：联邦层无状态、门控只在 catalog `_is_due`；B2 部分落地（2026-10-18）：视图边界 DTO `CatalogEntry`（`models/dto/catalog_entry.py`，下划线字段回退规则只写一处）+ 分组下沉 Python `OpenLibraryListModel`（原 QML JS 分组移除）；catalog/federation 内部仍为 dict。B3–B7 未开始。
 
 > 与 [ADR-010](./010-decentralized-source-ecosystem.md)（源生态）、[ADR-011](./011-ott-source-ecosystem-hardening-plan.md)（加固）、[ADR-015](./015-ui-acceptance-harness.md)（验收 harness）配套。核心结论：**两套机制方向都对；验收机制补两项基础能力即可扩场景，源仓库的分层已经漂移、需要在场景保护下收敛，然后再加新功能。**
 
