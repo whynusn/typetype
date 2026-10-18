@@ -1,0 +1,106 @@
+schema: ui-probe/scenario@1
+name: app-open-library
+description: >
+  开源文库（OTT 源仓库）关键交互验收：订阅 → 分组 → 展开/收起 → 选条目 →
+  源级刷新。历史上这里的缺陷全是交互态才显形的（条目串组、组头收不起来、
+  刷新动画被后点者覆盖），只切 tab 看噪声测不到。
+
+  播种只订阅内置离线仓库（file://），不走网络 hub：结果确定、CI 可复现。
+  定位全部用 objectName + groupKey/entryId，不依赖文案。
+mode: app
+wait_ms: 800
+seed:
+  config:
+    source_repos:
+      - {url: "{{builtin_repo_url}}", enabled: true}
+steps:
+  - name: 切到载文页
+    action: click
+    find: {text: "载文", index: 0}
+
+  - name: 切到「开源文库」
+    action: click
+    find: {text_equals: "开源文库"}
+
+  - name: 内置源分组出现
+    action: wait
+    until:
+      find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 10000
+
+  - name: 分组默认收起
+    action: assert
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    expect:
+      prop_false: [groupExpanded]
+
+  - name: 点组头展开
+    action: click
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+
+  - name: 展开态生效
+    action: assert
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      prop_true: [groupExpanded]
+
+  - name: 组内三条内置条目，且全部归属本组（不串组）
+    action: assert
+    find: {objectName: repoEntryRow, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      count: 3
+
+  - name: 选中一条
+    action: click
+    find: {objectName: repoEntryRow, props: {entryId: classic_sentences}}
+
+  - name: 该行高亮
+    action: assert
+    find: {objectName: repoEntryRow, props: {entryId: classic_sentences}}
+    timeout_ms: 3000
+    expect:
+      prop_true: [rowSelected]
+
+  - name: 源级刷新
+    action: click
+    find: {objectName: repoGroupRefresh, props: {groupKey: typetype-builtin-static}}
+
+  - name: 刷新结束后按钮恢复可用
+    action: assert
+    find: {objectName: repoGroupRefresh, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 8000
+    expect:
+      prop_true: [enabled]
+
+  - name: 刷新标记已清空（动画不永转）
+    action: assert
+    find: {context: appBridge}
+    timeout_ms: 8000
+    expect:
+      prop_equals: {refreshingFederatedSources: []}
+
+  - name: 刷新后组仍在、条目未丢
+    action: assert
+    find: {objectName: repoEntryRow, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 3000
+    expect:
+      count: 3
+
+  - name: 再点组头收起
+    action: click
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+
+  - name: 收起态生效（组头可逆）
+    action: assert
+    find: {objectName: repoGroupHeader, props: {groupKey: typetype-builtin-static}}
+    timeout_ms: 2000
+    expect:
+      prop_false: [groupExpanded]
+
+  - name: 全程无新增 QML 噪声
+    action: assert
+    find: {context: appBridge}
+    expect:
+      no_new_messages: true

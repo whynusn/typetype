@@ -213,6 +213,55 @@ def evaluate_expect(
     return {"actual": actual, "failures": failures}
 
 
+#: 轮询断言的步长（毫秒）：足够小以免拖慢快机器，足够大以让事件循环推进
+POLL_STEP_MS = 50
+
+
+def evaluate_until(
+    runner: "ScenarioRunner",
+    selector: Selector,
+    expect: dict,
+    root,
+    timeout_ms: int,
+) -> dict:
+    """在 ``timeout_ms`` 内轮询断言，直到成立或超时（返回最后一次求值）。
+
+    固定毫秒 ``wait`` + 一次性 ``assert`` 在慢机器上间歇失败、在快机器上白等；
+    异步载入（worker → 信号 → 绑定刷新）更该写成"等到条件成立"。
+
+    ``no_new_messages`` 不参与轮询：它消费消息窗口，反复求值会把第一次看到的
+    噪声吞掉、第二次假绿。所以先轮询其余条件，成立（或超时）后**只判一次**消息。
+    """
+    msg_expect = {k: v for k, v in expect.items() if k == "no_new_messages"}
+    rest = {k: v for k, v in expect.items() if k != "no_new_messages"}
+    deadline = time.monotonic() + max(0, timeout_ms) / 1000
+    attempts = 0
+    outcome: dict = {"actual": {}, "failures": []}
+    if rest:
+        while True:
+            attempts += 1
+            last_error: ScenarioError | None = None
+            try:
+                outcome = evaluate_expect(runner, selector, rest, root)
+            except ScenarioError as exc:
+                outcome, last_error = {"actual": {}, "failures": []}, exc
+            if last_error is None and not outcome["failures"]:
+                break
+            if time.monotonic() >= deadline:
+                if last_error is not None:
+                    raise ScenarioError(
+                        f"{last_error}（等待 {timeout_ms}ms、{attempts} 次后仍失败）"
+                    ) from last_error
+                break
+            runner.driver.pump(POLL_STEP_MS)
+    if msg_expect:
+        msg = evaluate_expect(runner, selector, msg_expect, root)
+        outcome["actual"].update(msg["actual"])
+        outcome["failures"].extend(msg["failures"])
+    outcome["actual"]["attempts"] = attempts
+    return outcome
+
+
 # ------------------------------------------------------------------
 # 执行引擎
 # ------------------------------------------------------------------
@@ -259,6 +308,73 @@ class ScenarioRunner:
             "home": str(self._sandbox_home) if self._sandbox_home else None,
         }
 
+    # -- 数据播种（真机模式）--
+
+    def apply_seed(self) -> list[str]:
+        """把场景声明的初始数据写进隔离 HOME（必须在 bootstrap 之前）。
+
+        真机场景若依赖"环境里碰巧有的数据"（默认订阅走网络 hub、空快照目录），
+        结果就既不确定也测不到关键路径。``seed`` 让场景自己声明初始状态::
+
+            seed:
+              config:            # 写成 config.json（缺 schema_version 自动补当前版本）
+                source_repos:
+                  - {url: "{{builtin_repo_url}}", enabled: true}
+              files:
+                - path: "data:registry_cache/foo.json"   # config: / data: 两个根
+                  json: {...}                             # 或 text: "..."
+
+        路径根经应用自己的 ``app_paths`` 解析，三平台目录差异由应用负责，
+        场景只说语义根。返回写入的文件列表（进报告，便于排查）。
+        """
+        seed = self.spec.get("seed") or {}
+        if not seed:
+            return []
+        if self.spec.get("mode", "component") != "app":
+            raise ScenarioError("seed 只在 mode: app 下有效")
+        from src.backend.config import app_paths  # noqa: PLC0415
+        from src.backend.config.runtime_config import RuntimeConfig  # noqa: PLC0415
+
+        roots = {
+            "config": app_paths.user_config_dir(),
+            "data": app_paths.user_data_dir(),
+        }
+        written: list[str] = []
+
+        def _write(target: Path, payload) -> None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(payload, str):
+                target.write_text(payload, encoding="utf-8")
+            else:
+                target.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            written.append(str(target))
+
+        if "config" in seed:
+            config = dict(seed["config"] or {})
+            config.setdefault("schema_version", RuntimeConfig.SCHEMA_VERSION)
+            _write(app_paths.user_config_path(), config)
+        for item in seed.get("files") or []:
+            root_name, sep, rel = str(item.get("path", "")).partition(":")
+            if not sep or root_name not in roots or not rel:
+                raise ScenarioError(
+                    f"seed.files 路径须为 config:/data: 前缀，实际 {item.get('path')!r}"
+                )
+            target = (roots[root_name] / rel).resolve()
+            if not target.is_relative_to(roots[root_name].resolve()):
+                raise ScenarioError(f"seed.files 路径越界：{item.get('path')!r}")
+            if "json" in item:
+                _write(target, item["json"])
+            elif "text" in item:
+                _write(target, str(item["text"]))
+            else:
+                raise ScenarioError(
+                    f"seed.files 条目缺 json/text：{item.get('path')!r}"
+                )
+        self._seeded = written
+        return written
+
     # -- 环境装配 --
 
     def setup(self) -> None:
@@ -273,6 +389,7 @@ class ScenarioRunner:
             # 必须在 import main 之前：bootstrap 期间就会解析配置/数据目录，
             # 只改 HOME 挡不住预置的 XDG_*——那样会真写用户的打字历史。
             self._sandbox_home = enter_sandbox()
+            self.apply_seed()
             from main import bootstrap  # noqa: PLC0415
 
             self._runtime = bootstrap(argv=[sys.argv[0], "-platform", "offscreen"])
@@ -333,13 +450,35 @@ class ScenarioRunner:
         driver, root = self.driver, self.root
 
         try:
-            if action in ("wait", "pump"):
+            if action == "wait" and step.get("until"):
+                until = step["until"]
+                outcome = evaluate_until(
+                    self,
+                    Selector.from_dict(until.get("find")),
+                    until.get("expect") or {"exists": True},
+                    root,
+                    int(step.get("timeout_ms", 5000)),
+                )
+                result.detail = outcome["actual"]
+                if outcome["failures"]:
+                    result.status = "fail"
+                    result.detail["failures"] = outcome["failures"]
+            elif action in ("wait", "pump"):
                 driver.pump(int(step.get("ms", 100)))
             elif action == "assert":
                 selector = Selector.from_dict(step.get("find"))
-                outcome = evaluate_expect(
-                    self, selector, step.get("expect") or {}, root
-                )
+                if step.get("timeout_ms"):
+                    outcome = evaluate_until(
+                        self,
+                        selector,
+                        step.get("expect") or {},
+                        root,
+                        int(step["timeout_ms"]),
+                    )
+                else:
+                    outcome = evaluate_expect(
+                        self, selector, step.get("expect") or {}, root
+                    )
                 result.detail = outcome["actual"]
                 if outcome["failures"]:
                     result.status = "fail"
@@ -438,6 +577,7 @@ class ScenarioRunner:
             "setup_error": setup_error,
             # 透明性：真机模式必须跑在一次性 HOME 里，否则一会就写脏用户数据
             "isolation": self.isolation_info(),
+            "seeded": list(getattr(self, "_seeded", [])),
             "steps": [s.to_dict() for s in steps],
             "messages": messages,
             "summary": {
@@ -456,13 +596,27 @@ class ScenarioRunner:
         }
 
 
-def run_scenario_file(path: Path, repo_root: Path) -> dict:
-    # `{{today}}` 占位符替换为运行当天日期（ISO），避免场景里硬编码日期过期
-    raw = (
-        Path(path)
-        .read_text(encoding="utf-8")
-        .replace("{{today}}", date.today().isoformat())
+def expand_placeholders(raw: str, repo_root: Path) -> str:
+    """场景文本占位符。
+
+    - ``{{today}}``：运行当天日期（ISO），避免硬编码日期过期
+    - ``{{repo_root}}``：仓库根绝对路径（POSIX 形式）
+    - ``{{builtin_repo_url}}``：内置离线 OTT 仓库 manifest 的 file:// URL
+      （播种订阅用；不走网络，三平台 URL 形态由 ``Path.as_uri`` 负责）
+    """
+    root = Path(repo_root).resolve()
+    return (
+        raw.replace("{{today}}", date.today().isoformat())
+        .replace("{{repo_root}}", root.as_posix())
+        .replace(
+            "{{builtin_repo_url}}",
+            (root / "resources/ott-repo/ott-repo.json").as_uri(),
+        )
     )
+
+
+def run_scenario_file(path: Path, repo_root: Path) -> dict:
+    raw = expand_placeholders(Path(path).read_text(encoding="utf-8"), repo_root)
     spec = yaml.safe_load(raw)
     if spec.get("schema") not in (None, SCENARIO_SCHEMA):
         raise ScenarioError(
@@ -590,7 +744,27 @@ steps:
     find: {objectName: 不存在的节点}
     expect:
       exists: true
+  - name: 轮询等待必然超时（wait.until）
+    action: wait
+    until:
+      find: {objectName: 不存在的节点}
+    timeout_ms: 300
+  - name: 轮询断言必然超时（assert.timeout_ms）
+    action: assert
+    find: {objectName: typingInput}
+    timeout_ms: 300
+    expect:
+      text_equals: "这个文本绝对不存在"
+  - name: 轮询等待应立即成立
+    action: wait
+    until:
+      find: {objectName: typingInput}
+    timeout_ms: 2000
 """
+
+#: 自检场景里必然失败的步骤数 / 必须通过的步骤名
+_SELFCHECK_EXPECTED_FAILURES = 4
+_SELFCHECK_MUST_PASS = "轮询等待应立即成立"
 
 
 def run_selfcheck(repo_root: Path) -> dict:
@@ -602,9 +776,19 @@ def run_selfcheck(repo_root: Path) -> dict:
     spec = yaml.safe_load(_SELFCHECK_YAML)
     report = ScenarioRunner(spec, repo_root).run()
     failed_steps = [s for s in report["steps"] if s["status"] == "fail"]
+    must_pass = [s for s in report["steps"] if s["name"] == _SELFCHECK_MUST_PASS]
+    # 轮询类失败必须真的等过（≥2 次求值），否则 timeout 形同虚设
+    polled = [
+        s for s in failed_steps if "轮询" in s["name"] and int(s["duration_ms"]) >= 250
+    ]
+    expected = _SELFCHECK_EXPECTED_FAILURES
     return {
-        "ok": len(failed_steps) == 2 and report["summary"]["failed"] == 2,
-        "expected_failures": 2,
+        "ok": len(failed_steps) == expected
+        and report["summary"]["failed"] == expected
+        and len(polled) == 2
+        and bool(must_pass)
+        and must_pass[0]["status"] == "pass",
+        "expected_failures": expected,
         "actual_failures": report["summary"]["failed"],
         "detail": [f"{s['name']}: {s['status']}" for s in report["steps"]],
     }

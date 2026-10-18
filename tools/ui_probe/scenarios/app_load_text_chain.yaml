@@ -17,12 +17,9 @@ steps:
     action: click
     find: {text: "载文", index: 0}
 
-  - name: 等本地文库列表异步加载
-    action: wait
-    ms: 1200
-
   - name: 本地文库有文章
     action: assert
+    timeout_ms: 4800
     find: {role: static-text, props: {visible: true}}
     expect:
       count_gte: 5

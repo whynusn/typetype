@@ -52,13 +52,10 @@ steps:
     expect:
       visible: true
 
-  - name: 等异步查询回来（worker + 防抖，不是同步的）
-    action: wait
-    ms: 1500
-
   # 起步门槛：库里得真有数据。否则下面每一条断言都能在空列表上通过。
   - name: 不是空态
     action: assert
+    timeout_ms: 6000
     find: {text_equals: "暂无薄弱字记录，开始打字练习吧！"}
     expect:
       visible: false
@@ -80,12 +77,9 @@ steps:
     find: {type: ComboBox, props: {visible: true}, index: 0}
     props: {currentIndex: 2}
 
-  - name: 等待回灌
-    action: wait
-    ms: 800
-
   - name: 三个权重下拉出现（对端效果）
     action: assert
+    timeout_ms: 3200
     find: {text_equals: "出现频率"}
     expect:
       visible: true
@@ -107,12 +101,9 @@ steps:
     find: {type: ComboBox, props: {visible: true}, index: 0}
     props: {currentIndex: 0}
 
-  - name: 等待回灌
-    action: wait
-    ms: 800
-
   - name: 权重面板已收起（visible=false，不是"找不到"）
     action: assert
+    timeout_ms: 3200
     find: {text_equals: "出现频率"}
     expect:
       visible: false

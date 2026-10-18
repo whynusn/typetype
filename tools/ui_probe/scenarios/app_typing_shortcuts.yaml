@@ -46,12 +46,9 @@ steps:
     action: key
     key: F2
 
-  - name: 等待页面切换
-    action: wait
-    ms: 600
-
   - name: 落在自定义页签（不是上一次的页签）
     action: assert
+    timeout_ms: 3000
     find: {text_equals: "文本内容"}
     expect:
       visible: true

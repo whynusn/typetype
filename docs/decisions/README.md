@@ -29,6 +29,8 @@
 | 012 | [去中心化排行榜（本地优先 + 可选联邦 board）](./012-decentralized-leaderboard.md) | 2026-08-07 | proposed |
 | 013 | [收敛到三仓模型并移除 typetype-server 耦合](./013-converge-to-three-repo-model.md) | 2026-08-13 | accepted |
 | 014 | [OTA 更新检查与镜像加速下载（GitHub Releases）](./014-ota-update-check-and-mirror-download.md) | 2026-08-13 | accepted |
+| 015 | [前端验收自动化工具（UI Acceptance Harness）](./015-ui-acceptance-harness.md) | 2026-10-14 | accepted |
+| 016 | [源仓库与前端验收机制的架构收敛](./016-source-repo-and-ui-probe-convergence.md) | 2026-10-18 | accepted |
 
 ---
 

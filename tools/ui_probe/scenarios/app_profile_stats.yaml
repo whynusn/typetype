@@ -36,12 +36,9 @@ steps:
     expect:
       prop_equals: {charNum: "6/6"}
 
-  - name: 等成绩落库（typingEnded 是异步的）
-    action: wait
-    ms: 1500
-
   - name: 成绩已入库
     action: assert
+    timeout_ms: 6000
     find: {context: appBridge}
     expect:
       prop_gt: {typingHistoryCount: 0}
@@ -79,12 +76,9 @@ steps:
     action: click
     find: {text_equals: "按月"}
 
-  - name: 等待换范围
-    action: wait
-    ms: 600
-
   - name: 最近成绩列表有行
     action: assert
+    timeout_ms: 3000
     find: {text_equals: "最近成绩"}
     expect:
       visible: true
